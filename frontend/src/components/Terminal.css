@@ -1,0 +1,1005 @@
+/* Terminal Component Styles */
+
+.terminal-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  /* Background is set by xterm.js theme - don't override it here */
+}
+
+.terminal-content-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.terminal-content-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-line-numbers {
+  white-space: pre;
+  text-align: right;
+  padding: var(--spacing-xs) 6px var(--spacing-xs) 4px;
+  font-size: 10px;
+  line-height: inherit;
+  color: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.15);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+  pointer-events: none;
+  min-width: 28px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.terminal-content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-xs);
+  overflow: hidden;
+}
+
+/* Override xterm.js styles to fit our container */
+.terminal-content .xterm {
+  height: 100%;
+  padding: var(--spacing-xs);
+}
+
+.terminal-content .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+/* Terminal tabs styling */
+.terminal-tabs {
+  display: flex;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 35px;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-tab.active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.terminal-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.terminal-tab:hover .terminal-tab-close {
+  opacity: 1;
+}
+
+.terminal-tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-tab-add:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Logging indicator */
+.terminal-logging-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 12px;
+  color: #ef4444;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  animation: logging-pulse 1.5s ease-in-out infinite;
+}
+
+.terminal-logging-indicator svg {
+  fill: #ef4444;
+}
+
+@keyframes logging-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Recording indicator (asciicast) */
+.terminal-recording-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 12px;
+  color: #ef4444;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  animation: recording-pulse 1.5s ease-in-out infinite;
+}
+
+.terminal-recording-indicator svg {
+  fill: #ef4444;
+}
+
+@keyframes recording-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* When both logging and recording are active, stack them */
+.terminal-container:has(.terminal-logging-indicator) .terminal-recording-indicator {
+  top: 36px;
+}
+
+/* Capture mode indicator (>> docs/path) */
+.terminal-capture-indicator {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 16px;
+  color: #3b82f6;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+}
+
+.terminal-capture-indicator-pulse {
+  position: absolute;
+  inset: -2px;
+  border-radius: 18px;
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  animation: capture-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes capture-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+.terminal-capture-indicator svg {
+  flex-shrink: 0;
+  stroke: #3b82f6;
+}
+
+.terminal-capture-path {
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: #93c5fd;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-capture-bytes {
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  color: #60a5fa;
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+}
+
+.terminal-capture-complete,
+.terminal-capture-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.terminal-capture-complete {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.terminal-capture-complete:hover {
+  background: rgba(34, 197, 94, 0.4);
+  transform: scale(1.1);
+}
+
+.terminal-capture-cancel {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.terminal-capture-cancel:hover {
+  background: rgba(239, 68, 68, 0.4);
+  transform: scale(1.1);
+}
+
+.terminal-capture-complete svg,
+.terminal-capture-cancel svg {
+  stroke-width: 2.5;
+}
+
+/* Fix xterm.js decoration container positioning - must overlay terminal content */
+.xterm .xterm-screen .xterm-decoration-container {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Highlight decoration overlay styles */
+.xterm .xterm-decoration-container .highlight-decoration {
+  position: absolute;
+  z-index: 5;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* AI overlord decorations need pointer events and visible overflow for popups */
+.xterm .xterm-decoration-container .highlight-decoration.ai-overlord-highlight {
+  pointer-events: auto !important;
+  overflow: visible !important;
+  z-index: 20;
+}
+
+/* Ensure highlight colors override terminal theme */
+.xterm .xterm-decoration-container .highlight-decoration[style*="background"] {
+  opacity: 0.9;
+}
+
+/* AI highlight specific styles */
+.xterm .xterm-decoration-container .ai-highlight {
+  border-bottom: 2px dotted currentColor;
+  cursor: help;
+  pointer-events: auto;
+}
+
+/* AI Overlord gutter icon annotations */
+.xterm .xterm-decoration-container .ai-overlord-gutter {
+  position: absolute;
+  z-index: 10;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  background: transparent !important;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  transition: transform 0.15s ease;
+}
+
+.xterm .xterm-decoration-container .ai-overlord-gutter:hover {
+  transform: scale(1.3);
+}
+
+/* Overlord-specific highlight: more prominent than standard AI highlights */
+.xterm .xterm-decoration-container .ai-overlord-highlight {
+  border-bottom: 2px solid currentColor;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
+}
+
+.xterm .xterm-decoration-container .ai-overlord-highlight:hover {
+  opacity: 1 !important;
+  filter: brightness(1.3);
+}
+
+/* Allow overlord popups to overflow the decoration container */
+.xterm .xterm-screen .xterm-decoration-container {
+  overflow: visible !important;
+}
+
+/* Terminal hover popup — tiny tooltip above the hovered MAC / IP.
+   Shared style: shows OUI vendor for MACs, reverse-DNS for IPs. */
+.terminal-hover-popup {
+  position: fixed;
+  transform: translateY(-100%);
+  background: var(--color-bg-elevated, #1e1e2e);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text, #cdd6f4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* AI Overlord hover popup */
+.ai-overlord-popup {
+  position: fixed;
+  transform: translateY(-100%);
+  min-width: 280px;
+  max-width: 420px;
+  background: var(--color-bg-elevated, #1e1e2e);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text, #cdd6f4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 10000;
+  pointer-events: none;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.ai-overlord-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-overlord-popup-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #000;
+}
+
+.ai-overlord-popup-label {
+  font-size: 10px;
+  color: var(--color-text-tertiary, #888);
+  font-weight: 500;
+}
+
+.ai-overlord-popup-body {
+  color: var(--color-text, #cdd6f4);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-overlord-popup-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border, #444);
+  font-size: 10px;
+  color: var(--color-text-tertiary, #888);
+  font-style: italic;
+}
+
+/* Save to Docs dialog */
+.terminal-save-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+}
+
+.terminal-save-dialog {
+  width: 400px;
+  max-width: 90%;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.terminal-save-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.terminal-save-dialog-header svg {
+  stroke: #3b82f6;
+  flex-shrink: 0;
+}
+
+.terminal-save-dialog-header span {
+  flex: 1;
+}
+
+.terminal-save-dialog-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.terminal-save-dialog-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-save-dialog-content {
+  padding: 16px;
+}
+
+.terminal-save-dialog-content label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.terminal-save-dialog-input-wrapper {
+  display: flex;
+  align-items: center;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.terminal-save-dialog-prefix {
+  padding: 8px 4px 8px 12px;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  background: rgba(59, 130, 246, 0.1);
+  border-right: 1px solid var(--color-border);
+}
+
+.terminal-save-dialog-input-wrapper input {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  outline: none;
+}
+
+.terminal-save-dialog-input-wrapper input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.terminal-save-dialog-input-wrapper:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.terminal-save-dialog-hint {
+  margin-top: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.terminal-save-dialog-preview {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-family: var(--font-family-mono);
+}
+
+.terminal-save-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary);
+  border-top: 1px solid var(--color-border);
+}
+
+.terminal-save-dialog-cancel,
+.terminal-save-dialog-submit {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.terminal-save-dialog-cancel {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.terminal-save-dialog-cancel:hover {
+  background: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.terminal-save-dialog-submit {
+  background: #3b82f6;
+  color: white;
+}
+
+.terminal-save-dialog-submit:hover {
+  background: #2563eb;
+}
+
+.terminal-save-dialog-submit:active,
+.terminal-save-dialog-cancel:active {
+  transform: scale(0.98);
+}
+
+/* Enterprise SSH Badge (Phase 42) */
+.terminal-proxy-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #3b82f6;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.terminal-proxy-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #3b82f6;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Jump (Bastion) badge — top-right pill, distinct hue from the
+   Controller pill so both can show simultaneously. Same visual language. */
+.terminal-jump-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.terminal-jump-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #f59e0b;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Enterprise SSH Reconnecting Overlay (Phase 42) */
+.terminal-reconnecting-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  color: var(--color-text-primary, #fff);
+}
+
+.terminal-reconnecting-content {
+  text-align: center;
+  padding: 24px;
+  background: var(--color-bg-secondary, #1e1e1e);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+  max-width: 400px;
+}
+
+.terminal-reconnecting-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--color-text-primary, #fff);
+}
+
+.terminal-reconnecting-message {
+  font-size: 14px;
+  color: var(--color-text-secondary, #999);
+  margin-bottom: 16px;
+}
+
+.terminal-reconnecting-attempts {
+  font-size: 13px;
+  color: var(--color-text-tertiary, #666);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+}
+
+.terminal-reconnect-btn {
+  margin-top: 16px;
+  padding: 8px 20px;
+  background: var(--color-primary, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.terminal-reconnect-btn:hover {
+  background: #2563eb;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.terminal-reconnect-btn:active {
+  transform: scale(0.98);
+}
+
+
+/* === Hover enrichment popover (ported from netstacks-vsce) === */
+/* Positioning/sizing only — the frosted-glass skin comes from the shared
+   `.popover-card` class (see popoverCard.css), which this element also carries. */
+.ns-enrich-popup {
+  position: absolute;
+  z-index: 100;
+  min-width: 160px;
+  max-width: 340px;
+  pointer-events: auto;
+}
+.ns-enrich-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ns-enrich-header-draggable {
+  cursor: grab;
+  user-select: none;
+}
+.ns-enrich-header-draggable:active { cursor: grabbing; }
+.ns-enrich-close-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground, #888);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+.ns-enrich-close-btn:hover {
+  color: var(--vscode-foreground, #ccc);
+  background: rgba(255, 255, 255, 0.08);
+}
+.ns-enrich-title {
+  flex: 1;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--vscode-foreground, #ddd);
+  word-break: break-all;
+}
+.ns-enrich-type-badge {
+  font-size: 9px;
+  padding: 0 5px;
+  border-radius: 2px;
+  background: rgba(78, 201, 176, 0.15);
+  color: #4ec9b0;
+  text-transform: lowercase;
+}
+.ns-enrich-digest-btn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--vscode-charts-yellow, #e2b87a);
+  border-radius: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+}
+.ns-enrich-digest-btn:hover {
+  background: rgba(226, 184, 122, 0.15);
+}
+
+/* sections — tag chip sits inline with first row, not on its own line */
+.ns-enrich-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 3px 7px 4px;
+}
+.ns-enrich-section:last-child { border-bottom: none; }
+.ns-enrich-section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+.ns-enrich-section-tag {
+  font-size: 8px;
+  padding: 0 4px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.ns-enrich-tag-builtin { background: rgba(255, 255, 255, 0.08); color: #aaa; }
+.ns-enrich-tag-crawler { background: rgba(78, 201, 176, 0.18); color: #4ec9b0; }
+.ns-enrich-tag-netbox { background: rgba(86, 156, 214, 0.18); color: #569cd6; }
+.ns-enrich-tag-default { background: rgba(255, 255, 255, 0.08); color: #888; }
+.ns-enrich-tag-error { background: rgba(244, 71, 71, 0.18); color: #f48a8a; }
+.ns-enrich-error-text { color: #f48a8a; font-style: italic; }
+
+/* Per-section "view raw" toggle — small {} button on the section header */
+.ns-enrich-raw-toggle {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--vscode-descriptionForeground, #888);
+  cursor: pointer;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  line-height: 1.2;
+}
+.ns-enrich-raw-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--vscode-foreground, #ccc);
+}
+.ns-enrich-raw-toggle.active {
+  background: rgba(78, 201, 176, 0.15);
+  color: #4ec9b0;
+  border-color: rgba(78, 201, 176, 0.3);
+}
+
+/* Raw-debug fallback: snippet that expands to the full JSON response. Used
+   when a per-source renderer doesn't recognize the shape — gives us a way
+   to see what the upstream actually sent and refine renderers from there. */
+.ns-enrich-raw-summary {
+  cursor: pointer;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground, #aaa);
+  padding: 2px 0;
+  list-style: none;
+  outline: none;
+  word-break: break-all;
+}
+.ns-enrich-raw-summary::before {
+  content: '▸ ';
+  color: var(--vscode-charts-yellow, #e2b87a);
+}
+details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
+.ns-enrich-raw-summary::-webkit-details-marker { display: none; }
+.ns-enrich-raw-full {
+  margin: 4px 0 0;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--vscode-foreground, #ccc);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ns-enrich-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ns-enrich-row {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+}
+.ns-enrich-row-label {
+  color: var(--vscode-descriptionForeground, #888);
+  min-width: 56px;
+  flex-shrink: 0;
+}
+.ns-enrich-row-value {
+  flex: 1;
+  color: var(--vscode-foreground, #ddd);
+  word-break: break-word;
+}
+.ns-enrich-pill {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 600;
+}
+.ns-enrich-pill-up { background: rgba(78, 201, 176, 0.18); color: #4ec9b0; }
+.ns-enrich-pill-down { background: rgba(244, 71, 71, 0.18); color: #f44747; }
+.ns-enrich-pill-warn { background: rgba(226, 184, 122, 0.18); color: #e2b87a; }
+.ns-enrich-pill-info { background: rgba(86, 156, 214, 0.18); color: #569cd6; }
+
+.ns-enrich-empty {
+  padding: 6px 8px;
+  color: var(--vscode-descriptionForeground, #888);
+  font-style: italic;
+  text-align: center;
+  font-size: 11px;
+}
+.ns-enrich-loading {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  justify-content: center;
+}
+.ns-enrich-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground, #888);
+  animation: ns-enrich-pulse 1.2s ease-in-out infinite;
+}
+.ns-enrich-dot:nth-child(2) { animation-delay: 0.2s; }
+.ns-enrich-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ns-enrich-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+/* Per-section spinner — small inline dots in the section header while
+   that one source is still in flight. Replaced in-place when its data
+   (or error) arrives. */
+.ns-enrich-section-spinner {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+  align-items: center;
+}
+.ns-enrich-section-spinner .ns-enrich-dot {
+  width: 4px;
+  height: 4px;
+}
+
+.ns-enrich-digest {
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.ns-enrich-digest-footer {
+  padding: 2px 8px 4px;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground, #888);
+  text-align: right;
+}

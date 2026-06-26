@@ -1,0 +1,119 @@
+.host-keys-tab .host-keys-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.host-keys-tab .host-keys-header h3 {
+  margin: 0 0 4px 0;
+}
+
+.host-keys-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-text-secondary, #9a9a9a);
+  border: 1px dashed var(--color-border, #3c3c3c);
+  border-radius: 6px;
+  margin-top: 12px;
+}
+
+.host-keys-empty p {
+  margin: 4px 0;
+}
+
+.host-keys-filter {
+  position: relative;
+  margin: 12px 0;
+}
+
+.host-keys-filter input {
+  width: 100%;
+  padding: 6px 28px 6px 10px;
+  border: 1px solid var(--color-border, #3c3c3c);
+  background: var(--color-bg-secondary, #252526);
+  color: var(--color-text-primary, #cccccc);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.host-keys-filter-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary, #9a9a9a);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.host-keys-filter-clear:hover {
+  color: var(--color-text-primary, #cccccc);
+}
+
+.host-keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.host-keys-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--color-bg-secondary, #252526);
+  border: 1px solid var(--color-border, #3c3c3c);
+  border-radius: 4px;
+}
+
+.host-keys-item-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.host-keys-item-host {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.host-keys-item-host strong {
+  color: var(--color-text-primary, #cccccc);
+}
+
+.host-keys-item-port {
+  color: var(--color-text-secondary, #9a9a9a);
+}
+
+.host-keys-item-type {
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--color-bg-tertiary, #1e1e1e);
+  color: var(--color-text-secondary, #9a9a9a);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+}
+
+.host-keys-item-fp {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 11px;
+  color: var(--color-text-secondary, #9a9a9a);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-keys-item-revoke {
+  flex-shrink: 0;
+}

@@ -1,0 +1,52 @@
+/* Variable Inputs - simple text fields for all types */
+
+.var-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.var-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.var-input-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #858585);
+  font-family: var(--font-family-mono, monospace);
+}
+
+.var-input-required {
+  color: #ff9800;
+  font-weight: 600;
+}
+
+.var-input-type {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(133, 133, 133, 0.15);
+  color: var(--text-secondary, #858585);
+  font-weight: 400;
+  text-transform: uppercase;
+}
+
+.var-input-field {
+  padding: 5px 8px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  background: var(--bg-primary, #1e1e1e);
+  color: var(--text-primary, #cccccc);
+  font-size: 12px;
+  font-family: var(--font-family-mono, monospace);
+}
+
+.var-input-field:focus {
+  outline: none;
+  border-color: var(--accent-color, #0078d4);
+}

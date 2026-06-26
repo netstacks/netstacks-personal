@@ -1,0 +1,294 @@
+.scheduled-tasks-panel {
+  padding: var(--spacing-md);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+}
+
+.scheduled-tasks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.scheduled-tasks-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.scheduled-tasks-create-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.scheduled-tasks-create-btn:hover {
+  opacity: 0.9;
+}
+
+.scheduled-tasks-loading,
+.scheduled-tasks-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.scheduled-tasks-empty p {
+  margin: var(--spacing-xs) 0;
+}
+
+.scheduled-tasks-error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: rgba(244, 67, 54, 0.1);
+  color: var(--color-error, #f44336);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.scheduled-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.scheduled-task-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+}
+
+.scheduled-task-item.paused {
+  opacity: 0.7;
+}
+
+.scheduled-task-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.scheduled-task-name {
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 4px;
+}
+
+.scheduled-task-schedule {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 2px;
+}
+
+.scheduled-task-cron {
+  color: var(--color-accent);
+}
+
+.scheduled-task-timezone {
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+.scheduled-task-next {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.scheduled-task-paused-label {
+  color: var(--color-warning, #ff9800);
+  font-style: italic;
+}
+
+.scheduled-task-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.scheduled-task-action {
+  padding: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.scheduled-task-action:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.scheduled-task-action.delete:hover {
+  color: var(--color-error, #f44336);
+}
+
+/* Dialog */
+.schedule-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.schedule-dialog {
+  width: 480px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.schedule-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.schedule-dialog-header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.schedule-dialog-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.schedule-dialog-close:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.schedule-dialog form {
+  padding: var(--spacing-md);
+}
+
+.schedule-dialog-field {
+  margin-bottom: var(--spacing-md);
+}
+
+.schedule-dialog-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
+}
+
+.schedule-dialog-field input,
+.schedule-dialog-field textarea,
+.schedule-dialog-field select {
+  width: 100%;
+  padding: var(--spacing-sm) 10px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-family: var(--font-family);
+}
+
+.schedule-dialog-field input:focus,
+.schedule-dialog-field textarea:focus,
+.schedule-dialog-field select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.schedule-dialog-field textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.schedule-dialog-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.schedule-dialog-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.schedule-dialog-error {
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  background: rgba(244, 67, 54, 0.1);
+  color: var(--color-error, #f44336);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.schedule-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+}
+
+.schedule-dialog-actions button {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.schedule-dialog-actions button:not(.primary) {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.schedule-dialog-actions button:not(.primary):hover {
+  background: var(--color-bg-tertiary);
+}
+
+.schedule-dialog-actions button.primary {
+  background: var(--color-accent);
+  border: none;
+  color: white;
+}
+
+.schedule-dialog-actions button.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.schedule-dialog-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

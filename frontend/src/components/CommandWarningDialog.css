@@ -1,0 +1,191 @@
+/* CommandWarningDialog - VS Code style warning modal */
+
+.command-warning-overlay {
+  /* Destructive-command warning sits at the modal layer so a toast
+   * stack can't intercept clicks on Proceed Anyway. See index.css. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  animation: warning-fade-in 0.15s ease;
+}
+
+@keyframes warning-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.command-warning-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-top: 3px solid #eab308;
+  border-radius: 6px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: warning-slide-up 0.2s ease;
+}
+
+@keyframes warning-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.command-warning-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--vscode-widget-border, #454545);
+}
+
+.command-warning-icon {
+  font-size: 24px;
+}
+
+.command-warning-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.command-warning-command {
+  padding: 12px 20px;
+  background: var(--vscode-textCodeBlock-background, #2d2d2d);
+  margin: 16px 20px;
+  border-radius: 4px;
+}
+
+.command-warning-command code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 13px;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  word-break: break-all;
+}
+
+.command-warning-list {
+  padding: 0 20px 16px;
+}
+
+.command-warning-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.command-warning-item .warning-bullet {
+  flex-shrink: 0;
+}
+
+.command-warning-item.severity-high {
+  color: #f87171;
+}
+
+.command-warning-item.severity-medium {
+  color: #fbbf24;
+}
+
+.command-warning-item.severity-low {
+  color: #a3a3a3;
+}
+
+.command-warning-alternatives {
+  padding: 12px 20px;
+  background: var(--vscode-textCodeBlock-background, #2d2d2d);
+  margin: 0 20px 16px;
+  border-radius: 4px;
+}
+
+.alternatives-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+.alternative-button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 6px;
+  background: var(--vscode-button-secondaryBackground, #3a3a3a);
+  border: 1px solid var(--vscode-widget-border, #454545);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+
+.alternative-button:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.alternative-button code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--vscode-textLink-foreground, #3794ff);
+}
+
+.command-warning-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--vscode-widget-border, #454545);
+}
+
+.command-warning-actions button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.command-warning-actions .btn-secondary {
+  background: var(--vscode-button-secondaryBackground, #3a3a3a);
+  border: 1px solid var(--vscode-widget-border, #454545);
+  color: var(--vscode-button-secondaryForeground, #cccccc);
+}
+
+.command-warning-actions .btn-secondary:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.command-warning-actions .btn-warning {
+  background: #ca8a04;
+  border: none;
+  color: #000;
+}
+
+.command-warning-actions .btn-warning:hover {
+  background: #a16207;
+}
+
+.command-warning-actions .btn-danger {
+  background: #dc2626;
+  border: none;
+  color: #fff;
+}
+
+.command-warning-actions .btn-danger:hover {
+  background: #b91c1c;
+}

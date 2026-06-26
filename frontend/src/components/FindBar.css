@@ -1,0 +1,168 @@
+/* Find Bar Styles */
+
+.find-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  z-index: 50;
+  animation: find-bar-slide-down 0.15s ease;
+}
+
+@keyframes find-bar-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.find-bar-input-container {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  max-width: 300px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.find-bar-input-container:focus-within {
+  border-color: var(--color-accent);
+}
+
+.find-bar-input {
+  flex: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  outline: none;
+}
+
+.find-bar-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.find-bar-count {
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.find-bar-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.find-bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.find-bar-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.find-bar-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.find-bar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.find-bar-options {
+  display: flex;
+  gap: 2px;
+  margin-left: var(--spacing-xs);
+}
+
+.find-bar-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.find-bar-option input {
+  display: none;
+}
+
+.find-bar-option span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.find-bar-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.find-bar-option:hover span {
+  color: var(--color-text-primary);
+}
+
+.find-bar-option:has(input:checked) {
+  background: var(--color-accent);
+}
+
+.find-bar-option:has(input:checked) span {
+  color: white;
+}
+
+.find-bar-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  margin-left: auto;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.find-bar-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.find-bar-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}

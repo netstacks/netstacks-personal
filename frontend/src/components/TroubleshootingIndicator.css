@@ -1,0 +1,216 @@
+/* TroubleshootingIndicator styles */
+/* Status bar indicator for active troubleshooting sessions */
+
+.troubleshooting-indicator-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Main indicator button - inline status bar item */
+.troubleshooting-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: var(--size-statusbar);
+  background: rgba(198, 40, 40, 0.2);
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.troubleshooting-indicator:hover {
+  background: rgba(198, 40, 40, 0.35);
+}
+
+/* Pulsing red recording dot */
+.troubleshooting-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f44336;
+  animation: troubleshooting-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes troubleshooting-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.7);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 4px rgba(244, 67, 54, 0);
+  }
+}
+
+.troubleshooting-indicator-name {
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.troubleshooting-indicator-duration {
+  font-size: 11px;
+  font-family: var(--font-family-mono);
+  opacity: 0.9;
+}
+
+.troubleshooting-indicator-count {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 1px 5px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* Popover card */
+.troubleshooting-indicator-popover {
+  position: absolute;
+  bottom: calc(var(--size-statusbar) + 8px);
+  left: 0;
+  width: 280px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+/* Popover header */
+.troubleshooting-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(198, 40, 40, 0.15);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.troubleshooting-popover-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f44336;
+  animation: troubleshooting-pulse 1.5s ease-in-out infinite;
+}
+
+.troubleshooting-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f44336;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Popover info section */
+.troubleshooting-popover-info {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.troubleshooting-popover-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 10px;
+  word-break: break-word;
+}
+
+.troubleshooting-popover-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.troubleshooting-popover-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.troubleshooting-popover-stat svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+/* Popover actions */
+.troubleshooting-popover-actions {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.troubleshooting-popover-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.troubleshooting-popover-btn.secondary {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.troubleshooting-popover-btn.secondary:hover {
+  background: var(--color-bg-hover);
+}
+
+.troubleshooting-popover-btn.primary {
+  background: #c62828;
+  border: 1px solid #c62828;
+  color: white;
+}
+
+.troubleshooting-popover-btn.primary:hover {
+  background: #b71c1c;
+  border-color: #b71c1c;
+}
+
+.troubleshooting-popover-btn svg {
+  flex-shrink: 0;
+}
+
+/* Attached topology indicator */
+.troubleshooting-popover-attached {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--color-success);
+  background: rgba(76, 175, 80, 0.1);
+  border-radius: 6px;
+}
+
+.troubleshooting-popover-attached svg {
+  flex-shrink: 0;
+}
+
+/* Divider for status bar */
+.troubleshooting-indicator-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.25);
+  margin-left: 4px;
+}

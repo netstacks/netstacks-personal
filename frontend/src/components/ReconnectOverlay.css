@@ -1,0 +1,139 @@
+/* Reconnect Overlay Styles */
+
+.reconnect-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  animation: reconnect-fade-in 0.2s ease;
+}
+
+@keyframes reconnect-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.reconnect-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) calc(var(--spacing-lg) * 2);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  max-width: 350px;
+  text-align: center;
+  animation: reconnect-slide-up 0.2s ease;
+}
+
+@keyframes reconnect-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reconnect-overlay-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--color-warning);
+}
+
+.reconnect-overlay-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.reconnect-overlay-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.reconnect-overlay-message {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+}
+
+.reconnect-countdown {
+  font-weight: 600;
+  color: var(--color-accent);
+  font-family: var(--font-family-mono);
+}
+
+.reconnect-attempts {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.reconnect-overlay-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+.reconnect-btn {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border: none;
+  border-radius: 4px;
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+.reconnect-btn-primary {
+  background: var(--color-accent);
+  color: white;
+}
+
+.reconnect-btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.reconnect-btn-secondary {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.reconnect-btn-secondary:hover {
+  background: var(--color-bg-hover);
+}
+
+.reconnect-overlay-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  margin-top: var(--spacing-xs);
+}
+
+.reconnect-overlay-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.reconnect-overlay-checkbox:hover {
+  color: var(--color-text-primary);
+}

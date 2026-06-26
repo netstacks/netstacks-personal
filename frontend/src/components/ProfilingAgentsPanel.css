@@ -1,0 +1,212 @@
+/* ProfilingAgentsPanel Styles */
+
+.profiling-agents-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+/* Header */
+.profiling-agents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.profiling-agents-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.profiling-agents-refresh-btn {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-xs);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.profiling-agents-refresh-btn:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.profiling-agents-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.profiling-agents-refresh-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Loading state */
+.profiling-agents-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: 32px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.profiling-agents-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--color-bg-tertiary);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: profiling-agents-spin 0.8s linear infinite;
+}
+
+@keyframes profiling-agents-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error state */
+.profiling-agents-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: 32px;
+  color: var(--color-error);
+  font-size: var(--font-size-small);
+  text-align: center;
+}
+
+.profiling-agents-error button {
+  padding: 6px var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.profiling-agents-error button:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+}
+
+/* Empty state */
+.profiling-agents-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-style: italic;
+}
+
+/* List container */
+.profiling-agents-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-sm);
+}
+
+/* Agent item */
+.profiling-agent-item {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.profiling-agent-item:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
+}
+
+.profiling-agent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* Status dot */
+.profiling-agent-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.profiling-agent-status.active {
+  background: var(--color-success);
+}
+
+.profiling-agent-status.warning {
+  background: var(--color-warning);
+}
+
+.profiling-agent-status.inactive {
+  background: #6c6c6c;
+}
+
+/* Agent info */
+.profiling-agent-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.profiling-agent-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profiling-agent-meta {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+}
+
+.profiling-agent-health {
+  color: var(--color-text-secondary);
+}
+
+/* Anomaly badge */
+.profiling-agent-anomaly-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--color-error);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+}

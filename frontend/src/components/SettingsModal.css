@@ -1,0 +1,182 @@
+/* Settings Modal Overlay */
+.settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+/* Modal Container */
+.settings-modal {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: settings-modal-appear 0.15s ease-out;
+}
+
+.settings-modal.dragging,
+.settings-modal.resizing {
+  animation: none;
+  user-select: none;
+}
+
+.settings-modal.dragging {
+  cursor: grabbing;
+}
+
+.settings-modal.resizing {
+  transition: none;
+}
+
+@keyframes settings-modal-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Modal Header */
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+}
+
+.settings-modal-title {
+  margin: 0;
+  font-size: var(--font-size-large);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.settings-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-modal-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Modal Body */
+.settings-modal-body {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Override SettingsPanel styles for modal context */
+.settings-modal-body .settings-panel {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.settings-modal-body .settings-content {
+  padding: var(--spacing-md) var(--spacing-lg);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Resize Handles */
+.resize-handle {
+  position: absolute;
+  z-index: 10;
+}
+
+/* Edge handles */
+.resize-n {
+  top: -4px;
+  left: 16px;
+  right: 16px;
+  height: 8px;
+  cursor: n-resize;
+}
+
+.resize-s {
+  bottom: -4px;
+  left: 16px;
+  right: 16px;
+  height: 8px;
+  cursor: s-resize;
+}
+
+.resize-e {
+  top: 16px;
+  right: -4px;
+  bottom: 16px;
+  width: 8px;
+  cursor: e-resize;
+}
+
+.resize-w {
+  top: 16px;
+  left: -4px;
+  bottom: 16px;
+  width: 8px;
+  cursor: w-resize;
+}
+
+/* Corner handles */
+.resize-ne {
+  top: -4px;
+  right: -4px;
+  width: 20px;
+  height: 20px;
+  cursor: ne-resize;
+}
+
+.resize-nw {
+  top: -4px;
+  left: -4px;
+  width: 20px;
+  height: 20px;
+  cursor: nw-resize;
+}
+
+.resize-se {
+  bottom: -4px;
+  right: -4px;
+  width: 20px;
+  height: 20px;
+  cursor: se-resize;
+}
+
+.resize-sw {
+  bottom: -4px;
+  left: -4px;
+  width: 20px;
+  height: 20px;
+  cursor: sw-resize;
+}

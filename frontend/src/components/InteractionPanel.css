@@ -1,0 +1,142 @@
+/* Feature B: human-in-the-loop interaction panel (approval / question). */
+.interaction-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.interaction-panel {
+  pointer-events: auto;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: var(--color-bg-secondary, #1e1e1e);
+  color: var(--color-text, #ddd);
+  border: 1px solid var(--color-border, rgba(120, 120, 120, 0.35));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.interaction-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.interaction-kind-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+  color: var(--color-text-secondary, #aaa);
+}
+.interaction-kind-badge.kind-approval {
+  background: rgba(226, 184, 122, 0.18);
+  color: var(--color-warning, #e2b87a);
+}
+.interaction-kind-badge.kind-question {
+  background: rgba(86, 156, 214, 0.18);
+  color: var(--color-info, #569cd6);
+}
+
+.interaction-queue-count {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+}
+
+.interaction-prompt {
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.interaction-tool {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-warning, #e2b87a);
+}
+
+.interaction-tool-input {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  background: var(--color-bg-tertiary, rgba(0, 0, 0, 0.25));
+  border-radius: 4px;
+  padding: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.interaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.interaction-chip {
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+  color: var(--color-text, #ddd);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.interaction-chip:hover:not(:disabled) {
+  background: rgba(86, 156, 214, 0.15);
+}
+
+.interaction-answer {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--color-bg-tertiary, rgba(0, 0, 0, 0.25));
+  color: var(--color-text, #ddd);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.interaction-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.interaction-btn {
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+  color: var(--color-text, #ddd);
+}
+.interaction-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.interaction-btn.approve {
+  background: rgba(78, 201, 176, 0.18);
+  color: var(--color-success, #4ec9b0);
+  border-color: rgba(78, 201, 176, 0.3);
+}
+.interaction-btn.reject:hover:not(:disabled) {
+  background: rgba(244, 71, 71, 0.15);
+  color: var(--color-danger, #f48a8a);
+}

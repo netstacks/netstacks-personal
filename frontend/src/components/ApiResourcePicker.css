@@ -1,0 +1,49 @@
+.api-resource-picker {
+  margin-bottom: 1rem;
+}
+
+.api-resource-picker .picker-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-resource-picker .picker-control select {
+  flex: 1;
+}
+
+.api-resource-picker .resource-preview {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.api-resource-picker .resource-preview code {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.api-resource-picker .preview-label {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.api-resource-picker .preview-separator {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.api-resource-picker .required {
+  color: #ff4444;
+}

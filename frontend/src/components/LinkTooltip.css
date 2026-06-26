@@ -1,0 +1,112 @@
+/* LinkTooltip - Hover tooltip for connection/link info */
+
+.link-tooltip {
+  position: fixed;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 12px;
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1100;
+  pointer-events: none;
+  animation: linkTooltipFadeIn 0.15s ease-out;
+}
+
+@keyframes linkTooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Interface names row */
+.link-tooltip-interfaces {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.link-tooltip-intf {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.link-tooltip-arrow {
+  color: #666;
+  font-size: 14px;
+}
+
+/* Speed and duplex info */
+.link-tooltip-speed {
+  text-align: center;
+  font-size: 11px;
+  color: #aaa;
+  margin-bottom: 8px;
+}
+
+/* Status badges */
+.link-tooltip-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.link-tooltip-status-badge {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.link-tooltip-status-separator {
+  color: #555;
+  font-size: 11px;
+}
+
+/* Fallback no-data state */
+.link-tooltip-no-data {
+  text-align: center;
+}
+
+.link-tooltip-devices {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.link-tooltip-device {
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.link-tooltip-interfaces-simple {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  font-size: 11px;
+  color: #888;
+}
+
+.link-tooltip-hint {
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+}

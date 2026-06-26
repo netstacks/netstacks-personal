@@ -1,0 +1,367 @@
+/* TroubleshootingDialog styles */
+/* Modal dialog for starting troubleshooting sessions */
+
+.troubleshooting-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.troubleshooting-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: 90%;
+  max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Header */
+.troubleshooting-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.troubleshooting-dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.troubleshooting-dialog-close {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.troubleshooting-dialog-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.troubleshooting-dialog-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Content */
+.troubleshooting-dialog-content {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.troubleshooting-dialog-description {
+  margin: 0 0 16px 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Form fields */
+.troubleshooting-form-field {
+  margin-bottom: 16px;
+}
+
+.troubleshooting-form-field > label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.troubleshooting-form-field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+
+.troubleshooting-form-field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.troubleshooting-form-field input[type="text"]::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+
+/* Field header with Select All */
+.troubleshooting-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.troubleshooting-field-header > label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.troubleshooting-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.troubleshooting-select-all:hover {
+  color: var(--color-text-primary);
+}
+
+/* Terminal list */
+.troubleshooting-terminal-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+}
+
+.troubleshooting-terminal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.15s ease;
+}
+
+.troubleshooting-terminal-item:last-child {
+  border-bottom: none;
+}
+
+.troubleshooting-terminal-item:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Custom checkbox styling */
+.troubleshooting-terminal-item input[type="checkbox"],
+.troubleshooting-select-all input[type="checkbox"],
+.troubleshooting-checkbox-option input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-bg-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.troubleshooting-terminal-item input[type="checkbox"]:checked,
+.troubleshooting-select-all input[type="checkbox"]:checked,
+.troubleshooting-checkbox-option input[type="checkbox"]:checked {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.troubleshooting-terminal-item input[type="checkbox"]:checked::after,
+.troubleshooting-select-all input[type="checkbox"]:checked::after,
+.troubleshooting-checkbox-option input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Indeterminate state for Select All */
+.troubleshooting-select-all input[type="checkbox"]:indeterminate {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.troubleshooting-select-all input[type="checkbox"]:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  width: 8px;
+  height: 2px;
+  background: white;
+  border-radius: 1px;
+}
+
+/* Terminal dot indicator */
+.troubleshooting-terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.troubleshooting-terminal-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Empty state */
+.troubleshooting-empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+/* Checkbox option (Include AI) */
+.troubleshooting-checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.troubleshooting-checkbox-option:hover {
+  color: var(--color-text-primary);
+}
+
+/* Settings preview */
+.troubleshooting-settings-preview {
+  margin-top: 4px;
+  padding: 12px;
+  background: var(--color-bg-tertiary);
+  border-radius: 6px;
+}
+
+.troubleshooting-settings-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.troubleshooting-settings-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.troubleshooting-setting-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.troubleshooting-setting-item svg {
+  opacity: 0.7;
+}
+
+/* Error message */
+.troubleshooting-dialog-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(241, 76, 76, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: 6px;
+  color: var(--color-error);
+  font-size: 13px;
+}
+
+/* Footer */
+.troubleshooting-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.troubleshooting-dialog-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.troubleshooting-dialog-btn.secondary {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.troubleshooting-dialog-btn.secondary:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.troubleshooting-dialog-btn.primary {
+  background: #c62828;
+  border: 1px solid #c62828;
+  color: white;
+}
+
+.troubleshooting-dialog-btn.primary:hover:not(:disabled) {
+  background: #b71c1c;
+  border-color: #b71c1c;
+}
+
+.troubleshooting-dialog-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.troubleshooting-dialog-btn.primary svg {
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

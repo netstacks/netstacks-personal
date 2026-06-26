@@ -1,0 +1,232 @@
+/* Recording Player Component Styles */
+
+.recording-player {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.recording-player-loading,
+.recording-player-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 48px;
+  color: var(--color-text-secondary);
+}
+
+.recording-player-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.recording-player-error svg {
+  width: 48px;
+  height: 48px;
+  stroke: var(--color-warning);
+}
+
+.recording-player-error-close {
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.recording-player-error-close:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Header */
+.recording-player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recording-player-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.recording-player-title svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--color-primary);
+}
+
+.recording-player-title svg polygon {
+  fill: var(--color-primary);
+}
+
+.recording-player-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.recording-player-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.recording-player-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Terminal display */
+.recording-player-terminal {
+  flex: 1;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.recording-player-terminal .xterm {
+  height: 100%;
+}
+
+/* Controls */
+.recording-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary);
+  border-top: 1px solid var(--color-border);
+}
+
+.recording-player-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recording-player-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.recording-player-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+.recording-player-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.recording-player-btn-primary {
+  width: 36px;
+  height: 36px;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.recording-player-btn-primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: white;
+}
+
+.recording-player-btn-primary svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Progress bar */
+.recording-player-progress {
+  flex: 1;
+  height: 6px;
+  background: var(--color-bg-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.recording-player-progress:hover {
+  height: 8px;
+  margin: -1px 0;
+}
+
+.recording-player-progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+/* Time display */
+.recording-player-time {
+  font-size: 12px;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-secondary);
+  min-width: 80px;
+  text-align: center;
+}
+
+/* Speed control */
+.recording-player-speed-select {
+  padding: 4px 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recording-player-speed-select:hover {
+  border-color: var(--color-border-hover);
+}
+
+.recording-player-speed-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}

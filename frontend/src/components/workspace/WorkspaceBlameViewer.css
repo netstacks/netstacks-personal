@@ -1,0 +1,108 @@
+.workspace-blame-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+.workspace-blame-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.workspace-blame-header-path {
+  font-family: var(--font-family-mono);
+  color: var(--color-text-primary);
+}
+
+.workspace-blame-content {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.workspace-blame-line {
+  display: flex;
+  padding: 0 12px;
+  white-space: pre;
+  min-height: 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workspace-blame-line:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-blame-line-number {
+  width: 40px;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--color-text-secondary);
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.workspace-blame-line-meta {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  gap: var(--spacing-sm);
+  padding-right: 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  border-right: 1px solid var(--color-border);
+}
+
+.workspace-blame-line-hash {
+  width: 56px;
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.workspace-blame-line-author {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-blame-line-date {
+  width: 80px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.workspace-blame-line-text {
+  flex: 1;
+  padding-left: 12px;
+  min-width: 0;
+}
+
+.workspace-blame-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+}
+
+.workspace-blame-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}

@@ -1,0 +1,297 @@
+/* TopologyTabEditor styles */
+
+.topology-tab-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.topology-tab-editor.loading,
+.topology-tab-editor.error,
+.topology-tab-editor.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-spinner {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.error-message {
+  color: var(--error);
+  padding: 16px;
+}
+
+.empty-message {
+  color: var(--text-secondary);
+}
+
+/* Secondary toolbar (view toggle and save) */
+.topology-secondary-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+/* Main editing toolbar - handled by TopologyToolbar component */
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Override ViewToggle absolute positioning when in toolbar */
+.toolbar-left .view-toggle {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
+.toolbar-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toolbar-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.toolbar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+  padding: 0 8px;
+}
+
+/* Save Topology button */
+.toolbar-button.save-topology {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  border-color: #10b981;
+  color: white;
+  font-weight: 500;
+}
+
+.toolbar-button.save-topology:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: #059669;
+}
+
+.toolbar-button.save-topology:disabled {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.toolbar-button.save-topology.saving {
+  animation: pulse 1.5s infinite;
+}
+
+.toolbar-button.save-topology svg {
+  flex-shrink: 0;
+}
+
+/* AI Discover button - accent styling */
+.toolbar-button.ai-discover {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #8b5cf6, #a855f7);
+  border-color: #8b5cf6;
+  color: white;
+  font-weight: 500;
+}
+
+.toolbar-button.ai-discover:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7c3aed, #9333ea);
+  border-color: #7c3aed;
+}
+
+.toolbar-button.ai-discover:disabled {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.toolbar-button.ai-discover.running {
+  background: linear-gradient(135deg, #8b5cf6, #a855f7);
+  animation: pulse 1.5s infinite;
+}
+
+.toolbar-button.ai-discover svg {
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Canvas container */
+.topology-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* AI Action Toast - shows when AI modifies topology */
+.ai-action-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #1e1e1e;
+  border: 1px solid rgba(156, 39, 176, 0.5);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(156, 39, 176, 0.2);
+  border-radius: 6px;
+  color: #ce93d8;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast-source {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  background: rgba(156, 39, 176, 0.2);
+  color: #ce93d8;
+  border-radius: 3px;
+}
+
+.toast-description {
+  font-size: 13px;
+  color: var(--text-primary, #cccccc);
+}
+
+.toast-undo-btn {
+  padding: 6px 12px;
+  background: rgba(76, 175, 80, 0.15);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  border-radius: 4px;
+  color: #81c784;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toast-undo-btn:hover {
+  background: rgba(76, 175, 80, 0.25);
+  border-color: rgba(76, 175, 80, 0.6);
+}
+
+.toast-dismiss-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #888888);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.toast-dismiss-btn:hover {
+  background: var(--bg-hover, #3c3c3c);
+  color: var(--text-primary, #cccccc);
+}
+
+/* Undo All AI button (floating) */
+.undo-all-ai-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(156, 39, 176, 0.15);
+  border: 1px solid rgba(156, 39, 176, 0.4);
+  border-radius: 8px;
+  color: #ce93d8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.15s ease;
+  z-index: 100;
+}
+
+.undo-all-ai-btn:hover {
+  background: rgba(156, 39, 176, 0.25);
+  border-color: rgba(156, 39, 176, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.undo-all-ai-btn svg {
+  flex-shrink: 0;
+}

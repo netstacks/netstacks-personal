@@ -1,0 +1,193 @@
+{
+  "files": {
+    "/Users/cwdavis/scripts/auto-discovery/srv-l3vpn/src/yang/srv-l3vpn.yang": {
+      "modules": [
+        "srv-l3vpn"
+      ],
+      "mtimeMs": 1781122624973.0793,
+      "sha1": "36ef513d0fa4ed0b8a6a549e83e03dc4960f3e3c"
+    }
+  },
+  "modules": {
+    "srv-l3vpn": {
+      "ast": {
+        "a": "srv-l3vpn",
+        "c": [
+          {
+            "a": "http://example.com/srv-l3vpn",
+            "c": [],
+            "k": "namespace"
+          },
+          {
+            "a": "srv-l3vpn",
+            "c": [],
+            "k": "prefix"
+          },
+          {
+            "a": "ietf-inet-types",
+            "c": [
+              {
+                "a": "inet",
+                "c": [],
+                "k": "prefix"
+              }
+            ],
+            "k": "import"
+          },
+          {
+            "a": "tailf-common",
+            "c": [
+              {
+                "a": "tailf",
+                "c": [],
+                "k": "prefix"
+              }
+            ],
+            "k": "import"
+          },
+          {
+            "a": "tailf-ncs",
+            "c": [
+              {
+                "a": "ncs",
+                "c": [],
+                "k": "prefix"
+              }
+            ],
+            "k": "import"
+          },
+          {
+            "a": "Bla bla...",
+            "c": [],
+            "k": "description"
+          },
+          {
+            "a": "Initial revision.",
+            "c": [],
+            "k": "description"
+          },
+          {
+            "a": "srv-l3vpn",
+            "c": [
+              {
+                "a": "This is an RFS skeleton service",
+                "c": [],
+                "k": "description"
+              },
+              {
+                "a": "name",
+                "c": [],
+                "k": "key"
+              },
+              {
+                "a": "name",
+                "c": [
+                  {
+                    "a": "string",
+                    "c": [],
+                    "k": "type"
+                  }
+                ],
+                "k": "leaf"
+              },
+              {
+                "a": "ncs:service-data",
+                "c": [],
+                "k": "uses"
+              },
+              {
+                "a": "srv-l3vpn-servicepoint",
+                "c": [],
+                "k": "ncs:servicepoint"
+              },
+              {
+                "a": "device",
+                "c": [
+                  {
+                    "a": "leafref",
+                    "c": [
+                      {
+                        "a": "/ncs:devices/ncs:device/ncs:name",
+                        "c": [],
+                        "k": "path"
+                      }
+                    ],
+                    "k": "type"
+                  }
+                ],
+                "k": "leaf-list"
+              },
+              {
+                "a": "dummy",
+                "c": [
+                  {
+                    "a": "inet:ipv4-address",
+                    "c": [],
+                    "k": "type"
+                  }
+                ],
+                "k": "leaf"
+              }
+            ],
+            "k": "list"
+          }
+        ],
+        "k": "module"
+      },
+      "file": "/Users/cwdavis/scripts/auto-discovery/srv-l3vpn/src/yang/srv-l3vpn.yang",
+      "lineMap": [
+        0,
+        19,
+        20,
+        64,
+        84,
+        85,
+        112,
+        129,
+        133,
+        157,
+        175,
+        179,
+        200,
+        216,
+        220,
+        221,
+        235,
+        253,
+        254,
+        278,
+        294,
+        321,
+        325,
+        326,
+        345,
+        396,
+        397,
+        411,
+        427,
+        465,
+        494,
+        513,
+        519,
+        520,
+        547,
+        592,
+        593,
+        598,
+        621,
+        642,
+        691,
+        699,
+        705,
+        706,
+        711,
+        728,
+        758,
+        764,
+        768,
+        770
+      ]
+    }
+  },
+  "version": 2
+}

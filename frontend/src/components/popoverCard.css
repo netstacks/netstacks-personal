@@ -1,0 +1,25 @@
+/* Shared frosted-glass popover-card skin
+ * ─────────────────────────────────────────────────────────────────
+ * The single source of truth for the look & feel of floating info
+ * cards / popovers (the enrich popup, the Force Touch action menu, …).
+ * Positioning is intentionally NOT set here — each consumer positions
+ * its own root and adds `.popover-card` for the skin. Change the theme
+ * here and every popover follows. */
+.popover-card {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  color: var(--color-text-primary);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), inset 0 1px 0 var(--glass-highlight);
+  font-family: var(--font-family);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+/* Solidify on hover so content stays readable while interacting. */
+.popover-card:hover {
+  background: rgba(26, 26, 32, 0.92);
+}

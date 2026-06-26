@@ -1,0 +1,113 @@
+/* Split Pane Container - Side-by-side or stacked terminal layout */
+
+.split-pane-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.split-pane-container.single {
+  display: block;
+}
+
+.split-pane-container.horizontal {
+  flex-direction: row;
+}
+
+.split-pane-container.vertical {
+  flex-direction: column;
+}
+
+.split-pane-container.dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.split-pane-container.vertical.dragging {
+  cursor: row-resize;
+}
+
+/* Wrapper holds pane + divider in sequence */
+.split-pane-wrapper {
+  display: contents;
+}
+
+/* Individual pane */
+.split-pane {
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  flex-grow: 0;
+}
+
+/* Ensure terminal fills the pane */
+.split-pane > * {
+  width: 100%;
+  height: 100%;
+}
+
+/* Divider between panes */
+.split-pane-divider {
+  flex-shrink: 0;
+  position: relative;
+  background: var(--color-border);
+  transition: background var(--transition-fast);
+  z-index: 10;
+}
+
+.split-pane-divider.horizontal {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.split-pane-divider.vertical {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.split-pane-divider:hover,
+.split-pane-container.dragging .split-pane-divider {
+  background: var(--color-accent);
+}
+
+/* Visual handle in center of divider */
+.split-pane-divider-handle {
+  position: absolute;
+  background: var(--color-text-secondary);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.split-pane-divider.horizontal .split-pane-divider-handle {
+  width: 2px;
+  height: 24px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.split-pane-divider.vertical .split-pane-divider-handle {
+  width: 24px;
+  height: 2px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.split-pane-divider:hover .split-pane-divider-handle,
+.split-pane-container.dragging .split-pane-divider-handle {
+  opacity: 0.6;
+}
+
+/* Prevent interaction with pane content while dragging */
+.split-pane-container.dragging .split-pane {
+  pointer-events: none;
+}
+
+/* Nested split support */
+.split-pane-container .split-pane-container {
+  width: 100%;
+  height: 100%;
+}

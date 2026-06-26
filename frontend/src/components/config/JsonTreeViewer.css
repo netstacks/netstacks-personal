@@ -1,0 +1,114 @@
+/* JsonTreeViewer - Dark theme JSON tree */
+
+.jtv-root {
+  font-family: var(--font-family-mono, 'Menlo', 'Monaco', 'Courier New', monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary, #cccccc);
+  background: var(--bg-primary, #1e1e1e);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 4px;
+  overflow: auto;
+}
+
+.jtv-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  background: var(--bg-tertiary, #2d2d2d);
+}
+
+.jtv-copy-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  background: var(--bg-secondary, #252526);
+  color: var(--text-secondary, #858585);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.jtv-copy-btn:hover {
+  background: var(--bg-hover, #3c3c3c);
+  color: var(--text-primary, #cccccc);
+}
+
+.jtv-tree {
+  padding: 8px 12px;
+}
+
+.jtv-children {
+  margin-left: 18px;
+  border-left: 1px solid var(--border-color, #3c3c3c);
+  padding-left: 8px;
+}
+
+.jtv-entry {
+  padding: 1px 0;
+}
+
+/* Keys */
+.jtv-key {
+  color: var(--text-primary, #d4d4d4);
+  font-weight: 500;
+}
+
+.jtv-index {
+  color: var(--text-secondary, #858585);
+}
+
+/* Values */
+.jtv-string {
+  color: #6a9955;
+}
+
+.jtv-number {
+  color: #569cd6;
+}
+
+.jtv-boolean {
+  color: #ce9178;
+}
+
+.jtv-null {
+  color: #858585;
+  font-style: italic;
+}
+
+/* Structure */
+.jtv-bracket {
+  color: var(--text-secondary, #858585);
+}
+
+.jtv-count {
+  color: var(--text-secondary, #858585);
+  margin-left: 4px;
+  font-size: 11px;
+}
+
+/* Toggle arrows */
+.jtv-toggle,
+.jtv-toggle-open {
+  cursor: pointer;
+  user-select: none;
+  font-size: 10px;
+  margin-right: 4px;
+  color: var(--text-secondary, #858585);
+  transition: color 0.15s;
+}
+
+.jtv-toggle:hover,
+.jtv-toggle-open:hover {
+  color: var(--text-primary, #cccccc);
+}
+
+.jtv-collapsed {
+  cursor: pointer;
+}
+
+.jtv-collapsed:hover .jtv-bracket,
+.jtv-collapsed:hover .jtv-count {
+  color: var(--text-primary, #cccccc);
+}

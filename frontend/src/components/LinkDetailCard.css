@@ -1,0 +1,254 @@
+/* LinkDetailCard - Draggable detail card for connection/link info */
+
+.link-detail-card {
+  position: fixed;
+  width: 520px;
+  max-height: 80vh;
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  animation: linkDetailSlideIn 0.15s ease-out;
+}
+
+.link-detail-card.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+@keyframes linkDetailSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header - draggable area */
+.link-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: grab;
+  border-radius: 12px 12px 0 0;
+}
+
+.link-detail-header:active {
+  cursor: grabbing;
+}
+
+.link-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.link-detail-icon {
+  width: 18px;
+  height: 18px;
+  color: #4caf50;
+}
+
+.link-detail-title-arrow {
+  color: #666;
+  font-size: 16px;
+}
+
+.link-detail-close {
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: #666;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.link-detail-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.link-detail-close svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Content area */
+.link-detail-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* Side-by-side interface sections */
+.link-detail-interfaces {
+  display: flex;
+  gap: 0;
+}
+
+.link-detail-interface {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-detail-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 16px;
+  flex-shrink: 0;
+}
+
+.link-detail-interface-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.link-detail-interface-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #888;
+  letter-spacing: 0.5px;
+}
+
+.link-detail-interface-device {
+  font-size: 12px;
+  color: #aaa;
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.link-detail-interface-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Data rows */
+.link-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.link-detail-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.link-detail-value {
+  font-size: 12px;
+  color: #fff;
+  text-align: right;
+  word-break: break-word;
+}
+
+.link-detail-mono {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+}
+
+.link-detail-error {
+  color: #ef4444;
+}
+
+/* Status badge */
+.link-detail-status-badge {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+/* No data state */
+.link-detail-no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: #888;
+}
+
+.link-detail-no-data svg {
+  width: 48px;
+  height: 48px;
+  color: #555;
+  margin-bottom: 16px;
+}
+
+.link-detail-no-data p {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #aaa;
+}
+
+.link-detail-no-data-hint {
+  font-size: 12px;
+  color: #666;
+}
+
+/* Footer with action buttons */
+.link-detail-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 0 12px 12px;
+}
+
+.link-detail-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.link-detail-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.link-detail-action svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}

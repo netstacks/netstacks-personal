@@ -1,0 +1,274 @@
+/* KeyboardSettings - Customizable keyboard shortcuts UI */
+
+.keyboard-settings {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.keyboard-settings-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.keyboard-search {
+  flex: 1;
+}
+
+.keyboard-search-input {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  outline: none;
+}
+
+.keyboard-search-input:focus {
+  border-color: var(--color-accent);
+}
+
+.keyboard-search-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.keyboard-reset-all {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.keyboard-reset-all:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
+}
+
+.keyboard-settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+}
+
+.keyboard-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.keyboard-category {
+  margin-bottom: var(--spacing-lg);
+}
+
+.keyboard-category-title {
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--spacing-sm) 0;
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.keyboard-action-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.keyboard-action-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--color-border);
+  min-height: 36px;
+}
+
+.keyboard-action-item:last-child {
+  border-bottom: none;
+}
+
+.keyboard-action-item.editing {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) 0;
+  background: var(--color-bg-tertiary);
+  margin: 0 calc(var(--spacing-sm) * -1);
+  padding-left: var(--spacing-sm);
+  padding-right: var(--spacing-sm);
+  border-radius: 4px;
+}
+
+.keyboard-action-label {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  flex: 1;
+  min-width: 0;
+}
+
+.keyboard-action-binding {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.keyboard-action-item.editing .keyboard-action-binding {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.keyboard-kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.keyboard-kbd.customized {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.keyboard-action-buttons {
+  display: flex;
+  gap: var(--spacing-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.keyboard-action-item:hover .keyboard-action-buttons {
+  opacity: 1;
+}
+
+.keyboard-btn {
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.keyboard-btn-edit {
+  color: var(--color-text-secondary);
+}
+
+.keyboard-btn-edit:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.keyboard-btn-reset {
+  color: var(--color-text-secondary);
+}
+
+.keyboard-btn-reset:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.keyboard-btn-save {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.keyboard-btn-save:hover:not(:disabled) {
+  background: var(--color-success);
+  color: white;
+}
+
+.keyboard-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.keyboard-btn-cancel {
+  color: var(--color-text-secondary);
+}
+
+.keyboard-btn-cancel:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* Edit mode */
+.keyboard-edit-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.keyboard-binding-input {
+  width: 100%;
+  padding: var(--spacing-sm);
+  background: var(--color-bg-primary);
+  border: 2px solid var(--color-accent);
+  border-radius: 4px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  text-align: center;
+  outline: none;
+}
+
+.keyboard-binding-input:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+.keyboard-conflict {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  color: var(--color-error);
+  font-size: var(--font-size-small);
+}
+
+.keyboard-edit-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+}
+
+/* Footer */
+.keyboard-settings-footer {
+  padding: var(--spacing-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.keyboard-hint {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.keyboard-hint kbd {
+  display: inline-block;
+  padding: 0 4px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+}

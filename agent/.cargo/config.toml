@@ -1,0 +1,6 @@
+# The sparse protocol is the default on the pinned Rust toolchain, so a source
+# replacement to sparse+https://index.crates.io/ collides with the built-in
+# crates-io source ("source ... already defined by crates-io"). Keep only the
+# network retry tuning, which is what we actually wanted here.
+[net]
+retry = 5

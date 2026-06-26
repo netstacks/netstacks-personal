@@ -1,0 +1,81 @@
+/* Idle warning overlay - full-screen semi-transparent backdrop */
+.idle-warning-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+/* Idle warning card - centered modal */
+.idle-warning-card {
+  max-width: 400px;
+  padding: 2rem;
+  border-radius: 8px;
+  background: var(--bg-secondary, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+/* Warning icon */
+.idle-warning-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+/* Title */
+.idle-warning-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  margin: 0 0 1rem 0;
+}
+
+/* Message text */
+.idle-warning-message {
+  font-size: 1rem;
+  color: var(--text-secondary, #b0b0b0);
+  margin: 0 0 0.5rem 0;
+}
+
+/* Countdown text */
+.idle-warning-countdown {
+  font-size: 1.125rem;
+  color: var(--text-primary, #e0e0e0);
+  margin: 0 0 2rem 0;
+}
+
+.idle-warning-countdown strong {
+  color: var(--accent-color, #007acc);
+  font-weight: 700;
+}
+
+/* Stay Signed In button */
+.idle-warning-button {
+  background: var(--accent-color, #007acc);
+  color: var(--text-on-accent, #ffffff);
+  border: none;
+  border-radius: 4px;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.idle-warning-button:hover {
+  background: var(--accent-hover, #005a9e);
+}
+
+.idle-warning-button:active {
+  background: var(--accent-active, #004578);
+}
+
+.idle-warning-button:focus {
+  outline: 2px solid var(--focus-border, #007acc);
+  outline-offset: 2px;
+}

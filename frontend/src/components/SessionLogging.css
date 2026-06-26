@@ -1,0 +1,190 @@
+/* SessionLogging - Log format selection and control */
+
+.session-logging {
+  padding: var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.logging-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+}
+
+.logging-title {
+  font-weight: 600;
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+}
+
+.logging-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-small);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.logging-status.recording {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-error);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+.logging-status.recording svg {
+  fill: var(--color-error);
+}
+
+.logging-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.logging-format-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.logging-label {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.logging-format-options {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.logging-format-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.logging-format-option:hover:not(:has(input:disabled)) {
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-primary);
+}
+
+.logging-format-option.selected {
+  border-color: var(--color-accent);
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-accent);
+}
+
+.logging-format-option input {
+  display: none;
+}
+
+.logging-format-option:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.logging-checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.logging-checkbox-option input {
+  accent-color: var(--color-accent);
+}
+
+.logging-checkbox-option:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.logging-path {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.logging-path-value {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+  background: var(--color-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logging-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.logging-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: 4px;
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.logging-btn-start {
+  background: var(--color-accent);
+  border: none;
+  color: white;
+}
+
+.logging-btn-start:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.logging-btn-start:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.logging-btn-start svg {
+  fill: white;
+}
+
+.logging-btn-stop {
+  background: var(--color-error);
+  border: none;
+  color: white;
+}
+
+.logging-btn-stop:hover {
+  filter: brightness(1.1);
+}
+
+.logging-btn-stop svg {
+  stroke: white;
+}

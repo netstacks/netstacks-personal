@@ -1,0 +1,198 @@
+/* NewTopologyDialog Styles */
+
+.new-topology-dialog {
+  width: 420px;
+  min-width: 320px;
+  min-height: 280px;
+  max-height: 80vh;
+  resize: both;
+  overflow: hidden;
+}
+
+.new-topology-dialog .dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.new-topology-dialog .dialog-header h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.new-topology-dialog .dialog-body {
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.new-topology-dialog .dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+}
+
+/* Form field styling */
+.new-topology-dialog .form-field {
+  margin-bottom: var(--spacing-md);
+}
+
+.new-topology-dialog .form-field:last-of-type {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+  min-height: 0;
+}
+
+.new-topology-dialog .form-field > label {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.new-topology-dialog .form-field input[type="text"] {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
+}
+
+.new-topology-dialog .form-field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* Session checklist */
+.new-topology-dialog .session-checklist {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+}
+
+.new-topology-dialog .session-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  width: auto;
+  height: auto;
+  cursor: pointer;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+  justify-content: flex-start;
+  transition: background var(--transition-fast);
+  min-height: 36px;
+}
+
+.new-topology-dialog .session-checkbox:last-child {
+  border-bottom: none;
+}
+
+.new-topology-dialog .session-checkbox:hover {
+  background: var(--color-bg-hover);
+}
+
+.new-topology-dialog .session-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  border: 2px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-bg-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.new-topology-dialog .session-checkbox input[type="checkbox"]:checked {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.new-topology-dialog .session-checkbox input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.new-topology-dialog .session-checkbox .status-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.new-topology-dialog .session-checkbox .status-dot.connected {
+  background: #4caf50;
+}
+
+.new-topology-dialog .session-checkbox .session-name {
+  flex: 1;
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.new-topology-dialog .session-checkbox .session-host {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-family: var(--font-family-mono, monospace);
+}
+
+/* Empty state */
+.new-topology-dialog .session-checklist .empty-state {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+/* Error message */
+.new-topology-dialog .error-message {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-top: var(--spacing-md);
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 4px;
+  color: #f44336;
+  font-size: var(--font-size-small);
+}

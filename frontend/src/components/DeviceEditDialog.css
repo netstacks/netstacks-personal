@@ -1,0 +1,134 @@
+/* DeviceEditDialog styles */
+
+.device-edit-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.device-edit-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.device-edit-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.device-edit-dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.device-edit-dialog-close {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.device-edit-dialog-close:hover {
+  background: #333;
+  color: #fff;
+}
+
+.device-edit-dialog-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.device-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.device-edit-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.device-edit-field input,
+.device-edit-field select {
+  padding: 10px 12px;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.device-edit-field input:focus,
+.device-edit-field select:focus {
+  outline: none;
+  border-color: #0e639c;
+}
+
+.device-edit-field input::placeholder {
+  color: #666;
+}
+
+.device-edit-dialog-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.device-edit-btn-cancel,
+.device-edit-btn-save {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.device-edit-btn-cancel {
+  background: transparent;
+  border: 1px solid #3c3c3c;
+  color: #cccccc;
+}
+
+.device-edit-btn-cancel:hover {
+  background: #333;
+}
+
+.device-edit-btn-save {
+  background: #0e639c;
+  border: none;
+  color: #fff;
+}
+
+.device-edit-btn-save:hover {
+  background: #1177bb;
+}

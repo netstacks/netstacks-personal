@@ -1,0 +1,64 @@
+/* Force Touch action popover.
+   The frosted-glass card skin comes from the shared `.popover-card`
+   (see popoverCard.css) and the header reuses the enrich card's classes,
+   so the look lives in one place. This file only handles positioning and
+   the clickable option rows. */
+.force-touch-popover {
+  position: fixed;
+  z-index: var(--menu-z);
+  display: flex;
+  flex-direction: column;
+  animation: forceTouchPop 0.12s ease;
+}
+
+@keyframes forceTouchPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.force-touch-popover-options {
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+}
+
+.force-touch-popover-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 7px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.force-touch-popover-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.force-touch-popover-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.force-touch-popover-label {
+  flex: 1;
+}

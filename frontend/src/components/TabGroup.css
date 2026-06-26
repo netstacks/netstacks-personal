@@ -1,0 +1,175 @@
+/* Tab Group Styles */
+
+.tab-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-group-default {
+  flex: 1;
+}
+
+.tab-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  user-select: none;
+  cursor: default;
+}
+
+.tab-group-header-drag-over {
+  background: var(--color-bg-hover);
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+}
+
+.tab-group-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.tab-group-collapse-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.tab-group-collapse-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-group-name {
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  cursor: default;
+}
+
+.tab-group-name:hover {
+  cursor: text;
+}
+
+.tab-group-count {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: var(--spacing-xs);
+}
+
+.tab-group-orientation {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  color: var(--color-text-secondary);
+}
+
+.tab-group-orientation svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-group-rename-form {
+  flex: 1;
+}
+
+.tab-group-rename-form input {
+  width: 100%;
+  padding: var(--spacing-xs);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 3px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+}
+
+.tab-group-rename-form input:focus {
+  outline: none;
+}
+
+.tab-group-tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.tab-group-collapsed .tab-group-tabs {
+  display: none;
+}
+
+/* Tab Group Context Menu */
+
+.tab-group-context-menu {
+  /* Aligned with the canonical menu surface (see index.css menu-* tokens). */
+  position: fixed;
+  z-index: var(--menu-z);
+  min-width: var(--menu-min-width);
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  border-radius: var(--menu-radius);
+  box-shadow: var(--menu-shadow);
+  padding: var(--spacing-xs) 0;
+}
+
+.tab-group-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.tab-group-context-menu-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.tab-group-context-menu-item-danger {
+  color: var(--color-error);
+}
+
+.tab-group-context-menu-item-danger:hover {
+  background: rgba(205, 49, 49, 0.1);
+}
+
+.tab-group-context-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.tab-group-context-menu-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-group-context-menu-divider {
+  height: 1px;
+  margin: var(--spacing-xs) 0;
+  background: var(--color-border);
+}

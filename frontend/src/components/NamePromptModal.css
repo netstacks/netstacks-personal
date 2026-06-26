@@ -1,0 +1,90 @@
+/* terminal/frontend/src/components/NamePromptModal.css */
+.name-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.name-prompt {
+  background: var(--bg-secondary, #1f1f1f);
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  width: 360px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.name-prompt-title {
+  padding: 14px 16px 12px;
+  font-size: 14px;
+  color: var(--text-primary, #fff);
+  font-weight: 500;
+}
+
+.name-prompt-input {
+  width: calc(100% - 32px);
+  margin: 0 16px 16px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary, #2a2a2a);
+  border: 1px solid var(--border, #444);
+  border-radius: 4px;
+  color: var(--text-primary, #fff);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.name-prompt-input:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.name-prompt-buttons {
+  padding: 8px 16px 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border, #2a2a2a);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+.name-prompt-cancel {
+  background: transparent;
+  border: 1px solid var(--border, #444);
+  color: var(--text-secondary, #ccc);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.name-prompt-cancel:hover {
+  background: var(--bg-tertiary, #2a2a2a);
+}
+
+.name-prompt-confirm {
+  background: #4a9eff;
+  border: 1px solid #4a9eff;
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.name-prompt-confirm:hover:not(:disabled) {
+  background: #6ab0ff;
+  border-color: #6ab0ff;
+}
+
+.name-prompt-confirm:disabled {
+  background: #2a4a6a;
+  border-color: #2a4a6a;
+  color: #888;
+  cursor: not-allowed;
+}

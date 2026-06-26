@@ -1,0 +1,85 @@
+.script-params-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.script-param-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.script-param-label {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  text-transform: capitalize;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.script-param-label-checkbox {
+  flex-direction: row;
+  cursor: pointer;
+}
+
+.script-param-label-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+
+.script-param-optional {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+.script-param-type {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+}
+
+.script-param-input {
+  padding: 6px 10px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+}
+
+.script-param-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.script-param-textarea {
+  padding: 6px 10px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.script-param-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.script-param-textarea.has-error {
+  border-color: var(--color-error);
+}
+
+.script-param-error {
+  font-size: 11px;
+  color: var(--color-error);
+}

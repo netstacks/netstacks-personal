@@ -1,0 +1,450 @@
+/* QuickActionDialog Styles */
+
+.quick-action-dialog-wrapper .qad-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.quick-action-dialog-wrapper .qad-content {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: 560px;
+  min-width: 320px;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+}
+
+.quick-action-dialog-wrapper .qad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.quick-action-dialog-wrapper .qad-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quick-action-dialog-wrapper .qad-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.quick-action-dialog-wrapper .qad-close:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
+}
+
+.quick-action-dialog-wrapper .qad-body {
+  padding: 12px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+}
+
+.quick-action-dialog-wrapper .qad-error {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: #dc3545;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.quick-action-dialog-wrapper .qad-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.quick-action-dialog-wrapper .qad-field:last-child {
+  margin-bottom: 0;
+}
+
+.quick-action-dialog-wrapper .qad-field label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.quick-action-dialog-wrapper .qad-field input,
+.quick-action-dialog-wrapper .qad-field select,
+.quick-action-dialog-wrapper .qad-field textarea {
+  padding: 4px 8px;
+  background: var(--color-bg-input, var(--color-bg-secondary));
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  height: 28px;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-field select {
+  height: 28px;
+}
+
+.quick-action-dialog-wrapper .qad-field textarea {
+  resize: vertical;
+  font-family: monospace;
+  font-size: 11px;
+  min-height: 44px;
+  height: auto;
+}
+
+.quick-action-dialog-wrapper .qad-field input:focus,
+.quick-action-dialog-wrapper .qad-field select:focus,
+.quick-action-dialog-wrapper .qad-field textarea:focus {
+  outline: none;
+  border-color: var(--color-accent, #4fc3f7);
+}
+
+.quick-action-dialog-wrapper .qad-field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quick-action-dialog-wrapper .qad-format-btn {
+  padding: 1px 6px;
+  font-size: 10px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.quick-action-dialog-wrapper .qad-format-btn:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-primary);
+}
+
+.quick-action-dialog-wrapper .qad-json-error {
+  font-size: 10px;
+  color: #dc3545;
+  margin-top: -1px;
+}
+
+.quick-action-dialog-wrapper .qad-hint {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  margin-top: -2px;
+}
+
+.quick-action-dialog-wrapper .qad-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.quick-action-dialog-wrapper .qad-row .qad-field {
+  margin-bottom: 0;
+}
+
+/* Footer */
+.quick-action-dialog-wrapper .qad-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.quick-action-dialog-wrapper .qad-footer-right {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Buttons */
+.quick-action-dialog-wrapper .qad-btn-primary {
+  padding: 4px 12px;
+  height: 28px;
+  border: none;
+  border-radius: 3px;
+  background: var(--color-accent, #4fc3f7);
+  color: #000;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-btn-primary:hover { opacity: 0.9; }
+.quick-action-dialog-wrapper .qad-btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+.quick-action-dialog-wrapper .qad-btn-secondary {
+  padding: 4px 12px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-btn-secondary:hover { background: var(--color-bg-hover, rgba(255, 255, 255, 0.06)); }
+.quick-action-dialog-wrapper .qad-btn-secondary:disabled { opacity: 0.5; cursor: default; }
+
+/* Test result */
+.quick-action-dialog-wrapper .qad-test-result {
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quick-action-dialog-wrapper .qad-test-result.success {
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  color: #4caf50;
+}
+
+.quick-action-dialog-wrapper .qad-test-result.failure {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: #dc3545;
+}
+
+.quick-action-dialog-wrapper .qad-test-result-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quick-action-dialog-wrapper .qad-test-result-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-primary);
+}
+
+.quick-action-dialog-wrapper .qad-test-result-value code {
+  font-family: monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.quick-action-dialog-wrapper .qad-test-result-value .qad-extract-miss {
+  background: rgba(255, 152, 0, 0.12);
+  color: #ffa940;
+  font-style: italic;
+}
+
+.quick-action-dialog-wrapper .qad-test-result-value .qad-extract-miss strong {
+  font-family: monospace;
+  font-style: normal;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+.quick-action-dialog-wrapper .qad-test-result-error {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* JSON Editor — transparent textarea over syntax-highlighted pre */
+.quick-action-dialog-wrapper .qad-json-editor {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: #1e1e1e;
+  overflow: hidden;
+}
+
+.quick-action-dialog-wrapper .qad-json-editor:focus-within {
+  border-color: var(--color-accent, #4fc3f7);
+}
+
+.quick-action-dialog-wrapper .qad-json-highlight,
+.quick-action-dialog-wrapper .qad-field .qad-json-textarea {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  tab-size: 2;
+  letter-spacing: 0;
+}
+
+.quick-action-dialog-wrapper .qad-json-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: #d4d4d4;
+  overflow: hidden;
+}
+
+/* !important needed to override .qad-field textarea which has higher specificity */
+.quick-action-dialog-wrapper .qad-field .qad-json-textarea {
+  position: relative;
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 52px;
+  resize: vertical;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: #d4d4d4;
+  border: none !important;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-field .qad-json-textarea::placeholder {
+  color: #555;
+}
+
+/* Postman-style JSON syntax colors */
+.quick-action-dialog-wrapper .jh-key {
+  color: #9cdcfe;
+}
+
+.quick-action-dialog-wrapper .jh-string {
+  color: #ce9178;
+}
+
+.quick-action-dialog-wrapper .jh-number {
+  color: #b5cea8;
+}
+
+.quick-action-dialog-wrapper .jh-keyword {
+  color: #569cd6;
+}
+
+.quick-action-dialog-wrapper .jh-punct {
+  color: #808080;
+}
+
+.quick-action-dialog-wrapper .jh-var {
+  color: #dcdcaa;
+  font-weight: 600;
+  background: rgba(220, 220, 170, 0.1);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Path input with {{var}} highlighting */
+.quick-action-dialog-wrapper .qad-path-editor {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: #1e1e1e;
+  overflow: hidden;
+  height: 28px;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-path-editor:focus-within {
+  border-color: var(--color-accent, #4fc3f7);
+}
+
+.quick-action-dialog-wrapper .qad-path-highlight,
+.quick-action-dialog-wrapper .qad-field .qad-path-input {
+  font-family: 'SF Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 26px;
+  padding: 0 8px;
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.quick-action-dialog-wrapper .qad-path-highlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: #d4d4d4;
+  overflow: hidden;
+}
+
+.quick-action-dialog-wrapper .qad-field .qad-path-input {
+  position: relative;
+  display: block;
+  width: 100% !important;
+  height: 26px !important;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: #d4d4d4;
+  border: none !important;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-field .qad-path-input::placeholder {
+  color: #555;
+}
+
+/* Test Variables */
+.quick-action-dialog-wrapper .qad-test-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quick-action-dialog-wrapper .qad-test-var-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-action-dialog-wrapper .qad-test-var-name {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.quick-action-dialog-wrapper .qad-test-var-row input {
+  flex: 1;
+  padding: 4px 8px;
+  height: 28px;
+  background: var(--color-bg-input, var(--color-bg-secondary));
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.quick-action-dialog-wrapper .qad-test-var-row input:focus {
+  outline: none;
+  border-color: var(--color-accent, #4fc3f7);
+}

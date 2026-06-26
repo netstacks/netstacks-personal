@@ -1,0 +1,230 @@
+/* Discovery Modal */
+.discovery-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.discovery-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Header */
+.discovery-modal-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.discovery-modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.discovery-modal-group {
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.discovery-modal-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.discovery-modal-close:hover {
+  opacity: 1;
+}
+
+/* Content */
+.discovery-modal-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Progress */
+.discovery-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-progress-bar {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.discovery-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.discovery-progress-fill.complete {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.discovery-progress-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Logs */
+.discovery-logs {
+  flex: 1;
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.discovery-log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  line-height: 1.4;
+}
+
+.discovery-log-time {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.discovery-log-level {
+  flex-shrink: 0;
+  font-weight: 600;
+  width: 36px;
+  text-align: center;
+}
+
+.discovery-log-level.info {
+  color: #60a5fa;
+}
+
+.discovery-log-level.success {
+  color: #34d399;
+}
+
+.discovery-log-level.warning {
+  color: #fbbf24;
+}
+
+.discovery-log-level.error {
+  color: #f87171;
+}
+
+.discovery-log-device {
+  color: #c084fc;
+  flex-shrink: 0;
+}
+
+.discovery-log-message {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.discovery-log-entry.error .discovery-log-message {
+  color: #f87171;
+}
+
+.discovery-log-entry.success .discovery-log-message {
+  color: #34d399;
+}
+
+/* Footer */
+.discovery-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.discovery-device-list {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.discovery-device-list strong {
+  color: var(--text-primary);
+}
+
+.discovery-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.discovery-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.discovery-btn.primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none;
+  color: white;
+}
+
+.discovery-btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+
+.discovery-btn.secondary {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.discovery-btn.secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.discovery-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

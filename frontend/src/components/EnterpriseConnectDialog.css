@@ -1,0 +1,375 @@
+.enterprise-connect-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.enterprise-connect-dialog {
+  background: var(--bg-secondary, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  width: 500px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.enterprise-connect-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #333);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.enterprise-connect-dialog-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+}
+
+.enterprise-connect-dialog-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.enterprise-connect-dialog-close:hover {
+  background: var(--hover-bg, #2a2a2a);
+  color: var(--text-primary, #fff);
+}
+
+.enterprise-connect-dialog-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.enterprise-connect-dialog-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.enterprise-connect-session-info {
+  background: var(--bg-tertiary, #252525);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.enterprise-connect-info-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.enterprise-connect-info-row:last-child {
+  margin-bottom: 0;
+}
+
+.enterprise-connect-info-row .label {
+  color: var(--text-secondary, #999);
+  font-size: 13px;
+  min-width: 90px;
+}
+
+.enterprise-connect-info-row .value {
+  color: var(--text-primary, #fff);
+  font-size: 13px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+}
+
+.enterprise-connect-loading,
+.enterprise-connect-error,
+.enterprise-connect-empty {
+  padding: 20px;
+  text-align: center;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.enterprise-connect-loading {
+  color: var(--text-secondary, #999);
+}
+
+.enterprise-connect-error {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: #fca5a5;
+}
+
+.enterprise-connect-empty {
+  background: var(--bg-tertiary, #252525);
+  border: 1px solid var(--border-color, #333);
+}
+
+.enterprise-connect-empty p {
+  margin: 0 0 8px 0;
+  color: var(--text-primary, #fff);
+}
+
+.enterprise-connect-empty .help-text {
+  color: var(--text-secondary, #999);
+  font-size: 13px;
+}
+
+.enterprise-connect-credential-select {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.enterprise-connect-credential-select label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #fff);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.override-badge {
+  display: inline-block;
+  background: var(--primary-color, #3b82f6);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.credential-select-wrapper {
+  position: relative;
+}
+
+.credential-select {
+  width: 100%;
+  background: var(--bg-tertiary, #252525);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  color: var(--text-primary, #fff);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.credential-select:hover {
+  border-color: var(--border-hover, #444);
+  background: var(--bg-secondary, #1e1e1e);
+}
+
+.credential-select:focus {
+  outline: none;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.credential-select optgroup {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #999);
+  padding: 8px 0 4px 0;
+}
+
+.credential-section-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary, #252525);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.credential-section-info .vault-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary, #666);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.credential-section-info .vault-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.credential-section-info .info-text {
+  font-size: 13px;
+  color: var(--text-tertiary, #666);
+  font-style: italic;
+}
+
+.credential-details {
+  margin-top: 8px;
+}
+
+.credential-info {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary, #252525);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+}
+
+.credential-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
+  color: var(--primary-color, #3b82f6);
+}
+
+.credential-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.credential-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.credential-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #fff);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vault-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.vault-badge.personal {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.vault-badge.shared {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.vault-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+.credential-description {
+  font-size: 13px;
+  color: var(--text-secondary, #999);
+}
+
+.credential-host {
+  font-size: 12px;
+  color: var(--text-tertiary, #666);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+}
+
+.enterprise-connect-dialog-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color, #333);
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.enterprise-connect-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+
+.enterprise-connect-btn.secondary {
+  background: var(--bg-tertiary, #252525);
+  border-color: var(--border-color, #333);
+  color: var(--text-primary, #fff);
+}
+
+.enterprise-connect-btn.secondary:hover:not(:disabled) {
+  background: var(--bg-secondary, #1e1e1e);
+  border-color: var(--border-hover, #444);
+}
+
+.enterprise-connect-btn.primary {
+  background: var(--primary-color, #3b82f6);
+  color: #fff;
+}
+
+.enterprise-connect-btn.primary:hover:not(:disabled) {
+  background: #2563eb;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.enterprise-connect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,0 +1,288 @@
+.custom-commands-settings {
+  padding: 16px;
+}
+
+.custom-commands-section {
+  margin-bottom: 24px;
+}
+
+.custom-commands-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.custom-commands-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary, #808080);
+  letter-spacing: 0.5px;
+}
+
+.custom-commands-section-description {
+  font-size: 12px;
+  color: var(--text-secondary, #808080);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.custom-commands-loading {
+  font-size: 12px;
+  color: var(--text-secondary, #808080);
+  padding: 12px;
+}
+
+.custom-commands-empty {
+  font-size: 12px;
+  color: var(--text-secondary, #808080);
+  padding: 16px;
+  background: var(--bg-secondary, #252526);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 6px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.custom-commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custom-command-item {
+  background: var(--bg-secondary, #252526);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.custom-command-item.disabled {
+  opacity: 0.5;
+}
+
+.custom-command-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.custom-command-item-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-primary, #cccccc);
+}
+
+.custom-command-item-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.custom-command-item-badge.static {
+  background: var(--accent-color, #007acc);
+  color: white;
+}
+
+.custom-command-item-badge.dynamic {
+  background: #3d8b37;
+  color: white;
+}
+
+.custom-command-item-badge.api {
+  background: #b86e00;
+  color: white;
+}
+
+.custom-command-item-badge.script {
+  background: #6a9955;
+  color: white;
+}
+
+.custom-command-item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.custom-command-item-actions button {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #808080);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.custom-command-item-actions button:hover {
+  background: var(--bg-hover, #2a2d2e);
+  color: var(--text-primary, #cccccc);
+}
+
+.custom-command-item-command {
+  font-size: 12px;
+  color: var(--text-secondary, #808080);
+  font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 4px;
+}
+
+.btn-new-custom-command {
+  padding: 6px 12px;
+  background: var(--accent-color, #007acc);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-new-custom-command:hover {
+  background: var(--accent-hover, #005a9e);
+}
+
+/* Custom command creation/edit form */
+.custom-command-form {
+  background: var(--bg-secondary, #252526);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.custom-command-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.custom-command-form-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #808080);
+}
+
+.custom-command-form-field input[type="text"],
+.custom-command-form-field select {
+  padding: 8px 12px;
+  background: var(--bg-primary, #1e1e1e);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 4px;
+  color: var(--text-primary, #cccccc);
+  font-size: 13px;
+}
+
+.custom-command-form-field input:focus {
+  outline: none;
+  border-color: var(--accent-color, #007acc);
+}
+
+.custom-command-form-hint {
+  font-size: 11px;
+  color: var(--text-secondary, #808080);
+  font-style: italic;
+}
+
+.custom-command-regex-input {
+  font-family: var(--font-mono, 'Fira Code', monospace);
+  font-size: 12px;
+}
+
+.custom-command-type-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.custom-command-type-toggle button {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 4px;
+  background: var(--bg-primary, #1e1e1e);
+  color: var(--text-secondary, #808080);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.custom-command-type-toggle button.active {
+  background: var(--accent-color, #007acc);
+  border-color: var(--accent-color, #007acc);
+  color: white;
+}
+
+.custom-command-detection-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.custom-command-detection-types label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-primary, #cccccc);
+  cursor: pointer;
+}
+
+.custom-command-detection-types input[type="checkbox"] {
+  accent-color: var(--accent-color, #007acc);
+}
+
+.custom-command-enabled-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.custom-command-enabled-toggle label {
+  font-size: 12px;
+  color: var(--text-secondary, #808080);
+}
+
+.custom-command-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.custom-command-form-actions button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.custom-command-form-actions .btn-cancel {
+  background: transparent;
+  border: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-primary, #cccccc);
+}
+
+.custom-command-form-actions .btn-cancel:hover {
+  background: var(--bg-hover, #2a2d2e);
+}
+
+.custom-command-form-actions .btn-save {
+  background: var(--accent-color, #007acc);
+  border: none;
+  color: white;
+}
+
+.custom-command-form-actions .btn-save:hover {
+  background: var(--accent-hover, #005a9e);
+}
+
+.custom-command-form-actions .btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

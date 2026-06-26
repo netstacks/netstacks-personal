@@ -1,0 +1,93 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/v2/tooling/bundler/schemas/config.schema.json",
+  "productName": "NetStacks",
+  "version": "0.2.26",
+  "identifier": "com.netstacks.terminal",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5RERBMUIzRDY1RjRDRjkKUldUNVRGL1dzNkhkMlU3SmpqU1BQR2FsaUJwdGwwRFhkWkRMK3dZNWxDRGd2bHoweHhKb3E3ZTEK",
+      "endpoints": [
+        "https://releases.netstacks.net/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "NetStacks",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob: tauri: ipc:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * ws: wss: http: https: tauri: ipc:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": "v1Compatible",
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "AI-powered SSH terminal for network engineers",
+    "longDescription": "NetStacks is a professional SSH terminal application with AI assistance, multi-session management, and network topology visualization.",
+    "externalBin": [
+      "binaries/netstacks-agent"
+    ],
+    "macOS": {
+      "entitlements": "./entitlements.plist",
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.acs.microsoft.com",
+      "signCommand": "artifact-signing-cli -e https://eus.codesigning.azure.net/ -a Netstacks -c NetStacks -d NetStacks %1",
+      "nsis": {
+        "installerIcon": "./icons/icon.ico",
+        "installMode": "currentUser",
+        "installerHooks": "./windows/installer.nsh"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ],
+        "files": {},
+        "section": "utils",
+        "priority": "optional"
+      },
+      "rpm": {
+        "release": "1",
+        "epoch": 0
+      }
+    }
+  }
+}

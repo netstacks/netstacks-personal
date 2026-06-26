@@ -1,0 +1,385 @@
+.vault-settings {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.vault-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.vault-description {
+  margin: 0 0 16px 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.vault-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.vault-status.unlocked {
+  background: rgba(40, 167, 69, 0.1);
+  border: 1px solid rgba(40, 167, 69, 0.3);
+  color: #28a745;
+}
+
+.vault-status.locked {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: #dc3545;
+}
+
+.vault-status-icon {
+  display: flex;
+  align-items: center;
+}
+
+.vault-status-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vault-error {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: #dc3545;
+  padding: 10px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
+.vault-success {
+  background: rgba(40, 167, 69, 0.1);
+  border: 1px solid rgba(40, 167, 69, 0.3);
+  color: #28a745;
+  padding: 10px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
+.vault-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vault-form-info {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0 0 8px 0;
+}
+
+.vault-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vault-form .form-group label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.vault-form .form-group input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-input-bg);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.vault-form .form-group input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.vault-form .btn-primary {
+  margin-top: 8px;
+  padding: 10px 16px;
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.vault-form .btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.vault-unlocked-info {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.vault-unlocked-info p {
+  margin: 0 0 8px 0;
+}
+
+.vault-note {
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* Lock Vault Button */
+.btn-lock {
+  margin-top: 16px;
+  padding: 10px 16px;
+  background: rgba(255, 193, 7, 0.1);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.btn-lock:hover {
+  background: rgba(255, 193, 7, 0.2);
+  border-color: rgba(255, 193, 7, 0.5);
+}
+
+/* API Keys Section */
+.vault-api-keys {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-border);
+}
+
+.vault-api-keys h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.vault-api-keys-description {
+  margin: 0 0 16px 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+/* API Key List */
+.api-key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.api-key-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.api-key-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.api-key-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.api-key-status.stored {
+  background: #28a745;
+}
+
+.api-key-status.not-stored {
+  background: #6c757d;
+  opacity: 0.3;
+}
+
+.api-key-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.api-key-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.api-key-actions button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.api-key-actions button:hover {
+  opacity: 0.8;
+}
+
+.btn-set,
+.btn-update {
+  background: var(--color-accent);
+  color: white;
+}
+
+.btn-delete {
+  background: rgba(220, 53, 69, 0.1);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.3);
+}
+
+.btn-delete:hover {
+  background: rgba(220, 53, 69, 0.2);
+}
+
+/* API Key Input Form */
+.api-key-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  margin-left: 18px;
+}
+
+.api-key-input input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-input-bg);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.api-key-input input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.btn-save {
+  background: var(--color-accent);
+  color: white;
+}
+
+.btn-cancel {
+  background: rgba(108, 117, 125, 0.1);
+  color: #6c757d;
+  border: 1px solid rgba(108, 117, 125, 0.3);
+}
+
+.btn-cancel:hover {
+  background: rgba(108, 117, 125, 0.2);
+}
+
+/* Touch ID section */
+.vault-biometric-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--color-bg-tertiary, rgba(255,255,255,0.03));
+  border: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  border-radius: 6px;
+}
+.vault-biometric-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+.vault-biometric-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.vault-biometric-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.vault-biometric-dot.enabled { background: var(--color-success, #4ec9b0); }
+.vault-biometric-dot.disabled { background: var(--color-text-secondary); opacity: 0.5; }
+.btn-enable-biometric,
+.btn-disable-biometric {
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+.btn-enable-biometric:hover,
+.btn-disable-biometric:hover { background: var(--color-bg-hover); }
+.btn-disable-biometric { color: var(--color-warning, #dcdcaa); }
+.vault-biometric-enable-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vault-biometric-enable-form input {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+.vault-biometric-enable-actions {
+  display: flex;
+  gap: 8px;
+}
+.vault-biometric-warning {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-warning, #dcdcaa);
+  line-height: 1.5;
+}
+
+/* Master-password rotation + wipe sections (P1-10) */
+.vault-rotate-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border, #3c3c3c);
+}
+
+.vault-rotate-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #cccccc);
+}
+
+.vault-rotate-section-danger h4 {
+  color: var(--color-error, #f48771);
+}
+
+.vault-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}

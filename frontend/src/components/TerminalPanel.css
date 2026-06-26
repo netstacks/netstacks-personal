@@ -1,0 +1,276 @@
+/* Terminal Panel - VS Code style bottom panel */
+
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  height: 300px;
+  min-height: 100px;
+  max-height: 80vh;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+}
+
+.terminal-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 35px;
+}
+
+.terminal-panel-tabs-container {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.terminal-panel-tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.terminal-panel-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-top: 2px solid transparent;
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0.8;
+  position: relative;
+}
+
+.terminal-panel-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  opacity: 1;
+}
+
+.terminal-panel-tab.active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-top-color: var(--color-accent);
+  opacity: 1;
+}
+
+.terminal-panel-tab.dragging {
+  opacity: 0.5;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  transform: scale(1.02);
+}
+
+/* Session color stripe - left border on tab when session has color */
+.terminal-panel-tab.has-session-color {
+  border-left: 3px solid var(--session-color, var(--color-accent));
+}
+
+/* Status indicator dot */
+.terminal-panel-tab-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.terminal-panel-tab-status.connected {
+  background-color: var(--color-success);
+}
+
+.terminal-panel-tab-status.connecting {
+  background-color: var(--color-warning);
+  animation: pulse-status 1.5s ease-in-out infinite;
+}
+
+.terminal-panel-tab-status.disconnected {
+  background-color: var(--color-error);
+}
+
+.terminal-panel-tab-status.local {
+  background-color: var(--color-text-secondary);
+}
+
+@keyframes pulse-status {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.terminal-panel-tab-multisend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.terminal-panel-tab-multisend svg {
+  width: 12px;
+  height: 12px;
+}
+
+.terminal-panel-tab-title {
+  font-size: var(--font-size-small);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-panel-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: var(--spacing-xs);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+
+.terminal-panel-tab:hover .terminal-panel-tab-close {
+  opacity: 0.7;
+}
+
+.terminal-panel-tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.terminal-panel-tab-close:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Drop target indication - when dragging over tabs area */
+.terminal-panel-tabs.drag-over {
+  background: var(--color-bg-hover);
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* Drop target indication for individual tab positions */
+.terminal-panel-tab.drop-before::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background-color: var(--color-accent);
+  border-radius: 1px;
+}
+
+.terminal-panel-tab.drop-after::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background-color: var(--color-accent);
+  border-radius: 1px;
+}
+
+.terminal-panel-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-panel-tab-add:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-panel-actions {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--spacing-sm);
+}
+
+.terminal-panel-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-panel-action:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-panel-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.terminal-panel-instance {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+}
+
+.terminal-panel-instance.active {
+  display: block;
+}
+
+/* Tiled layout styles for groups */
+.terminal-panel-content.tiled {
+  display: flex;
+  flex-direction: row;
+}
+
+.terminal-panel-content.tiled .terminal-panel-instance {
+  position: relative;
+  flex: 1;
+  display: block;
+}
+
+.terminal-panel-content.tiled-vertical {
+  flex-direction: column;
+}

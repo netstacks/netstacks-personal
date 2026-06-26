@@ -1,0 +1,145 @@
+/* Workspace sub-panel session picker — themed to match VS-Code-Dark
+   chrome that the workspace tab uses. Scoped under .wsp-picker* so
+   nothing else in the app inherits these styles. */
+
+.wsp-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+
+.wsp-picker {
+  width: min(560px, 90vw);
+  max-height: 60vh;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #d4d4d4;
+  font-size: 13px;
+}
+
+.wsp-picker-header {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid #3c3c3c;
+  background: #2d2d30;
+}
+
+.wsp-picker-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 10px 14px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.wsp-picker-input::placeholder {
+  color: #6d6d6d;
+}
+
+.wsp-picker-close {
+  background: none;
+  border: none;
+  color: #9d9d9d;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.wsp-picker-close:hover {
+  color: #f0f0f0;
+  background: #333333;
+}
+
+.wsp-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.wsp-picker-empty,
+.wsp-picker-error {
+  padding: 16px 14px;
+  color: #6d6d6d;
+  text-align: center;
+}
+
+.wsp-picker-error {
+  color: #f14c4c;
+}
+
+.wsp-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+
+.wsp-picker-row.active,
+.wsp-picker-row:hover {
+  background: #2a2d2e;
+}
+
+.wsp-picker-row.active {
+  border-left-color: #569cd6;
+}
+
+.wsp-picker-color {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+
+.wsp-picker-proto {
+  font-size: 11px;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.wsp-picker-name {
+  flex: 0 1 auto;
+  color: #d4d4d4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wsp-picker-host {
+  margin-left: auto;
+  color: #6d6d6d;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.wsp-picker-footer {
+  padding: 6px 12px;
+  border-top: 1px solid #3c3c3c;
+  color: #6d6d6d;
+  font-size: 11px;
+  text-align: center;
+  background: #2d2d30;
+}

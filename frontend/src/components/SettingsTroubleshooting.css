@@ -1,0 +1,52 @@
+/* Settings Troubleshooting Panel Styles */
+
+.settings-troubleshooting {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Input group for number + suffix layout */
+.settings-input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.settings-input-suffix {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  min-width: 24px;
+}
+
+/* Info box for explanatory text */
+.settings-info-box {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--spacing-md);
+}
+
+.settings-info-box p {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.settings-info-box p:last-child {
+  margin-bottom: 0;
+}
+
+.settings-info-box kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text-primary);
+}

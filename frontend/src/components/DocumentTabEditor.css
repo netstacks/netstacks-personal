@@ -1,0 +1,361 @@
+/* DocumentTabEditor - Inline document editor for tab content */
+
+.doc-tab-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+/* Header toolbar */
+.doc-tab-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.doc-tab-editor-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Badges - reuse document viewer badge styles */
+.doc-tab-editor-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-badge.outputs {
+  background: rgba(52, 152, 219, 0.2);
+  color: #3498db;
+}
+
+.doc-tab-editor-badge.templates {
+  background: rgba(155, 89, 182, 0.2);
+  color: #9b59b6;
+}
+
+.doc-tab-editor-badge.backups {
+  background: rgba(46, 204, 113, 0.2);
+  color: #2ecc71;
+}
+
+.doc-tab-editor-badge.history {
+  background: rgba(241, 196, 15, 0.2);
+  color: #f1c40f;
+}
+
+.doc-tab-editor-badge.notes {
+  background: rgba(230, 126, 34, 0.2);
+  color: #e67e22;
+}
+
+/* Content type badges */
+.doc-tab-editor-badge.content-type {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.doc-tab-editor-badge.content-type-json {
+  background: rgba(52, 152, 219, 0.2);
+  color: #3498db;
+}
+
+.doc-tab-editor-badge.content-type-csv {
+  background: rgba(46, 204, 113, 0.2);
+  color: #2ecc71;
+}
+
+.doc-tab-editor-badge.content-type-jinja {
+  background: rgba(155, 89, 182, 0.2);
+  color: #9b59b6;
+}
+
+.doc-tab-editor-badge.content-type-config {
+  background: rgba(230, 126, 34, 0.2);
+  color: #e67e22;
+}
+
+.doc-tab-editor-badge.content-type-text {
+  background: rgba(149, 165, 166, 0.2);
+  color: #95a5a6;
+}
+
+.doc-tab-editor-badge.content-type-markdown {
+  background: rgba(52, 152, 219, 0.2);
+  color: #5dade2;
+}
+
+.doc-tab-editor-badge.content-type-recording {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+/* Troubleshooting category badge */
+.doc-tab-editor-badge.troubleshooting {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+/* Editing badge */
+.doc-tab-editor-badge.editing {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+/* Modified badge */
+.doc-tab-editor-badge.modified {
+  background: rgba(241, 196, 15, 0.2);
+  color: #f1c40f;
+}
+
+/* Header action buttons */
+.doc-tab-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.doc-tab-editor-btn:hover:not(:disabled) {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-hover);
+}
+
+.doc-tab-editor-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.doc-tab-editor-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.doc-tab-editor-btn.active {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.doc-tab-editor-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: white;
+}
+
+.doc-tab-editor-btn.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover, #9b59b6);
+  border-color: var(--color-accent-hover, #9b59b6);
+}
+
+.doc-tab-editor-btn.render {
+  background: rgba(76, 175, 80, 0.15);
+  border-color: rgba(76, 175, 80, 0.4);
+  color: #4caf50;
+}
+
+.doc-tab-editor-btn.render:hover {
+  background: rgba(76, 175, 80, 0.25);
+  border-color: #4caf50;
+}
+
+.doc-tab-editor-btn.ai-enhance {
+  background: rgba(155, 89, 182, 0.15);
+  border-color: rgba(155, 89, 182, 0.4);
+  color: #9b59b6;
+}
+
+.doc-tab-editor-btn.ai-enhance:hover {
+  background: rgba(155, 89, 182, 0.25);
+  border-color: #9b59b6;
+}
+
+.doc-tab-editor-badge.enhancing {
+  background: rgba(155, 89, 182, 0.2);
+  color: #9b59b6;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Error banner */
+.doc-tab-editor-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(231, 76, 60, 0.15);
+  border-bottom: 1px solid rgba(231, 76, 60, 0.3);
+  color: #e74c3c;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-error-dismiss {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Content area */
+.doc-tab-editor-content {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* When content is a recording player, disable scroll and stretch to fill */
+.doc-tab-editor-content:has(.recording-player) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Text viewer */
+.doc-tab-text-viewer {
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+}
+
+.doc-tab-text-viewer pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-text-primary);
+}
+
+/* Edit viewer */
+.doc-tab-edit-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-tab-edit-textarea {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  margin: 0;
+  background: var(--color-bg-primary);
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  tab-size: 2;
+}
+
+.doc-tab-edit-textarea:focus {
+  outline: none;
+}
+
+.doc-tab-edit-textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Footer */
+.doc-tab-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-stats {
+  display: inline-block;
+}
+
+.doc-tab-editor-status {
+  margin-left: auto;
+}
+
+.doc-tab-editor-status.modified {
+  color: #f1c40f;
+}
+
+/* Markdown viewer */
+.doc-tab-markdown-viewer {
+  height: 100%;
+  padding: 16px 24px;
+  overflow: auto;
+}
+
+.doc-tab-markdown-viewer .markdown-content {
+  max-width: 900px;
+}
+
+/* Make markdown tables look nicer */
+.doc-tab-markdown-viewer table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+}
+
+.doc-tab-markdown-viewer th,
+.doc-tab-markdown-viewer td {
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.doc-tab-markdown-viewer th {
+  background: var(--color-bg-tertiary);
+  font-weight: 600;
+}
+
+.doc-tab-markdown-viewer tr:nth-child(even) {
+  background: var(--color-bg-secondary);
+}

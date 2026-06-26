@@ -1,0 +1,464 @@
+/* TemplateDetailTab - Full-tab template editor */
+
+.tdt-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary, #1e1e1e);
+  color: var(--text-primary, #cccccc);
+}
+
+/* === Header === */
+
+.tdt-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-secondary, #252526);
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  min-height: 40px;
+  flex-shrink: 0;
+}
+
+.tdt-header-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tdt-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #cccccc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.tdt-create-name-input {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #cccccc);
+  background: var(--bg-tertiary, #2d2d2d);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  padding: 4px 8px;
+  outline: none;
+  min-width: 180px;
+}
+
+.tdt-create-name-input:focus {
+  border-color: var(--accent-color, #0078d4);
+}
+
+.tdt-create-select {
+  background: var(--bg-tertiary, #2d2d2d);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  color: var(--text-primary, #cccccc);
+  font-size: 11px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.tdt-create-select:focus {
+  outline: none;
+  border-color: var(--accent-color, #0078d4);
+}
+
+.tdt-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* === Badges === */
+
+.tdt-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tdt-badge-platform { background: rgba(0, 120, 212, 0.2); color: var(--accent-color, #0078d4); }
+.tdt-badge-format { background: rgba(133, 133, 133, 0.2); color: var(--text-secondary, #858585); }
+.tdt-badge-version { background: rgba(75, 180, 75, 0.2); color: #4bb44b; }
+.tdt-badge-unsaved { background: rgba(255, 152, 0, 0.2); color: #ff9800; }
+.tdt-badge-type { background: rgba(133, 133, 133, 0.15); color: var(--text-secondary, #858585); font-size: 10px; }
+.tdt-badge-required { background: rgba(255, 152, 0, 0.15); color: #ff9800; font-size: 10px; }
+
+/* === Buttons === */
+
+.tdt-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  background: var(--bg-tertiary, #2d2d2d);
+  color: var(--text-primary, #cccccc);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.tdt-btn:hover:not(:disabled) {
+  background: var(--bg-hover, #3c3c3c);
+  border-color: var(--text-secondary, #858585);
+}
+
+.tdt-btn.primary {
+  background: var(--accent-color, #0078d4);
+  border-color: var(--accent-color, #0078d4);
+  color: #fff;
+}
+
+.tdt-btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.tdt-btn.danger {
+  background: rgba(244, 71, 71, 0.2);
+  border-color: #f44747;
+  color: #f44747;
+}
+
+.tdt-btn.danger:hover:not(:disabled) {
+  background: rgba(244, 71, 71, 0.3);
+}
+
+.tdt-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* === Toggle label === */
+
+.tdt-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary, #858585);
+  cursor: pointer;
+}
+
+.tdt-toggle-label input[type="checkbox"] {
+  accent-color: var(--accent-color, #0078d4);
+}
+
+/* === Error bar === */
+
+.tdt-error-bar {
+  padding: 6px 16px;
+  background: rgba(244, 71, 71, 0.15);
+  color: #f44747;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(244, 71, 71, 0.3);
+  flex-shrink: 0;
+}
+
+/* === Body === */
+
+.tdt-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* === Editor section === */
+
+.tdt-editor-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  flex-shrink: 0;
+}
+
+.tdt-panel-divider {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border-color, #3c3c3c);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.tdt-panel-divider:hover,
+.tdt-panel-divider.active {
+  background: var(--accent-color, #0078d4);
+}
+
+.tdt-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--bg-tertiary, #2d2d2d);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary, #858585);
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  flex-shrink: 0;
+}
+
+.tdt-section-lang {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(133, 133, 133, 0.15);
+  color: var(--text-secondary, #858585);
+  font-weight: 400;
+  text-transform: lowercase;
+}
+
+.tdt-editor-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.tdt-editor-monaco {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* === Side panel === */
+
+.tdt-side-panel {
+  flex: 1;
+  min-width: 300px;
+  overflow-y: auto;
+  background: var(--bg-secondary, #252526);
+}
+
+.tdt-side-section {
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+}
+
+.tdt-side-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary, #858585);
+  background: var(--bg-tertiary, #2d2d2d);
+}
+
+.tdt-side-section-header.tdt-clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tdt-side-section-header.tdt-clickable:hover {
+  color: var(--text-primary, #cccccc);
+}
+
+.tdt-toggle-arrow {
+  font-size: 9px;
+}
+
+/* === Variables === */
+
+.tdt-variables-list {
+  padding: 4px 0;
+}
+
+.tdt-variable-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 14px;
+  transition: background 0.15s;
+}
+
+.tdt-variable-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tdt-variable-name {
+  font-family: var(--font-family-mono, monospace);
+  font-size: 12px;
+  color: var(--text-primary, #cccccc);
+}
+
+.tdt-variable-badges {
+  display: flex;
+  gap: 4px;
+}
+
+/* === Render preview === */
+
+.tdt-render-panel {
+  padding: 10px 14px;
+}
+
+.tdt-render-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tdt-render-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tdt-render-input-row label {
+  font-size: 11px;
+  color: var(--text-secondary, #858585);
+}
+
+.tdt-render-input-row input {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  background: var(--bg-primary, #1e1e1e);
+  color: var(--text-primary, #cccccc);
+  font-size: 12px;
+  font-family: var(--font-family-mono, monospace);
+}
+
+.tdt-render-input-row input:focus {
+  outline: none;
+  border-color: var(--accent-color, #0078d4);
+}
+
+.tdt-render-btn {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.tdt-render-output-wrapper {
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* === Versions === */
+
+.tdt-versions-panel {
+  padding: 4px 0;
+}
+
+.tdt-versions-loading,
+.tdt-versions-empty {
+  padding: 8px 14px;
+  font-size: 11px;
+  color: var(--text-secondary, #858585);
+}
+
+.tdt-versions-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.tdt-version-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  font-size: 11px;
+  transition: background 0.15s;
+}
+
+.tdt-version-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tdt-version-item.active {
+  background: rgba(0, 120, 212, 0.1);
+  border-left: 2px solid var(--accent-color, #0078d4);
+}
+
+.tdt-version-diff {
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  margin: 4px 14px 8px;
+  overflow: hidden;
+}
+
+.tdt-version-diff-actions {
+  display: flex;
+  padding: 4px 8px;
+  background: var(--bg-tertiary, #2d2d2d);
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+}
+
+.tdt-version-num {
+  font-weight: 600;
+  color: var(--text-primary, #cccccc);
+  min-width: 30px;
+}
+
+.tdt-version-date {
+  color: var(--text-secondary, #858585);
+  flex: 1;
+}
+
+.tdt-version-by {
+  color: var(--text-secondary, #858585);
+}
+
+/* === Loading/Error === */
+
+.tdt-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px;
+  color: var(--text-secondary, #858585);
+  font-size: 12px;
+}
+
+.tdt-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--bg-tertiary, #2d2d2d);
+  border-top-color: var(--accent-color, #0078d4);
+  border-radius: 50%;
+  animation: tdt-spin 0.8s linear infinite;
+}
+
+@keyframes tdt-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tdt-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px;
+  color: #f44747;
+  font-size: 12px;
+  text-align: center;
+}

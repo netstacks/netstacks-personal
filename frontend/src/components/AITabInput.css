@@ -1,0 +1,84 @@
+/* AITabInput — Windmill-style Tab-to-autocomplete */
+
+.ai-tab-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-tab-wrapper.focused .ai-tab-input {
+  border-color: var(--color-accent, #0078d4);
+}
+
+.ai-tab-input {
+  width: 100%;
+  outline: none;
+}
+
+textarea.ai-tab-input {
+  resize: vertical;
+  min-height: 40px;
+}
+
+/* TAB badge — appears when field is empty and focused */
+.ai-tab-badge {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: var(--color-bg-secondary, #252525);
+  border: 1px solid var(--color-border, #3e3e3e);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #858585);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+textarea ~ .ai-tab-badge {
+  top: 10px;
+  transform: none;
+}
+
+/* Loading spinner */
+.ai-tab-loading {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+}
+
+textarea ~ .ai-tab-loading {
+  top: 10px;
+  transform: none;
+}
+
+.ai-tab-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border, #3e3e3e);
+  border-top-color: var(--color-accent, #0078d4);
+  border-radius: 50%;
+  animation: ai-tab-spin 0.6s linear infinite;
+}
+
+@keyframes ai-tab-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* When loading, dim the input slightly */
+.ai-tab-wrapper.loading .ai-tab-input {
+  opacity: 0.7;
+}

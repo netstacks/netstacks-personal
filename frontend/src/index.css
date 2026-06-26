@@ -1,0 +1,626 @@
+/* NetStacks Theme - CSS Variables */
+/* All colors and sizes are defined here - no hardcoding elsewhere */
+
+:root {
+  /* Force dark color scheme for browser chrome (scrollbars, inputs, etc.) */
+  color-scheme: dark;
+
+  /* Dark theme (default) */
+  --color-bg-primary: #1e1e1e;
+  --color-bg-secondary: #252526;
+  --color-bg-tertiary: #2d2d30;
+  --color-bg-hover: #3c3c3c;
+  --color-bg-active: #094771;
+
+  --color-border: #3c3c3c;
+  --color-border-active: #007acc;
+
+  --color-text-primary: #cccccc;
+  --color-text-secondary: #8c8c8c;
+  --color-text-accent: #4fc1ff;
+
+  --color-accent: #007acc;
+  --color-accent-hover: #1c97ea;
+
+  --color-success: #4ec9b0;
+  --color-warning: #dcdcaa;
+  --color-error: #f14c4c;
+
+  /* Sizes */
+  --size-activity-bar: 48px;
+  --size-sidebar: 260px;
+  --size-header: 35px;
+  --size-statusbar: 22px;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  --font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
+  --font-size-base: 13px;
+  --font-size-small: 12px;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+
+  /* Transitions */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.2s ease;
+
+  /* ── Canonical menu tokens ─────────────────────────────────────
+   * Every right-click context menu, tab menu, popover menu, etc.
+   * should consume these so theming stays uniform. The shared
+   * .context-menu class (ContextMenu.css) uses them directly;
+   * bespoke menus that need richer behavior should still reference
+   * the same tokens for radius / shadow / z-index / min-width so
+   * they sit at the same visual layer with matching corners.
+   *
+   * Don't redefine these per-component. If a menu needs a different
+   * radius (e.g. a hover popover vs a context menu), add a NEW
+   * token here rather than hardcoding.
+   */
+  --menu-bg: var(--color-bg-secondary);
+  --menu-border: var(--color-border);
+  --menu-radius: 8px;
+  --menu-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --menu-min-width: 200px;
+  --menu-z: 3000;
+  --menu-padding: var(--spacing-xs);
+  --menu-item-padding: var(--spacing-sm) var(--spacing-md);
+  --menu-item-radius: 4px;
+  --menu-divider-margin: var(--spacing-xs) var(--spacing-sm);
+
+  /* ── Canonical z-index layers ──────────────────────────────────
+   * Modals and the Command Palette must sit ABOVE the toast layer
+   * so toasts can't intercept clicks on confirm/cancel buttons
+   * (bottom-right toast container vs bottom-right dialog footers).
+   *
+   *    --z-toast     900   stacked notifications, dismissible
+   *    --z-popover  1000   tooltips, popovers, hover overlays
+   *    --z-modal    2000   ConfirmDialog, CommandWarningDialog,
+   *                        TracerouteDialog, AboutModal, etc.
+   *    --z-palette  2500   Command Palette sits above all modals
+   *                        so Cmd+Shift+P always works on top
+   *    --menu-z     3000   right-click context menus sit above
+   *                        everything else (right-click within a
+   *                        modal should still get a menu)
+   *
+   * Don't redefine per component. If a new layer is genuinely
+   * needed, add a NEW token here rather than picking a number. */
+  --z-toast: 900;
+  --z-popover: 1000;
+  --z-modal: 2000;
+  --z-palette: 2500;
+
+  /* ── Missing canonical tokens ──────────────────────────────────
+   * Referenced across components but never defined — they were
+   * silently falling back to inconsistent hardcoded hexes. */
+  --color-text-tertiary: #6e6e6e;
+  --color-text-muted: #6e6e6e;
+  --color-text-on-accent: #ffffff;
+  --color-primary: var(--color-accent);
+  --color-primary-hover: var(--color-accent-hover);
+  --color-danger: var(--color-error);
+  --color-border-hover: #4a4a4a;
+  --color-border-subtle: var(--color-border);
+  --color-bg-elevated: var(--color-bg-tertiary);
+  --color-bg-input: var(--color-bg-primary);
+  --color-surface-hover: var(--color-bg-hover);
+  --color-focus: var(--color-accent);
+  --color-list-active-selection-bg: var(--color-bg-active);
+  --color-list-active-selection-bg-hover: var(--color-bg-hover);
+  /* rgb triplets for rgba(var(--x), a) usage */
+  --color-accent-rgb: 0, 122, 204;
+  --color-error-rgb: 241, 76, 76;
+  --color-warning-rgb: 220, 220, 170;
+  --color-success-rgb: 78, 201, 176;
+  --color-error-bg: rgba(241, 76, 76, 0.1);
+  --color-accent-bg: rgba(0, 122, 204, 0.15);
+
+  /* ── Compatibility aliases ─────────────────────────────────────
+   * Several components were written against alternate token-naming
+   * conventions (un-prefixed, VS Code, "vg-", "surface-", color
+   * words) that were never defined, so they rendered arbitrary
+   * fallback hexes (e.g. "secondary" surfaces shipped as 8 different
+   * greys) and ignored theming. These map every such name to the
+   * canonical token. Prefer the canonical --color-* tokens in new
+   * code; these exist only so existing components stay consistent. */
+  --bg-primary: var(--color-bg-primary);
+  --bg-secondary: var(--color-bg-secondary);
+  --bg-tertiary: var(--color-bg-tertiary);
+  --bg-hover: var(--color-bg-hover);
+  --bg-active: var(--color-bg-active);
+  --bg-elevated: var(--color-bg-tertiary);
+  --bg-input: var(--color-bg-primary);
+  --bg-popup: var(--color-bg-secondary);
+  --hover-bg: var(--color-bg-hover);
+  --input-bg: var(--color-bg-primary);
+
+  --surface-primary: var(--color-bg-primary);
+  --surface-secondary: var(--color-bg-secondary);
+  --surface-tertiary: var(--color-bg-tertiary);
+  --surface-hover: var(--color-bg-hover);
+
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
+  --text-muted: var(--color-text-muted);
+  --text-dimmed: var(--color-text-muted);
+
+  --border: var(--color-border);
+  --border-color: var(--color-border);
+  --border-hover: var(--color-border-hover);
+  --border-subtle: var(--color-border);
+  --border-color-subtle: var(--color-border);
+
+  --accent: var(--color-accent);
+  --accent-color: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --primary-color: var(--color-accent);
+  --selection-bg: var(--color-accent);
+
+  --error: var(--color-error);
+  --error-color: var(--color-error);
+  --success-color: var(--color-success);
+  --warning-color: var(--color-warning);
+  --info-color: var(--color-accent);
+
+  --accent-blue: var(--color-accent);
+  --accent-green: var(--color-success);
+  --accent-orange: var(--color-warning);
+  --red: var(--color-error);
+  --green: var(--color-success);
+  --yellow: var(--color-warning);
+  --blue: var(--color-accent);
+
+  --font-mono: var(--font-family-mono);
+  --font-sans: var(--font-family);
+  --font-size-xs: 11px;
+  --font-size-large: 16px;
+  --radius-sm: 4px;
+  --radius-lg: 8px;
+  --spacing-xl: 24px;
+
+  /* "vg-" (vanguard) palette aliases */
+  --vg-bg: var(--color-bg-primary);
+  --vg-card-bg: var(--color-bg-secondary);
+  --vg-elevated: var(--color-bg-tertiary);
+  --vg-border: var(--color-border);
+  --vg-accent: var(--color-accent);
+  --vg-accent-light: var(--color-accent-hover);
+  --vg-text-primary: var(--color-text-primary);
+  --vg-text-secondary: var(--color-text-secondary);
+  --vg-text-muted: var(--color-text-muted);
+  --vg-error: var(--color-error);
+  --vg-error-bg: rgba(241, 76, 76, 0.1);
+
+  /* status-bar aliases */
+  --status-bar-bg: var(--color-bg-tertiary);
+  --status-bar-text: var(--color-text-primary);
+  --status-bar-accent: var(--color-accent);
+  --status-bar-hover: var(--color-bg-hover);
+
+  /* VS Code token aliases (used by editor-adjacent components) */
+  --vscode-editor-background: var(--color-bg-primary);
+  --vscode-foreground: var(--color-text-primary);
+  --vscode-descriptionForeground: var(--color-text-secondary);
+  --vscode-editorWidget-foreground: var(--color-text-primary);
+  --vscode-widget-border: var(--color-border);
+  --vscode-button-secondaryBackground: var(--color-bg-tertiary);
+  --vscode-button-secondaryForeground: var(--color-text-primary);
+  --vscode-textLink-foreground: var(--color-accent);
+  --vscode-list-hoverBackground: var(--color-bg-hover);
+  --vscode-textCodeBlock-background: var(--color-bg-tertiary);
+  --vscode-sideBarSectionHeader-background: var(--color-bg-tertiary);
+  --vscode-charts-yellow: var(--color-warning);
+  --vscode-font-family: var(--font-family);
+  --vscode-editor-font-family: var(--font-family-mono);
+
+  /* Remaining one-offs + safe defaults for dynamic per-item tokens
+   * (--agent-color / --task-status-color are normally set inline per
+   * element; these defaults only apply when no inline value exists). */
+  --color-text: var(--color-text-primary);
+  --color-input-bg: var(--color-bg-primary);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --vg-glow: rgba(0, 122, 204, 0.4);
+  --vg-accent-grad: var(--color-accent);
+  --agent-color: var(--color-accent);
+  --task-status-color: var(--color-text-secondary);
+
+  /* ── Liquid-glass surfaces ─────────────────────────────────────
+   * Translucent + blurred chrome (title bar, sidebar, status bar)
+   * and floating surfaces (popovers, modals). Tune the whole look
+   * from here. Content surfaces (terminal, data panels) stay opaque
+   * for readability and intentionally do NOT use these. */
+  --glass-bg: rgba(58, 58, 66, 0.60);          /* chrome surfaces (lighter, layered) */
+  --glass-bg-strong: rgba(26, 26, 32, 0.62);   /* modals — terminal blurs through, still readable */
+  --glass-blur: blur(24px) saturate(180%);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.10); /* top "liquid" sheen */
+}
+
+/* ── Light theme ("Slate Mist") ─────────────────────────────────
+ * Applied via <html data-theme="light"> (bootstrapped in main.tsx from
+ * the netstacks.appTheme localStorage key). Deliberately NOT paper-white:
+ * soft, low-glare cool greys for daylight NOC use. Only canonical tokens
+ * are overridden — every alias above resolves through these. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg-primary: #d5dce4;
+  --color-bg-secondary: #cad2dc;
+  --color-bg-tertiary: #bec8d3;
+  --color-bg-hover: #b1bcc9;
+  --color-bg-active: #a7c6e4;
+
+  --color-border: #a2adbb;
+  --color-border-active: #0067b0;
+  --color-border-hover: #98a3b0;
+
+  --color-text-primary: #22272e;
+  --color-text-secondary: #525d6a;
+  --color-text-tertiary: #6a7582;
+  --color-text-muted: #6a7582;
+  --color-text-accent: #005a9e;
+
+  --color-accent: #0067b0;
+  --color-accent-hover: #007ed1;
+
+  --color-success: #0c7a5e;
+  --color-warning: #8a6116;
+  --color-error: #c22f2a;
+
+  /* raw-value derivatives (rgb triplets / tinted backgrounds / shadows) */
+  --color-accent-rgb: 0, 103, 176;
+  --color-error-rgb: 194, 47, 42;
+  --color-warning-rgb: 138, 97, 22;
+  --color-success-rgb: 12, 122, 94;
+  --color-error-bg: rgba(194, 47, 42, 0.10);
+  --color-accent-bg: rgba(0, 103, 176, 0.12);
+  --vg-error-bg: rgba(194, 47, 42, 0.10);
+  --menu-shadow: 0 4px 16px rgba(35, 45, 60, 0.22);
+  --shadow-xl: 0 8px 32px rgba(35, 45, 60, 0.28);
+  --vg-glow: rgba(0, 103, 176, 0.30);
+
+  /* liquid-glass chrome on light surfaces */
+  --glass-bg: rgba(202, 210, 220, 0.70);
+  --glass-bg-strong: rgba(213, 220, 228, 0.84);
+  --glass-border: rgba(35, 45, 60, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Light theme anchored chrome ("Anchored Deep") ───────────────
+ * The activity bar and status bar stay DARK in light mode, framing
+ * the light content the way VS Code light themes keep dark chrome.
+ * Done purely by re-scoping the custom properties each bar already
+ * consumes — descendants resolve these instead of the light values. */
+:root[data-theme='light'] .activity-bar {
+  --glass-bg: #252b34;
+  --glass-border: rgba(0, 0, 0, 0.35);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --color-text-primary: #d7dde4;
+  --color-text-secondary: #98a3b0;
+  --color-bg-hover: #333b46;
+  --color-bg-active: #0d4a7d;
+  --color-border-active: #3da2ff;
+}
+
+:root[data-theme='light'] .status-bar {
+  --status-bar-bg: #1f2937;
+  --status-bar-text: #c6d0db;
+  --status-bar-hover: #2e3a4a;
+  --status-bar-accent: #4aa3e8;
+}
+
+/* Glass effects OFF (Settings → Appearance → Glass Effects). Flipping the
+ * tokens to opaque + no blur turns off glass everywhere at once — chrome,
+ * modals, popovers and AI panels all consume these tokens. */
+:root[data-glass="off"] {
+  --glass-bg: var(--color-bg-secondary);
+  --glass-bg-strong: var(--color-bg-secondary);
+  --glass-blur: none;
+  --glass-border: var(--color-border);
+  --glass-highlight: transparent;
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* Firefox: allow flex containers to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-hover);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* Selection */
+::selection {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* LSP Install Banner */
+.lsp-install-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+.lsp-install-banner__icon { font-size: 18px; }
+.lsp-install-banner__body { display: flex; flex-direction: column; flex: 1; }
+.lsp-install-banner__body strong { color: var(--color-text-primary); }
+.lsp-install-banner__body span { color: var(--color-text-secondary); font-size: 12px; }
+.lsp-install-banner__actions { display: flex; gap: 8px; }
+.lsp-install-banner__actions button {
+  padding: 4px 10px;
+  border-radius: 3px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: var(--transition-fast);
+}
+.lsp-install-banner__actions button:hover {
+  background: var(--color-bg-hover);
+}
+.lsp-install-banner__actions button.primary {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.lsp-enterprise-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--color-bg-elevated, #2a2a30);
+  border-bottom: 1px solid var(--color-border, #3a3a40);
+  font-size: 13px;
+}
+.lsp-enterprise-banner__icon { font-size: 18px; }
+.lsp-enterprise-banner__body { display: flex; flex-direction: column; flex: 1; }
+.lsp-enterprise-banner__body strong { color: var(--color-text-primary); }
+.lsp-enterprise-banner__body span { color: var(--color-text-secondary); font-size: 12px; }
+.lsp-enterprise-banner button {
+  padding: 4px 10px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.lsp-install-banner__actions button.primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent);
+}
+
+/* Language Features Settings Tab */
+.language-features-tab {
+  padding: 12px;
+}
+.lsp-plugin-list h4 {
+  margin-top: 16px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.lsp-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.lsp-plugin-row__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.lsp-plugin-row__info strong {
+  font-size: 14px;
+}
+.lsp-plugin-row__meta {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.lsp-plugin-row__status {
+  min-width: 140px;
+}
+.lsp-plugin-row__actions {
+  display: flex;
+  gap: 6px;
+}
+.lsp-plugin-row__actions button {
+  padding: 4px 10px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lsp-plugin-row__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.status-badge.installed {
+  background: #2c5028;
+  color: #b3e0ad;
+}
+.status-badge.not-installed {
+  background: #3c3c40;
+  color: #aaa;
+}
+.status-badge.installing {
+  background: #2a3f5c;
+  color: #97c1ee;
+}
+.status-badge.unavailable {
+  background: #5c2a2a;
+  color: #ee9797;
+}
+.status-badge.disabled {
+  background: #3c3c40;
+  color: #888;
+}
+
+.lsp-plugin-list__add {
+  margin-top: 12px;
+}
+.lsp-plugin-list__add button {
+  padding: 6px 12px;
+  background: var(--color-bg-secondary);
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-primary);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.lsp-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.lsp-dialog {
+  background: var(--color-bg-primary);
+  padding: 20px;
+  border-radius: 6px;
+  min-width: 460px;
+  max-width: 600px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+.lsp-dialog h3 {
+  margin-top: 0;
+}
+.lsp-dialog__field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+.lsp-dialog__field label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+.lsp-dialog__field input {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+}
+.lsp-dialog__field input:disabled {
+  opacity: 0.5;
+}
+.lsp-dialog__test {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+.test-result {
+  font-size: 12px;
+}
+.test-result--pass {
+  color: #97e497;
+}
+.test-result--fail {
+  color: #ee9797;
+}
+.lsp-dialog__error {
+  color: #ee9797;
+  margin-bottom: 8px;
+}
+.lsp-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.lsp-dialog__actions button {
+  padding: 6px 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+.lsp-dialog__actions button.primary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.lsp-dialog__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.lsp-dialog__hint {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin-top: 6px;
+}

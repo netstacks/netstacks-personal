@@ -1,0 +1,270 @@
+/* Toast notification styles */
+
+.toast-container {
+  /* Toast container intentionally sits BELOW modals (--z-toast 900 vs
+   * --z-modal 2000) so a stack of toasts in the bottom-right can't
+   * intercept clicks on a ConfirmDialog/CommandWarningDialog action
+   * button. See index.css for the canonical layer table. */
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 600px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  animation: toast-slide-in 0.2s ease-out;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.toast:hover {
+  transform: translateX(-4px);
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.toast-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* When a toast carries action buttons, let the message wrap to two lines
+   instead of getting squeezed to a single ellipsis — the user needs to
+   actually READ the value before clicking an action on it. */
+.toast:has(.toast-actions) .toast-message {
+  white-space: normal;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Inline content toasts (short script output with open-in-tab icon) */
+.toast:has(.toast-inline-content) .toast-message,
+.toast:has(.toast-rich-content) .toast-message {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.toast:has(.toast-rich-content) {
+  align-items: flex-start;
+}
+
+.toast-inline-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast-rich-content {
+  display: block;
+}
+
+.toast-result-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.toast-open-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.toast-open-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-primary);
+}
+
+.toast-open-tab svg {
+  width: 12px;
+  height: 12px;
+}
+
+.toast-inline-content .toast-result-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-rich-content .toast-result-actions {
+  margin-top: 6px;
+}
+
+.toast-script-output {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  font-family: var(--font-mono, 'Fira Code', monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+  color: var(--color-text-primary);
+}
+
+/* Legacy single-link action style — kept so any toast still using the
+   underlined-text treatment isn't visually broken. */
+.toast-action {
+  display: inline;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent-color, #007acc);
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  color: var(--accent-hover, #005a9e);
+  text-decoration-style: solid;
+}
+
+/* Compact button row for the new multi-action API. */
+.toast-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.toast-action-btn {
+  padding: 2px 7px;
+  border: 1px solid var(--color-border, #3c3c3c);
+  border-radius: 3px;
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-primary, #cccccc);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.3;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.toast-action-btn:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.12));
+  border-color: var(--color-accent, #007acc);
+}
+
+.toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+.toast-close svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Toast type colors */
+.toast-success {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.toast-success .toast-icon {
+  color: #22c55e;
+}
+
+.toast-error {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.toast-error .toast-icon {
+  color: #ef4444;
+}
+
+.toast-warning {
+  border-color: rgba(234, 179, 8, 0.4);
+  background: rgba(234, 179, 8, 0.1);
+}
+
+.toast-warning .toast-icon {
+  color: #eab308;
+}
+
+.toast-info {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.toast-info .toast-icon {
+  color: #3b82f6;
+}

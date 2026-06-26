@@ -1,0 +1,17 @@
+sync:
+  defaults:
+    ignore:
+      paths:
+        - ".git"
+        - "node_modules"
+        - "agent/target"
+        - "frontend/src-tauri/target"
+        - "frontend/src-tauri/binaries"
+        - "frontend/dist"
+        - "frontend/dist-web"
+        - "builds/output"
+        - ".DS_Store"
+        - ".planning"
+        - ".playwright"
+        - ".playwright-mcp"
+        - ".worktrees"

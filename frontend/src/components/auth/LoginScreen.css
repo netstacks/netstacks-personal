@@ -1,0 +1,242 @@
+/* Login screen styling matching Terminal dark theme */
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--color-bg-primary, #1e1e1e);
+  padding: 20px;
+}
+
+.login-container {
+  width: 100%;
+  max-width: 400px;
+  background: var(--color-bg-secondary, #252526);
+  border: 1px solid var(--color-border, #3c3c3c);
+  border-radius: 8px;
+  padding: 40px;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  background: var(--color-accent, #0078d4);
+  border-radius: 16px;
+  margin-bottom: 16px;
+  color: white;
+}
+
+.login-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-text-primary, #cccccc);
+}
+
+.login-subtitle {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--color-text-secondary, #808080);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 4px;
+  color: #f44336;
+  font-size: 14px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #cccccc);
+}
+
+.form-field input {
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--color-bg-tertiary, #3c3c3c);
+  border: 1px solid var(--color-border, #4a4a4a);
+  border-radius: 4px;
+  color: var(--color-text-primary, #cccccc);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-field input:focus {
+  border-color: var(--color-accent, #0078d4);
+}
+
+.form-field input::placeholder {
+  color: var(--color-text-tertiary, #606060);
+}
+
+.login-button {
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--color-accent, #0078d4);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.login-button:hover:not(:disabled) {
+  background: var(--color-accent-hover, #106ebe);
+}
+
+.login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.login-footer {
+  margin-top: 32px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-secondary, #808080);
+}
+
+.login-footer p {
+  margin: 0;
+}
+
+.login-help {
+  margin-top: 4px !important;
+  color: var(--color-accent, #0078d4);
+}
+
+/* Auth loading state */
+.auth-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--color-bg-primary, #1e1e1e);
+  color: var(--color-text-secondary, #808080);
+}
+
+.auth-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border, #3c3c3c);
+  border-top-color: var(--color-accent, #0078d4);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+/* Connection error UI */
+.connection-error-container {
+  text-align: center;
+  max-width: 500px;
+}
+
+.connection-error-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.trust-cert-button {
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #2e7d32;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
+
+.trust-cert-button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.retry-button {
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
+
+/* --- Standalone escape-hatch link in the footer --- */
+.login-link {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  margin-top: 8px;
+  color: #569cd6;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.login-link:hover:not(:disabled) {
+  color: #4ec9b0;
+}
+
+.login-link:disabled {
+  color: #6d6d6d;
+  cursor: default;
+  text-decoration: none;
+}
+
+.login-link-error {
+  margin: 6px 0 0 0;
+  font-size: 11px;
+  color: #f14c4c;
+}

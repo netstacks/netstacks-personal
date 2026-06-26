@@ -1,0 +1,2050 @@
+/* Workspace Tab - Compound 3-zone layout */
+
+.workspace-tab {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+.workspace-tab.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+/* Zone 1: File Explorer */
+.workspace-explorer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  min-width: 150px;
+  max-width: 500px;
+}
+
+/* Resize handles */
+.workspace-resize-handle {
+  flex-shrink: 0;
+  position: relative;
+  background: transparent;
+  z-index: 10;
+  transition: background var(--transition-fast);
+}
+
+.workspace-resize-handle.vertical {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.workspace-resize-handle.horizontal {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.workspace-resize-handle:hover,
+.workspace-tab.resizing .workspace-resize-handle {
+  background: var(--color-accent);
+}
+
+/* Main area (Zone 2 + Zone 3) */
+.workspace-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Zone 2: Editor Area */
+.workspace-editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100px;
+  overflow: hidden;
+}
+
+/* Zone 3: Terminal Panel */
+.workspace-terminal-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid var(--color-border);
+  min-height: 28px;
+}
+
+.workspace-terminal-panel.collapsed {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* File Explorer internals */
+.workspace-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  height: 28px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.workspace-explorer-header > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspace-explorer-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.workspace-explorer-header-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+.workspace-explorer-header-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-git-branch {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 2px var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.workspace-git-branch-name {
+  color: var(--color-text-accent);
+}
+
+.workspace-git-ahead-behind {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+/* File tree */
+.workspace-file-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-xs) 0;
+}
+
+.workspace-file-entry {
+  display: flex;
+  align-items: center;
+  padding: 1px var(--spacing-sm);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 22px;
+  user-select: none;
+}
+
+.workspace-file-entry:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-file-entry.selected {
+  background: var(--color-bg-active);
+}
+
+.workspace-file-entry-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  margin-right: var(--spacing-xs);
+  font-size: 12px;
+}
+
+.workspace-file-entry-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-file-entry-git {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: bold;
+  margin-left: var(--spacing-xs);
+}
+
+.workspace-file-entry-git.modified { color: var(--color-warning); }
+.workspace-file-entry-git.added { color: var(--color-success); }
+.workspace-file-entry-git.untracked { color: var(--color-success); }
+.workspace-file-entry-git.deleted { color: var(--color-error); }
+.workspace-file-entry-git.renamed { color: var(--color-text-accent); }
+
+.workspace-file-entry.deleted .workspace-file-entry-name {
+  text-decoration: line-through;
+  color: var(--color-text-secondary);
+}
+
+.workspace-dir-toggle {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+}
+
+/* Inner tab bar (Zone 2) */
+.workspace-inner-tab-bar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workspace-inner-tab-list {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.workspace-inner-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-run-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 100%;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-success);
+  cursor: pointer;
+}
+
+.workspace-run-btn:hover {
+  background: var(--color-bg-hover);
+  color: #5fd9a2;
+}
+
+.workspace-inner-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  height: 100%;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-right: 1px solid var(--color-border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.workspace-inner-tab:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-inner-tab.active {
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-accent);
+  margin-bottom: -1px;
+}
+
+.workspace-inner-tab-modified {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  flex-shrink: 0;
+}
+
+.workspace-inner-tab-close {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  width: 16px;
+  height: 16px;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.workspace-inner-tab:hover .workspace-inner-tab-close {
+  opacity: 1;
+}
+
+.workspace-inner-tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Inner tab content */
+.workspace-inner-tab-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Empty state */
+.workspace-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  gap: var(--spacing-sm);
+}
+
+.workspace-empty-state-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+/* Terminal panel internals */
+.workspace-terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--spacing-xs);
+}
+
+.workspace-terminal-tabs {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+}
+
+.workspace-terminal-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  height: 100%;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.workspace-terminal-tab:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-terminal-tab.active {
+  color: var(--color-text-primary);
+}
+
+.workspace-terminal-tab-close {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+  border-radius: 3px;
+}
+
+.workspace-terminal-tab:hover .workspace-terminal-tab-close {
+  opacity: 1;
+}
+
+.workspace-terminal-tab-close:hover {
+  color: var(--color-text-primary);
+}
+
+/* 3px color stripe on the left of a sub-panel terminal tab — only
+   rendered when the underlying TerminalTab carries a saved-session
+   color. Matches the styling of top-level SSH session tabs so the
+   same device looks visually identical wherever it's opened. */
+.workspace-terminal-tab-color {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  border-radius: 1px;
+  margin-right: 4px;
+  flex: 0 0 auto;
+}
+
+/* Right-click menu floating over the strip. position:fixed because
+   coords are viewport-relative (clamped in the handler). Sits above
+   the rest of the workspace chrome but below the session-picker
+   modal backdrop. */
+.workspace-terminal-strip-menu {
+  position: fixed;
+  z-index: 8500;
+  min-width: 220px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  padding: 4px 0;
+}
+
+.workspace-terminal-strip-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-terminal-strip-menu-item:hover {
+  background: #2a2d2e;
+}
+
+.workspace-terminal-strip-menu-item .wsm-icon {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+  opacity: 0.85;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+.workspace-terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.workspace-terminal-action-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.workspace-terminal-action-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-terminal-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Browser inner tab */
+.workspace-browser {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.workspace-browser-nav-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 14px;
+}
+
+.workspace-browser-nav-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-browser-url {
+  flex: 1;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  padding: 2px var(--spacing-sm);
+  outline: none;
+  font-family: var(--font-family-mono);
+}
+
+.workspace-browser-url:focus {
+  border-color: var(--color-accent);
+}
+
+.workspace-browser-frame {
+  flex: 1;
+  border: none;
+  background: white;
+}
+
+/* New workspace dialog */
+.workspace-new-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.workspace-new-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+  width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.workspace-new-dialog h3 {
+  margin: 0 0 var(--spacing-lg);
+  font-size: 16px;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.workspace-new-dialog-field {
+  margin-bottom: var(--spacing-md);
+}
+
+.workspace-new-dialog-label {
+  display: block;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.workspace-new-dialog-input {
+  width: 100%;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  padding: 6px var(--spacing-sm);
+  outline: none;
+}
+
+.workspace-new-dialog-input:focus {
+  border-color: var(--color-accent);
+}
+
+.workspace-new-dialog-select {
+  width: 100%;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  padding: 6px var(--spacing-sm);
+  outline: none;
+  cursor: pointer;
+}
+
+.workspace-new-dialog-radio-group {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.workspace-new-dialog-radio {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.workspace-new-dialog-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.workspace-new-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}
+
+.workspace-new-dialog-btn {
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.workspace-new-dialog-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-new-dialog-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: white;
+}
+
+.workspace-new-dialog-btn.primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.workspace-new-dialog-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Git status in new workspace dialog */
+.workspace-new-dialog-git-status {
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+}
+
+.workspace-new-dialog-git-ok {
+  color: var(--color-success);
+}
+
+.workspace-new-dialog-git-warn {
+  color: var(--color-warning);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace-new-dialog-git-empty {
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Code editor wrapper */
+.workspace-code-editor {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-image-viewer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.workspace-image-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-elevated, #2a2a30);
+}
+
+.workspace-image-viewer-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 12px;
+  background:
+    repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+}
+
+/* Inline input for new file/folder/rename */
+.workspace-inline-input {
+  flex: 1;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-accent);
+  border-radius: 2px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  padding: 0 4px;
+  outline: none;
+  height: 18px;
+  font-family: var(--font-family);
+  min-width: 0;
+}
+
+/* Workspaces sidebar panel */
+.workspace-panel-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  height: 28px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.workspace-panel-list {
+  overflow-y: auto;
+  padding: var(--spacing-xs) 0;
+  max-height: 50%;
+}
+
+.workspace-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.workspace-panel-add-btn {
+  background: var(--color-accent);
+  border: none;
+  color: white;
+  font-size: var(--font-size-small);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.workspace-panel-add-btn:hover {
+  background: var(--color-accent-hover);
+}
+
+.workspace-panel-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+}
+
+.workspace-panel-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-panel-item.active {
+  background: var(--color-bg-active);
+}
+
+.workspace-panel-item-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.workspace-panel-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-panel-item-name {
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-panel-item-path {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-panel-item-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--color-success);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.workspace-panel-item-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  border-radius: 3px;
+  opacity: 0;
+}
+
+.workspace-panel-item:hover .workspace-panel-item-delete {
+  opacity: 1;
+}
+
+.workspace-panel-item-delete:hover {
+  color: var(--color-error);
+  background: var(--color-bg-hover);
+}
+
+/* P3-14: Close-workspace button (distinct from delete). Only rendered
+   when the workspace is currently open. */
+.workspace-panel-item-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+  border-radius: 3px;
+  opacity: 0;
+}
+
+.workspace-panel-item:hover .workspace-panel-item-close {
+  opacity: 1;
+}
+
+.workspace-panel-item-close:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+/* Sidebar section headers (collapsible) */
+.workspace-panel-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.workspace-panel-section-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-panel-section-toggle {
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.workspace-panel-section-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.workspace-panel-section-btn:hover {
+  color: var(--color-text-primary);
+}
+
+
+/* Output panel (Netstacks engine runs) */
+.workspace-output-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+.workspace-output-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-sm);
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-small);
+}
+
+.workspace-output-title {
+  color: var(--color-text-secondary);
+}
+
+.workspace-output-exit {
+  font-size: 10px;
+  font-family: var(--font-family-mono);
+}
+
+.workspace-output-exit.success {
+  color: var(--color-success);
+}
+
+.workspace-output-exit.error {
+  color: var(--color-error);
+}
+
+.workspace-output-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+
+.workspace-output-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+}
+
+.workspace-output-stdout {
+  color: var(--color-text-primary);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.workspace-output-stderr {
+  color: var(--color-warning);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  opacity: 0.8;
+}
+
+.workspace-output-stderr-details summary {
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  margin: var(--spacing-xs) 0;
+}
+
+.workspace-output-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xs) 0;
+}
+
+.workspace-output-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-text-secondary);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: workspace-spin 0.8s linear infinite;
+}
+
+@keyframes workspace-spin {
+  to { transform: rotate(360deg); }
+}
+
+.workspace-output-placeholder {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.workspace-output-error {
+  color: var(--color-error);
+}
+
+/* Zone header bars (Editor / Terminal) */
+.workspace-zone-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+
+.workspace-zone-collapse-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.workspace-zone-collapse-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-zone-collapsed-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.workspace-zone-collapsed-bar:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.workspace-zone-collapsed-expand {
+  font-size: 10px;
+}
+
+.workspace-editor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Zone 3 mode switcher (Terminal / Output) */
+.workspace-zone3-tabs {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--spacing-xs);
+}
+
+.workspace-zone3-tab {
+  padding: 0 var(--spacing-sm);
+  height: 100%;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
+
+.workspace-zone3-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.workspace-zone3-tab.active {
+  color: var(--color-text-primary);
+  border-bottom: 2px solid var(--color-accent);
+}
+
+/* Run mode selection dialog */
+.workspace-run-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-text-primary);
+  width: 100%;
+}
+
+.workspace-run-mode-option:hover {
+  border-color: var(--color-accent);
+  background: var(--color-bg-hover);
+}
+
+.workspace-run-mode-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.workspace-run-mode-title {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.workspace-run-mode-desc {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+/* Zone 1 tab bar (Files / Git) */
+.workspace-zone1-tabs {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--spacing-xs);
+}
+
+.workspace-zone1-tab {
+  padding: 0 var(--spacing-sm);
+  height: 100%;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.workspace-zone1-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.workspace-zone1-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+}
+
+/* Git Panel */
+.workspace-git-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.workspace-git-panel-tabs {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--spacing-xs);
+  gap: 2px;
+}
+
+.workspace-git-panel-tab {
+  padding: 0 var(--spacing-sm);
+  height: 100%;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-family);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.workspace-git-panel-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.workspace-git-panel-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+}
+
+.workspace-git-panel-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.workspace-git-not-repo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  padding: var(--spacing-lg);
+  text-align: center;
+}
+
+.workspace-git-init-btn {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+}
+
+.workspace-git-init-btn:hover {
+  opacity: 0.9;
+}
+
+/* Git Changes Tab */
+.workspace-git-changes {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-git-changes-section {
+  flex-shrink: 0;
+}
+
+.workspace-git-changes-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+
+.workspace-git-changes-section-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 4px;
+  font-family: var(--font-family);
+}
+
+.workspace-git-changes-section-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.workspace-git-changes-file-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.workspace-git-changes-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  color: var(--color-text-primary);
+}
+
+.workspace-git-changes-file:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-git-changes-file-status {
+  width: 16px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.workspace-git-changes-file-status.modified { color: var(--color-warning); }
+.workspace-git-changes-file-status.added { color: var(--color-success); }
+.workspace-git-changes-file-status.untracked { color: var(--color-success); }
+.workspace-git-changes-file-status.deleted { color: var(--color-error); }
+.workspace-git-changes-file-status.renamed { color: var(--color-text-accent); }
+
+.workspace-git-changes-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+}
+
+.workspace-git-changes-file-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+
+.workspace-git-changes-file:hover .workspace-git-changes-file-actions {
+  opacity: 1;
+}
+
+.workspace-git-changes-file-action-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.workspace-git-changes-file-action-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.workspace-git-commit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.workspace-git-commit-input {
+  width: 100%;
+  min-height: 60px;
+  max-height: 120px;
+  resize: vertical;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-small);
+  padding: 6px 8px;
+}
+
+.workspace-git-commit-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.workspace-git-commit-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.workspace-git-commit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.workspace-git-commit-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+
+.workspace-git-commit-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.workspace-git-commit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.workspace-git-commit-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: white;
+}
+
+.workspace-git-commit-btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.workspace-git-changes-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+/* Git History Tab */
+.workspace-git-history {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-git-history-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.workspace-git-history-item {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  gap: 2px;
+}
+
+.workspace-git-history-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-git-history-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-git-history-hash {
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.workspace-git-history-message {
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.workspace-git-history-item-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.workspace-git-history-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-git-history-date {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.workspace-git-history-branches {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.workspace-git-history-badge {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+}
+
+.workspace-git-history-loading {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.workspace-git-history-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+/* Git Branches Tab */
+.workspace-git-branches {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-git-branches-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.workspace-git-branches-new-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+  font-family: var(--font-family);
+}
+
+.workspace-git-branches-new-btn:hover {
+  opacity: 0.8;
+}
+
+.workspace-git-branches-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.workspace-git-branches-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: var(--font-size-small);
+  cursor: pointer;
+  color: var(--color-text-primary);
+}
+
+.workspace-git-branches-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-git-branches-item.current {
+  font-weight: 600;
+}
+
+.workspace-git-branches-item-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.workspace-git-branches-item.current .workspace-git-branches-item-indicator {
+  background: var(--color-accent);
+}
+
+.workspace-git-branches-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+}
+
+.workspace-git-branches-item-upstream {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+}
+
+.workspace-git-branches-loading {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.workspace-git-branches-section-label {
+  padding: 6px 8px 2px;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.workspace-git-new-branch-form {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.workspace-git-new-branch-input {
+  flex: 1;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.workspace-git-new-branch-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.workspace-git-new-branch-submit {
+  padding: 4px 8px;
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.workspace-git-new-branch-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Git Panel Toolbar */
+.workspace-git-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-small);
+  flex-shrink: 0;
+}
+
+.workspace-git-toolbar-branch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-git-toolbar-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-git-toolbar-ahead-behind {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.workspace-git-toolbar-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.workspace-git-toolbar-btn {
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.workspace-git-toolbar-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.workspace-git-toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Git Confirmation Dialogs */
+.workspace-git-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.workspace-git-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--spacing-lg);
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.workspace-git-dialog h3 {
+  margin: 0 0 var(--spacing-sm);
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.workspace-git-dialog p {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.workspace-git-dialog-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+}
+
+.workspace-git-dialog-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+
+.workspace-git-dialog-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-git-dialog-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: white;
+}
+
+.workspace-git-dialog-btn.primary:hover {
+  opacity: 0.9;
+}
+
+.workspace-git-dialog-btn.danger {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.workspace-git-dialog-btn.danger:hover {
+  background: rgba(var(--color-error-rgb, 255, 80, 80), 0.1);
+}
+
+/* Workspace list in Zone 1 */
+.workspace-list-section {
+  flex-shrink: 0;
+}
+
+.workspace-list-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.workspace-list-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-list-header-toggle {
+  font-size: 10px;
+  width: 12px;
+}
+
+.workspace-list-header-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.workspace-list-header-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.workspace-list-items {
+  overflow-y: auto;
+}
+
+.workspace-list-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+.workspace-list-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-list-item.active {
+  background: var(--color-bg-active);
+}
+
+.workspace-list-item-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.workspace-list-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-list-item-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-list-item-path {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-list-item-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--color-accent);
+  color: white;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* AI Panel inline in Zone 3 — override side panel positioning */
+.workspace-ai-panel-inline {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-ai-panel-inline .ai-side-panel {
+  width: 100% !important;
+  border-left: none;
+}
+
+.workspace-ai-panel-inline .ai-side-panel-tab {
+  display: none;
+}
+
+.workspace-ai-panel-inline .ai-side-panel-resize {
+  display: none;
+}
+
+.workspace-ai-panel-inline .ai-side-panel.floating {
+  position: relative;
+  box-shadow: none;
+  top: auto;
+  right: auto;
+  bottom: auto;
+}
+
+.workspace-ai-panel-inline .ai-side-panel-quick-actions {
+  display: none;
+}
+
+.workspace-ai-panel-inline .ai-side-panel.closed {
+  pointer-events: auto;
+  border-left-color: transparent;
+}
+
+/* Remote agent deployment loading state */
+.workspace-deploy-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  gap: 12px;
+  background: var(--color-bg-primary);
+}
+
+.workspace-deploy-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: workspace-spin 0.8s linear infinite;
+}
+
+.workspace-deploy-text {
+  font-size: 14px;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.workspace-deploy-subtext {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  max-width: 400px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.workspace-deploy-error-icon {
+  color: var(--color-error);
+  opacity: 0.7;
+}
+
+/* Sidebar explorer target - receives portaled file explorer */
+.workspace-sidebar-explorer-target {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}

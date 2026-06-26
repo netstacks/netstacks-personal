@@ -1,0 +1,123 @@
+/* Command Palette - VS Code style */
+
+.command-palette-overlay {
+  /* Palette sits above all modals so Cmd+Shift+P always works on top. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  padding-top: 15vh;
+  z-index: var(--z-palette);
+}
+
+.command-palette {
+  width: 600px;
+  max-width: 90vw;
+  max-height: 60vh;
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  border-radius: var(--menu-radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.command-palette-input-wrapper {
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.command-palette-input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  outline: none;
+}
+
+.command-palette-input:focus {
+  border-color: var(--color-accent);
+}
+
+.command-palette-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.command-palette-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-xs) 0;
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.command-palette-item:hover,
+.command-palette-item.selected {
+  background: var(--color-bg-hover);
+}
+
+.command-palette-item.selected {
+  background: var(--color-bg-active);
+}
+
+.command-palette-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.command-palette-item.disabled:hover {
+  background: transparent;
+}
+
+/* Left chip showing the command's category — gives at-a-glance
+ * grouping without spending a full row on a section header. */
+.command-palette-category {
+  flex-shrink: 0;
+  min-width: 64px;
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  text-align: center;
+}
+
+.command-label {
+  flex: 1;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+}
+
+.command-shortcut {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family-mono);
+  background: var(--color-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.command-palette-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}

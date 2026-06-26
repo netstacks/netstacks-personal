@@ -1,0 +1,212 @@
+/* Status Bar Settings Panel */
+
+.status-bar-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status-bar-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-bar-settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.status-bar-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  border-radius: 6px;
+}
+
+.status-bar-settings-row.compact {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.status-bar-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-bar-settings-label span:first-child {
+  font-weight: 500;
+}
+
+.status-bar-settings-desc {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* Toggle Switch */
+.status-bar-settings-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.status-bar-settings-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.status-bar-settings-toggle .toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-bg-tertiary);
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+
+.status-bar-settings-toggle .toggle-slider:before {
+  position: absolute;
+  content: '';
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--color-text-tertiary);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.status-bar-settings-toggle input:checked + .toggle-slider {
+  background-color: var(--color-accent);
+}
+
+.status-bar-settings-toggle input:checked + .toggle-slider:before {
+  transform: translateX(16px);
+  background-color: white;
+}
+
+.status-bar-settings-toggle input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Theme Selection */
+.status-bar-settings-themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-bar-theme-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--color-bg-secondary);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 80px;
+}
+
+.status-bar-theme-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.status-bar-theme-btn.active {
+  border-color: var(--color-accent);
+  background: var(--color-bg-hover);
+}
+
+.status-bar-theme-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status-bar-theme-preview {
+  width: 48px;
+  height: 24px;
+  border-radius: 4px;
+}
+
+.status-bar-theme-name {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.status-bar-theme-btn.active .status-bar-theme-name {
+  color: var(--color-text-primary);
+}
+
+/* Custom Colors */
+.status-bar-settings-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-bar-color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  border-radius: 6px;
+}
+
+.status-bar-color-row label {
+  font-size: 13px;
+}
+
+.status-bar-color-row input[type="color"] {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.status-bar-color-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.status-bar-color-row input[type="color"]::-webkit-color-swatch {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+/* Reset Button */
+.status-bar-settings-reset {
+  align-self: flex-start;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.status-bar-settings-reset:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-tertiary);
+}

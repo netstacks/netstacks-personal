@@ -1,1 +1,33 @@
+# Environment / secrets
 .env
+.env.local
+.env.*.local
+
+# Hidden local/tooling directories
+.idea/
+.vscode/
+.planning/
+.playwright/
+.playwright-mcp/
+.worktrees/
+.superpowers/
+.netstacks/
+
+# OS/editor artifacts
+.DS_Store
+*.swp
+*.swo
+
+# CI runner
+actions-runner/
+
+# Build artifacts
+builds/output/
+agent/target/
+frontend/dist/
+frontend/dist-web/
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/
+
+# Dependencies
+node_modules

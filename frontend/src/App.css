@@ -1,0 +1,1271 @@
+/* NetStacks App Layout - VS Code Style */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  /* Firefox: allow flex container to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Main content area (below header if present) */
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  /* Firefox: allow flex container to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Hot Edge Zones - invisible trigger areas at window edges */
+.hot-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 110;
+}
+
+.hot-edge-left {
+  left: 0;
+}
+
+.hot-edge-right {
+  right: 0;
+}
+
+
+/* Activity Bar - Left icon strip */
+.activity-bar {
+  width: var(--size-activity-bar);
+  /* Translucent tint only — NO backdrop-filter: it would make this a
+     containing block and break absolutely-positioned child menus/tooltips. */
+  background: var(--glass-bg);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.activity-bar-top {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-bar-bottom {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-bar-item {
+  width: var(--size-activity-bar);
+  height: var(--size-activity-bar);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-left: 2px solid transparent;
+  transition: color var(--transition-fast);
+  background: none;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+.activity-bar-item:hover {
+  color: var(--color-text-primary);
+}
+
+.activity-bar-item.active {
+  color: var(--color-text-primary);
+  border-left-color: var(--color-accent);
+}
+
+.activity-bar-item svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Sidebar */
+.sidebar {
+  position: relative;
+  background: var(--glass-bg);
+  border-right: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+  width: 0 !important;
+  border-right: none;
+  overflow: hidden;
+}
+
+.sidebar.overlay {
+  position: absolute;
+  top: 0;
+  left: 36px;
+  bottom: 0;
+  z-index: 50;
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 100;
+}
+
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 2px;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.sidebar-resize-handle:hover::after {
+  background: var(--color-accent);
+}
+
+.sidebar-header {
+  height: 35px;
+  padding: 0 var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sidebar-header > span:first-child {
+  flex: 1;
+}
+
+.sidebar-header-extras {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.sidebar-pin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+
+.sidebar-pin-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-pin-btn:hover {
+  opacity: 1;
+  background: var(--color-bg-hover);
+}
+
+.sidebar-pin-btn.pinned {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-sm);
+  /* Firefox: allow flex item to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Main Area */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+  /* Firefox: allow flex item to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  background: var(--glass-bg);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  min-height: 35px;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+}
+
+.tab-bar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Electron */
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+              transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+  min-width: 120px;
+  max-width: 200px;
+}
+
+.tab svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.tab.active {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.tab-add:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Terminal Area */
+.terminal-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  /* Firefox: allow flex item to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-instance {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  overflow: hidden;
+}
+
+.terminal-instance.active {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Non-split active terminals fill the container */
+.terminal-instance.active:not(.split-pane-tab) {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* Pane content wrappers - must fill their parent container */
+.single-pane-content,
+.split-pane-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Split pane header for dragging/identifying panes */
+.split-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  cursor: grab;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.split-pane-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.split-pane-header:active {
+  cursor: grabbing;
+  background: var(--color-bg-tertiary);
+}
+
+/* Grip indicator on split pane header */
+.split-pane-header::before {
+  content: '⋮⋮';
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  margin-right: 6px;
+  letter-spacing: -2px;
+}
+
+.split-pane-header:hover::before {
+  opacity: 0.8;
+}
+
+.split-pane-title {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.split-pane-remove {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.split-pane-remove:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.split-layout-toggle {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1;
+  border-radius: 3px;
+  white-space: pre;
+}
+
+.split-layout-toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Split pane tab styling */
+.split-pane-tab {
+  border: 1px solid var(--color-border);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  overflow: hidden;
+}
+
+.split-pane-tab.dragging {
+  opacity: 0.6;
+  transform: scale(0.98);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.split-pane-tab.drop-target {
+  box-shadow: inset 0 0 0 3px var(--color-accent), 0 0 20px rgba(var(--color-accent-rgb), 0.3);
+}
+
+.split-pane-tab.drop-target .split-pane-header {
+  background: rgba(var(--color-accent-rgb), 0.2);
+}
+
+/* Global cursor during split pane drag */
+body[data-split-dragging="true"] {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+body[data-split-dragging="true"] * {
+  cursor: grabbing !important;
+}
+
+/* Split resize handles */
+.split-resize-handle {
+  position: absolute;
+  z-index: 20;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.split-resize-handle:hover {
+  background: var(--color-accent);
+}
+
+.split-resize-handle.horizontal {
+  width: 6px;
+  top: 0;
+  bottom: 0;
+  cursor: col-resize;
+  margin-left: -3px;
+}
+
+.split-resize-handle.vertical {
+  height: 6px;
+  left: 0;
+  right: 0;
+  cursor: row-resize;
+  margin-top: -3px;
+}
+
+/* Drop zone indicators for drag-to-split */
+.terminal-area[data-drop-zone]::before {
+  content: '';
+  position: absolute;
+  background: linear-gradient(
+    to var(--drop-direction, right),
+    rgba(var(--color-accent-rgb), 0.25) 0%,
+    rgba(var(--color-accent-rgb), 0.08) 100%
+  );
+  border: 2px solid var(--color-accent);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 100;
+  animation: dropZonePulse 1s ease-in-out infinite;
+}
+
+@keyframes dropZonePulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+.terminal-area[data-drop-zone="left"]::before {
+  --drop-direction: right;
+  left: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 80px;
+  border-left-width: 4px;
+}
+
+.terminal-area[data-drop-zone="right"]::before {
+  --drop-direction: left;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 80px;
+  border-right-width: 4px;
+}
+
+.terminal-area[data-drop-zone="top"]::before {
+  --drop-direction: bottom;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  height: 80px;
+  border-top-width: 4px;
+}
+
+.terminal-area[data-drop-zone="bottom"]::before {
+  --drop-direction: top;
+  bottom: 4px;
+  left: 4px;
+  right: 4px;
+  height: 80px;
+  border-bottom-width: 4px;
+}
+
+/* Global cursor during tab drag */
+body[data-tab-dragging="true"] {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+body[data-tab-dragging="true"] * {
+  cursor: grabbing !important;
+}
+
+/* Dim other tabs while dragging */
+body[data-tab-dragging="true"] .tab:not(.dragging) {
+  opacity: 0.6;
+}
+
+/* Welcome screen */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--color-text-secondary);
+  padding: var(--spacing-lg);
+}
+
+.welcome-logo {
+  width: 360px;
+  height: auto;
+  margin-bottom: var(--spacing-lg);
+  opacity: 0.9;
+}
+
+.welcome-hint {
+  font-size: var(--font-size-small);
+  margin: 0;
+  opacity: 0.5;
+}
+
+.welcome-hint kbd {
+  font-family: var(--font-family-mono);
+  background: var(--color-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: var(--font-size-small);
+}
+
+/* Sessions List */
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.new-session-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.new-session-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.new-session-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sessions-hint {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-style: italic;
+}
+
+/* Status Bar — the .status-bar surface itself is owned entirely by
+   components/StatusBar.css (tokenized via --status-bar-*); only the
+   section layout helpers below live here. */
+.status-bar-left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.status-bar-right {
+  display: flex;
+  align-items: center;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  height: var(--size-statusbar);
+  cursor: default;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.status-item svg {
+  flex-shrink: 0;
+}
+
+.status-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.status-item-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  height: var(--size-statusbar);
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.status-item-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.status-item-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.status-item kbd {
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 1px var(--spacing-xs);
+  border-radius: 3px;
+  margin-left: var(--spacing-xs);
+}
+
+.status-item-ai {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.status-item-ai:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.status-item-terminals {
+  font-weight: 500;
+}
+
+/* Tab Status Indicators */
+.tab {
+  --tab-color: var(--color-accent);
+  position: relative;
+}
+
+.tab-status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+/* Connected - solid green dot */
+.tab-status-connected .tab-status-indicator {
+  background-color: var(--color-success);
+}
+
+/* Disconnected - gray hollow circle */
+.tab-status-disconnected .tab-status-indicator {
+  background-color: transparent;
+  border: 1.5px solid var(--color-text-secondary);
+}
+
+/* Connecting - yellow pulsing dot */
+.tab-status-connecting .tab-status-indicator {
+  background-color: var(--color-warning);
+  animation: tab-connecting-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tab-connecting-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Error - red dot */
+.tab-status-error .tab-status-indicator {
+  background-color: var(--color-error);
+}
+
+/* Tab drag reorder indicators */
+.tab.tab-reorder-before::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--color-accent);
+  border-radius: 1px;
+  z-index: 10;
+}
+.tab.tab-reorder-after::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--color-accent);
+  border-radius: 1px;
+  z-index: 10;
+}
+
+/* Tab icon styles */
+.tab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.tab:hover .tab-icon,
+.tab.active .tab-icon {
+  color: var(--color-text-primary);
+}
+
+.tab-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Document tab type styling */
+.tab.tab-type-document {
+  /* Subtle background differentiation for document tabs */
+}
+
+.tab-icon-document {
+  color: var(--color-primary);
+}
+
+.tab.active .tab-icon-document,
+.tab:hover .tab-icon-document {
+  color: var(--color-primary);
+}
+
+/* Document tab status colors */
+/* Saved - solid green dot */
+.tab-status-saved .tab-status-indicator {
+  background-color: var(--color-success);
+}
+
+/* Modified - yellow pulsing dot (unsaved changes) */
+.tab-status-modified .tab-status-indicator {
+  background-color: var(--color-warning);
+  animation: tab-connecting-pulse 1.5s ease-in-out infinite;
+}
+
+/* New - gray dot (empty/new document) */
+.tab-status-new .tab-status-indicator {
+  background-color: var(--color-text-secondary);
+}
+
+/* Saving - yellow dot with faster pulse */
+.tab-status-saving .tab-status-indicator {
+  background-color: var(--color-warning);
+  animation: tab-connecting-pulse 0.5s ease-in-out infinite;
+}
+
+/* Topology tab status colors */
+/* Ready - solid blue dot */
+.tab-status-ready .tab-status-indicator {
+  background-color: var(--color-primary);
+}
+
+/* Loading - yellow pulsing dot */
+.tab-status-loading .tab-status-indicator {
+  background-color: var(--color-warning);
+  animation: tab-connecting-pulse 1s ease-in-out infinite;
+}
+
+/* Topology tab type styling */
+.tab.tab-type-topology {
+  /* Subtle differentiation for topology tabs */
+}
+
+.tab-icon-topology {
+  color: var(--color-primary);
+}
+
+.tab.active .tab-icon-topology,
+.tab:hover .tab-icon-topology {
+  color: var(--color-primary);
+}
+
+/* Multi-send indicator - chain link icon */
+.tab-multisend-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+/* Shared session tab styling */
+.tab-sharing {
+  border-left: 2px solid #3b82f6;
+}
+
+.tab-share-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3b82f6;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+.tab-share-indicator-active {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 2px;
+}
+
+.tab-share-indicator-active:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.tab-share-viewers {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Tab color underline - shown on active tab */
+.tab.active {
+  border-bottom: 2px solid var(--tab-color);
+  margin-bottom: -1px;
+}
+
+/* Tab with custom color gets the underline on hover too */
+.tab:hover {
+  border-bottom: 2px solid var(--tab-color);
+  margin-bottom: -1px;
+}
+
+/* Document tab content area */
+.document-tab-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  background: var(--color-bg-primary);
+}
+
+.settings-tab-content {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+.document-tab-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xl);
+  max-width: 400px;
+}
+
+.document-tab-placeholder-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--spacing-lg);
+  color: var(--color-primary);
+  opacity: 0.6;
+}
+
+.document-tab-placeholder-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.document-tab-placeholder h2 {
+  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-large);
+  font-weight: 500;
+}
+
+.document-tab-placeholder p {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: var(--font-size-base);
+}
+
+.document-tab-placeholder-hint {
+  font-size: var(--font-size-small);
+  color: var(--color-text-tertiary);
+  opacity: 0.8;
+}
+
+/* Topology View */
+.topology-view {
+  position: relative;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background-color: #1e1e1e;
+}
+
+/* 2D/3D View Toggle */
+.topology-view-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 0;
+  background-color: rgba(37, 37, 38, 0.95);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 100;
+}
+
+.topology-view-toggle-btn {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.topology-view-toggle-btn:hover {
+  color: var(--color-text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.topology-view-toggle-btn.active {
+  color: var(--color-text-primary);
+  background-color: var(--color-accent);
+}
+
+.topology-view-toggle-btn:first-child {
+  border-right: 1px solid var(--color-border);
+}
+
+/* Topology Tab Editor */
+.topology-tab-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+.topology-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.toolbar-button {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.toolbar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.topology-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.topology-tab-editor.loading,
+.topology-tab-editor.error,
+.topology-tab-editor.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topology-tab-editor .loading-spinner {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.topology-tab-editor .error-message {
+  color: var(--color-error);
+  font-size: var(--font-size-base);
+}
+
+.topology-tab-editor .empty-message {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+/* Tab multi-selection (Phase 25) */
+.tab.tab-selected {
+  box-shadow: inset 0 0 0 2px var(--accent-color, #007acc);
+}
+
+.tab.tab-selected.tab-active {
+  /* Active + selected: accent ring outside the active indicator */
+  box-shadow: inset 0 0 0 2px var(--accent-color, #007acc);
+}
+
+/* Tab dragging state (for drag-to-split) */
+.tab.dragging {
+  opacity: 1 !important;
+  cursor: grabbing;
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  position: relative;
+}
+
+/* Selection count badge in tab bar */
+.tab-selection-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-inverse, #fff);
+  background: var(--accent-color, #007acc);
+  border-radius: 10px;
+}
+
+.tab-selection-badge:empty {
+  display: none;
+}
+
+/* Save Layout Dialog (Phase 25) */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: ns-overlay-in 0.16s ease both;
+}
+/* The dialog inside any .modal-overlay pops in (macOS-style). */
+.modal-overlay > * {
+  animation: ns-pop-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Reusable open animations (also used by bubbles/popovers app-wide). */
+@keyframes ns-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ns-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes ns-pop-down {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-overlay > * {
+    animation: none;
+  }
+}
+
+.save-layout-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 320px;
+  max-width: 400px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.save-layout-dialog h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.save-layout-dialog-description {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.save-layout-dialog-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.save-layout-dialog-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.save-layout-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.save-layout-dialog-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  transition: background-color var(--transition-fast);
+}
+
+.save-layout-dialog-btn-cancel {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.save-layout-dialog-btn-cancel:hover {
+  background: var(--color-bg-hover);
+}
+
+.save-layout-dialog-btn-save {
+  background: var(--color-accent);
+  color: white;
+}
+
+.save-layout-dialog-btn-save:hover:not(:disabled) {
+  background: var(--color-accent-hover, #0062a3);
+}
+
+.save-layout-dialog-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,0 +1,159 @@
+/* TopologyCanvas - 2D network topology visualization */
+
+.topology-canvas-container {
+  position: relative;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 400px;
+  background-color: #1e1e1e;
+}
+
+.topology-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+/* Loading overlay */
+.topology-canvas-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(30, 30, 30, 0.9);
+  color: var(--color-text-secondary, #858585);
+  font-size: var(--font-size-small, 12px);
+}
+
+/* Empty state */
+.topology-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary, #858585);
+  font-size: var(--font-size-small, 12px);
+  text-align: center;
+  padding: 20px;
+}
+
+.topology-canvas-empty-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.topology-canvas-empty-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+}
+
+.topology-canvas-empty h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #cccccc);
+}
+
+.topology-canvas-empty p {
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.4;
+}
+
+/* Canvas container when focused - use inset shadow to avoid split view issues */
+.topology-canvas-container:focus-within {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--color-accent, #007acc);
+}
+
+/* Tooltip for hover state (future use) */
+.topology-canvas-tooltip {
+  position: absolute;
+  padding: 8px 12px;
+  background-color: #252526;
+  border: 1px solid #454545;
+  border-radius: 4px;
+  color: var(--color-text-primary, #cccccc);
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  max-width: 200px;
+}
+
+.topology-canvas-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.topology-canvas-tooltip-detail {
+  color: var(--color-text-secondary, #858585);
+  font-size: 11px;
+}
+
+/* Zoom controls */
+.topology-zoom-controls {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: rgba(37, 37, 38, 0.9);
+  border: 1px solid #454545;
+  border-radius: 4px;
+  padding: 4px;
+  z-index: 10;
+}
+
+.topology-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary, #858585);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.topology-zoom-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary, #cccccc);
+}
+
+.topology-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.topology-zoom-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.topology-zoom-level {
+  min-width: 40px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-secondary, #858585);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pan cursor when not on device */
+.topology-canvas.panning {
+  cursor: grabbing !important;
+}

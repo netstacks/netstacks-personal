@@ -1,0 +1,159 @@
+/* MonacoOverlordWidget — VS Code-style inline AI prompt */
+
+.overlord-widget {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: overlord-fade-in 0.1s ease;
+}
+
+@keyframes overlord-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.overlord-widget-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-bg-primary, #1e1e1e);
+  border: 1px solid var(--color-accent, #0078d4);
+  border-radius: 6px;
+  padding: 4px 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 120, 212, 0.3);
+  min-width: 360px;
+  max-width: 500px;
+}
+
+.overlord-widget-icon {
+  display: flex;
+  align-items: center;
+  color: var(--color-accent, #0078d4);
+  flex-shrink: 0;
+}
+
+.overlord-widget-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text-primary, #cccccc);
+  font-size: 13px;
+  font-family: var(--font-family);
+  padding: 4px 0;
+}
+
+.overlord-widget-input::placeholder {
+  color: var(--color-text-secondary, #858585);
+}
+
+.overlord-widget-input:disabled {
+  opacity: 0.6;
+}
+
+.overlord-widget-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: var(--color-accent, #0078d4);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+
+.overlord-widget-submit:hover {
+  background: var(--color-accent-hover, #0062a3);
+}
+
+.overlord-widget-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-text-secondary, #858585);
+  border-top-color: var(--color-accent, #0078d4);
+  border-radius: 50%;
+  animation: overlord-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes overlord-spin {
+  to { transform: rotate(360deg); }
+}
+
+.overlord-widget-error {
+  background: var(--color-bg-primary, #1e1e1e);
+  border: 1px solid var(--color-error, #f14c4c);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--color-error, #f14c4c);
+  max-width: 500px;
+}
+
+/* Accept/Reject bar */
+.overlord-accept-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--color-bg-secondary, #252525);
+  border-top: 1px solid var(--color-accent, #0078d4);
+  font-size: 12px;
+  color: var(--color-text-secondary, #858585);
+}
+
+.overlord-accept-bar span {
+  flex: 1;
+}
+
+.overlord-accept-btn {
+  padding: 3px 12px;
+  background: #2ea043;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  font-size: 11px;
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+
+.overlord-accept-btn:hover {
+  background: #3fb950;
+}
+
+.overlord-reject-btn {
+  padding: 3px 12px;
+  background: transparent;
+  border: 1px solid var(--color-border, #3e3e3e);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #858585);
+  font-size: 11px;
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+
+.overlord-reject-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-error, #f14c4c);
+  border-color: var(--color-error, #f14c4c);
+}
+
+/* Highlight decoration for AI-generated code in the editor */
+.overlord-inline-highlight {
+  background: rgba(0, 120, 212, 0.08);
+  border-left: 2px solid var(--color-accent, #0078d4);
+}
+
+.overlord-inline-glyph {
+  background: var(--color-accent, #0078d4);
+  width: 4px !important;
+  margin-left: 3px;
+  border-radius: 2px;
+}

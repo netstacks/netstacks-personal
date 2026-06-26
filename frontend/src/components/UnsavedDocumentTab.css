@@ -1,0 +1,102 @@
+.unsaved-doc-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+.unsaved-doc-save-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.unsaved-doc-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #eab308;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.unsaved-doc-name-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 5px 8px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.unsaved-doc-name-input:focus {
+  border-color: var(--accent-color, #007acc);
+}
+
+.unsaved-doc-category-select {
+  padding: 5px 8px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+
+.unsaved-doc-category-select:focus {
+  border-color: var(--accent-color, #007acc);
+}
+
+.unsaved-doc-save-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--accent-color, #007acc);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.unsaved-doc-save-btn:hover:not(:disabled) {
+  background: var(--accent-hover, #005a9e);
+}
+
+.unsaved-doc-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.unsaved-doc-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.unsaved-doc-pre {
+  margin: 0;
+  font-family: var(--font-mono, 'Fira Code', monospace);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

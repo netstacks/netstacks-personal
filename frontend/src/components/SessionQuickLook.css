@@ -1,0 +1,265 @@
+/* SessionQuickLook - Floating session preview overlay */
+
+.session-quicklook {
+  position: fixed;
+  z-index: 1100;
+  width: 420px;
+  background: rgba(30, 30, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.3),
+    0 10px 40px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  backdrop-filter: blur(20px);
+  animation: sessionQuicklookSlideIn 0.2s ease-out;
+  overflow: hidden;
+}
+
+@keyframes sessionQuicklookSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.session-quicklook-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.session-quicklook-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.session-quicklook-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(33, 150, 243, 0.2);
+  border-radius: 6px;
+  color: #2196f3;
+  flex-shrink: 0;
+}
+
+.session-quicklook-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session-quicklook-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-quicklook-ip {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+.session-quicklook-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-quicklook-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Terminal Preview */
+.session-quicklook-preview {
+  padding: 12px;
+  background: #0d0d0d;
+}
+
+.session-quicklook-terminal {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  background: #1a1a1a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  min-height: 80px;
+}
+
+.session-quicklook-terminal-line {
+  white-space: pre;
+}
+
+.session-quicklook-terminal-line.prompt {
+  color: #e5e5e5;
+}
+
+.session-quicklook-terminal-line.prompt .user {
+  color: #4caf50;
+}
+
+.session-quicklook-terminal-line.prompt .separator {
+  color: #666;
+}
+
+.session-quicklook-terminal-line.prompt .path {
+  color: #2196f3;
+}
+
+.session-quicklook-terminal-line.prompt .prompt-char {
+  color: #e5e5e5;
+  margin-left: 4px;
+}
+
+.session-quicklook-terminal-line.output {
+  color: #999;
+  margin: 4px 0;
+}
+
+.session-quicklook-terminal-line .cursor {
+  color: #4caf50;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.session-quicklook-preview-hint {
+  text-align: center;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  margin-top: 8px;
+}
+
+/* Quick Info */
+.session-quicklook-info {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.session-quicklook-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-quicklook-info-item .label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.session-quicklook-info-item .value {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.session-quicklook-info-item .value.status-active {
+  color: #4caf50;
+}
+
+.session-quicklook-info-item .value.status-inactive {
+  color: #f44336;
+}
+
+.session-quicklook-info-item .value.status-degraded {
+  color: #ff9800;
+}
+
+/* Actions */
+.session-quicklook-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.session-quicklook-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-quicklook-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.session-quicklook-action.primary {
+  background: rgba(33, 150, 243, 0.15);
+  border-color: rgba(33, 150, 243, 0.3);
+  color: #2196f3;
+}
+
+.session-quicklook-action.primary:hover {
+  background: rgba(33, 150, 243, 0.25);
+  border-color: rgba(33, 150, 243, 0.5);
+}
+
+.session-quicklook-action svg {
+  flex-shrink: 0;
+}
+
+/* Footer */
+.session-quicklook-footer {
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.session-quicklook-footer kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  margin: 0 2px;
+}

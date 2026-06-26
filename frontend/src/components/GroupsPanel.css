@@ -1,0 +1,190 @@
+.groups-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.groups-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-secondary, #141414);
+  border-bottom: 1px solid var(--border, #1a1a1a);
+}
+
+.groups-search {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-primary, #0a0a0a);
+  border: 1px solid var(--border, #2a2a2a);
+  color: var(--text-primary, #ddd);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+.groups-save-current {
+  background: #1a3155;
+  border: 1px solid #4a9eff;
+  color: #4a9eff;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.groups-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-tertiary, #555);
+  font-size: 11px;
+}
+
+.groups-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.groups-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #1a1a1a);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.groups-row:hover {
+  background: var(--bg-secondary, #141414);
+}
+
+.groups-row.live {
+  background: linear-gradient(90deg, rgba(74, 158, 255, 0.08) 0%, transparent 100%);
+  border-left: 2px solid #4a9eff;
+  padding-left: 10px;
+}
+
+.groups-row.drop-target {
+  outline: 1px dashed #4a9eff;
+  outline-offset: -2px;
+  background: rgba(74, 158, 255, 0.08);
+}
+
+.groups-row-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.groups-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf50;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+}
+
+.groups-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary, #fff);
+  font-weight: 500;
+}
+
+.groups-rename-input {
+  flex: 1;
+  background: var(--bg-primary, #0a0a0a);
+  border: 1px solid #4a9eff;
+  color: var(--text-primary, #fff);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.groups-overflow {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary, #666);
+  font-size: 14px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+/* Collapsible chip details — hidden by default, revealed on row hover */
+.groups-row-details {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.15s ease;
+}
+
+.groups-row:hover .groups-row-details {
+  grid-template-rows: 1fr;
+}
+
+.groups-row-details-inner {
+  overflow: hidden;
+}
+
+.groups-row-chips {
+  display: flex;
+  gap: 6px;
+  padding-top: 6px;
+  flex-wrap: wrap;
+}
+
+.groups-chip {
+  background: var(--bg-tertiary, #1f1f1f);
+  color: var(--text-secondary, #aaa);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #2a2a2a);
+}
+
+.groups-chip-terminal::before {
+  content: '▶ ';
+  color: #4a9eff;
+}
+
+.groups-chip-topology::before {
+  content: '◈ ';
+  color: #ff9f4a;
+}
+
+.groups-chip-document::before {
+  content: '📄 ';
+}
+
+.groups-chip-more {
+  background: transparent;
+  color: var(--text-tertiary, #888);
+}
+
+.groups-row-meta {
+  font-size: 9px;
+  color: var(--text-tertiary, #666);
+  margin-top: 6px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.groups-topo-badge,
+.groups-topo-pill {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #ff9f4a;
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.groups-topo-pill {
+  border-color: #553a1a;
+}
+
+.groups-topo-pill:hover,
+.groups-topo-badge:hover {
+  background: rgba(255, 159, 74, 0.1);
+}

@@ -1,0 +1,206 @@
+/* AgentActivity — macOS/Xcode-style labeled card feed. */
+
+.agent-activity {
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  background: var(--color-bg-elevated, rgba(40, 40, 44, 0.6));
+  -webkit-backdrop-filter: var(--glass-blur, blur(20px) saturate(160%));
+  backdrop-filter: var(--glass-blur, blur(20px) saturate(160%));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 6px 22px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+/* fill: grow to fill the container (run tab / node) instead of the compact
+   380px cap — feed scrolls internally so the page doesn't. */
+.agent-activity.fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.agent-activity.fill .agent-activity-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Header — title, live pulse, step count. */
+.agent-activity-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.06));
+  background: rgba(255, 255, 255, 0.02);
+}
+.agent-activity-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--color-text, #e8e8ea);
+}
+.agent-activity-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #8a8a8f);
+  font-variant-numeric: tabular-nums;
+}
+.aa-collapse-all {
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.14));
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+  color: var(--color-text-secondary, #b6b6bb);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.aa-collapse-all:hover { color: var(--color-text, #e8e8ea); }
+.agent-activity-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-success, #4ec9b0);
+}
+.aa-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success, #4ec9b0);
+  animation: aa-pulse 1.6s ease-out infinite;
+}
+@keyframes aa-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--color-success-rgb, 78, 201, 176), 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(var(--color-success-rgb, 78, 201, 176), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--color-success-rgb, 78, 201, 176), 0); }
+}
+
+/* Feed — scrollable stack of step cards. */
+.agent-activity-feed {
+  /* Wrap the cards — the box grows to fit however many/whatever size; the
+     surrounding container does the scrolling. (Node boxes use .fill to cap +
+     scroll internally instead.) */
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* Step card */
+.aa-card {
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.07));
+  border-radius: 10px;
+  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
+  padding: 8px 10px 9px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.aa-card:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.05));
+}
+
+.aa-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.aa-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-tertiary, #8a8a8f);
+  flex-shrink: 0;
+}
+.aa-chevron svg { transform: rotate(90deg); transition: transform 0.15s ease; }
+.aa-card.collapsed .aa-chevron svg { transform: rotate(0deg); }
+
+/* Tinted rounded-square leading icon (macOS app-icon feel). */
+.aa-ico {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.aa-ico svg { width: 13px; height: 13px; }
+
+.aa-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+.aa-tool {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--color-text-secondary, #b6b6bb);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.aa-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #8a8a8f);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Body */
+.aa-body { margin-top: 6px; padding-left: 30px; }
+.aa-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text, #dcdcde);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aa-code {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+  color: var(--color-text, #dcdcde);
+  background: var(--color-bg-input, rgba(0, 0, 0, 0.22));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: 7px;
+  padding: 6px 8px;
+}
+
+/* Command shown as a terminal row (before it runs) */
+.aa-cmd {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--color-warning, #e2b87a);
+}
+.aa-prompt {
+  color: var(--color-warning, #e2b87a);
+  font-weight: 700;
+  user-select: none;
+}
+
+/* ── Kind accents (icon tint + title color + edge) ── */
+.aa-thought .aa-ico { background: rgba(var(--color-accent-rgb, 138, 138, 255), 0.16); color: var(--color-accent, #8a8aff); }
+.aa-thought .aa-title { color: var(--color-accent, #8a8aff); }
+
+.aa-command .aa-ico { background: rgba(var(--color-warning-rgb, 226, 184, 122), 0.16); color: var(--color-warning, #e2b87a); }
+.aa-command .aa-title { color: var(--color-warning, #e2b87a); }
+
+.aa-tool_result .aa-ico { background: rgba(var(--color-success-rgb, 78, 201, 176), 0.16); color: var(--color-success, #4ec9b0); }
+.aa-tool_result .aa-title { color: var(--color-success, #4ec9b0); }
+
+.aa-error .aa-ico { background: rgba(var(--color-error-rgb, 244, 71, 71), 0.16); color: var(--color-error, #f48a8a); }
+.aa-error .aa-title { color: var(--color-error, #f48a8a); }
+.aa-error .aa-card { border-color: rgba(var(--color-error-rgb, 244, 71, 71), 0.28); }
+.aa-error .aa-code { color: var(--color-error, #f48a8a); }
+
+.aa-status .aa-ico { background: rgba(255, 255, 255, 0.06); color: var(--color-text-tertiary, #9a9aa0); }
+.aa-status .aa-title { color: var(--color-text-tertiary, #9a9aa0); }

@@ -1,0 +1,170 @@
+[package]
+name = "netstacks-agent"
+version = "0.2.26"
+edition = "2021"
+description = "Local Agent for NetStacks Terminal — SSH/Telnet/SFTP, credential vault, and AI assistant for Personal Mode."
+license = "UNLICENSED"
+repository = "https://github.com/netstacks/netstacks-terminal"
+homepage = "https://netstacks.net"
+authors = ["NetStacks <hello@netstacks.net>"]
+
+[features]
+default = []
+dev-routes = []
+
+[dependencies]
+# Web server
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "fs", "limit"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_json_path = "0.7"
+serde_yaml = "0.9"
+csv = "1.3"
+toml = "0.8"
+
+# SSH client (0.55+ has proper RFC 8332 rsa-sha2-256/512 support).
+# Use the `ring` crypto backend (not the default `aws-lc-rs`) so the whole
+# binary shares one provider with rustls — drops the vendored AWS-LC C library
+# (smaller binary, no cmake/C in the musl cross-build). Mirrors russh's default
+# minus aws-lc-rs.
+russh = { version = "0.55", default-features = false, features = ["flate2", "ring", "rsa"] }
+russh-sftp = "2.1"
+
+# PTY for local shell
+portable-pty = "0.8"
+
+# Localhost TLS (self-signed cert generation + HTTPS server)
+rcgen = "0.13"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls-pemfile = "2"
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+
+# Session management
+uuid = { version = "1", features = ["v4"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }
+
+# Async utilities
+futures = "0.3"
+tokio-util = "0.7"
+tokio-stream = { version = "0.1", features = ["sync"] }
+async-stream = "0.3"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Environment
+dotenvy = "0.15"
+
+# SSH key management
+ssh-key = { version = "0.6", features = ["ed25519"] }
+
+# Base64 encoding
+base64 = "0.22"
+
+# Credential vault (audited, open-source — see github.com/netstacks/netstacks-crypto)
+# Pinned to a tagged release so release builds don't depend on a sibling checkout.
+netstacks-credential-vault = { git = "https://github.com/netstacks/netstacks-crypto.git", tag = "v0.1.0" }
+
+# Encryption (still needed for SSH/TLS bits outside the vault)
+sha2 = { version = "0.10", features = ["oid"] }
+rand = "0.8"
+subtle = "2"
+
+# Poison-free sync primitives — used on the vault hot path so a single
+# panic doesn't permanently brick credential unlock (std::sync poisons).
+parking_lot = "0.12"
+
+# Async trait
+async-trait = "0.1"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Directories
+dirs = "5"
+
+# System information
+hostname = "0.4"
+
+# HTTP client (rustls-tls for cross-platform TLS without system dependencies)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# URL encoding
+urlencoding = "2.1"
+
+# Template rendering (Jinja2-compatible)
+minijinja = { version = "2", features = ["json"] }
+
+# Regex for sanitization patterns
+regex = "1"
+
+# ANSI escape sequence stripping (for PTY output cleanup)
+strip-ansi-escapes = "0.2"
+snmp2 = { version = "0.4.14", features = ["tokio", "heap_buffers"] }
+
+# Cross-platform DNS resolver. Replaces a `host`-CLI shell-out so reverse
+# (PTR) lookups work on Windows, which doesn't ship `host`. Default features
+# include `system-config` (reads /etc/resolv.conf on Unix and the Win32
+# IP Helper API on Windows) and `tokio-runtime`.
+hickory-resolver = "0.24"
+
+# MCP Protocol client (Model Context Protocol)
+rmcp = { version = "0.14", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+
+# Email sending
+lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
+dashmap = "6.1.0"
+zip = { version = "8.6.0", features = ["deflate"] }
+
+# Platform-specific deps
+[target.'cfg(unix)'.dependencies]
+# Process signaling for parent-PID watcher and orphan-agent eviction.
+libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+which = "6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Touch ID prompt + keychain storage for the vault master password.
+# We use plain SecItem* (legacy keychain) so it works in unsigned dev builds,
+# and call LAContext.evaluatePolicy via objc2 to enforce Touch ID explicitly.
+security-framework = "2.11"
+security-framework-sys = "2.11"
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSError", "NSString"] }
+objc2-local-authentication = { version = "0.2", features = ["LAContext", "LAError", "block2"] }
+block2 = "0.5"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tempfile = "3"
+tokio-tungstenite = "0.29.0"
+
+[profile.release]
+# Size-focused release profile. The agent ships both as the desktop sidecar
+# and as the downloaded remote-workspace binary, so every MB counts.
+#   strip          — drop the symbol table (~10MB)
+#   lto = "thin"   — cross-crate dead-code elimination (smaller, often faster);
+#                    "thin" (not "fat") keeps the aarch64-musl/qemu build tractable
+#   codegen-units  — single unit lets the optimizer dedup/shrink more
+# Deliberately NOT set: panic="abort" (the agent runs concurrent sessions — a
+# task panic should not abort the whole process) and opt-level="z" (perf
+# tradeoff on a network agent). Both are opt-in if we want more later.
+strip = true
+lto = "thin"
+codegen-units = 1
