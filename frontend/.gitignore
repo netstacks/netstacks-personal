@@ -1,7 +1,0 @@
-# Keep hidden local/editor directories ignored
-.vscode/
-.idea/
-
-# OS/editor artifacts
-.DS_Store
-*.sw?
