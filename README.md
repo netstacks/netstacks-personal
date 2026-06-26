@@ -4,6 +4,7 @@ The SSH terminal that thinks with you.
 
 SSH, Telnet, and SFTP with an encrypted credential vault, network-aware AI, and topology visualization. Built for network engineers.
 
+[![License](https://img.shields.io/badge/License-Elastic_2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://netstacks.net/download)
 [![Built with Tauri](https://img.shields.io/badge/Built_with-Tauri_%2B_Rust-orange.svg)](https://tauri.app)
 
@@ -33,7 +34,7 @@ Download the signed installer for your platform from [netstacks.net/download](ht
 
 This repository publishes the frontend and agent source code for transparency and community review. You are welcome to read, study, and audit the code.
 
-**Running NetStacks requires the official signed binaries from [netstacks.net/download](https://netstacks.net/download).** The source here is published for inspection, not for self-building.
+**Running NetStacks requires the official signed binaries from [netstacks.net/download](https://netstacks.net/download).** The source is published for inspection under the [Elastic License 2.0](LICENSE) — you may not redistribute it or provide it as a hosted service.
 
 See [LICENSE](LICENSE) for the full terms.
 
