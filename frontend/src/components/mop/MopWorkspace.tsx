@@ -41,8 +41,8 @@ import { execMopCommand, type ExecCommandResult } from '../../api/mopTestTermina
 import { createDocument, type Document } from '../../api/docs';
 import { generateMopDocument, type MopDocumentData } from '../../lib/mopDocumentGenerator';
 import type { StepSourceType } from '../../types/mop';
-import { listAccessibleCredentials } from '../../api/enterpriseCredentials';
-import type { AccessibleCredential } from '../../types/enterpriseCredential';
+import { loadConnectTargets } from '../../api/enterpriseProfiles';
+import type { AccessibleProfile } from '../../types/enterpriseProfile';
 import { listQuickActions } from '../../api/quickActions';
 import { listScripts, analyzeScript, type Script, type ScriptParam } from '../../api/scripts';
 import type { QuickAction } from '../../types/quickAction';
@@ -325,7 +325,7 @@ export default function MopWorkspace({ planId, executionId, onTitleChange, onDel
 
   // Credential override state (enterprise mode)
   const [credentialOverrides, setCredentialOverrides] = useState<Map<string, string>>(new Map());
-  const [accessibleCredentials, setAccessibleCredentials] = useState<AccessibleCredential[]>([]);
+  const [accessibleCredentials, setAccessibleCredentials] = useState<AccessibleProfile[]>([]);
   const [credentialsLoaded, setCredentialsLoaded] = useState(false);
 
   // Review state
@@ -481,8 +481,8 @@ export default function MopWorkspace({ planId, executionId, onTitleChange, onDel
   // Load accessible credentials for enterprise mode
   useEffect(() => {
     if (isEnterprise && !credentialsLoaded) {
-      listAccessibleCredentials()
-        .then(creds => { setAccessibleCredentials(creds); setCredentialsLoaded(true); })
+      loadConnectTargets()
+        .then(profiles => { setAccessibleCredentials(profiles); setCredentialsLoaded(true); })
         .catch(() => setCredentialsLoaded(true));
     }
   }, [isEnterprise, credentialsLoaded]);

@@ -81,7 +81,7 @@ import { useEnrichment } from './hooks/useEnrichment'
 // below). Hook left in tree for now; remove when no other importer
 // remains.
 import { listSessions, getSession, type Session } from './api/sessions'
-import { type EnterpriseSession, getSessionDefinition, updateSessionDefinition } from './api/enterpriseSessions'
+import { type EnterpriseSession, getSessionDefinition } from './api/enterpriseSessions'
 import { type DeviceSummary } from './api/enterpriseDevices'
 import { listProfiles, type CredentialProfile } from './api/profiles'
 import { createLayout, type Layout, type LayoutTab } from './api/layouts'
@@ -184,7 +184,7 @@ interface Tab {
   // Jumpbox (enterprise Local Terminal)
   isJumpbox?: boolean
   // Enterprise SSH terminal-specific
-  enterpriseCredentialId?: string
+  enterpriseProfileId?: string
   enterpriseSessionDefinitionId?: string
   enterpriseTargetHost?: string
   enterpriseTargetPort?: number
@@ -1079,7 +1079,7 @@ function AppContent() {
           deviceName: tab.title,
           cliFlavor: tab.cliFlavor || 'auto',
           sftpStartPath: null,
-          enterpriseCredentialId: tab.enterpriseCredentialId,
+          enterpriseProfileId: tab.enterpriseProfileId,
           enterpriseTargetHost: tab.enterpriseTargetHost,
           enterpriseTargetPort: tab.enterpriseTargetPort,
         })
@@ -2933,7 +2933,7 @@ def main(command: str = "show version"):
     if (tab.terminalTheme) params.set('terminalTheme', tab.terminalTheme)
     if (tab.fontSize) params.set('fontSize', String(tab.fontSize))
     if (tab.fontFamily) params.set('fontFamily', tab.fontFamily)
-    if (tab.enterpriseCredentialId) params.set('enterpriseCredentialId', tab.enterpriseCredentialId)
+    if (tab.enterpriseProfileId) params.set('enterpriseProfileId', tab.enterpriseProfileId)
     if (tab.enterpriseSessionDefinitionId) params.set('enterpriseSessionDefinitionId', tab.enterpriseSessionDefinitionId)
     if (tab.enterpriseTargetHost) params.set('enterpriseTargetHost', tab.enterpriseTargetHost)
     if (tab.enterpriseTargetPort) params.set('enterpriseTargetPort', String(tab.enterpriseTargetPort))
@@ -3001,7 +3001,7 @@ def main(command: str = "show version"):
         fontFamily: tab.fontFamily,
         color: tab.color,
         isJumpbox: tab.isJumpbox,
-        enterpriseCredentialId: tab.enterpriseCredentialId,
+        enterpriseProfileId: tab.enterpriseProfileId,
         enterpriseSessionDefinitionId: tab.enterpriseSessionDefinitionId,
         enterpriseTargetHost: tab.enterpriseTargetHost,
         enterpriseTargetPort: tab.enterpriseTargetPort,
@@ -4707,13 +4707,13 @@ def main(command: str = "show version"):
     setEnterpriseConnectSession(tempSession)
   }, [])
 
-  // Quick connect to a device using default credential (no dialog)
+  // Quick connect to a device using default profile (no dialog)
   const handleDeviceQuickConnect = useCallback(async (device: DeviceSummary) => {
     try {
-      const { getUserDefaultCredential } = await import('./api/enterpriseCredentials')
-      const defaultCred = await getUserDefaultCredential()
-      if (!defaultCred) {
-        // No default credential — fall back to dialog
+      const { getDefaultConnectTarget } = await import('./api/enterpriseProfiles')
+      const defaultProfile = await getDefaultConnectTarget()
+      if (!defaultProfile) {
+        // No default profile — fall back to dialog
         handleDeviceConnect(device)
         return
       }
@@ -4726,7 +4726,7 @@ def main(command: str = "show version"):
         protocol: 'ssh',
         cliFlavor: 'auto',
         status: 'connecting',
-        enterpriseCredentialId: defaultCred.id,
+        enterpriseProfileId: defaultProfile.id,
         enterpriseSessionDefinitionId: `device-${device.id}`,
         enterpriseTargetHost: device.host,
         enterpriseTargetPort: device.port,
@@ -4739,8 +4739,11 @@ def main(command: str = "show version"):
     }
   }, [handleDeviceConnect])
 
-  // Handle credential selection from dialog - create enterprise terminal tab
-  const handleEnterpriseCredentialSelected = useCallback((credentialId: string) => {
+  // Handle profile selection from dialog - create enterprise terminal tab.
+  // The chosen profile_id is carried on the in-memory Tab and threaded to the
+  // /ws/ssh connect URL. Persisting a profile override onto the session
+  // definition is deferred to Phase 9 (credential_override_id stays legacy).
+  const handleEnterpriseProfileSelected = useCallback((profileId: string) => {
     if (!enterpriseConnectSession) return
 
     // Create enterprise terminal tab
@@ -4752,7 +4755,7 @@ def main(command: str = "show version"):
       protocol: 'ssh',
       cliFlavor: enterpriseConnectSession.cli_flavor,
       status: 'connecting',
-      enterpriseCredentialId: credentialId,
+      enterpriseProfileId: profileId,
       enterpriseSessionDefinitionId: enterpriseConnectSession.id,
       enterpriseTargetHost: enterpriseConnectSession.host,
       enterpriseTargetPort: enterpriseConnectSession.port,
@@ -4760,13 +4763,6 @@ def main(command: str = "show version"):
 
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newId)
-
-    // Persist the selected credential so subsequent connects skip the dialog
-    // Skip for device-sourced connections (id starts with "device-") — not a real session definition
-    if (enterpriseConnectSession.credential_override_id !== credentialId && !enterpriseConnectSession.id.startsWith('device-')) {
-      updateSessionDefinition(enterpriseConnectSession.id, { credential_override_id: credentialId })
-        .catch(err => console.warn('Failed to persist credential selection:', err))
-    }
 
     setEnterpriseConnectSession(null) // Close dialog
   }, [enterpriseConnectSession])
@@ -5195,16 +5191,11 @@ def main(command: str = "show version"):
         throw new Error(`Session ${sessionId} not found`)
       }
 
-      if (!session.credential_override_id) {
-        throw new Error(`Session "${session.name}" requires credential selection. Please open it manually from the Sessions panel.`)
-      }
-
-      // Open directly with saved credential
+      // Phase 8 (profile contract): session definitions don't carry a profile,
+      // and the legacy credential_override_id is NOT a profile id — do not
+      // launder it into enterpriseProfileId. Open device-anchored (no
+      // profile_id) so the controller resolves the device's default profile.
       const newId = `enterprise-ssh-${session.id}-${Date.now()}`
-      // Enterprise sessions don't carry profile_id — credential_override_id
-      // is the auth handle on the controller side. The (session as any).profile_id
-      // cast that used to live here always read undefined; drop the field
-      // rather than launder a non-existent value.
       const newTab: Tab = {
         id: newId,
         type: 'terminal',
@@ -5213,7 +5204,6 @@ def main(command: str = "show version"):
         cliFlavor: session.cli_flavor,
         status: 'connecting',
         sessionId: session.id,
-        enterpriseCredentialId: session.credential_override_id,
         enterpriseSessionDefinitionId: session.id,
         enterpriseTargetHost: session.host,
         enterpriseTargetPort: session.port,
@@ -6087,7 +6077,7 @@ def main(command: str = "show version"):
           // Troubleshooting session capture (Phase 26)
           onTroubleshootingCapture={handleTroubleshootingCapture}
           isTroubleshootingActive={isTroubleshootingActive && isTroubleshootingCapturing(tab.id)}
-          enterpriseCredentialId={tab.enterpriseCredentialId}
+          enterpriseProfileId={tab.enterpriseProfileId}
           enterpriseSessionDefinitionId={tab.enterpriseSessionDefinitionId}
           enterpriseTargetHost={tab.enterpriseTargetHost}
           enterpriseTargetPort={tab.enterpriseTargetPort}
@@ -8275,7 +8265,7 @@ def main(command: str = "show version"):
       {enterpriseConnectSession && (
         <EnterpriseConnectDialog
           session={enterpriseConnectSession}
-          onConnect={handleEnterpriseCredentialSelected}
+          onConnect={handleEnterpriseProfileSelected}
           onCancel={() => setEnterpriseConnectSession(null)}
           deviceName={enterpriseConnectSession.id.startsWith('device-') ? enterpriseConnectSession.name : undefined}
         />

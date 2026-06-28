@@ -16,7 +16,7 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
   const terminalTheme = params.get('terminalTheme') || undefined
   const fontSize = params.get('fontSize') ? Number(params.get('fontSize')) : undefined
   const fontFamily = params.get('fontFamily') || undefined
-  const enterpriseCredentialId = params.get('enterpriseCredentialId') || undefined
+  const enterpriseProfileId = params.get('enterpriseProfileId') || undefined
   const enterpriseSessionDefinitionId = params.get('enterpriseSessionDefinitionId') || undefined
   const enterpriseTargetHost = params.get('enterpriseTargetHost') || undefined
   const enterpriseTargetPort = params.get('enterpriseTargetPort') ? Number(params.get('enterpriseTargetPort')) : undefined
@@ -53,7 +53,7 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
         terminalTheme,
         fontSize,
         fontFamily,
-        enterpriseCredentialId,
+        enterpriseProfileId,
         enterpriseSessionDefinitionId,
         enterpriseTargetHost,
         enterpriseTargetPort,
@@ -65,7 +65,7 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
       // Not in Tauri environment
       window.close()
     }
-  }, [sessionId, sessionName, protocol, cliFlavor, terminalTheme, fontSize, fontFamily, enterpriseCredentialId, enterpriseSessionDefinitionId, enterpriseTargetHost, enterpriseTargetPort, isJumpbox])
+  }, [sessionId, sessionName, protocol, cliFlavor, terminalTheme, fontSize, fontFamily, enterpriseProfileId, enterpriseSessionDefinitionId, enterpriseTargetHost, enterpriseTargetPort, isJumpbox])
 
   return (
     <div className="popout-terminal">
@@ -96,7 +96,7 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
           fontSize={fontSize}
           fontFamily={fontFamily}
           onStatusChange={handleStatusChange}
-          enterpriseCredentialId={enterpriseCredentialId}
+          enterpriseProfileId={enterpriseProfileId}
           enterpriseSessionDefinitionId={enterpriseSessionDefinitionId}
           enterpriseTargetHost={enterpriseTargetHost}
           enterpriseTargetPort={enterpriseTargetPort}

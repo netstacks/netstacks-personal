@@ -24,8 +24,8 @@ import {
 } from '../lib/wsProtocol';
 
 export interface UseEnterpriseSSHOptions {
-  /** Credential ID to connect to */
-  credentialId: string;
+  /** Profile ID to connect with (empty → controller uses the device's default profile) */
+  profileId: string;
   /** Session definition ID for tracking (optional) */
   sessionDefinitionId?: string;
   /** Target host to connect to (overrides credential host) */
@@ -88,7 +88,7 @@ export interface UseEnterpriseSSHReturn {
  */
 export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpriseSSHReturn {
   const {
-    credentialId,
+    profileId,
     sessionDefinitionId,
     host,
     port,
@@ -209,7 +209,13 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
 
       // Build WebSocket URL with query parameters
       const client = getClient();
-      let path = `/ws/ssh?credential_id=${credentialId}&term=${encodeURIComponent(term)}&cols=${colsRef.current}&rows=${rowsRef.current}`;
+      let path = `/ws/ssh?term=${encodeURIComponent(term)}&cols=${colsRef.current}&rows=${rowsRef.current}`;
+
+      // Profile-by-reference (Phase 8). Omit entirely when empty so the
+      // controller falls back to the device-anchored default profile.
+      if (profileId) {
+        path += `&profile_id=${encodeURIComponent(profileId)}`;
+      }
 
       if (host) {
         path += `&host=${encodeURIComponent(host)}`;
@@ -261,7 +267,8 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
                 const redirectBase = textMsg.websocket_url.replace(/^https?/, (m: string) =>
                   m === 'https' ? 'wss' : 'ws'
                 );
-                let redirectPath = `${redirectBase}?credential_id=${credentialId}&term=${encodeURIComponent(term)}&cols=${colsRef.current}&rows=${rowsRef.current}`;
+                let redirectPath = `${redirectBase}?term=${encodeURIComponent(term)}&cols=${colsRef.current}&rows=${rowsRef.current}`;
+                if (profileId) redirectPath += `&profile_id=${encodeURIComponent(profileId)}`;
                 if (host) redirectPath += `&host=${encodeURIComponent(host)}`;
                 if (port) redirectPath += `&port=${port}`;
                 if (sessionDefinitionId) redirectPath += `&session_id=${sessionDefinitionId}`;
@@ -410,7 +417,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    credentialId,
+    profileId,
     sessionDefinitionId,
     host,
     port,

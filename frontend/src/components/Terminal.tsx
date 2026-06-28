@@ -124,8 +124,8 @@ interface TerminalProps {
   /** Callback when user clicks on an AI Overlord annotation to discuss with AI */
   onOverlordAnnotationClick?: (reason: string, text: string, highlightType: string) => void
   // Enterprise SSH (Phase 42)
-  /** Enterprise credential ID for SSH via Controller */
-  enterpriseCredentialId?: string
+  /** Enterprise profile ID for SSH via Controller (profile contract, Phase 8) */
+  enterpriseProfileId?: string
   /** Enterprise session definition ID for tracking */
   enterpriseSessionDefinitionId?: string
   /** Target host for enterprise SSH connection */
@@ -235,7 +235,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   onVisualizeTraceroute,
   onTroubleshootingCapture,
   isTroubleshootingActive,
-  enterpriseCredentialId,
+  enterpriseProfileId,
   enterpriseSessionDefinitionId,
   enterpriseTargetHost,
   enterpriseTargetPort,
@@ -309,8 +309,12 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // @ts-expect-error enterpriseSessionId will be used in future enterprise features
   const [enterpriseSessionId, setEnterpriseSessionId] = useState<string | null>(null)
   const [enterpriseHost, setEnterpriseHost] = useState<string>('')
-  const isEnterpriseMode = Boolean(enterpriseCredentialId)
-  const isJumpboxMode = Boolean(isJumpbox) && !enterpriseCredentialId && !sessionId
+  // Enterprise SSH tabs always carry a session-definition id (set on every
+  // controller connect path). The profile id is now optional — agent-open
+  // connects device-anchored with no profile_id — so gate on the session id,
+  // which is co-extensive with the legacy credential-id gate.
+  const isEnterpriseMode = Boolean(enterpriseSessionDefinitionId)
+  const isJumpboxMode = Boolean(isJumpbox) && !enterpriseSessionDefinitionId && !sessionId
   const instanceName = useCapabilitiesStore((s) => s.capabilities?.instance_name) || 'Controller'
 
   // Reconnect state
@@ -732,9 +736,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   }, [])
 
   // Enterprise SSH connection (conditional hook usage)
-  // This hook is only active when enterpriseCredentialId is provided
+  // This hook is only active for enterprise (controller-managed) sessions.
+  // profileId may be empty (agent-open / device-anchored) → controller resolves
+  // the device's default profile.
   const enterpriseSSH = isEnterpriseMode ? useEnterpriseSSH({
-    credentialId: enterpriseCredentialId!,
+    profileId: enterpriseProfileId ?? '',
     sessionDefinitionId: enterpriseSessionDefinitionId,
     host: enterpriseTargetHost,
     port: enterpriseTargetPort,
@@ -929,7 +935,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       const pngData = await convertToPng(imageBlob)
       const n = imageCounterRef.current
 
-      const isLocal = !sessionId && !enterpriseCredentialId && !isJumpbox
+      const isLocal = !sessionId && !enterpriseSessionDefinitionId && !isJumpbox
       let savedPath: string
 
       if (isLocal) {

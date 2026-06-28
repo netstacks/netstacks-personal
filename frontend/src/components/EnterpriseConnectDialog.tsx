@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { listAccessibleCredentials, getUserDefaultCredential } from '../api/enterpriseCredentials';
-import type { AccessibleCredential } from '../types/enterpriseCredential';
+import { loadConnectTargets, getDefaultConnectTarget } from '../api/enterpriseProfiles';
+import type { AccessibleProfile } from '../types/enterpriseProfile';
 import type { EnterpriseSession } from '../api/enterpriseSessions';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './EnterpriseConnectDialog.css';
@@ -8,7 +8,7 @@ import './EnterpriseConnectDialog.css';
 import { getErrorMessage } from '../api/errors'
 interface EnterpriseConnectDialogProps {
   session: EnterpriseSession;
-  onConnect: (credentialId: string) => void;
+  onConnect: (profileId: string) => void;
   onCancel: () => void;
   deviceName?: string; // Show device name in title if connecting from device panel (Phase 42.2-03)
 }
@@ -47,19 +47,33 @@ const Icons = {
   ),
 };
 
+const PROFILE_TYPE_LABEL: Record<AccessibleProfile['profile_type'], string> = {
+  personal: 'My Profiles',
+  shared: 'Shared',
+  service: 'Service',
+};
+
+function authModeLabel(authMode: AccessibleProfile['auth_mode']): string {
+  switch (authMode) {
+    case 'certificate': return 'Certificate';
+    case 'ssh_key': return 'SSH Key';
+    case 'password': return 'Password';
+    default: return 'No auth';
+  }
+}
+
 export default function EnterpriseConnectDialog({
   session,
   onConnect,
   onCancel,
   deviceName,
 }: EnterpriseConnectDialogProps) {
-  const [credentials, setCredentials] = useState<AccessibleCredential[]>([]);
-  const [selectedCredentialId, setSelectedCredentialId] = useState<string>('');
+  const [profiles, setProfiles] = useState<AccessibleProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isOverride, setIsOverride] = useState(false);
 
-  // Load credentials on mount
+  // Load profiles on mount (capability-aware: profiles, or legacy creds mapped)
   useEffect(() => {
     let cancelled = false;
 
@@ -68,36 +82,27 @@ export default function EnterpriseConnectDialog({
       setError(null);
 
       try {
-        // Fetch accessible credentials and default credential in parallel
-        const [credsList, defaultCred] = await Promise.all([
-          listAccessibleCredentials(),
-          getUserDefaultCredential(),
+        // Fetch accessible profiles and the default profile in parallel
+        const [list, defaultProfile] = await Promise.all([
+          loadConnectTargets(),
+          getDefaultConnectTarget(),
         ]);
 
         if (cancelled) return;
 
-        setCredentials(credsList);
+        setProfiles(list);
 
-        // Determine which credential to select
-        if (session.credential_override_id) {
-          // Session has an override credential
-          const override = credsList.find((c) => c.id === session.credential_override_id);
-          if (override) {
-            setSelectedCredentialId(override.id);
-            setIsOverride(true);
-          } else if (defaultCred) {
-            // Override credential not accessible, fall back to default
-            setSelectedCredentialId(defaultCred.id);
-            setIsOverride(false);
-          }
-        } else if (defaultCred) {
-          // No override, use default
-          setSelectedCredentialId(defaultCred.id);
-          setIsOverride(false);
-        }
+        // Default the selection: prefer the server-reported default profile,
+        // else the first profile flagged is_default, else the first available.
+        const defaultId =
+          defaultProfile?.id ??
+          list.find((p) => p.is_default)?.id ??
+          list[0]?.id ??
+          '';
+        setSelectedProfileId(defaultId);
       } catch (err) {
         if (cancelled) return;
-        setError(getErrorMessage(err, 'Failed to load credentials'));
+        setError(getErrorMessage(err, 'Failed to load profiles'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -106,29 +111,25 @@ export default function EnterpriseConnectDialog({
     return () => {
       cancelled = true;
     };
-  }, [session.credential_override_id]);
+  }, []);
 
   const handleConnect = () => {
-    if (!selectedCredentialId) {
-      setError('Please select a credential');
+    if (!selectedProfileId) {
+      setError('Please select a profile');
       return;
     }
-    onConnect(selectedCredentialId);
+    onConnect(selectedProfileId);
   };
 
-  const getCredentialIcon = (type: string) => {
-    if (type.includes('key')) return Icons.key;
+  const getProfileIcon = (authMode: AccessibleProfile['auth_mode']) => {
+    if (authMode === 'ssh_key' || authMode === 'certificate') return Icons.key;
     return Icons.lock;
   };
 
-  const formatCredentialLabel = (cred: AccessibleCredential) => {
-    const parts: string[] = [cred.name];
-    if (cred.username) parts.push(`(${cred.username})`);
-    if (cred.credential_type === 'ssh_key') {
-      parts.push('[SSH Key]');
-    } else if (cred.credential_type === 'ssh_password') {
-      parts.push('[Password]');
-    }
+  const formatProfileLabel = (profile: AccessibleProfile) => {
+    const parts: string[] = [profile.name];
+    if (profile.username) parts.push(`(${profile.username})`);
+    parts.push(`[${authModeLabel(profile.auth_mode)}]`);
     return parts.join(' ');
   };
 
@@ -164,7 +165,7 @@ export default function EnterpriseConnectDialog({
 
           {loading && (
             <div className="enterprise-connect-loading">
-              Loading credentials...
+              Loading profiles...
             </div>
           )}
 
@@ -174,46 +175,53 @@ export default function EnterpriseConnectDialog({
             </div>
           )}
 
-          {!loading && !error && credentials.length === 0 && (
+          {!loading && !error && profiles.length === 0 && (
             <div className="enterprise-connect-empty">
-              <p>No credentials available.</p>
+              <p>No profiles available.</p>
               <p className="help-text">Contact your administrator to request access.</p>
             </div>
           )}
 
-{!loading && !error && credentials.length > 0 && (() => {
-            const personalCreds = credentials.filter(c => c.vault_type === 'personal');
-            const sharedCreds = credentials.filter(c => c.vault_type === 'shared');
+{!loading && !error && profiles.length > 0 && (() => {
+            const personalProfiles = profiles.filter(p => p.profile_type === 'personal');
+            const sharedProfiles = profiles.filter(p => p.profile_type === 'shared');
+            const serviceProfiles = profiles.filter(p => p.profile_type === 'service');
 
             return (
               <div className="enterprise-connect-credential-select">
-                <label htmlFor="credential-select">
-                  Select Credential:
-                  {isOverride && (
-                    <span className="override-badge">session override</span>
-                  )}
+                <label htmlFor="profile-select">
+                  Select Profile:
                 </label>
                 <div className="credential-select-wrapper">
                   <select
-                    id="credential-select"
-                    value={selectedCredentialId}
-                    onChange={(e) => setSelectedCredentialId(e.target.value)}
+                    id="profile-select"
+                    value={selectedProfileId}
+                    onChange={(e) => setSelectedProfileId(e.target.value)}
                     className="credential-select"
                   >
-                    {personalCreds.length > 0 && (
-                      <optgroup label="My Credentials">
-                        {personalCreds.map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {formatCredentialLabel(cred)}
+                    {personalProfiles.length > 0 && (
+                      <optgroup label={PROFILE_TYPE_LABEL.personal}>
+                        {personalProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {formatProfileLabel(profile)}
                           </option>
                         ))}
                       </optgroup>
                     )}
-                    {sharedCreds.length > 0 && (
-                      <optgroup label="Shared Credentials">
-                        {sharedCreds.map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {formatCredentialLabel(cred)}
+                    {sharedProfiles.length > 0 && (
+                      <optgroup label={PROFILE_TYPE_LABEL.shared}>
+                        {sharedProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {formatProfileLabel(profile)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {serviceProfiles.length > 0 && (
+                      <optgroup label={PROFILE_TYPE_LABEL.service}>
+                        {serviceProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {formatProfileLabel(profile)}
                           </option>
                         ))}
                       </optgroup>
@@ -221,46 +229,38 @@ export default function EnterpriseConnectDialog({
                   </select>
                 </div>
 
-                {personalCreds.length === 0 && (
+                {personalProfiles.length === 0 && (
                   <div className="credential-section-info">
                     <span className="vault-icon">{Icons.user}</span>
-                    <span className="info-text">No personal credentials yet</span>
-                  </div>
-                )}
-                {sharedCreds.length === 0 && (
-                  <div className="credential-section-info">
-                    <span className="vault-icon">{Icons.users}</span>
-                    <span className="info-text">No shared credentials available</span>
+                    <span className="info-text">No personal profiles yet</span>
                   </div>
                 )}
 
-                {selectedCredentialId && (
+                {selectedProfileId && (
                   <div className="credential-details">
                     {(() => {
-                      const cred = credentials.find((c) => c.id === selectedCredentialId);
-                      if (!cred) return null;
+                      const profile = profiles.find((p) => p.id === selectedProfileId);
+                      if (!profile) return null;
 
                       return (
                         <div className="credential-info">
                           <span className="credential-icon">
-                            {getCredentialIcon(cred.credential_type)}
+                            {getProfileIcon(profile.auth_mode)}
                           </span>
                           <div className="credential-meta">
                             <div className="credential-name">
-                              {cred.name}
-                              <span className={`vault-badge ${cred.vault_type}`}>
-                                {cred.vault_type === 'personal' ? Icons.user : Icons.users}
+                              {profile.name}
+                              <span className={`vault-badge ${profile.profile_type}`}>
+                                {profile.profile_type === 'personal' ? Icons.user : Icons.users}
                               </span>
                             </div>
-                            {cred.description && (
-                              <div className="credential-description">{cred.description}</div>
+                            {profile.description && (
+                              <div className="credential-description">{profile.description}</div>
                             )}
-                            {cred.host && (
-                              <div className="credential-host">
-                                Target: {cred.host}
-                                {cred.port && cred.port !== 22 && `:${cred.port}`}
-                              </div>
-                            )}
+                            <div className="credential-host">
+                              Auth: {authModeLabel(profile.auth_mode)}
+                              {profile.transports.length > 0 && ` · ${profile.transports.join(', ')}`}
+                            </div>
                           </div>
                         </div>
                       );
@@ -282,7 +282,7 @@ export default function EnterpriseConnectDialog({
           <button
             className="enterprise-connect-btn primary"
             onClick={handleConnect}
-            disabled={loading || !selectedCredentialId || credentials.length === 0}
+            disabled={loading || !selectedProfileId || profiles.length === 0}
           >
             Connect
           </button>

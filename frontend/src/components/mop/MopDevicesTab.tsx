@@ -6,7 +6,7 @@ import './MopWorkspace.css';
 import type { MopStep } from '../../types/change';
 import type { Session } from '../../api/sessions';
 import type { DeviceSummary } from '../../api/enterpriseDevices';
-import type { AccessibleCredential } from '../../types/enterpriseCredential';
+import type { AccessibleProfile } from '../../types/enterpriseProfile';
 
 // Shared checkbox SVG components (duplicated from MopWorkspace since they are module-private)
 function CheckboxChecked() {
@@ -55,8 +55,8 @@ export interface MopDevicesTabProps {
   // Loading
   devicesLoading: boolean;
 
-  // Credential overrides (enterprise)
-  accessibleCredentials: AccessibleCredential[];
+  // Profile overrides (enterprise)
+  accessibleCredentials: AccessibleProfile[];
   credentialOverrides: Map<string, string>;
   setCredentialOverrides: React.Dispatch<React.SetStateAction<Map<string, string>>>;
 
@@ -182,10 +182,10 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                   }}
                   title="Credential override for this device"
                 >
-                  <option value="">Default Credential</option>
-                  {accessibleCredentials.map(cred => (
-                    <option key={cred.id} value={cred.id}>
-                      {cred.name} ({cred.credential_type === 'ssh_key' ? 'Key' : 'Password'})
+                  <option value="">Default Profile</option>
+                  {accessibleCredentials.map(profile => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} ({profile.auth_mode === 'ssh_key' ? 'Key' : profile.auth_mode === 'certificate' ? 'Cert' : profile.auth_mode === 'password' ? 'Password' : 'No auth'})
                     </option>
                   ))}
                 </select>

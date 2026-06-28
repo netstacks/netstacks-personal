@@ -85,7 +85,10 @@ export type EnterpriseFeature =
   | 'sso'
   | 'knowledge_base'
   | 'central_sftp'
-  | 'terminal_deenrollment';
+  | 'terminal_deenrollment'
+  // Version negotiation (Phase 8): when enabled, the controller serves the
+  // profile-by-reference contract (/profiles/accessible + ws ?profile_id=).
+  | 'profile_contract';
 
 /**
  * Known local-only feature names.

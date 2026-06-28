@@ -47,7 +47,10 @@ export interface WsMessage {
  */
 export interface SessionInfo {
   session_id: string;
+  /** Legacy credential handle — still emitted by the controller (8-04). */
   credential_id: string;
+  /** Profile handle the session resolved to (profile contract, Phase 8). */
+  profile_id?: string | null;
 }
 
 /**

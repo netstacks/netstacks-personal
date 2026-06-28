@@ -25,7 +25,7 @@ interface SftpState {
     deviceName: string
     cliFlavor: CliFlavor
     sftpStartPath: string | null
-    enterpriseCredentialId?: string
+    enterpriseProfileId?: string
     enterpriseTargetHost?: string
     enterpriseTargetPort?: number
   }) => Promise<void>
@@ -45,7 +45,7 @@ export const useSftpStore = create<SftpState>((set, get) => ({
   activeConnectionId: null,
   panelVisible: false,
 
-  openConnection: async ({ sessionId, deviceName, cliFlavor, sftpStartPath, enterpriseCredentialId, enterpriseTargetHost, enterpriseTargetPort }) => {
+  openConnection: async ({ sessionId, deviceName, cliFlavor, sftpStartPath, enterpriseProfileId, enterpriseTargetHost, enterpriseTargetPort }) => {
     // Don't open duplicate for same session
     const existing = get().connections.find(c => c.sessionId === sessionId)
     if (existing) {
@@ -55,8 +55,12 @@ export const useSftpStore = create<SftpState>((set, get) => ({
 
     const id = sessionId // Use sessionId as SFTP connection ID
     try {
-      const enterpriseParams = enterpriseCredentialId && enterpriseTargetHost
-        ? { credential_id: enterpriseCredentialId, host: enterpriseTargetHost, port: enterpriseTargetPort }
+      // Profile contract (Phase 8): the enterprise auth handle on the Tab is now
+      // a profile id. The /sftp/connect endpoint still takes its id under the
+      // `credential_id` key (the SFTP endpoint's profile-aware reconciliation is
+      // deferred to Phase 9), so the profile id is passed through that slot.
+      const enterpriseParams = enterpriseProfileId && enterpriseTargetHost
+        ? { credential_id: enterpriseProfileId, host: enterpriseTargetHost, port: enterpriseTargetPort }
         : undefined
       const result = await sftpConnect(id, sessionId, enterpriseParams)
 

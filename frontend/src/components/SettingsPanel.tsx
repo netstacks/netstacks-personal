@@ -53,7 +53,7 @@ interface Setting {
   step?: number
 }
 
-export type SettingsTab = 'general' | 'ai' | 'aiEngineer' | 'prompts' | 'snippets' | 'customCommands' | 'quickCalls' | 'keyboard' | 'mappedKeys' | 'profiles' | 'jumpHosts' | 'tunnels' | 'highlighting' | 'enrichment' | 'security' | 'hostKeys' | 'recordings' | 'layouts' | 'sessionLogs' | 'integrations' | 'apiResources' | 'troubleshooting' | 'enterprise' | 'account' | 'myCredentials' | 'sshCerts' | 'workspaces'
+export type SettingsTab = 'general' | 'ai' | 'aiEngineer' | 'prompts' | 'snippets' | 'customCommands' | 'quickCalls' | 'keyboard' | 'mappedKeys' | 'profiles' | 'jumpHosts' | 'tunnels' | 'highlighting' | 'enrichment' | 'security' | 'hostKeys' | 'recordings' | 'layouts' | 'sessionLogs' | 'integrations' | 'apiResources' | 'troubleshooting' | 'enterprise' | 'account' | 'workspaces'
 
 interface SettingsPanelProps {
   onSettingChange?: (id: string, value: unknown) => void
@@ -87,9 +87,10 @@ const TAB_SEARCH_INDEX: { tab: SettingsTab; label: string; keywords: string[] }[
   { tab: 'apiResources', label: 'API Resources', keywords: ['api', 'resource', 'quick', 'action', 'endpoint', 'solarwinds', 'prtg', 'http', 'rest'] },
   { tab: 'troubleshooting', label: 'Troubleshooting', keywords: ['troubleshoot', 'recording', 'session', 'capture'] },
   { tab: 'enterprise', label: 'Enterprise', keywords: ['enterprise', 'controller', 'team', 'url', 'connect', 'tls', 'certificate', 'netstacks'] },
-  { tab: 'account', label: 'Account', keywords: ['account', 'controller', 'username', 'sign out', 'logout'] },
-  { tab: 'myCredentials', label: 'My Credentials', keywords: ['credential', 'password', 'secret'] },
-  { tab: 'sshCerts', label: 'SSH Certificates', keywords: ['ssh', 'certificate', 'cert', 'ca', 'public key'] },
+  // Account consolidates personal auth: account info + My Credentials + SSH
+  // Certificates now live as sections under this single tab (TERM-01), so the
+  // credential/cert keywords route here instead of to standalone tabs.
+  { tab: 'account', label: 'Account', keywords: ['account', 'controller', 'username', 'sign out', 'logout', 'credential', 'password', 'secret', 'ssh', 'certificate', 'cert', 'ca', 'public key'] },
   { tab: 'workspaces', label: 'Workspaces', keywords: ['workspace', 'git', 'accounts', 'github', 'gitlab', 'ai', 'tool', 'auto-launch', 'terminal', 'explorer', 'default'] },
 ]
 
@@ -465,12 +466,6 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
         {isEnterprise && (
           <SettingsNavItem tab="account" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Account</SettingsNavItem>
         )}
-        {isEnterprise && (
-          <SettingsNavItem tab="myCredentials" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>My Credentials</SettingsNavItem>
-        )}
-        {isEnterprise && (
-          <SettingsNavItem tab="sshCerts" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>SSH Certificates</SettingsNavItem>
-        )}
       </div>
 
       {/* Main content area */}
@@ -715,14 +710,13 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
           </div>
         )}
 
-        {/* My Credentials tab (Enterprise mode only) */}
-        {activeTab === 'myCredentials' && isEnterprise && (
-          <MyCredentialsTab />
-        )}
-
-        {/* Account settings tab (Enterprise mode only) — combines account info + connection */}
+        {/* Account settings tab (Enterprise mode only) — TERM-01 Account home:
+            consolidates personal auth as stacked sections (account info +
+            My Credentials + SSH Certificates). Pure IA: each section renders the
+            same component it did when it was a standalone tab. */}
         {activeTab === 'account' && isEnterprise && (
           <div className="settings-content">
+            {/* Section 1 — Account info */}
             <div className="settings-category">
               <h3 className="settings-category-title">Your Account</h3>
               <div className="settings-account-info">
@@ -748,12 +742,14 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
                 </button>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* SSH Certificates tab (Enterprise mode only) */}
-        {activeTab === 'sshCerts' && isEnterprise && (
-          <div className="settings-content">
+            {/* Section 2 — My Credentials */}
+            <div className="settings-category">
+              <h3 className="settings-category-title">My Credentials</h3>
+              <MyCredentialsTab />
+            </div>
+
+            {/* Section 3 — SSH Certificates */}
             <div className="settings-category">
               <h3 className="settings-category-title">SSH Certificate Authentication</h3>
               <SshCertSettings />
