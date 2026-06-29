@@ -1,28 +1,6 @@
 // API client for enterprise credentials (Controller API)
 
 import { getClient } from './client';
-import type { AccessibleCredential } from '../types/enterpriseCredential';
-
-/**
- * List all credentials the current user has access to.
- * Returns safe metadata only (name, type, host, username) - never secrets.
- * Zero standing privileges: credentials stay on Controller, only metadata in Terminal.
- */
-export async function listAccessibleCredentials(): Promise<AccessibleCredential[]> {
-  const client = getClient();
-  const res = await client.http.get('/credentials/accessible');
-  return res.data.items;
-}
-
-/**
- * Get the user's default credential (first accessible SSH credential alphabetically).
- * Returns null if user has no accessible SSH credentials.
- */
-export async function getUserDefaultCredential(): Promise<AccessibleCredential | null> {
-  const client = getClient();
-  const res = await client.http.get('/credentials/accessible/default');
-  return res.data;
-}
 
 /**
  * List the current user's personal credentials.

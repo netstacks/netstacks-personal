@@ -4698,7 +4698,7 @@ def main(command: str = "show version"):
       description: `Device: ${device.device_type}${device.site ? ` (${device.site})` : ''}`,
       cli_flavor: 'auto',
       tags: [],
-      credential_override_id: null,
+      profile_override_id: null,
       created_by: null,
       active_connections: 0,
       created_at: device.created_at,
@@ -4741,8 +4741,9 @@ def main(command: str = "show version"):
 
   // Handle profile selection from dialog - create enterprise terminal tab.
   // The chosen profile_id is carried on the in-memory Tab and threaded to the
-  // /ws/ssh connect URL. Persisting a profile override onto the session
-  // definition is deferred to Phase 9 (credential_override_id stays legacy).
+  // /ws/ssh connect URL. The session definition's persisted override field is
+  // now profile_override_id (FK to profiles); the connect-time selection here
+  // is per-tab and not persisted onto the definition.
   const handleEnterpriseProfileSelected = useCallback((profileId: string) => {
     if (!enterpriseConnectSession) return
 
@@ -5191,10 +5192,10 @@ def main(command: str = "show version"):
         throw new Error(`Session ${sessionId} not found`)
       }
 
-      // Phase 8 (profile contract): session definitions don't carry a profile,
-      // and the legacy credential_override_id is NOT a profile id — do not
-      // launder it into enterpriseProfileId. Open device-anchored (no
-      // profile_id) so the controller resolves the device's default profile.
+      // Agent-open intentionally connects device-anchored (no profile_id) so the
+      // controller resolves the device's default profile. We do NOT auto-apply a
+      // session definition's persisted profile_override_id here — profile choice
+      // for agent-launched sessions stays device-default unless the user picks one.
       const newId = `enterprise-ssh-${session.id}-${Date.now()}`
       const newTab: Tab = {
         id: newId,

@@ -7,7 +7,7 @@ export interface EnterpriseSession {
   host: string;
   port: number;
   description: string | null;
-  credential_override_id: string | null;
+  profile_override_id: string | null;
   cli_flavor: string;
   tags: string[];
   created_by: string | null;
@@ -21,7 +21,7 @@ export interface CreateEnterpriseSession {
   host: string;
   port?: number;
   description?: string | null;
-  credential_override_id?: string | null;
+  profile_override_id?: string | null;
   cli_flavor?: string;
   tags?: string[];
 }
@@ -31,7 +31,7 @@ export interface UpdateEnterpriseSession {
   host?: string;
   port?: number;
   description?: string | null;
-  credential_override_id?: string | null;
+  profile_override_id?: string | null;
   cli_flavor?: string;
   tags?: string[];
 }

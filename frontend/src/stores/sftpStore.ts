@@ -55,12 +55,10 @@ export const useSftpStore = create<SftpState>((set, get) => ({
 
     const id = sessionId // Use sessionId as SFTP connection ID
     try {
-      // Profile contract (Phase 8): the enterprise auth handle on the Tab is now
-      // a profile id. The /sftp/connect endpoint still takes its id under the
-      // `credential_id` key (the SFTP endpoint's profile-aware reconciliation is
-      // deferred to Phase 9), so the profile id is passed through that slot.
+      // Profile contract: the enterprise auth handle on the Tab is a profile id,
+      // sent to /sftp/connect as `profile_id` (the profile-aware connect contract).
       const enterpriseParams = enterpriseProfileId && enterpriseTargetHost
-        ? { credential_id: enterpriseProfileId, host: enterpriseTargetHost, port: enterpriseTargetPort }
+        ? { profile_id: enterpriseProfileId, host: enterpriseTargetHost, port: enterpriseTargetPort }
         : undefined
       const result = await sftpConnect(id, sessionId, enterpriseParams)
 

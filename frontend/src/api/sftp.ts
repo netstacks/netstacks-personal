@@ -25,11 +25,11 @@ export interface SftpLsResponse {
 export async function sftpConnect(
   sftpId: string,
   sessionId?: string,
-  enterpriseParams?: { credential_id: string; host: string; port?: number }
+  enterpriseParams?: { profile_id: string; host: string; port?: number }
 ): Promise<SftpConnectResponse> {
   try {
     const body = enterpriseParams
-      ? { credential_id: enterpriseParams.credential_id, host: enterpriseParams.host, port: enterpriseParams.port }
+      ? { profile_id: enterpriseParams.profile_id, host: enterpriseParams.host, port: enterpriseParams.port }
       : { session_id: sessionId };
     const { data } = await getClient().http.post(`/sftp/${sftpId}/connect`, body);
     return data;
