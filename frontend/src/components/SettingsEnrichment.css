@@ -119,6 +119,22 @@
   border-radius: 3px;
 }
 
+/* Draft source tester — styled box for prominence (parity with the controller). */
+.se-test-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 12px;
+  background: var(--color-bg-tertiary);
+  font-size: 12px;
+}
+.se-test-title {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
 /* Picked-fields editor */
 .se-fields-editor { display: flex; flex-direction: column; gap: 6px; }
 .se-field-rowedit { display: flex; gap: 6px; align-items: center; }

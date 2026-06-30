@@ -662,8 +662,13 @@ function SourceForm({
       )}
 
       {isApi && (
-        <div className="se-field">
-          <span>Test against a sample token — explore the response and click to pick fields</span>
+        <div className="se-test-box">
+          <div className="se-test-title">🧪 Test source (draft)</div>
+          <p className="se-hint">
+            Runs the path template above as-is — no need to save first. Click a leaf in
+            the response to pick it as a field, or a container's “↳ unwrap” chip to set
+            the unwrap path. Works for built-in sources too.
+          </p>
           <div className="se-test-controls">
             <input
               value={sampleToken}
