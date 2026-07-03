@@ -56,6 +56,8 @@ import { useActiveTopologyStore } from './stores/activeTopologyStore'
 import { useTopologyAICallbacks } from './hooks/useTopologyAICallbacks'
 import { buildTopologySeed } from './lib/aiTopologySeed'
 import { resolveDocSaveTarget } from './lib/docSaveTargets'
+import { ASK_AI_HELP_EVENT } from './components/AskAiHelp'
+import OnboardingWizard from './components/OnboardingWizard'
 import ScriptEditor, { type ScriptEditorHandle } from './components/ScriptEditor'
 import AIScriptGenerator from './components/AIScriptGenerator'
 import QuickConnectDialog from './components/QuickConnectDialog'
@@ -553,7 +555,10 @@ function AppContent() {
   // Mode logged once at startup (see main.tsx)
 
   // Global app settings (font, etc.)
-  const { settings: appSettings } = useSettings()
+  const { settings: appSettings, updateSetting: updateAppSetting } = useSettings()
+
+  // First-run onboarding wizard (SP2)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   // Active topology (published by TopologyTabEditor) → AI topology tools.
   // Individual selectors avoid re-rendering App on unrelated store writes.
@@ -697,6 +702,8 @@ function AppContent() {
     sessionId?: string
     sessionName?: string
     selectedText?: string
+    /** When set, the pop-over auto-sends this prompt on open (contextual Ask-AI help). */
+    initialPrompt?: string
   }>({ isOpen: false, position: { x: 0, y: 0 } })
   // macOS Force Touch action popover (force-click on terminal selection)
   const [forcePopover, setForcePopover] = useState<{
@@ -1420,6 +1427,47 @@ function AppContent() {
       selectedText,
     })
   }, [])
+
+  // Contextual "Ask AI" help (AskAiHelp buttons in settings) → open the floating
+  // pop-over anchored near the click and auto-send the help question.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<import('./components/AskAiHelp').AskAiHelpDetail>).detail
+      if (!detail) return
+      // Keep the pop-over on-screen for clicks near the right/bottom edges.
+      const x = Math.min(detail.position.x, window.innerWidth - 380)
+      const y = Math.min(detail.position.y, window.innerHeight - 420)
+      setAiFloatingChat({
+        isOpen: true,
+        position: { x: Math.max(12, x), y: Math.max(12, y) },
+        initialPrompt: detail.prompt,
+      })
+    }
+    window.addEventListener(ASK_AI_HELP_EVENT, handler as EventListener)
+    return () => window.removeEventListener(ASK_AI_HELP_EVENT, handler as EventListener)
+  }, [])
+
+  // First-run onboarding wizard: show once on first launch (standalone only —
+  // enterprise AI/integrations are controller-managed). Skipping/finishing sets
+  // app.setupComplete; reopen via the command palette.
+  useEffect(() => {
+    if (!capabilitiesLoaded) return
+    if (isStandalone() && !appSettings['app.setupComplete']) {
+      setWizardOpen(true)
+    }
+    // Run once after capabilities resolve.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capabilitiesLoaded])
+
+  const handleWizardClose = useCallback(() => {
+    setWizardOpen(false)
+    updateAppSetting('app.setupComplete', true)
+  }, [updateAppSetting])
+
+  const handleWizardOpenIntegrations = useCallback(() => {
+    handleWizardClose()
+    openSettingsTab('integrations')
+  }, [handleWizardClose, openSettingsTab])
 
   // macOS Force Touch (force click) on a terminal → open the action popover.
   // Built-in actions (Search Web, Copy) plus the user's custom commands flagged
@@ -5066,6 +5114,12 @@ def main(command: str = "show version"):
       action: () => setAiChatOpen(true)
     },
     {
+      id: 'setup-wizard',
+      label: 'Setup Wizard',
+      category: 'General',
+      action: () => setWizardOpen(true)
+    },
+    {
       id: 'ai-overlay',
       label: 'AI: Open Chat Tab',
       category: 'AI',
@@ -7629,6 +7683,7 @@ def main(command: str = "show version"):
         sessionId={aiFloatingChat.sessionId}
         sessionName={aiFloatingChat.sessionName}
         selectedText={aiFloatingChat.selectedText}
+        initialPrompt={aiFloatingChat.initialPrompt}
         onClose={() => setAiFloatingChat(prev => ({ ...prev, isOpen: false }))}
         availableSessions={availableSessions}
         onExecuteCommand={handleAgentExecuteCommand}
@@ -8339,6 +8394,13 @@ def main(command: str = "show version"):
 
       {/* Confirmation dialog host (imperative API: confirmDialog({...})) */}
       <ConfirmDialogHost />
+
+      {/* First-run onboarding wizard (SP2) */}
+      <OnboardingWizard
+        isOpen={wizardOpen}
+        onClose={handleWizardClose}
+        onOpenIntegrations={handleWizardOpenIntegrations}
+      />
 
       {/* Auto-update checker (Tauri only) */}
       {isTauri && <UpdateChecker />}

@@ -23,6 +23,7 @@ import { rendererFor, metaFor, renderRawDebug } from './enrichRenderers'
 import { sendChatMessage } from '../api/ai'
 import { logger } from './logger'
 import { compileRegex } from './compileRegex'
+import { getErrorMessage } from '../api/errors'
 
 /** Aggregated result for one token — cached + fed to the AI digest. */
 interface EnrichResult {
@@ -345,7 +346,7 @@ export function installEnrichPopup(
       cache.set(result.token, { ...cache.get(result.token), digest: full })
       renderDigest(result, full, false)
     } catch (e) {
-      renderDigest(result, `Error: ${e instanceof Error ? e.message : String(e)}`, false)
+      renderDigest(result, `Error: ${getErrorMessage(e)}`, false)
     }
   }
 
@@ -374,7 +375,7 @@ export function installEnrichPopup(
       if (gen !== hoverGen) return
       popup.innerHTML = ''
       buildHeader(token, null, null)
-      popup.appendChild(el('div', 'ns-enrich-empty', `Error: ${e instanceof Error ? e.message : String(e)}`))
+      popup.appendChild(el('div', 'ns-enrich-empty', `Error: ${getErrorMessage(e)}`))
       return
     }
     if (gen !== hoverGen) return
@@ -415,7 +416,7 @@ export function installEnrichPopup(
         requestAnimationFrame(clampToHost)
       } catch (e) {
         if (gen !== hoverGen) return
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = getErrorMessage(e)
         errors[name] = msg
         const sec = sections.get(name)
         if (sec) patchSection(sec, name, null, msg)

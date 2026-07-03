@@ -206,7 +206,7 @@ export function updateEnrichmentData(
   flavor: CliFlavor
 ): ParsedEnrichment {
   const device = { ...existing.device };
-  let interfaces = [...existing.interfaces];
+  const interfaces = [...existing.interfaces];
 
   // Update raw outputs
   if (!device.rawOutputs) {

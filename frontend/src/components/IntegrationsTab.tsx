@@ -21,6 +21,7 @@ import {
   testNetStacksCrawlerSource,
   type NetStacksCrawlerSource,
 } from '../api/netstacksCrawler';
+import AskAiHelp from './AskAiHelp';
 import NetBoxSourceDialog from './NetBoxSourceDialog';
 import NetBoxImportDialog from './NetBoxImportDialog';
 import SmtpSettingsSection from './SmtpSettingsSection';
@@ -186,7 +187,7 @@ export default function IntegrationsTab() {
       await exportDb(path, includeVault);
       showToast(includeVault ? 'Full backup saved' : 'Shareable seed saved (no secrets)', 'success');
     } catch (e) {
-      showToast(`Export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(`Export failed: ${getErrorMessage(e)}`, 'error');
     } finally {
       setDbBusy(false);
     }
@@ -220,7 +221,7 @@ export default function IntegrationsTab() {
       });
     } catch (e) {
       setDbBusy(false);
-      showToast(`Import failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(`Import failed: ${getErrorMessage(e)}`, 'error');
     }
   };
 
@@ -244,7 +245,7 @@ export default function IntegrationsTab() {
       });
     } catch (e) {
       setDbBusy(false);
-      showToast(`Reset failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(`Reset failed: ${getErrorMessage(e)}`, 'error');
     }
   };
 
@@ -287,7 +288,7 @@ export default function IntegrationsTab() {
       });
     } catch (e) {
       setDbBusy(false);
-      showToast(`Failed to move database: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(`Failed to move database: ${getErrorMessage(e)}`, 'error');
     }
   };
 
@@ -598,6 +599,7 @@ export default function IntegrationsTab() {
       <section className="integrations-section">
         <div className="section-header">
           <h3>NETBOX SOURCES</h3>
+          <AskAiHelp prompt="Explain NetStacks Integrations vs API Resources, and walk me through adding a NetBox integration: create an API Resource (NetBox URL + API token), then a NetBox source that references it, and what device filters / profile mappings do." />
         </div>
         <p className="section-description">
           Import your NetBox device inventory as ready-to-connect sessions, with credential
@@ -764,6 +766,7 @@ export default function IntegrationsTab() {
       <section className="integrations-section">
         <div className="section-header">
           <h3>NETSTACKS-CRAWLER SOURCES</h3>
+          <AskAiHelp prompt="What is the NetStacks-Crawler integration? Explain that it's just NetStacks' UI over Netdisco's REST API (/api/v1), and walk me through pointing a Crawler source at my existing Netdisco instance (API Resource base URL, auth, test path api/v1/device)." />
         </div>
         <p className="section-description">
           Pull discovered Layer-2 topology and neighbor data from a Netdisco crawler to build

@@ -135,14 +135,12 @@ async function executeTool(
         const isEnterprise = getCurrentMode() === 'enterprise';
 
         // Both enterprise and standalone use getClient() (routed appropriately by client)
-        let result: { success: boolean; output: string; error?: string; execution_time_ms: number };
-
         const payload = isEnterprise
           ? { session_definition_id: sessionId, command, timeout_secs: timeoutSecs }
           : { session_id: sessionId, command, timeout_secs: timeoutSecs };
 
         const { data } = await getClient().http.post('/ai/ssh-execute', payload);
-        result = data;
+        const result: { success: boolean; output: string; error?: string; execution_time_ms: number } = data;
 
         if (!result.success) {
           addLog(`Command failed: ${result.error || 'Unknown error'}`, 'error');

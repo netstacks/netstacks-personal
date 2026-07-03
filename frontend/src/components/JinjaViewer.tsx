@@ -137,7 +137,6 @@ function JinjaViewer({ content }: JinjaViewerProps) {
   const renderedLines = useMemo(() => {
     const result: React.ReactNode[][] = [];
     let currentLine: React.ReactNode[] = [];
-    let lineIndex = 0;
     let tokenIndex = 0;
 
     for (const token of tokens) {
@@ -148,7 +147,6 @@ function JinjaViewer({ content }: JinjaViewerProps) {
           // New line within token
           result.push(currentLine);
           currentLine = [];
-          lineIndex++;
         }
 
         if (tokenLines[i].length > 0 || i === 0) {

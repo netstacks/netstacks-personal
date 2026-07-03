@@ -6,6 +6,7 @@ import {
   type QuickAction,
 } from '../api/quickActions'
 import { listNetBoxSources } from '../api/netboxSources'
+import AskAiHelp from './AskAiHelp'
 import { listLibreNmsSources } from '../api/librenms'
 import { listNetStacksCrawlerSources } from '../api/netstacksCrawler'
 import type {
@@ -157,6 +158,7 @@ export default function ApiResourcesTab() {
       <div className="api-resources-section">
         <div className="section-header">
           <h3>API Resources</h3>
+          <AskAiHelp prompt="What is an API Resource in NetStacks, how does it differ from an Integration, and how do I add one for an external system (URL, auth type, testing)? Walk me through it." />
           <button className="btn-small" onClick={() => { setEditingResource(null); setResourceDialogOpen(true) }}>
             {Icons.plus} Add Resource
           </button>

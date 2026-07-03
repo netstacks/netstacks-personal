@@ -74,6 +74,7 @@ import { stripAnsi } from '../lib/ansi';
 import { buildSessionKnowledge } from '../lib/aiSessionContext';
 import { buildDocumentsOverview } from '../lib/aiDocumentsContext';
 import { resolveDocSaveTarget } from '../lib/docSaveTargets';
+import { searchDocsKb, readDocsKb } from '../api/docsKb';
 
 // Re-export types for consumers
 export type { AgentState, AgentMessage, PendingCommand, PermissionMode };
@@ -1521,6 +1522,24 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         }
       }
 
+      // Bundled NetStacks usage docs (how the app works)
+      case 'search_netstacks_docs': {
+        try {
+          const hits = await searchDocsKb(input.query as string);
+          return { content: JSON.stringify(hits, null, 2), is_error: false };
+        } catch {
+          return { content: 'NetStacks bundled docs are not available in this mode.', is_error: true };
+        }
+      }
+      case 'read_netstacks_doc': {
+        try {
+          const doc = await readDocsKb(input.slug as string);
+          return { content: JSON.stringify(doc, null, 2), is_error: false };
+        } catch {
+          return { content: `NetStacks doc "${input.slug}" not found or unavailable.`, is_error: true };
+        }
+      }
+
       // Session context tools (Phase 14)
       case 'add_session_context': {
         if (!onAddSessionContext) {
@@ -2761,7 +2780,9 @@ Guidelines:
     } catch (err: unknown) {
       const parsed = parseApiError(err);
       if (parsed.code === 'NOT_CONFIGURED' || parsed.status === 503) {
-        throw new Error('AI is not configured. Open Settings and configure an AI provider.');
+        // Prefer the backend's specific reason (no API key / vault locked / no
+        // model) over the generic message so config problems are self-diagnosing.
+        throw new Error(parsed.error || 'AI is not configured. Open Settings and configure an AI provider.');
       }
       if (parsed.error) {
         throw new Error(`AI provider error (${parsed.status ?? 'unknown'}): ${parsed.error}`);
@@ -2905,7 +2926,7 @@ Guidelines:
         parsedBody = null;
       }
       if (parsedBody?.code === 'NOT_CONFIGURED' || response.status === 503) {
-        throw new Error('AI is not configured. Open Settings and configure an AI provider.');
+        throw new Error(parsedBody?.error || 'AI is not configured. Open Settings and configure an AI provider.');
       }
       throw new Error(
         `AI provider error (${response.status}): ${parsedBody?.error || rawBody || 'Unknown error'}`

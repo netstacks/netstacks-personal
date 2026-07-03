@@ -1,0 +1,23 @@
+.ask-ai-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--accent-primary, #4a9eff);
+  background: color-mix(in srgb, var(--accent-primary, #4a9eff) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary, #4a9eff) 35%, transparent);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.ask-ai-help:hover {
+  background: color-mix(in srgb, var(--accent-primary, #4a9eff) 22%, transparent);
+  border-color: var(--accent-primary, #4a9eff);
+}
+
+.ask-ai-help-icon {
+  font-size: 10px;
+}

@@ -28,6 +28,7 @@ import { getErrorMessage } from '../api/errors'
 import { EnrichmentSourceExplorer } from './EnrichmentSourceExplorer'
 import { walkJsonPath, substituteTemplateVars, formatPreviewValue } from '../lib/enrichmentFieldUtils'
 import { downloadFile } from '../lib/formatters'
+import AskAiHelp from './AskAiHelp'
 import './SettingsEnrichment.css'
 
 const FORMAT_OPTIONS = ['string', 'datetime', 'uptime', 'bytes', 'status_pill']
@@ -204,6 +205,7 @@ export default function SettingsEnrichment() {
           <section className="se-section">
             <div className="se-section-head">
               <h3>Matchers</h3>
+              <AskAiHelp prompt="Explain enrichment token matchers in NetStacks — what a matcher/token type is (IP, MAC, hostname), how it decides which enrichment sources run on a highlighted token, and how I set one up." />
               <button className="se-btn" onClick={() => setCreatingMatcher((v) => !v)}>
                 {creatingMatcher ? 'Cancel' : '+ Add matcher'}
               </button>
@@ -251,6 +253,7 @@ export default function SettingsEnrichment() {
           <section className="se-section">
             <div className="se-section-head">
               <h3>Sources</h3>
+              <AskAiHelp prompt="Explain enrichment sources in NetStacks — the difference between builtin sources (DNS/OUI/MAC) and api_resource sources, how to point a source at an API Resource with a path_template, and how response-unwrap and picked fields work. Help me add one." />
               <button className="se-btn" onClick={() => setCreatingSource((v) => !v)}>
                 {creatingSource ? 'Cancel' : '+ Add source'}
               </button>

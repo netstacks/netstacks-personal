@@ -56,9 +56,12 @@ describe('AGENT_TYPES', () => {
     }
   })
 
-  it('autopilot allows bash, overlord does not', () => {
+  it('both modes are bash-capable (bash is allocated per-mode via disabledTools)', () => {
+    // run_bash can be allocated to either mode now; it is disabled by default
+    // for Overlord via ai.disabledTools.overlord = ['run_bash'].
     expect(AGENT_TYPES.autopilot.allowsBash).toBe(true)
-    expect(AGENT_TYPES.overlord.allowsBash).toBe(false)
+    expect(AGENT_TYPES.overlord.allowsBash).toBe(true)
+    expect(AGENT_TYPES.overlord.enabledFlags).toContain('hasBash')
   })
 
   it('autopilot defaults to auto, overlord defaults to ask', () => {

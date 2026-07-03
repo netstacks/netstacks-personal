@@ -13,6 +13,7 @@ import {
 import { getApiResource } from '../api/quickActions';
 import type { ApiResource } from '../types/quickAction';
 import { listProfiles, type CredentialProfile } from '../api/profiles';
+import AskAiHelp from './AskAiHelp';
 import { CLI_FLAVOR_OPTIONS, type CliFlavor } from '../api/sessions';
 import {
   fetchSites,
@@ -678,6 +679,7 @@ export default function NetBoxSourceDialog({
       <div className="netbox-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="netbox-dialog-header">
           <h2>{dialogTitle}</h2>
+          <AskAiHelp prompt="Walk me through setting up a NetBox source in NetStacks: creating the API Resource (base URL = NetBox URL, auth = bearer token = my NetBox API token, test path /api/status/), then the source's profile mappings, CLI-flavor mappings, and device filters." />
           <button className="netbox-dialog-close" onClick={handleCloseGuarded} title="Close">
             {Icons.close}
           </button>

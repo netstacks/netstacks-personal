@@ -160,7 +160,7 @@ export default function TabContextMenu({
       next = { position: 'fixed', left, top }
     }
     // Flyout placement depends on the measured DOM rect — must run post-layout.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setSubmenuStyle(next)
   }, [showGroupSubmenu, groups.length, currentGroupId])
 

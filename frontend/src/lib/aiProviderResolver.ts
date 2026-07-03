@@ -1,20 +1,24 @@
 /**
- * AI Provider Resolver
+ * AI Provider Resolver — single, consistent way every AI feature picks its
+ * provider/model, identical in standalone and enterprise mode.
  *
- * Resolves which AI provider and model to use based on localStorage settings.
- * Always returns both provider and model so the backend never uses a stale
- * ai.provider_config. Resolution order:
- *   per-feature override → default provider → 'anthropic' fallback
- *   per-feature model → user model list → '' (let backend use saved config)
+ * Contract: **route through the default AI unless a per-toolset override is set.**
  *
- * The model is NEVER a hardcoded literal: it comes from the user's settings
- * (`ai.models.<provider>` or per-feature override). When the user hasn't
- * configured one, we return '' so callers omit the model and the backend falls
- * back to the model stored in the user's saved `ai.provider_config`.
+ *   - Default AI: return EMPTY provider/model. Callers omit them, and the
+ *     backend uses the user's saved `ai.provider_config` — the single source of
+ *     truth, resolved by whichever backend is active (local agent in standalone,
+ *     controller in enterprise). This is why the side panel and every popup/hover
+ *     now agree: none of them guess a provider client-side anymore.
+ *   - Per-toolset override: only the 'agent' toolset has one today
+ *     (`ai.agent.provider` / `ai.agent.model`). If the user set it, it wins and
+ *     is sent explicitly.
+ *
+ * The model is never a hardcoded literal — an override with no model falls back
+ * to the user's configured model list for that provider, else empty (backend
+ * uses the saved model).
  */
 
 import { getSettings } from '../hooks/useSettings';
-import type { AiProviderType } from '../hooks/useSettings';
 
 export type AiFeature = 'suggestions' | 'nextStep' | 'highlighting' | 'agent' | 'default';
 
@@ -24,68 +28,23 @@ export interface ResolvedProvider {
 }
 
 /**
- * Get the first model from the user's configured model list for a provider.
+ * Resolve the provider/model to send for a feature.
  *
- * Returns '' when no list is configured so that callers omit the model override
- * and the backend falls back to the model stored in the user's saved config.
- * There are no hardcoded model defaults — settings is the single source of truth.
- */
-function getModelForProvider(provider: AiProviderType): string {
-  const settings = getSettings();
-  const key = `ai.models.${provider}` as keyof typeof settings;
-  const models = settings[key] as string[] | undefined;
-  if (models && models.length > 0) return models[0];
-  return '';
-}
-
-/**
- * Resolve which provider and model to use for a given AI feature.
- *
- * Always returns both provider and model. Uses per-feature overrides when
- * configured, otherwise uses the global default provider from settings.
+ * Returns empty strings for the default path so callers omit the override and
+ * the backend uses the authoritative saved config (same in both modes).
  */
 export function resolveProvider(feature?: AiFeature): ResolvedProvider {
   const settings = getSettings();
-  const enabledProviders: AiProviderType[] = settings['ai.enabledProviders'] || ['anthropic'];
-  const defaultProvider: AiProviderType = settings['ai.defaultProvider'] || 'anthropic';
 
-  // Ensure resolved provider is enabled, fall back to first enabled
-  const ensureEnabled = (provider: AiProviderType): AiProviderType => {
-    if (enabledProviders.includes(provider)) return provider;
-    return enabledProviders[0] || 'anthropic';
-  };
-
-  if (!feature || feature === 'default') {
-    const provider = ensureEnabled(defaultProvider);
-    return {
-      provider,
-      model: getModelForProvider(provider),
-    };
+  // There is ONE provider — the default (backend ai.provider_config). The only
+  // per-toolset override is an optional MODEL for the 'agent' toolset, applied
+  // to that same default provider. Provider is never overridden client-side, so
+  // a toolset can never diverge to a keyless provider.
+  if (feature === 'agent') {
+    const model = settings['ai.agent.model'];
+    if (model) return { provider: '', model };
   }
 
-  // Check for per-feature overrides
-  let featureProvider: AiProviderType | null = null;
-  let featureModel: string | null = null;
-
-  switch (feature) {
-    case 'suggestions':
-    case 'nextStep':
-    case 'highlighting':
-      // These features use the default provider (no per-feature override)
-      break;
-    case 'agent':
-      featureProvider = settings['ai.agent.provider'];
-      featureModel = settings['ai.agent.model'];
-      break;
-  }
-
-  const provider = ensureEnabled(featureProvider || defaultProvider);
-  // If provider changed due to fallback, ignore the feature model
-  const resolvedModel = (provider === featureProvider && featureModel)
-    ? featureModel
-    : getModelForProvider(provider);
-  return {
-    provider,
-    model: resolvedModel,
-  };
+  // Default AI: empty → backend uses the saved ai.provider_config.
+  return { provider: '', model: '' };
 }

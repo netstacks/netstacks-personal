@@ -390,7 +390,9 @@ export default function AISettingsTab() {
   useEffect(() => {
     const syncAgentConfig = async () => {
       const agentConfig: AiAgentConfig = {
-        provider: settings['ai.agent.provider'],
+        // Provider is never a per-toolset override — the agent inherits the
+        // single default provider. Only an optional model may differ.
+        provider: null,
         model: settings['ai.agent.model'],
         temperature: settings['ai.agent.temperature'],
         max_tokens: settings['ai.agent.maxTokens'],
@@ -409,7 +411,6 @@ export default function AISettingsTab() {
     }
   }, [
     loading,
-    settings['ai.agent.provider'],
     settings['ai.agent.model'],
     settings['ai.agent.temperature'],
     settings['ai.agent.maxTokens'],
@@ -1071,11 +1072,6 @@ export default function AISettingsTab() {
     ? (enterpriseProviders.find(p => p.is_default)?.name || 'Controller Default')
     : (settings['ai.defaultProvider'] || 'anthropic');
 
-  // Get available providers for per-feature dropdowns
-  const availableProviderOptions = isEnterprise
-    ? enterpriseProviders.map(p => ({ type: p.type as AiProviderType, name: p.name }))
-    : PROVIDERS.filter(p => providerStatus[p.type]?.hasKey || p.type === 'ollama' || p.type === 'litellm');
-
   const getStatusBadge = (status: ConnectionStatus) => {
     switch (status) {
       case 'unconfigured':
@@ -1583,6 +1579,28 @@ export default function AISettingsTab() {
             </label>
           </div>
 
+          {/* Contextual Ask-AI help toggle */}
+          <div className="ai-automation-feature">
+            <label className="ai-automation-item">
+              <div className="ai-automation-info">
+                <span className="ai-automation-label">Contextual "Ask AI" help</span>
+                <span className="ai-automation-description">
+                  Show small "Ask AI" buttons next to confusing settings (API Resources,
+                  enrichment sources, token matchers, integrations). Opens a pop-over where
+                  the AI explains the concept and can help you set it up.
+                </span>
+              </div>
+              <div className="toggle-wrapper">
+                <input
+                  type="checkbox"
+                  checked={settings['ai.contextualHelp.enabled']}
+                  onChange={(e) => updateSetting('ai.contextualHelp.enabled', e.target.checked)}
+                />
+                <span className="toggle-slider" />
+              </div>
+            </label>
+          </div>
+
           {/* Topology structural edits toggle */}
           <div className="ai-automation-feature">
             <label className="ai-automation-item">
@@ -1742,62 +1760,24 @@ export default function AISettingsTab() {
         </p>
 
         <div className="ai-agent-settings">
-          {/* Provider Selection */}
+          {/* Agent uses the single default provider (top of this page). The only
+              per-toolset override is an optional model. */}
           <div className="ai-agent-setting-row">
             <div className="ai-agent-setting-info">
-              <span className="ai-agent-setting-label">Provider</span>
+              <span className="ai-agent-setting-label">Model override (optional)</span>
               <span className="ai-agent-setting-description">
-                AI provider for agent tasks
+                The agent uses the default provider ({defaultProviderLabel}). Leave blank
+                to use its default model, or enter a specific model name to use instead.
               </span>
             </div>
-            <select
-              value={settings['ai.agent.provider'] || ''}
-              onChange={(e) => {
-                const value = e.target.value || null;
-                updateSetting('ai.agent.provider', value as AiProviderType | null);
-                if (value) {
-                  // Set default model for new provider
-                  const models = getProviderModels(value as AiProviderType);
-                  if (models.length) {
-                    updateSetting('ai.agent.model', models[0]);
-                  }
-                } else {
-                  updateSetting('ai.agent.model', null);
-                }
-              }}
+            <input
+              type="text"
+              value={settings['ai.agent.model'] || ''}
+              placeholder="Use default model"
+              onChange={(e) => updateSetting('ai.agent.model', e.target.value || null)}
               className="ai-agent-select"
-            >
-              <option value="">Use Default ({defaultProviderLabel})</option>
-              {availableProviderOptions.map(p => (
-                <option key={p.type} value={p.type}>{p.name}</option>
-              ))}
-            </select>
+            />
           </div>
-
-          {/* Model Selection (only show if provider is selected) */}
-          {settings['ai.agent.provider'] && (
-            <div className="ai-agent-setting-row">
-              <div className="ai-agent-setting-info">
-                <span className="ai-agent-setting-label">Model</span>
-                <span className="ai-agent-setting-description">
-                  Model for agent reasoning
-                </span>
-              </div>
-              <select
-                value={settings['ai.agent.model'] || ''}
-                onChange={(e) => updateSetting('ai.agent.model', e.target.value || null)}
-                className="ai-agent-select"
-              >
-                <option value="">Default Model</option>
-                {(settings['ai.agent.provider'] === 'ollama'
-                  ? ollamaModels
-                  : getProviderModels(settings['ai.agent.provider']!).map(m => ({ value: m, label: m }))
-                ).map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
 
           {/* Temperature */}
           <div className="ai-agent-setting-row">
@@ -1989,8 +1969,26 @@ export default function AISettingsTab() {
                 transition: 'all 0.15s',
               }}
             >
-              {at === 'autopilot' ? 'Auto Pilot' : 'Overlord'}
+              {at === 'autopilot' ? settings['ai.modes.autopilot.name'] : settings['ai.modes.overlord.name']}
             </button>
+          ))}
+        </div>
+
+        {/* Rename the two modes — used everywhere the mode is shown + in the AI's mode-awareness prompt */}
+        <div className="ai-mode-names" style={{ display: 'flex', gap: 16, margin: '8px 0 4px' }}>
+          {(['autopilot', 'overlord'] as const).map((m) => (
+            <label key={m} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>
+                {m === 'autopilot' ? 'Mode 1 name' : 'Mode 2 name'}
+              </span>
+              <input
+                type="text"
+                value={settings[`ai.modes.${m}.name` as keyof typeof settings] as string}
+                placeholder={m === 'autopilot' ? 'Auto Pilot' : 'Overlord'}
+                onChange={(e) => updateSetting(`ai.modes.${m}.name` as keyof typeof settings, (e.target.value || (m === 'autopilot' ? 'Auto Pilot' : 'Overlord')) as never)}
+                style={{ padding: '5px 8px', fontSize: 12 }}
+              />
+            </label>
           ))}
         </div>
 

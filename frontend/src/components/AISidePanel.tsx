@@ -11,6 +11,7 @@ import { useAgentTasks } from '../hooks/useAgentTasks'
 import { listAiConversations, getAiConversation, createAiConversation, updateAiConversation, deleteAiConversation, type AiConversationSummary } from '../api/aiConversations'
 import type { PermissionMode } from '../api/agent'
 import { type AgentType, AGENT_TYPES, PERMISSION_MODES } from '../lib/aiModes'
+import { useModeNames } from '../hooks/useModeNames'
 import type { CliFlavor } from '../api/sessions'
 import type { Document, DocumentCategory } from '../api/docs'
 import type { SessionContextEntry, AiProviderType } from '../api/ai'
@@ -280,6 +281,7 @@ const AISidePanel = ({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('auto')
   const [selectedSession, setSelectedSession] = useState<string>('')
   const [agentType, setAgentType] = useState<AgentType>('autopilot')
+  const modeNames = useModeNames()
 
   // Get default provider from settings
   const { settings: appSettings } = useSettings()
@@ -1637,7 +1639,7 @@ const AISidePanel = ({
                   title={AGENT_TYPES[agentType].description}
                 >
                   {Object.values(AGENT_TYPES).map(at => (
-                    <option key={at.id} value={at.id}>{at.label}</option>
+                    <option key={at.id} value={at.id}>{modeNames[at.id]}</option>
                   ))}
                 </select>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">

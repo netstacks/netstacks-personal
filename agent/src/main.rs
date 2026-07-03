@@ -43,6 +43,7 @@ mod db;
 mod dev;
 mod discovery;
 mod docs;
+mod docs_kb;
 mod enrich;
 mod integrations;
 mod lsp;
@@ -887,6 +888,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         // Health & Info
         .route("/health", get(api::health))
         .route("/info", get(api::app_info))
+        // Bundled usage docs for the AI assistant (search must precede :slug)
+        .route("/docs-kb", get(api::docs_kb_index))
+        .route("/docs-kb/search", get(api::docs_kb_search))
+        .route("/docs-kb/:slug", get(api::docs_kb_get))
         // Sessions
         .route("/sessions", get(api::list_sessions).post(api::create_session))
         .route("/sessions/bulk-delete", post(api::bulk_delete_sessions))

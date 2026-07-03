@@ -149,7 +149,7 @@ export default function WorkspaceNewDialog({
     // Run once on mount; later defaults edits don't retroactively
     // rewrite an open dialog. touched is read inside but should not
     // retrigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [])
 
   const handleBrowse = useCallback(async () => {

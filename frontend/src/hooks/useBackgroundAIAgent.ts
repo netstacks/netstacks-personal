@@ -56,7 +56,7 @@ export function useBackgroundAIAgent(options: UseBackgroundAIAgentOptions = {}) 
 
     for (const msg of newMessages) {
       switch (msg.type) {
-        case 'agent-thinking':
+        case 'agent-thinking': {
           // Extract first line or truncate for task
           const taskText = msg.content.split('\n')[0].slice(0, 80);
           setCurrentTask(taskText);
@@ -66,6 +66,7 @@ export function useBackgroundAIAgent(options: UseBackgroundAIAgentOptions = {}) 
             level: 'info',
           });
           break;
+        }
 
         case 'command-result':
           newLogs.push({

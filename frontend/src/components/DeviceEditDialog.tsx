@@ -85,6 +85,10 @@ export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEdit
     if (await confirmDiscard()) onClose()
   }
 
+  // Hooks must run unconditionally (before any early return). Gate dismissal so
+  // it's inactive when there's no device or while submitting.
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: guardedClose, enabled: !submitting && !!device })
+
   if (!device) return null
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -113,7 +117,6 @@ export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEdit
     })
   }
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: guardedClose, enabled: !submitting })
 
   return (
     <div className="device-edit-dialog-overlay" {...backdropProps}>

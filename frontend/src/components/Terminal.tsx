@@ -306,9 +306,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Terminal instance state for useDetection hook
   const [terminalInstance, setTerminalInstance] = useState<XTerm | null>(null)
 
-  // Enterprise SSH state
-  // @ts-expect-error enterpriseSessionId will be used in future enterprise features
-  const [enterpriseSessionId, setEnterpriseSessionId] = useState<string | null>(null)
+  // Enterprise SSH state. The value isn't read yet (reserved for future
+  // enterprise features); only the setter is used today.
+  const [, setEnterpriseSessionId] = useState<string | null>(null)
   const [enterpriseHost, setEnterpriseHost] = useState<string>('')
   // Enterprise SSH tabs always carry a session-definition id (set on every
   // controller connect path). The profile id is now optional — agent-open
@@ -740,6 +740,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // This hook is only active for enterprise (controller-managed) sessions.
   // profileId may be empty (agent-open / device-anchored) → controller resolves
   // the device's default profile.
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- isEnterpriseMode is fixed for this terminal's lifetime, so hook order is stable across renders (deliberate).
   const enterpriseSSH = isEnterpriseMode ? useEnterpriseSSH({
     profileId: enterpriseProfileId ?? '',
     sessionDefinitionId: enterpriseSessionDefinitionId,
@@ -830,6 +831,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
   // Jumpbox terminal connection (conditional hook usage)
   // This hook is only active when isJumpbox is true and no enterprise credential/session
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- isJumpboxMode is fixed for this terminal's lifetime, so hook order is stable across renders (deliberate).
   const jumpboxTerminal = isJumpboxMode ? useJumpboxTerminal({
     cols: fitAddonRef.current ? terminalRef.current?.cols || 80 : 80,
     rows: fitAddonRef.current ? terminalRef.current?.rows || 24 : 24,
@@ -3004,6 +3006,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
   // Handler for using a next-step suggestion
   const handleUseNextStepSuggestion = useCallback((command: string) => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- useNextStepSuggestion is a plain callback from useNextStepSuggestions(), not a React hook; the use* name trips the rule.
     useNextStepSuggestion(command)
     setShowNextStepSuggestions(false)
   }, [useNextStepSuggestion])

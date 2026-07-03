@@ -129,7 +129,7 @@ async function ensureSubscribed(): Promise<void> {
     } catch (err) {
       // Tauri APIs failing isn't fatal — we lose drop-from-OS but the
       // HTML5 fallback in dev still works. Don't toast; log once.
-      // eslint-disable-next-line no-console
+       
       console.warn('[tauriDragDrop] Failed to subscribe to webview drag-drop:', err)
     } finally {
       initPromise = null

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useDeviceMemory } from '../hooks/useDeviceMemory';
+import { useModeNames } from '../hooks/useModeNames';
 import type { DeviceMemoryEntry } from '../types/deviceMemory';
 import './DeviceMemoryEditor.css';
 
@@ -32,6 +33,7 @@ const SOURCE_BADGES: Record<string, { label: string; className: string }> = {
 
 export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }: DeviceMemoryEditorProps): React.ReactElement {
   const { memory, loading, error, updateMemory, addEntry, editEntry, removeEntry } = useDeviceMemory({ sessionId, deviceId });
+  const modeNames = useModeNames();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [entryContent, setEntryContent] = useState('');
@@ -164,12 +166,13 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
         <div className="entries-list">
           {memory.entries.map(entry => {
             const badge = SOURCE_BADGES[entry.source] || SOURCE_BADGES.manual;
+            const badgeLabel = entry.source === 'overlord' ? modeNames.overlord : badge.label;
             const isEditing = editingEntryId === entry.id;
 
             return (
               <div key={entry.id} className="memory-entry">
                 <div className="entry-header">
-                  <span className={`source-badge ${badge.className}`}>{badge.label}</span>
+                  <span className={`source-badge ${badge.className}`}>{badgeLabel}</span>
                   <span className="entry-date">{entry.date}</span>
                   <span className="entry-author">{entry.author}</span>
                   <div className="entry-actions">

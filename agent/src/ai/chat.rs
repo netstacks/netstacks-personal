@@ -817,15 +817,29 @@ pub(crate) async fn prepare_agent_chat(
         );
     }
 
-    // Load AI config with optional provider/model overrides from request
-    let (config, custom_prompt) = load_ai_config_with_overrides(
-        state,
+    // Load AI config with optional provider/model overrides from request.
+    // Surface the REAL reason (no API key / vault locked / no model / not
+    // configured) instead of silently falling back to the Mock provider, which
+    // then fails opaquely with "Mock (Not Configured) does not support agent
+    // chat with tools". Tool-use requires a real provider, so a config error
+    // here is fatal for this request.
+    let (config_result, custom_prompt) = load_ai_config(
+        state.provider.as_ref(),
         provider_override.as_deref(),
         model_override.as_deref(),
     ).await;
+    let config = match config_result {
+        Ok(c) => c,
+        Err(reason) => {
+            return Err(AiApiError {
+                error: reason,
+                code: "NOT_CONFIGURED".to_string(),
+            });
+        }
+    };
 
     // Create provider from config (with sanitization)
-    let provider = wrap_provider(create_provider(config), state);
+    let provider = wrap_provider(create_provider(Some(config)), state);
 
     // Convert request messages to generic format
     let messages: Vec<AgentMessage> = req

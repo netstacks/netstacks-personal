@@ -30,6 +30,7 @@
 
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { sendChatMessage, AiNotConfiguredError } from '../api/ai';
+import { NETSTACKS_CONCEPTS_PRIMER } from '../lib/aiModes';
 import './AITabInput.css';
 
 interface AITabInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
@@ -87,11 +88,13 @@ export default function AITabInput({
 
         const prompt = `You are auto-filling a form field in a network operations platform (NetStacks).
 
+${NETSTACKS_CONCEPTS_PRIMER}
+
 Field: "${aiField}"${aiPlaceholder ? ` — ${aiPlaceholder}` : ''}
 ${rest.placeholder ? `Hint: "${rest.placeholder}"` : ''}
 ${contextEntries ? `\nOther fields:\n${contextEntries}` : ''}
 
-Generate a smart, concise value for this field. Respond with ONLY the value — no quotes, no explanation. Just the raw text.`;
+Generate a smart, concise value for this field that is correct for NetStacks. Respond with ONLY the value — no quotes, no explanation. Just the raw text.`;
 
         const response = await sendChatMessage(
           [{ role: 'user', content: prompt }],

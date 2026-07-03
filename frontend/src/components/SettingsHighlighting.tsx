@@ -661,7 +661,6 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
     if (!testText || !editedRule.pattern) return { html: testText, error: null };
 
     try {
-      let regex: RegExp;
       let pattern = editedRule.pattern;
 
       if (!editedRule.is_regex) {
@@ -674,7 +673,7 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
       }
 
       const flags = editedRule.case_sensitive ? 'g' : 'gi';
-      regex = new RegExp(pattern, flags);
+      const regex = new RegExp(pattern, flags);
 
       // Build style for highlighted text
       const style: string[] = [];

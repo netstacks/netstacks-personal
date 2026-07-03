@@ -84,6 +84,18 @@ export interface AppSettings {
   // the built-in defaults in lib/docSaveTargets.ts. See DocSaveSource.
   'documents.saveTargets': Partial<Record<string, { category: string; folder?: string }>>;
 
+  // AI: show contextual "Ask AI" help buttons on confusing settings (API
+  // Resources, enrichment, token matchers, integrations). Default on.
+  'ai.contextualHelp.enabled': boolean;
+
+  // App: first-run onboarding wizard completed/skipped. Default false.
+  'app.setupComplete': boolean;
+
+  // AI: user-customizable display names for the two agent modes. Consistent
+  // across the UI + the mode-awareness prompt.
+  'ai.modes.autopilot.name': string;
+  'ai.modes.overlord.name': string;
+
   // AUDIT FIX (EXEC-002): `ai.allowConfigChanges` was removed in favour of
   // server-side state controlled via `enableAiConfigMode`/`disableAiConfigMode`
   // in `api/ai.ts`. Use the new `useAiConfigMode` hook instead of reading
@@ -160,6 +172,10 @@ const defaultSettings: AppSettings = {
   'ai.agent.systemPrompt': 'You are a network automation assistant. You help users gather information from network devices using SSH commands. You have access to tools for querying devices and executing read-only commands. Be concise and focus on the task at hand.',
   'ai.topology.allowStructuralEdits': false,
   'documents.saveTargets': {},
+  'ai.contextualHelp.enabled': true,
+  'app.setupComplete': false,
+  'ai.modes.autopilot.name': 'Auto Pilot',
+  'ai.modes.overlord.name': 'Overlord',
 
   // (AUDIT FIX EXEC-002) ai.allowConfigChanges removed — see above.
 
@@ -189,6 +205,13 @@ function migrateSettings(stored: Record<string, unknown>): Record<string, unknow
       stored[newKey] = stored[oldKey];
       delete stored[oldKey];
     }
+  }
+  // The per-toolset PROVIDER override was removed — there is one provider (the
+  // default). Drop any legacy agent provider pin (and its provider-scoped model)
+  // so the agent inherits the default instead of a possibly keyless provider.
+  if ('ai.agent.provider' in stored && stored['ai.agent.provider']) {
+    delete stored['ai.agent.provider'];
+    delete stored['ai.agent.model'];
   }
   return stored;
 }

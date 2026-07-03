@@ -44,6 +44,8 @@ interface AIFloatingChatProps {
   // Topology AI tools for the active topology (Phase 27-07)
   topologyCallbacks?: TopologyAICallbacks
   allowStructuralTopologyEdits?: boolean
+  /** When set, auto-send this prompt on open (contextual Ask-AI help). */
+  initialPrompt?: string
   // Callback to continue conversation in full panel
   onContinueInPanel?: (messages: AgentMessage[], context?: AiContext) => void
 }
@@ -66,6 +68,7 @@ const AIFloatingChat = ({
   onSaveDocument,
   topologyCallbacks,
   allowStructuralTopologyEdits,
+  initialPrompt,
   onContinueInPanel,
 }: AIFloatingChatProps) => {
   const assistantName = useAssistantName()
@@ -158,6 +161,26 @@ const AIFloatingChat = ({
   })
 
   const isLoading = agentState === 'thinking' || agentState === 'executing'
+
+  // Auto-send a seeded help prompt (contextual Ask-AI). Waits for provider
+  // initialization so the request uses the resolved default provider, and only
+  // fires into an empty conversation. Reset on close so reopening re-asks.
+  const autoSentPromptRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isOpen) {
+      autoSentPromptRef.current = null
+      return
+    }
+    if (
+      initialPrompt &&
+      providerInitialized &&
+      autoSentPromptRef.current !== initialPrompt &&
+      messages.length === 0
+    ) {
+      autoSentPromptRef.current = initialPrompt
+      sendMessage(initialPrompt)
+    }
+  }, [isOpen, initialPrompt, providerInitialized, messages.length, sendMessage])
 
   // Has content (messages or loading)
   const hasContent = messages.length > 0 || isLoading

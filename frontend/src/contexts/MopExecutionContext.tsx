@@ -204,7 +204,7 @@ export function MopExecutionProvider({ children }: { children: ReactNode }) {
       case 'configure':
         // Always can proceed from configure (defaults are set)
         return true;
-      case 'pre_checks':
+      case 'pre_checks': {
         // Can proceed when all pre_checks passed
         const preChecksComplete = execution.state.devices.every(device => {
           const steps = execution.state.stepsByDevice[device.id] || [];
@@ -214,7 +214,8 @@ export function MopExecutionProvider({ children }: { children: ReactNode }) {
           );
         });
         return preChecksComplete;
-      case 'execute':
+      }
+      case 'execute': {
         // Can proceed when all changes complete
         const changesComplete = execution.state.devices.every(device => {
           const steps = execution.state.stepsByDevice[device.id] || [];
@@ -224,7 +225,8 @@ export function MopExecutionProvider({ children }: { children: ReactNode }) {
           );
         });
         return changesComplete;
-      case 'post_checks':
+      }
+      case 'post_checks': {
         // Can proceed when all post_checks complete
         const postChecksComplete = execution.state.devices.every(device => {
           const steps = execution.state.stepsByDevice[device.id] || [];
@@ -234,6 +236,7 @@ export function MopExecutionProvider({ children }: { children: ReactNode }) {
           );
         });
         return postChecksComplete;
+      }
       case 'review':
         // Final step, no proceeding
         return false;

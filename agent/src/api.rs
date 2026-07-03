@@ -1105,6 +1105,66 @@ pub async fn set_setting(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// === Docs KB (bundled NetStacks usage documentation) ===
+
+#[derive(Serialize)]
+pub struct KbIndexEntry {
+    pub slug: String,
+    pub title: String,
+}
+
+/// GET /docs-kb — list bundled documentation topics.
+pub async fn docs_kb_index() -> Json<Vec<KbIndexEntry>> {
+    Json(
+        crate::docs_kb::index()
+            .into_iter()
+            .map(|(slug, title)| KbIndexEntry { slug: slug.to_string(), title: title.to_string() })
+            .collect(),
+    )
+}
+
+#[derive(Serialize)]
+pub struct KbSearchHit {
+    pub slug: String,
+    pub title: String,
+    pub snippet: String,
+}
+
+#[derive(Deserialize)]
+pub struct KbSearchQuery {
+    pub q: Option<String>,
+}
+
+/// GET /docs-kb/search?q= — keyword search over bundled docs.
+pub async fn docs_kb_search(Query(query): Query<KbSearchQuery>) -> Json<Vec<KbSearchHit>> {
+    let q = query.q.unwrap_or_default();
+    Json(
+        crate::docs_kb::search(&q)
+            .into_iter()
+            .map(|h| KbSearchHit { slug: h.slug.to_string(), title: h.title.to_string(), snippet: h.snippet })
+            .collect(),
+    )
+}
+
+#[derive(Serialize)]
+pub struct KbDocResponse {
+    pub slug: String,
+    pub title: String,
+    pub content: String,
+}
+
+/// GET /docs-kb/:slug — fetch one bundled doc's full content.
+pub async fn docs_kb_get(Path(slug): Path<String>) -> Result<Json<KbDocResponse>, ApiError> {
+    match crate::docs_kb::get(&slug) {
+        Some(d) => Ok(Json(KbDocResponse {
+            slug: d.slug.to_string(),
+            title: d.title.to_string(),
+            content: d.content.to_string(),
+        })),
+        None => Err(ApiError { error: format!("No bundled doc '{}'", slug), code: "NOT_FOUND".to_string() }),
+    }
+}
+
 // === Terminal Logging Endpoints ===
 
 /// Request body for starting logging

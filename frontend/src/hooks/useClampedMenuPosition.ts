@@ -42,7 +42,7 @@ export function useClampedMenuPosition(
     // Measuring the rendered DOM and re-positioning from it can only happen
     // after layout — this is the canonical useLayoutEffect pattern, not
     // derived state that could be computed during render.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setCoords(next)
   }, [position, margin])
 

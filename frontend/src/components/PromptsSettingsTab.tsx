@@ -30,6 +30,7 @@ import {
 } from '../api/ai';
 import { AGENT_PROMPT, type AgentType } from '../lib/aiModes';
 import { getSettings } from '../hooks/useSettings';
+import { useModeNames } from '../hooks/useModeNames';
 import './PromptsSettingsTab.css';
 import AITabInput from './AITabInput';
 import { confirmDialog } from './ConfirmDialog';
@@ -102,6 +103,7 @@ const SYSTEM_PROMPT_META: Record<SystemKey, { label: string; editorTitle: string
 };
 
 export default function PromptsSettingsTab() {
+  const modeNames = useModeNames();
   const [prompts, setPrompts] = useState<QuickPrompt[]>([]);
   const [loading, setLoading] = useState(true);
   const [editor, setEditor] = useState<EditorState>({ isOpen: false, mode: 'create' });
@@ -384,7 +386,7 @@ export default function PromptsSettingsTab() {
       <div key={key} className="prompt-item">
         <div className="prompt-item-header">
           <span className="prompt-item-icon">{'\u{1F916}'}</span>
-          <span className="prompt-item-name">{meta.label}</span>
+          <span className="prompt-item-name">{(key === 'autopilot' || key === 'overlord') ? modeNames[key] : meta.label}</span>
           <div className="prompt-item-actions">
             <button onClick={() => handleEditSystem(key)} title="Edit">{'\u270E'}</button>
             <button

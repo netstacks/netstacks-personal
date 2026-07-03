@@ -16,6 +16,8 @@
  * User AI Engineer Profiles (editable) are appended on top.
  */
 
+import { getSettings, type AppSettings } from '../hooks/useSettings'
+
 export type AgentType = 'autopilot' | 'overlord'
 export type PermissionMode = 'ask' | 'auto' | 'yolo'
 
@@ -51,6 +53,9 @@ export const AGENT_TYPES: Record<AgentType, AgentTypeConfig> = {
     id: 'overlord',
     label: 'Overlord',
     description: 'Full access — all tools, asks before acting',
+    // run_bash is included here so it can be allocated per-mode via the
+    // per-mode tool settings; it is disabled by default for this mode via
+    // `ai.disabledTools.overlord` = ['run_bash'].
     enabledFlags: [
       'hasSessions', 'hasExecuteCommand', 'hasTerminalContext',
       'hasDocuments', 'hasSessionContext', 'hasChangeControl',
@@ -58,11 +63,45 @@ export const AGENT_TYPES: Record<AgentType, AgentTypeConfig> = {
       'hasLibreNms', 'hasNetStacksCrawler',
       'hasMopCreation',
       'hasMcpServers', 'hasBackupAnalysis', 'hasUINavigation',
+      'hasBash',
     ],
     allowsCommands: true,
-    allowsBash: false,
+    allowsBash: true,
     defaultPermissionMode: 'ask',
   },
+}
+
+/** Settings keys holding each mode's user-customizable display name. */
+const MODE_NAME_SETTING: Record<AgentType, string> = {
+  autopilot: 'ai.modes.autopilot.name',
+  overlord: 'ai.modes.overlord.name',
+}
+
+/**
+ * The user-customizable display name for a mode. Falls back to the built-in
+ * label. Non-reactive (reads the settings singleton) — use the useModeNames()
+ * hook in React components so labels update live on rename.
+ */
+export function getModeName(agentType: AgentType): string {
+  try {
+    const key = MODE_NAME_SETTING[agentType]
+    if (key) {
+      const val = getSettings()[key as keyof AppSettings] as string | undefined
+      if (val && val.trim()) return val.trim()
+    }
+  } catch { /* fall back to default label */ }
+  return AGENT_TYPES[agentType]?.label ?? String(agentType)
+}
+
+/** Whether run_bash is effectively enabled for a mode (allowed + not disabled). */
+function bashEnabledFor(agentType: AgentType): boolean {
+  if (!AGENT_TYPES[agentType].allowsBash) return false
+  try {
+    const disabled = getSettings()[`ai.disabledTools.${agentType}` as keyof AppSettings] as string[] | undefined
+    return !(disabled || []).includes('run_bash')
+  } catch {
+    return AGENT_TYPES[agentType].allowsBash
+  }
 }
 
 export const PERMISSION_MODES: Record<PermissionMode, { label: string; description: string }> = {
@@ -103,9 +142,28 @@ NetStacks is a platform for network engineers that provides:
 
 You understand network protocols (BGP, OSPF, IS-IS, MPLS, VXLAN, EVPN), vendor configurations (Cisco IOS/IOS-XR/NX-OS, Arista EOS, Juniper Junos, Palo Alto, Fortinet), and common network operations workflows.
 
+## NetStacks Concepts & Setup (help users who are new to APIs)
+- **API Resource** — the ONE reusable HTTP-endpoint primitive: base URL + auth (none / bearer token / basic / api-key header / custom header / multi-step login) + TLS/timeout. Credentials are stored in the encrypted vault (the vault must be unlocked). Configured in Settings → API Resources. Everything that talks to an external system is built on this.
+- **Integrations** — named "sources" that WRAP an API Resource and add typed behavior + import: **NetBox** (device→session sync, device filters, credential/CLI-flavor mappings), **LibreNMS**, and **Crawler**. Configured in Settings → Integrations. The URL + token live on the wrapped API Resource; the integration layers behavior on top.
+- **Crawler = Netdisco** — "NetStacks-Crawler" is just NetStacks' UI over Netdisco's REST API (\`/api/v1\`). Point a Crawler source at a Netdisco instance: the API Resource base URL = the Netdisco host, auth = basic or api-key, test path \`api/v1/device\`.
+- **Enrichment** — hover lookups on highlighted terminal tokens. Sources are either **builtin** (dns_ptr, oui_vendor, mac_address_type — no HTTP) or **api_resource** (reference ANY API Resource via a \`path_template\` like \`/api/search?q={token}\`, with response-unwrap + picked fields). **Token matchers** decide which token types (IP, MAC, hostname, …) trigger which sources. Configured in Settings → Enrichment.
+- **Why Integrations differ from API Resources** — an API Resource is a generic endpoint; an Integration adds typed proxies + import into app objects. An app that is NOT a first-class integration (SolarWinds, PRTG, a CMDB, any REST API) still integrates: create an API Resource for it, then use it via a **Quick Call**, an **Enrichment source**, or a **MOP step**.
+- **NetBox setup** — create an API Resource (base URL = NetBox URL, auth = bearer token = the NetBox API token, test path \`/api/status/\`), then add a NetBox source that references it.
+
+When a user asks "how do I integrate <app>?", answer with the pattern above (create an API Resource → use it via Quick Call / Enrichment / Integration), and offer to open the relevant Settings tab (use navigate_to_settings).
+
+For detailed, authoritative how-tos on NetStacks itself (setup, API Resources, integrations, enrichment/token matchers, NetBox, Crawler/Netdisco, AI setup, Documents), call **search_netstacks_docs** then **read_netstacks_doc** — these read documentation bundled into the app. Prefer them over guessing when explaining how to use NetStacks.
+
 When referencing devices, always use their device ID (UUID) for tool calls, not just names.
 When the user asks about configuration changes, check config backups first, then cross-reference with MOPs and audit logs.
 When presenting findings, be specific — include dates, config lines, and references to related MOPs or incidents.`
+
+/**
+ * Compact one-paragraph version of the NetStacks concept model, for non-agent
+ * AI call sites (e.g. AITabInput Tab-to-autocomplete) that need app awareness
+ * without the full identity/agent prompt.
+ */
+export const NETSTACKS_CONCEPTS_PRIMER = `NetStacks concepts: an "API Resource" is a reusable HTTP endpoint (base URL + auth; credentials in the vault). "Integrations" (NetBox, LibreNMS, Crawler) wrap an API Resource with typed behavior — and Crawler is just NetStacks' UI over Netdisco (\`/api/v1\`). "Enrichment" sources do hover lookups and can call any API Resource via a path_template; "token matchers" pick which token types (IP/MAC/hostname) trigger them. Any REST app integrates by creating an API Resource and using it in Quick Calls, Enrichment, or MOP steps. NetBox uses a bearer token; a Netdisco/Crawler test path is \`api/v1/device\`.`
 
 export const AGENT_PROMPT = `## Agent Tools
 
@@ -190,7 +248,39 @@ export function getSystemPrompt(
   const agentPrompt = (override && override.trim()) ? override : AGENT_PROMPT
   const addendum = isEnterprise ? ENTERPRISE_ADDENDUM : STANDALONE_ADDENDUM
 
-  return `${NETSTACKS_IDENTITY}\n\n${agentPrompt}${addendum}`
+  return `${NETSTACKS_IDENTITY}\n\n${agentPrompt}${addendum}${getModeBlock(agentType)}`
+}
+
+/**
+ * Mode-awareness block, computed from the CURRENT user configuration (custom
+ * mode names + whether run_bash is enabled per mode) so the LLM knows which mode
+ * it's in and can guide the user to the other mode when it lacks the local shell.
+ */
+function getModeBlock(agentType: AgentType): string {
+  const config = AGENT_TYPES[agentType]
+  if (!config) return '' // unknown/legacy agent type — no mode block
+  const other: AgentType = agentType === 'autopilot' ? 'overlord' : 'autopilot'
+  const thisName = getModeName(agentType)
+  const otherName = getModeName(other)
+  const hasBashHere = bashEnabledFor(agentType)
+  const hasBashOther = bashEnabledFor(other)
+
+  const lines: string[] = [
+    `\n\n## Your Mode: ${thisName}`,
+    `You are operating as the "${thisName}" agent mode (default permission: ${config.defaultPermissionMode}).`,
+    hasBashHere
+      ? `- You HAVE the local shell (run_bash).`
+      : `- You do NOT have the local shell (run_bash) in this mode.`,
+    `- Calling external HTTP APIs does not require the shell — use API/integration tools when available.`,
+  ]
+  if (!hasBashHere) {
+    lines.push(
+      hasBashOther
+        ? `- If a task genuinely needs the local shell (a local script, or curl against something with no API), tell the user to switch to the "${otherName}" mode, which has it. Do not pretend you can run shell commands here.`
+        : `- The local shell is not enabled in either mode; if a task needs it, tell the user they can enable run_bash for a mode under Settings → AI.`,
+    )
+  }
+  return lines.join('\n')
 }
 
 /** Flags that require enterprise mode (controller backend) */

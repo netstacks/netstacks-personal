@@ -386,6 +386,29 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['path', 'content']
     }
   },
+  // NetStacks bundled usage docs (how the app itself works)
+  {
+    name: 'search_netstacks_docs',
+    description: 'Search the bundled NetStacks usage documentation — how the APP itself works: API Resources vs Integrations, NetBox setup, Crawler/Netdisco, Enrichment sources and token matchers, AI provider setup, and the Documents store. Use this to answer "how do I set up / configure X in NetStacks" questions. Returns matching topics (slug + title + snippet).',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keywords, e.g. "netbox api token" or "enrichment token matcher"' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'read_netstacks_doc',
+    description: 'Read the full content of a bundled NetStacks documentation topic by slug (from search_netstacks_docs). Known slugs: concepts, netbox, crawler-netdisco, enrichment, ai-and-documents.',
+    parameters: {
+      type: 'object',
+      properties: {
+        slug: { type: 'string', description: 'Doc slug, e.g. "concepts"' }
+      },
+      required: ['slug']
+    }
+  },
   // AI Memory tools
   {
     name: 'save_memory',
@@ -1829,6 +1852,13 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
   // Always include document tools (read and write)
   const docTools = ['list_documents', 'read_document', 'search_documents', 'save_document'];
   for (const name of docTools) {
+    const tool = AGENT_TOOLS.find(t => t.name === name);
+    if (tool) tools.push(tool);
+  }
+
+  // Always include the bundled NetStacks usage-docs tools (how the app works)
+  const netstacksDocTools = ['search_netstacks_docs', 'read_netstacks_doc'];
+  for (const name of netstacksDocTools) {
     const tool = AGENT_TOOLS.find(t => t.name === name);
     if (tool) tools.push(tool);
   }

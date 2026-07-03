@@ -1115,7 +1115,7 @@ function SessionPanelContent({
   // Filter sessions and folders based on search query
   const searchLower = searchQuery.toLowerCase().trim();
   const filteredSessions = useMemo(() => {
-    let result = sessions;
+    const result = sessions;
     // When not searching, hide favorited sessions from the main list
     // (they appear in the Favorites section instead)
     if (!searchLower) {

@@ -1464,7 +1464,7 @@ RULES:
       const commands = response
         .split('\n')
         .map(line => line.trim())
-        .map(line => line.replace(/^\d+[\.\)]\s*/, '')) // strip "1. " or "1) "
+        .map(line => line.replace(/^\d+[.)]\s*/, '')) // strip "1. " or "1) "
         .map(line => line.replace(/^[-*]\s+/, '')) // strip "- " or "* "
         .map(line => line.replace(/^```\w*/, '').replace(/```$/, '')) // strip code fences
         .filter(line => line.length > 0)

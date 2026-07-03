@@ -354,7 +354,7 @@ export class DetectionEngine {
           vlanId: extractVlanId(value),
         } as VLANMetadata;
 
-      case 'cidr':
+      case 'cidr': {
         // CIDR pattern only captures /prefix, need to reconstruct
         const prefixMatch = value.match(/\/(\d+)/);
         return {
@@ -362,6 +362,7 @@ export class DetectionEngine {
           networkAddress: '', // Would need IP context to determine
           prefixLength: prefixMatch ? parseInt(prefixMatch[1], 10) : 0,
         } as CIDRMetadata;
+      }
 
       case 'asn':
         return {

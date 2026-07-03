@@ -63,7 +63,7 @@ interface CommandStore {
 
 const debug = (...args: unknown[]) => {
   if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
+     
     console.warn('[CommandRegistry]', ...args)
   }
 }

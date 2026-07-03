@@ -304,7 +304,9 @@ export class TracerouteParser {
     const format = detectFormat(output);
     const lines = output.trim().split('\n');
     const hops: TracerouteHop[] = [];
-    let { destination, destinationIp } = parseDestination(output);
+    const parsedDest = parseDestination(output);
+    const destination = parsedDest.destination;
+    let destinationIp = parsedDest.destinationIp;
 
     for (const line of lines) {
       let hop: TracerouteHop | null = null;

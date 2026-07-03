@@ -98,7 +98,7 @@ export default function QuickLook({
 
     // Delay adding listener to avoid immediate close from triggering click
     const timer = setTimeout(() => {
-      document && window.addEventListener('mousedown', handleClickOutside);
+      if (document) window.addEventListener('mousedown', handleClickOutside);
     }, 100);
 
     return () => {

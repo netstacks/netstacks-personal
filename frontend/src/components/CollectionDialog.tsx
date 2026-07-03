@@ -106,7 +106,9 @@ export default function CollectionDialog({
   const [regexPattern, setRegexPattern] = useState('');
   const [cliRunning, setCLIRunning] = useState(false);
   const [cliProgress, setCLIProgress] = useState<{ current: number; total: number } | null>(null);
-  const [cliOutputs, setCLIOutputs] = useState<{ sessionId: string; sessionName: string; output: string }[]>([]);
+  // Value is written but only read via `typeof` for the outputs type below.
+  const [, setCLIOutputs] = useState<{ sessionId: string; sessionName: string; output: string }[]>([]);
+  type CliOutput = { sessionId: string; sessionName: string; output: string };
 
   // Discovered data preview
   const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDevice[]>([]);
@@ -227,7 +229,7 @@ export default function CollectionDialog({
     setDiscoveredDevices([]);
     setDiscoveredConnections([]);
 
-    const outputs: typeof cliOutputs = [];
+    const outputs: CliOutput[] = [];
     const allDevices: DiscoveredDevice[] = [];
     const allConnections: DiscoveredConnection[] = [];
 
@@ -493,13 +495,15 @@ export default function CollectionDialog({
     }
   };
 
+  // Hooks must run unconditionally (before any early return). Gate the overlay
+  // dismiss with `enabled: isOpen` so behavior matches "only active when open".
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: isOpen });
+
   if (!isOpen) return null;
 
   const hasDiscoveredData = discoveredDevices.length > 0 || discoveredConnections.length > 0;
   const selectedDeviceCount = discoveredDevices.filter(d => d.selected).length;
   const selectedConnectionCount = discoveredConnections.filter(c => c.selected).length;
-
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose });
 
   return (
     <div className="collection-dialog-overlay" {...backdropProps}>

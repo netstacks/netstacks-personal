@@ -91,7 +91,7 @@ function highlightJson(text: string): string {
 
     // Keywords: true, false, null
     const rest = text.slice(i)
-    const kwMatch = rest.match(/^(true|false|null)(?=[,\]\}\s]|$)/)
+    const kwMatch = rest.match(/^(true|false|null)(?=[,\]}\s]|$)/)
     if (kwMatch) {
       out.push(`<span class="jh-keyword">${kwMatch[1]}</span>`)
       expectKey = false

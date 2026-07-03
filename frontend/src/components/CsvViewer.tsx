@@ -86,20 +86,12 @@ function CsvViewer({ content }: CsvViewerProps) {
 
   const rows = useMemo(() => parseCSV(content), [content]);
 
-  // Handle empty content
-  if (rows.length === 0) {
-    return (
-      <div className="csv-viewer csv-viewer-empty">
-        <p>No data to display</p>
-      </div>
-    );
-  }
-
-  // First row is header
+  // First row is header (safe on empty input: undefined / []).
   const headers = rows[0];
   const dataRows = rows.slice(1);
 
-  // Sort data rows
+  // Sort data rows. Hooks must run unconditionally, so this is computed before
+  // the empty-content early return below.
   const sortedRows = useMemo(() => {
     if (!sortConfig) return dataRows;
 
@@ -122,6 +114,15 @@ function CsvViewer({ content }: CsvViewerProps) {
 
     return sorted;
   }, [dataRows, sortConfig]);
+
+  // Handle empty content (after hooks so hook order stays stable).
+  if (rows.length === 0) {
+    return (
+      <div className="csv-viewer csv-viewer-empty">
+        <p>No data to display</p>
+      </div>
+    );
+  }
 
   const handleSort = (columnIndex: number) => {
     setSortConfig((prev) => {
