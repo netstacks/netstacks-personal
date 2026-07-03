@@ -14,6 +14,11 @@ export interface DeviceSummary {
   model: string | null;
   site: string | null;
   source: string;
+  /** The device's assigned connection profile (device-anchored default), from
+   *  GET /api/devices/browse. Undefined/null = no profile assigned (connect
+   *  falls back to the user's default profile). Used to pre-select/label the
+   *  device default in the connect dialog. */
+  profile_id?: string | null;
   default_credential_id?: string | null;
   snmp_credential_id?: string | null;
   connect_commands?: string[];

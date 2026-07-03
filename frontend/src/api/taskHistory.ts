@@ -51,7 +51,7 @@ export async function searchTaskHistory(
   offset = 0
 ): Promise<SearchResponse> {
   const response = await getClient().http.get<SearchResponse>(
-    `/agent-tasks/history/search`,
+    `/admin/agent-tasks/history/search`,
     {
       params: {
         q: query,
@@ -76,7 +76,7 @@ export async function listTaskHistory(
     params.task_id = taskId;
   }
   const response = await getClient().http.get<ListHistoryResponse>(
-    '/agent-tasks/history',
+    '/admin/agent-tasks/history',
     { params }
   );
   return response.data;
@@ -89,7 +89,7 @@ export async function getTaskExecution(
   executionId: string
 ): Promise<TaskExecutionSummary> {
   const response = await getClient().http.get<TaskExecutionSummary>(
-    `/agent-tasks/history/${executionId}`
+    `/admin/agent-tasks/history/${executionId}`
   );
   return response.data;
 }

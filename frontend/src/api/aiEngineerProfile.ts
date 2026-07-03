@@ -1,6 +1,6 @@
 // API client for AI Engineer Profile (standalone + enterprise modes)
 
-import { getClient } from './client';
+import { getClient, getCurrentMode } from './client';
 
 export interface AiEngineerProfile {
   id: number;
@@ -65,8 +65,40 @@ export interface ActiveProfileResponse {
 
 // === Standalone mode (agent sidecar) ===
 
+/** Map the controller's enterprise AI profile shape onto the standalone
+ *  AiEngineerProfile shape so shared consumers (assistant name, settings)
+ *  keep working. The controller is the source of truth for these fields;
+ *  standalone-only fields (safety_rules/communication_style) default empty. */
+function enterpriseToAiEngineerProfile(p: EnterpriseAiProfile): AiEngineerProfile {
+  return {
+    id: 1,
+    name: p.name,
+    behavior_mode: p.behavior_mode,
+    autonomy_level: p.autonomy_level,
+    vendor_weights: p.vendor_weights ?? {},
+    domain_focus: p.domain_focus ?? {},
+    cert_perspective: p.cert_perspective,
+    verbosity: p.verbosity,
+    risk_tolerance: p.risk_tolerance,
+    troubleshooting_method: p.troubleshooting_method,
+    syntax_style: p.syntax_style,
+    user_experience_level: p.user_experience_level,
+    environment_type: p.environment_type,
+    safety_rules: [],
+    communication_style: null,
+    onboarding_completed: true,
+  };
+}
+
 export async function getAiProfile(): Promise<AiEngineerProfile | null> {
   try {
+    // Enterprise: there is no /ai/profile — the controller exposes the user's
+    // active AI profile at /ai-profiles/active. Adapt its shape for callers.
+    if (getCurrentMode() === 'enterprise') {
+      const { data } = await getClient().http.get('/ai-profiles/active');
+      const active = (data as ActiveProfileResponse).profile;
+      return active ? enterpriseToAiEngineerProfile(active) : null;
+    }
     const { data } = await getClient().http.get('/ai/profile');
     return data.profile ?? null;
   } catch {
@@ -94,6 +126,13 @@ const DEFAULT_PROFILE: AiEngineerProfile = {
 };
 
 export async function updateAiProfile(update: UpdateAiEngineerProfile): Promise<AiEngineerProfile> {
+  // Enterprise AI profiles are org-managed (Admin → AI Profiles); users only
+  // *select* an active profile (see setActiveProfile) — they can't edit fields.
+  // The standalone editor tab isn't rendered in enterprise, so this shouldn't
+  // fire, but guard against a 404 just in case.
+  if (getCurrentMode() === 'enterprise') {
+    throw new Error('AI engineer profile editing is not available in enterprise mode');
+  }
   // Backend expects full AiEngineerProfile, so merge with existing or defaults.
   const existing = await getAiProfile();
   const merged = { ...(existing ?? DEFAULT_PROFILE), ...update };
@@ -110,11 +149,20 @@ export async function updateAiProfile(update: UpdateAiEngineerProfile): Promise<
 }
 
 export async function resetAiProfile(): Promise<void> {
+  // TODO: controller has no clear-active route; DELETE /ai/profile is standalone-only.
+  // No-op in enterprise so this never hits a 404.
+  if (getCurrentMode() === 'enterprise') return;
   await getClient().http.delete('/ai/profile');
 }
 
 export async function isOnboarded(): Promise<boolean> {
   try {
+    // Enterprise has no /ai/profile/status — derive onboarding state from
+    // whether the user currently has an active profile selected.
+    if (getCurrentMode() === 'enterprise') {
+      const { data } = await getClient().http.get('/ai-profiles/active');
+      return !!(data as ActiveProfileResponse).profile;
+    }
     const { data } = await getClient().http.get('/ai/profile/status');
     return data.onboarded ?? false;
   } catch {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { loadConnectTargets, getDefaultConnectTarget } from '../api/enterpriseProfiles';
+import { loadConnectTargets } from '../api/enterpriseProfiles';
 import type { AccessibleProfile } from '../types/enterpriseProfile';
 import type { EnterpriseSession } from '../api/enterpriseSessions';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
@@ -8,10 +8,19 @@ import './EnterpriseConnectDialog.css';
 import { getErrorMessage } from '../api/errors'
 interface EnterpriseConnectDialogProps {
   session: EnterpriseSession;
+  /** Called with the chosen profile id, or '' to send NO profile_id (let the
+   *  controller device-anchor: device's assigned profile → user default). */
   onConnect: (profileId: string) => void;
   onCancel: () => void;
   deviceName?: string; // Show device name in title if connecting from device panel (Phase 42.2-03)
+  /** The device's assigned profile id (device-anchored default), used to label
+   *  the "Device default" option with the resolved profile name when known. */
+  deviceProfileId?: string;
 }
+
+// Sentinel select value representing "no explicit override" — send no profile_id
+// so the controller device-anchors. Distinct from '' (which means "nothing picked").
+const DEVICE_DEFAULT = '__device_default__';
 
 const Icons = {
   x: (
@@ -67,9 +76,11 @@ export default function EnterpriseConnectDialog({
   onConnect,
   onCancel,
   deviceName,
+  deviceProfileId,
 }: EnterpriseConnectDialogProps) {
   const [profiles, setProfiles] = useState<AccessibleProfile[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>('');
+  // Default to the device-anchored option (no explicit override).
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(DEVICE_DEFAULT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,24 +93,14 @@ export default function EnterpriseConnectDialog({
       setError(null);
 
       try {
-        // Fetch accessible profiles and the default profile in parallel
-        const [list, defaultProfile] = await Promise.all([
-          loadConnectTargets(),
-          getDefaultConnectTarget(),
-        ]);
+        // Fetch the list of selectable override profiles. The default selection
+        // stays DEVICE_DEFAULT (send no profile_id) so the controller device-anchors;
+        // the user only picks a specific profile to *override* that.
+        const list = await loadConnectTargets();
 
         if (cancelled) return;
 
         setProfiles(list);
-
-        // Default the selection: prefer the server-reported default profile,
-        // else the first profile flagged is_default, else the first available.
-        const defaultId =
-          defaultProfile?.id ??
-          list.find((p) => p.is_default)?.id ??
-          list[0]?.id ??
-          '';
-        setSelectedProfileId(defaultId);
       } catch (err) {
         if (cancelled) return;
         setError(getErrorMessage(err, 'Failed to load profiles'));
@@ -118,7 +119,9 @@ export default function EnterpriseConnectDialog({
       setError('Please select a profile');
       return;
     }
-    onConnect(selectedProfileId);
+    // Device default → send NO profile_id (empty string) so the controller
+    // device-anchors. Any other value is an explicit per-connection override.
+    onConnect(selectedProfileId === DEVICE_DEFAULT ? '' : selectedProfileId);
   };
 
   const getProfileIcon = (authMode: AccessibleProfile['auth_mode']) => {
@@ -153,7 +156,7 @@ export default function EnterpriseConnectDialog({
           <div className="enterprise-connect-session-info">
             <div className="enterprise-connect-info-row">
               <span className="label">Host:</span>
-              <span className="value">{session.host}:{session.port}</span>
+              <span className="value">{session.port ? `${session.host}:${session.port}` : session.host}</span>
             </div>
             {session.description && (
               <div className="enterprise-connect-info-row">
@@ -175,17 +178,19 @@ export default function EnterpriseConnectDialog({
             </div>
           )}
 
-          {!loading && !error && profiles.length === 0 && (
-            <div className="enterprise-connect-empty">
-              <p>No profiles available.</p>
-              <p className="help-text">Contact your administrator to request access.</p>
-            </div>
-          )}
-
-{!loading && !error && profiles.length > 0 && (() => {
+{!loading && !error && (() => {
             const personalProfiles = profiles.filter(p => p.profile_type === 'personal');
             const sharedProfiles = profiles.filter(p => p.profile_type === 'shared');
             const serviceProfiles = profiles.filter(p => p.profile_type === 'service');
+
+            // Label the device-anchored option with the resolved profile name
+            // when the device has an assigned profile we can see in the list.
+            const deviceDefaultProfile = deviceProfileId
+              ? profiles.find((p) => p.id === deviceProfileId)
+              : undefined;
+            const deviceDefaultLabel = deviceDefaultProfile
+              ? `Device default (recommended) — ${deviceDefaultProfile.name}`
+              : 'Device default (recommended)';
 
             return (
               <div className="enterprise-connect-credential-select">
@@ -199,6 +204,7 @@ export default function EnterpriseConnectDialog({
                     onChange={(e) => setSelectedProfileId(e.target.value)}
                     className="credential-select"
                   >
+                    <option value={DEVICE_DEFAULT}>{deviceDefaultLabel}</option>
                     {personalProfiles.length > 0 && (
                       <optgroup label={PROFILE_TYPE_LABEL.personal}>
                         {personalProfiles.map((profile) => (
@@ -282,7 +288,7 @@ export default function EnterpriseConnectDialog({
           <button
             className="enterprise-connect-btn primary"
             onClick={handleConnect}
-            disabled={loading || !selectedProfileId || profiles.length === 0}
+            disabled={loading || !selectedProfileId}
           >
             Connect
           </button>

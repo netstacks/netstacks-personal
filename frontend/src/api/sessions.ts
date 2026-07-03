@@ -236,11 +236,18 @@ export async function listSessions(): Promise<Session[]> {
 }
 
 export async function getSession(id: string): Promise<Session> {
+  // Enterprise saved sessions are "session definitions" served by the controller
+  // at /api/session-definitions — see api/enterpriseSessions.ts. The local
+  // /sessions route does not exist there, so guard against a 404.
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
   const { data } = await getClient().http.get(`/sessions/${id}`);
   return data;
 }
 
 export async function createSession(session: NewSession): Promise<Session> {
+  // Enterprise session definitions are created via api/enterpriseSessions.ts
+  // (POST /session-definitions), which uses the controller's CreateSessionDefinition shape.
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
   const { data } = await getClient().http.post('/sessions', session);
   return data;
 }
@@ -264,16 +271,23 @@ export interface JumpDependents {
  * "Used as jump by N" hint and (future) gate session deletion.
  */
 export async function getSessionJumpDependents(sessionId: string): Promise<JumpDependents> {
+  // No controller equivalent for jump-dependents — return an empty set in
+  // enterprise so the (standalone) SessionSettingsDialog doesn't 404.
+  if (getCurrentMode() === 'enterprise') return { sessions: [], tunnels: [], profiles: [] };
   const { data } = await getClient().http.get(`/sessions/${sessionId}/jump-dependents`);
   return data;
 }
 
 export async function updateSession(id: string, session: UpdateSessionData): Promise<Session> {
+  // Enterprise session definitions are updated via api/enterpriseSessions.ts (PUT /session-definitions/:id).
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
   const { data } = await getClient().http.put(`/sessions/${id}`, session);
   return data;
 }
 
 export async function deleteSession(id: string): Promise<void> {
+  // Enterprise session definitions are deleted via api/enterpriseSessions.ts (DELETE /session-definitions/:id).
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
   await getClient().http.delete(`/sessions/${id}`);
 }
 
@@ -282,6 +296,8 @@ export async function deleteSession(id: string): Promise<void> {
  * Returns the count of successfully deleted sessions
  */
 export async function bulkDeleteSessions(ids: string[]): Promise<{ deleted: number; failed: number }> {
+  // No controller /sessions/bulk-delete route; this is a standalone-only batch endpoint.
+  if (getCurrentMode() === 'enterprise') throw new Error('Bulk session delete is not available in enterprise mode');
   const { data } = await getClient().http.post('/sessions/bulk-delete', { ids });
   return data;
 }

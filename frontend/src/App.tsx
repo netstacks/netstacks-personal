@@ -812,6 +812,9 @@ function AppContent() {
 
   // Enterprise connect dialog state (for credential selection before SSH connection)
   const [enterpriseConnectSession, setEnterpriseConnectSession] = useState<EnterpriseSession | null>(null)
+  // The device's assigned profile id (device-anchored default) for the connect
+  // dialog, so it can label which profile the "Device default" option resolves to.
+  const [enterpriseConnectDeviceProfileId, setEnterpriseConnectDeviceProfileId] = useState<string | null>(null)
 
   // Profiles state (for looking up profile defaults like font size)
   const [profiles, setProfiles] = useState<CredentialProfile[]>([])
@@ -4704,40 +4707,32 @@ def main(command: str = "show version"):
       created_at: device.created_at,
       updated_at: device.updated_at,
     }
+    // profile_override_id stays null (means "use device/user default"); the
+    // device's own assigned profile is threaded separately for dialog labeling.
+    setEnterpriseConnectDeviceProfileId(device.profile_id ?? null)
     setEnterpriseConnectSession(tempSession)
   }, [])
 
-  // Quick connect to a device using default profile (no dialog)
+  // Quick connect to a device (no dialog). Send NO profile_id so the controller
+  // device-anchors: explicit override → device's assigned profile → user default
+  // → error. Passing the user-default here would defeat device-anchoring.
   const handleDeviceQuickConnect = useCallback(async (device: DeviceSummary) => {
-    try {
-      const { getDefaultConnectTarget } = await import('./api/enterpriseProfiles')
-      const defaultProfile = await getDefaultConnectTarget()
-      if (!defaultProfile) {
-        // No default profile — fall back to dialog
-        handleDeviceConnect(device)
-        return
-      }
-      // Create enterprise terminal tab directly
-      const newId = `enterprise-ssh-device-${device.id}-${Date.now()}`
-      const newTab: Tab = {
-        id: newId,
-        type: 'terminal',
-        title: device.name,
-        protocol: 'ssh',
-        cliFlavor: 'auto',
-        status: 'connecting',
-        enterpriseProfileId: defaultProfile.id,
-        enterpriseSessionDefinitionId: `device-${device.id}`,
-        enterpriseTargetHost: device.host,
-        enterpriseTargetPort: device.port,
-      } as Tab
-      setTabs(prev => [...prev, newTab])
-      setActiveTabId(newId)
-    } catch {
-      // Fall back to dialog on any error
-      handleDeviceConnect(device)
-    }
-  }, [handleDeviceConnect])
+    const newId = `enterprise-ssh-device-${device.id}-${Date.now()}`
+    const newTab: Tab = {
+      id: newId,
+      type: 'terminal',
+      title: device.name,
+      protocol: 'ssh',
+      cliFlavor: 'auto',
+      status: 'connecting',
+      enterpriseProfileId: '', // empty → hook omits profile_id → device-anchored
+      enterpriseSessionDefinitionId: `device-${device.id}`,
+      enterpriseTargetHost: device.host,
+      enterpriseTargetPort: device.port,
+    } as Tab
+    setTabs(prev => [...prev, newTab])
+    setActiveTabId(newId)
+  }, [])
 
   // Handle profile selection from dialog - create enterprise terminal tab.
   // The chosen profile_id is carried on the in-memory Tab and threaded to the
@@ -8269,6 +8264,7 @@ def main(command: str = "show version"):
           onConnect={handleEnterpriseProfileSelected}
           onCancel={() => setEnterpriseConnectSession(null)}
           deviceName={enterpriseConnectSession.id.startsWith('device-') ? enterpriseConnectSession.name : undefined}
+          deviceProfileId={enterpriseConnectDeviceProfileId ?? undefined}
         />
       )}
 

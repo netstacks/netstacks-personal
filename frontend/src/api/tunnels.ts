@@ -78,47 +78,47 @@ export interface UpdateTunnel {
 // === API Functions ===
 
 export async function listTunnels(): Promise<TunnelWithState[]> {
-  const { data } = await getClient().http.get('/tunnels');
+  const { data } = await getClient().http.get('/admin/tunnels');
   return data;
 }
 
 export async function createTunnel(tunnel: NewTunnel): Promise<Tunnel> {
-  const { data } = await getClient().http.post('/tunnels', tunnel);
+  const { data } = await getClient().http.post('/admin/tunnels', tunnel);
   return data;
 }
 
 export async function updateTunnel(id: string, update: UpdateTunnel): Promise<Tunnel> {
-  const { data } = await getClient().http.put(`/tunnels/${id}`, update);
+  const { data } = await getClient().http.put(`/admin/tunnels/${id}`, update);
   return data;
 }
 
 export async function deleteTunnel(id: string): Promise<void> {
-  await getClient().http.delete(`/tunnels/${id}`);
+  await getClient().http.delete(`/admin/tunnels/${id}`);
 }
 
 export async function startTunnel(id: string): Promise<void> {
-  await getClient().http.post(`/tunnels/${id}/start`);
+  await getClient().http.post(`/admin/tunnels/${id}/start`);
 }
 
 export async function stopTunnel(id: string): Promise<void> {
-  await getClient().http.post(`/tunnels/${id}/stop`);
+  await getClient().http.post(`/admin/tunnels/${id}/stop`);
 }
 
 export async function reconnectTunnel(id: string): Promise<void> {
-  await getClient().http.post(`/tunnels/${id}/reconnect`);
+  await getClient().http.post(`/admin/tunnels/${id}/reconnect`);
 }
 
 export async function getTunnelStatus(): Promise<TunnelRuntimeState[]> {
-  const { data } = await getClient().http.get('/tunnels/status');
+  const { data } = await getClient().http.get('/admin/tunnels/status');
   return data;
 }
 
 export async function startAllTunnels(): Promise<void> {
-  await getClient().http.post('/tunnels/start-all');
+  await getClient().http.post('/admin/tunnels/start-all');
 }
 
 export async function stopAllTunnels(): Promise<void> {
-  await getClient().http.post('/tunnels/stop-all');
+  await getClient().http.post('/admin/tunnels/stop-all');
 }
 
 // === Helpers ===

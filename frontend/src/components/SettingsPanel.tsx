@@ -3,7 +3,7 @@ import './SettingsPanel.css'
 import KeyboardSettings from './KeyboardSettings'
 import ProfilesTab from './ProfilesTab'
 import VaultSettings from './VaultSettings'
-import MyCredentialsTab from './MyCredentialsTab'
+import EnterpriseProfilesTab from './EnterpriseProfilesTab'
 import IntegrationsTab from './IntegrationsTab'
 import AISettingsTab from './AISettingsTab'
 import AIEngineerSettingsTab from './AIEngineerSettingsTab'
@@ -459,7 +459,10 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
         {hasFeature('local_integrations') && (
           <SettingsNavItem tab="apiResources" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>API Resources</SettingsNavItem>
         )}
-        {hasFeature('local_session_recording') && (
+        {/* Troubleshooting recorder settings are localStorage-only (no controller
+            backing), and its sibling local-recording tabs (Recordings, Session
+            Logs) are already standalone-only — hide it in enterprise too. */}
+        {!isEnterprise && hasFeature('local_session_recording') && (
         <SettingsNavItem tab="troubleshooting" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Troubleshooting</SettingsNavItem>
         )}
         <SettingsNavItem tab="enterprise" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Enterprise</SettingsNavItem>
@@ -743,10 +746,12 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
               </div>
             </div>
 
-            {/* Section 2 — My Credentials */}
+            {/* Section 2 — My Profiles (profile-centric auth from the controller).
+                Profiles are the central auth object in enterprise mode; the
+                default profile is what connections use. */}
             <div className="settings-category">
-              <h3 className="settings-category-title">My Credentials</h3>
-              <MyCredentialsTab />
+              <h3 className="settings-category-title">My Profiles</h3>
+              <EnterpriseProfilesTab />
             </div>
 
             {/* Section 3 — SSH Certificates */}
