@@ -7,6 +7,7 @@ import { getClient } from './client';
 
 // Types for API requests/responses
 import { logger } from '../lib/logger'
+import { resolveDocSaveTarget } from '../lib/docSaveTargets'
 import { getErrorMessage } from './errors'
 export interface SavedTopologyListItem {
   id: string;
@@ -670,11 +671,13 @@ export async function saveTopologyToDocs(
 ): Promise<Document> {
   const snapshot = await createTopologySnapshot(topologyId, annotations);
 
+  const { category, folder } = resolveDocSaveTarget('topologySnapshot');
   return createDocument({
     name: `${snapshot.topologyName} - ${new Date().toLocaleDateString()}`,
-    category: 'backups',
+    category,
     content_type: 'json',
     content: snapshot.jsonData,
+    parent_folder: folder,
   });
 }
 

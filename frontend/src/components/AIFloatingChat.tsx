@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { CliFlavor } from '../types/enrichment'
 import { useAIAgent, type AgentMessage } from '../hooks/useAIAgent'
+import type { TopologyAICallbacks } from '../lib/topologyAITools'
 import { useAssistantName } from '../stores/assistantName'
 import { fetchOllamaModels, type AiProviderType, getAiConfig } from '../api/ai'
 import { resolveProvider } from '../lib/aiProviderResolver'
@@ -37,9 +38,12 @@ interface AIFloatingChatProps {
   getTerminalContext?: (sessionId: string, lines?: number) => Promise<string>
   // Document access callbacks
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>
-  onReadDocument?: (documentId: string) => Promise<Document | null>
+  onReadDocument?: (documentId: string, byName?: boolean) => Promise<Document | null>
   onSearchDocuments?: (query: string, category?: DocumentCategory) => Promise<Document[]>
   onSaveDocument?: (path: string, content: string, category?: DocumentCategory, mode?: 'overwrite' | 'append', sessionId?: string) => Promise<{ id: string; name: string }>
+  // Topology AI tools for the active topology (Phase 27-07)
+  topologyCallbacks?: TopologyAICallbacks
+  allowStructuralTopologyEdits?: boolean
   // Callback to continue conversation in full panel
   onContinueInPanel?: (messages: AgentMessage[], context?: AiContext) => void
 }
@@ -60,6 +64,8 @@ const AIFloatingChat = ({
   onReadDocument,
   onSearchDocuments,
   onSaveDocument,
+  topologyCallbacks,
+  allowStructuralTopologyEdits,
   onContinueInPanel,
 }: AIFloatingChatProps) => {
   const assistantName = useAssistantName()
@@ -147,6 +153,8 @@ const AIFloatingChat = ({
     onReadDocument,
     onSearchDocuments,
     onSaveDocument,
+    topologyCallbacks,
+    allowStructuralTopologyEdits,
   })
 
   const isLoading = agentState === 'thinking' || agentState === 'executing'

@@ -16,6 +16,7 @@ import { useTopologyLive } from '../hooks/useTopologyLive';
 import type { TopologyLiveTarget } from '../hooks/useTopologyLive';
 import { useTopologyLiveHttp, type TopologyLiveHttpTarget } from '../hooks/useTopologyLiveHttp';
 import { useTopologyHistory, createActionDescription } from '../hooks/useTopologyHistory';
+import { useActiveTopologyStore } from '../stores/activeTopologyStore';
 import type { TopologyAction, ActionSource } from '../types/topologyHistory';
 import type { LinkEnrichment, InterfaceEnrichment } from '../types/enrichment';
 import { getTopology, updateDevicePosition, createConnection, deleteConnection, saveTemporaryTopology, createDevice, saveTopologyToDocs, addNeighborDevice, updateDevice } from '../api/topology';
@@ -108,6 +109,10 @@ interface TopologyTabEditorProps {
   onDeviceDoubleClick?: (device: Device, position: { x: number; y: number }) => void;
   onConnectionSelect?: (connection: Connection | null) => void;
   onDeviceContextMenu?: (device: Device, position: { x: number; y: number }, topologyId?: string) => void;
+  /** Open the AI panel to discuss the whole topology (free-space right-click) */
+  onDiscussTopologyWithAI?: () => void;
+  /** Open the AI panel seeded to discuss a specific device or link */
+  onAskAIAboutElement?: (kind: 'device' | 'link', id: string) => void;
   /** Callback when AI Discover button is clicked - uses AI to enrich topology data */
   onAIDiscover?: (topology: Topology) => void;
   /** Whether AI discovery/enrichment is currently running */
@@ -140,6 +145,8 @@ export default function TopologyTabEditor({
   onDeviceDoubleClick,
   onConnectionSelect,
   onDeviceContextMenu,
+  onDiscussTopologyWithAI,
+  onAskAIAboutElement,
   onSaveTopology,
   onOpenDeviceDetailTab,
   onOpenLinkDetailTab,
@@ -218,6 +225,11 @@ export default function TopologyTabEditor({
     annotation: Annotation;
     position: { x: number; y: number };
   } | null>(null);
+
+  // Free-space (empty canvas) context menu → "Discuss this topology with AI"
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(null);
+  // Link (connection) context menu → Ask AI / Delete
+  const [linkMenu, setLinkMenu] = useState<{ connection: Connection; position: { x: number; y: number } } | null>(null);
 
   // Device hover state for tooltip
   const [hoveredDevice, setHoveredDevice] = useState<{
@@ -819,6 +831,31 @@ export default function TopologyTabEditor({
     setAIActionToast(null);
   }, []);
 
+  // Publish the active topology + live telemetry + mutation callbacks to the
+  // shared store so the global AI side panel can see and act on this map.
+  // Cleared on unmount so the AI's topology tools disappear when no topology
+  // tab is focused.
+  const publishActiveTopology = useActiveTopologyStore(s => s.publish);
+  const clearActiveTopology = useActiveTopologyStore(s => s.clear);
+  useEffect(() => {
+    publishActiveTopology({
+      topology,
+      topologyId: topologyId || topology?.id,
+      isTemporary,
+      deviceStats: activeDeviceStats,
+      linkEnrichment: linkEnrichmentMap,
+      liveStats: activeLiveStats,
+      setTopology,
+      pushAction,
+      showAIActionToast,
+    });
+    return () => clearActiveTopology();
+  }, [
+    topology, topologyId, isTemporary, activeDeviceStats, linkEnrichmentMap,
+    activeLiveStats, setTopology, pushAction, showAIActionToast,
+    publishActiveTopology, clearActiveTopology,
+  ]);
+
   // Handle device position change (drag-drop) with history tracking
   const handleDevicePositionChange = useCallback(async (
     deviceId: string,
@@ -1020,10 +1057,9 @@ export default function TopologyTabEditor({
     }
   }, [topologyId, isTemporary, topology, pushAction, showAIActionToast]);
 
-  // Handle connection right-click for delete with history tracking
-  const handleConnectionContextMenu = useCallback(async (
+  // Delete a connection with history tracking (invoked from the link menu)
+  const handleDeleteConnection = useCallback(async (
     connection: Connection,
-    _position: { x: number; y: number },
     actionSource: ActionSource = 'user'
   ) => {
     // Get source and target device names for description
@@ -1731,6 +1767,22 @@ export default function TopologyTabEditor({
   }, []);
 
   /**
+   * Handle free-space (empty canvas) right-click — offer to discuss the whole
+   * topology with the AI.
+   */
+  const handleCanvasContextMenu = useCallback((position: { x: number; y: number }) => {
+    setCanvasMenu(position);
+  }, []);
+
+  /**
+   * Handle link (connection) right-click — open a menu offering AI actions and
+   * delete (replaces the old delete-on-right-click behavior).
+   */
+  const handleConnectionContextMenu = useCallback((connection: Connection, position: { x: number; y: number }) => {
+    setLinkMenu({ connection, position });
+  }, []);
+
+  /**
    * Handle annotation layer ordering - Bring to Front
    */
   const handleBringToFront = useCallback(async () => {
@@ -2274,6 +2326,7 @@ export default function TopologyTabEditor({
             connectionSource={connectionSource}
             onDeviceClickForConnection={handleDeviceClickForConnection}
             onConnectionContextMenu={handleConnectionContextMenu}
+            onCanvasContextMenu={handleCanvasContextMenu}
             linkEnrichment={linkEnrichmentMap}
             liveStats={isLiveActive ? activeLiveStats : undefined}
             deviceStats={isLiveActive ? activeDeviceStats : undefined}
@@ -2306,6 +2359,7 @@ export default function TopologyTabEditor({
             drawingConnection={drawingConnection}
             connectionSource={connectionSource}
             onDeviceClickForConnection={handleDeviceClickForConnection}
+            onCanvasContextMenu={handleCanvasContextMenu}
             liveStats={isLiveActive ? activeLiveStats : undefined}
             deviceStats={isLiveActive ? activeDeviceStats : undefined}
           />
@@ -2543,6 +2597,55 @@ export default function TopologyTabEditor({
           handleSendToBack
         ) : []}
         onClose={handleAnnotationContextMenuClose}
+      />
+
+      {/* Free-space context menu — discuss the whole topology with the AI */}
+      <ContextMenu
+        position={canvasMenu}
+        items={[
+          {
+            id: 'discuss-topology-ai',
+            label: 'Discuss this topology with AI',
+            action: () => {
+              onDiscussTopologyWithAI?.();
+              setCanvasMenu(null);
+            },
+          },
+        ]}
+        onClose={() => setCanvasMenu(null)}
+      />
+
+      {/* Link context menu — Ask AI about / why erroring, and Delete */}
+      <ContextMenu
+        position={linkMenu?.position ?? null}
+        items={linkMenu ? [
+          {
+            id: 'link-ask-ai-errors',
+            label: 'Ask AI: why is this link erroring?',
+            action: () => {
+              onAskAIAboutElement?.('link', linkMenu.connection.id);
+              setLinkMenu(null);
+            },
+          },
+          {
+            id: 'link-ask-ai-about',
+            label: 'Ask AI about this link',
+            action: () => {
+              onAskAIAboutElement?.('link', linkMenu.connection.id);
+              setLinkMenu(null);
+            },
+          },
+          { id: 'link-divider', label: '', divider: true, action: () => {} },
+          {
+            id: 'link-delete',
+            label: 'Delete link',
+            action: () => {
+              void handleDeleteConnection(linkMenu.connection);
+              setLinkMenu(null);
+            },
+          },
+        ] : []}
+        onClose={() => setLinkMenu(null)}
       />
     </div>
   );

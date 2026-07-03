@@ -52,6 +52,10 @@ import SftpPanel from './components/SftpPanel'
 import SftpEditorTab from './components/SftpEditorTab'
 import { useSftpStore } from './stores/sftpStore'
 import { useTunnelStore } from './stores/tunnelStore'
+import { useActiveTopologyStore } from './stores/activeTopologyStore'
+import { useTopologyAICallbacks } from './hooks/useTopologyAICallbacks'
+import { buildTopologySeed } from './lib/aiTopologySeed'
+import { resolveDocSaveTarget } from './lib/docSaveTargets'
 import ScriptEditor, { type ScriptEditorHandle } from './components/ScriptEditor'
 import AIScriptGenerator from './components/AIScriptGenerator'
 import QuickConnectDialog from './components/QuickConnectDialog'
@@ -550,6 +554,44 @@ function AppContent() {
 
   // Global app settings (font, etc.)
   const { settings: appSettings } = useSettings()
+
+  // Active topology (published by TopologyTabEditor) → AI topology tools.
+  // Individual selectors avoid re-rendering App on unrelated store writes.
+  const atTopology = useActiveTopologyStore(s => s.topology)
+  const atTopologyId = useActiveTopologyStore(s => s.topologyId)
+  const atIsTemporary = useActiveTopologyStore(s => s.isTemporary)
+  const atSetTopology = useActiveTopologyStore(s => s.setTopology)
+  const atPushAction = useActiveTopologyStore(s => s.pushAction)
+  const atShowAIActionToast = useActiveTopologyStore(s => s.showAIActionToast)
+  const atDeviceStats = useActiveTopologyStore(s => s.deviceStats)
+  const atLinkEnrichment = useActiveTopologyStore(s => s.linkEnrichment)
+  const atLiveStats = useActiveTopologyStore(s => s.liveStats)
+  const allowStructuralTopologyEdits = appSettings['ai.topology.allowStructuralEdits']
+  const topologyAICallbacks = useTopologyAICallbacks({
+    topology: atTopology,
+    topologyId: atTopologyId,
+    isTemporary: atIsTemporary,
+    setTopology: atSetTopology ?? (() => {}),
+    pushAction: atPushAction ?? ((a) => ({ id: crypto.randomUUID(), timestamp: new Date(), ...a })),
+    showAIActionToast: atShowAIActionToast,
+    deviceStats: atDeviceStats ?? null,
+    linkEnrichment: atLinkEnrichment ?? null,
+    liveStats: atLiveStats ?? null,
+  }) ?? undefined
+
+  // Seed the docked AI panel with a message and reveal it. Shared by the
+  // topology "Ask AI" entry points (free space, device, link).
+  const handleAskAISeed = useCallback((content: string) => {
+    setAiChatOpen(true)
+    setAiPanelCollapsed(false)
+    setAiPanelInitialMessages([{ id: `msg_${Date.now()}`, type: 'user', content, timestamp: new Date() }])
+  }, [])
+  const handleDiscussTopologyWithAI = useCallback(() => {
+    handleAskAISeed(buildTopologySeed('map'))
+  }, [handleAskAISeed])
+  const handleAskAIAboutElement = useCallback((kind: 'device' | 'link', id: string) => {
+    handleAskAISeed(buildTopologySeed(kind, id))
+  }, [handleAskAISeed])
 
   // Apply font settings to CSS custom properties so all components inherit them
   useEffect(() => {
@@ -2258,13 +2300,14 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
       const { title, content, contentType } = (e as CustomEvent).detail as { title: string; content: string; contentType?: ContentType }
       const ct = contentType || 'text'
       const newId = `unsaved-doc-${Date.now()}`
+      const scriptTarget = resolveDocSaveTarget('scriptOutput')
       const newTab: Tab = {
         id: newId,
         type: 'document',
         title,
         status: 'new',
-        documentCategory: 'outputs',
-        unsavedDoc: { name: title, content, contentType: ct, category: 'outputs' },
+        documentCategory: scriptTarget.category,
+        unsavedDoc: { name: title, content, contentType: ct, category: scriptTarget.category },
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(newId)
@@ -5240,9 +5283,19 @@ def main(command: str = "show version"):
     return docs
   }, [])
 
-  // AI Agent: Read a document by ID
-  const handleAgentReadDocument = useCallback(async (documentId: string): Promise<Document | null> => {
+  // AI Agent: Read a document by ID, or by name when byName is set (newest match)
+  const handleAgentReadDocument = useCallback(async (documentId: string, byName?: boolean): Promise<Document | null> => {
     try {
+      if (byName) {
+        const all = await listDocuments()
+        const lower = documentId.toLowerCase()
+        const match =
+          all.filter(d => d.name.toLowerCase() === lower)
+             .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))[0]
+          || all.find(d => d.name.toLowerCase().includes(lower))
+        if (!match) return null
+        return await getDocument(match.id)
+      }
       return await getDocument(documentId)
     } catch {
       return null
@@ -5277,10 +5330,13 @@ def main(command: str = "show version"):
       return 'text'
     }
 
-    // Parse path for folder structure
+    // Parse path for folder structure; when the AI gives no folder, use the
+    // user-configured default folder for AI saves.
     const parts = path.split('/')
     const name = parts.pop() || path
-    const parentFolder = parts.length > 0 ? parts.join('/') : null
+    const parentFolder = parts.length > 0
+      ? parts.join('/')
+      : (resolveDocSaveTarget('aiAgentDefault').folder ?? null)
 
     // Check if document already exists with same name in category
     const existingDocs = await listDocuments(category, parentFolder || undefined)
@@ -6100,6 +6156,8 @@ def main(command: str = "show version"):
           isTemporary={tab.isTemporaryTopology}
           onDeviceDoubleClick={handleTopologyDeviceDoubleClick}
           onDeviceContextMenu={handleDeviceContextMenu}
+          onDiscussTopologyWithAI={handleDiscussTopologyWithAI}
+          onAskAIAboutElement={handleAskAIAboutElement}
           onAIDiscover={handleAIDiscover}
           onSaveTopology={(savedTopology) => handleSaveTopology(tab.id, savedTopology)}
           onOpenDeviceDetailTab={handleOpenDeviceDetailTab}
@@ -6162,6 +6220,8 @@ def main(command: str = "show version"):
           onSaveDocument={handleAgentSaveDocument}
           onNetBoxGetNeighbors={handleNetBoxGetNeighbors}
           onTopologyDeviceUpdated={handleTopologyDeviceUpdated}
+          topologyCallbacks={topologyAICallbacks}
+          allowStructuralTopologyEdits={allowStructuralTopologyEdits}
           onCreateMop={handleCreateMop}
           onTroubleshootingCapture={handleTroubleshootingAICapture}
           isTroubleshootingActive={isTroubleshootingActive}
@@ -7274,6 +7334,8 @@ def main(command: str = "show version"):
           // Integration callbacks for AI Discovery (Phase 22)
           onNetBoxGetNeighbors={handleNetBoxGetNeighbors}
           onTopologyDeviceUpdated={handleTopologyDeviceUpdated}
+          topologyCallbacks={topologyAICallbacks}
+          allowStructuralTopologyEdits={allowStructuralTopologyEdits}
           // MOP creation callback
           onCreateMop={handleCreateMop}
           // Troubleshooting session capture (Phase 26)
@@ -7369,6 +7431,8 @@ def main(command: str = "show version"):
           } : undefined}
           onNetBoxGetNeighbors={handleNetBoxGetNeighbors}
           onTopologyDeviceUpdated={handleTopologyDeviceUpdated}
+          topologyCallbacks={topologyAICallbacks}
+          allowStructuralTopologyEdits={allowStructuralTopologyEdits}
           onCreateMop={handleCreateMop}
           onTroubleshootingCapture={handleTroubleshootingAICapture}
           isTroubleshootingActive={isTroubleshootingActive}
@@ -7573,6 +7637,8 @@ def main(command: str = "show version"):
         onReadDocument={handleAgentReadDocument}
         onSearchDocuments={handleAgentSearchDocuments}
         onSaveDocument={handleAgentSaveDocument}
+        topologyCallbacks={topologyAICallbacks}
+        allowStructuralTopologyEdits={allowStructuralTopologyEdits}
         onContinueInPanel={(messages) => {
           setAiFloatingChat(prev => ({ ...prev, isOpen: false }))
           setAiPanelInitialMessages(messages)

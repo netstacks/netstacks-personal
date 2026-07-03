@@ -10,6 +10,7 @@ import { logger } from './logger'
 
 import type { AgentTask } from '../types/tasks';
 import { createDocument } from '../api/docs';
+import { resolveDocSaveTarget } from './docSaveTargets';
 import { escapeCSV, downloadFile } from './formatters';
 
 /**
@@ -154,11 +155,13 @@ export async function saveTaskResultToDoc(task: AgentTask): Promise<string | nul
   const name = `${sanitized || 'task_result'}_${timestamp}`;
 
   try {
+    const { category, folder } = resolveDocSaveTarget('taskExport');
     const doc = await createDocument({
       name,
-      category: 'outputs',
+      category,
       content_type: 'json',
       content: JSON.stringify(result, null, 2),
+      parent_folder: folder,
     });
     logger.log('[taskExport] Saved task result to document:', doc.id);
     return doc.id;

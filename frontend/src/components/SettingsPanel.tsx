@@ -14,6 +14,7 @@ import CustomCommandsSettingsTab from './CustomCommandsSettingsTab'
 import QuickActionsPanel from './QuickActionsPanel'
 import SettingsHighlighting from './SettingsHighlighting'
 import SettingsEnrichment from './SettingsEnrichment'
+import SettingsDocuments from './SettingsDocuments'
 import StatusBarSettingsPanel from './StatusBarSettings'
 import SettingsMappedKeys from './SettingsMappedKeys'
 import PanelSettingsPanel from './PanelSettings'
@@ -53,7 +54,7 @@ interface Setting {
   step?: number
 }
 
-export type SettingsTab = 'general' | 'ai' | 'aiEngineer' | 'prompts' | 'snippets' | 'customCommands' | 'quickCalls' | 'keyboard' | 'mappedKeys' | 'profiles' | 'jumpHosts' | 'tunnels' | 'highlighting' | 'enrichment' | 'security' | 'hostKeys' | 'recordings' | 'layouts' | 'sessionLogs' | 'integrations' | 'apiResources' | 'troubleshooting' | 'enterprise' | 'account' | 'workspaces'
+export type SettingsTab = 'general' | 'ai' | 'aiEngineer' | 'prompts' | 'snippets' | 'customCommands' | 'quickCalls' | 'keyboard' | 'mappedKeys' | 'profiles' | 'jumpHosts' | 'tunnels' | 'highlighting' | 'enrichment' | 'documents' | 'security' | 'hostKeys' | 'recordings' | 'layouts' | 'sessionLogs' | 'integrations' | 'apiResources' | 'troubleshooting' | 'enterprise' | 'account' | 'workspaces'
 
 interface SettingsPanelProps {
   onSettingChange?: (id: string, value: unknown) => void
@@ -78,6 +79,7 @@ const TAB_SEARCH_INDEX: { tab: SettingsTab; label: string; keywords: string[] }[
   { tab: 'tunnels', label: 'Tunnels', keywords: ['tunnel', 'ssh tunnel', 'port forward', 'socks', 'proxy'] },
   { tab: 'highlighting', label: 'Highlighting', keywords: ['highlight', 'color', 'pattern', 'regex', 'rule'] },
   { tab: 'enrichment', label: 'Enrichment', keywords: ['enrichment', 'hover', 'popover', 'matcher', 'source', 'netbox', 'crawler', 'oui', 'dns', 'interface', 'mac', 'ip', 'vendor'] },
+  { tab: 'documents', label: 'Documents', keywords: ['document', 'docs', 'save', 'category', 'folder', 'enrichment', 'markdown', 'snapshot', 'backup', 'mop', 'troubleshooting', 'auto-save', 'where', 'location'] },
   { tab: 'security', label: 'Security', keywords: ['security', 'vault', 'credential', 'password', 'encryption'] },
   { tab: 'hostKeys', label: 'Trusted Hosts', keywords: ['host key', 'known hosts', 'ssh', 'tofu', 'trust', 'fingerprint', 'revoke', 'mitm'] },
   { tab: 'recordings', label: 'Recordings', keywords: ['recording', 'asciicast', 'session', 'capture', 'playback', 'replay'] },
@@ -435,6 +437,8 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
         {/* Enrichment works in both modes — the controller implements the
             enrichment subsystem (matchers/sources/runtime) at parity with the agent. */}
         <SettingsNavItem tab="enrichment" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Enrichment</SettingsNavItem>
+        {/* Documents auto-save targets work in both modes (client-side category resolution). */}
+        <SettingsNavItem tab="documents" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Documents</SettingsNavItem>
         {!isEnterprise && (
           <SettingsNavItem tab="security" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Security</SettingsNavItem>
         )}
@@ -595,6 +599,10 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
 
         {activeTab === 'enrichment' && (
           <SettingsEnrichment />
+        )}
+
+        {activeTab === 'documents' && (
+          <SettingsDocuments />
         )}
 
         {/* Security settings tab */}

@@ -20,6 +20,7 @@ async function confirmDeleteChange(name: string): Promise<boolean> {
   });
 }
 import { listDocuments, createDocument, type Document } from '../api/docs';
+import { resolveDocSaveTarget } from '../lib/docSaveTargets';
 import { updateChange as apiUpdateChange } from '../api/changes';
 import './ChangesPanel.css';
 
@@ -61,14 +62,16 @@ export default function ChangesPanel({ sessionId, onSelectChange, onOpenMopTab }
       // In enterprise mode, save to Docs (Knowledge Base) from the frontend.
       // In standalone mode, the agent already saves to docs server-side.
       if (getCurrentMode() === 'enterprise') {
+        const { category, folder } = resolveDocSaveTarget('mop');
         await createDocument({
           name: `${change.name}.mop.json`,
-          category: 'mops',
+          category,
           content_type: 'json',
           content: JSON.stringify(pkg, null, 2),
+          parent_folder: folder,
         });
       }
-      showToast(`Exported "${change.name}" to Docs > MOPs`, 'success');
+      showToast(`Exported "${change.name}" to Docs`, 'success');
     } catch (err) {
       showToast(`Export failed: ${getErrorMessage(err, String(err))}`, 'error');
     }

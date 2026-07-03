@@ -30,6 +30,8 @@ interface TopologyCanvasProps {
   onConnectionClick?: (connection: Connection, screenPosition: { x: number; y: number }) => void;
   /** Callback when a connection is right-clicked (context menu) */
   onConnectionContextMenu?: (connection: Connection, screenPosition: { x: number; y: number }) => void;
+  /** Callback when empty canvas (free space) is right-clicked */
+  onCanvasContextMenu?: (screenPosition: { x: number; y: number }) => void;
   /** Callback when connection hover state changes (for tooltip display) */
   onConnectionHover?: (connection: Connection | null, screenPosition?: { x: number; y: number }) => void;
   /** Callback when device hover state changes (with 200ms delay for tooltip) */
@@ -140,6 +142,7 @@ export default function TopologyCanvas({
   onDeviceClick,
   onDeviceDoubleClick,
   onDeviceContextMenu,
+  onCanvasContextMenu,
   onConnectionClick,
   onConnectionContextMenu,
   onConnectionHover,
@@ -2290,24 +2293,21 @@ export default function TopologyCanvas({
 
       if (connection) {
         event.preventDefault();
-        // Call external handler if provided
+        // Defer to the external handler (the editor shows a context menu with
+        // "Ask AI" + Delete). No inline AI popup here to avoid a double popup.
         if (onConnectionContextMenu) {
           onConnectionContextMenu(connection, { x: event.clientX, y: event.clientY });
         }
-        // Open AI popup with connection context
-        const connectionContext = buildConnectionContext(connection);
-        if (connectionContext) {
-          setAiPopupState({
-            isOpen: true,
-            position: { x: event.clientX, y: event.clientY },
-            action: 'topology-link',
-            context: { connection: connectionContext },
-            selectedText: `Link: ${connectionContext.sourceDevice.name} <-> ${connectionContext.targetDevice.name}`,
-          });
-        }
+        return;
+      }
+
+      // Empty canvas (free space): offer a whole-topology context menu.
+      if (onCanvasContextMenu) {
+        event.preventDefault();
+        onCanvasContextMenu({ x: event.clientX, y: event.clientY });
       }
     },
-    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findAnnotationAtPosition, findConnectionAtPosition, onDeviceContextMenu, onAnnotationContextMenu, onConnectionContextMenu, buildDeviceContext, buildConnectionContext]
+    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findAnnotationAtPosition, findConnectionAtPosition, onDeviceContextMenu, onAnnotationContextMenu, onConnectionContextMenu, onCanvasContextMenu, buildDeviceContext, buildConnectionContext]
   );
 
   /**

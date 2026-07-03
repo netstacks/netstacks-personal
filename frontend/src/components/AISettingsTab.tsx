@@ -1583,6 +1583,29 @@ export default function AISettingsTab() {
             </label>
           </div>
 
+          {/* Topology structural edits toggle */}
+          <div className="ai-automation-feature">
+            <label className="ai-automation-item">
+              <div className="ai-automation-info">
+                <span className="ai-automation-label">Allow AI to edit topologies</span>
+                <span className="ai-automation-description">
+                  Let the AI structurally change the active topology (add, remove, and
+                  move devices &amp; connections). When off, the AI can still read,
+                  analyze, highlight, and annotate the map. All AI edits are tracked in
+                  undo history.
+                </span>
+              </div>
+              <div className="toggle-wrapper">
+                <input
+                  type="checkbox"
+                  checked={settings['ai.topology.allowStructuralEdits']}
+                  onChange={(e) => updateSetting('ai.topology.allowStructuralEdits', e.target.checked)}
+                />
+                <span className="toggle-slider" />
+              </div>
+            </label>
+          </div>
+
           {/* AUDIT FIX (EXEC-002): server-side AI config-mode panel.
               Replaces the old persistent client-side toggle. Enabling
               requires the user to re-supply the master password and the

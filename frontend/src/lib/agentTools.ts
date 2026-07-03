@@ -304,14 +304,14 @@ export const AGENT_TOOLS: AgentTool[] = [
   // Document access tools
   {
     name: 'list_documents',
-    description: 'List available documents stored in the application, optionally filtered by category. Categories include: outputs (saved command outputs), templates (Jinja configuration templates), notes (user notes), backups (configuration backups), history (command history).',
+    description: 'List available documents from the workspace document store, optionally filtered by category. Categories: outputs (saved command outputs), templates (Jinja configuration templates), notes (user notes — encrypted Secure Notes, unreadable while the vault is locked), backups (config backups / topology snapshots), history (command/session history), troubleshooting (troubleshooting reports and captured sessions), mops (Methods of Procedure / change plans).',
     parameters: {
       type: 'object',
       properties: {
         category: {
           type: 'string',
           description: 'Optional category filter',
-          enum: ['outputs', 'templates', 'notes', 'backups', 'history']
+          enum: ['outputs', 'templates', 'notes', 'backups', 'history', 'troubleshooting', 'mops']
         }
       },
       required: []
@@ -319,16 +319,20 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
   {
     name: 'read_document',
-    description: 'Read the content of a document by ID. Use list_documents first to discover available documents.',
+    description: 'Read the full content of a document. Provide either document_id (from list_documents/search_documents) OR name (the human-readable document name — the newest match is returned). Prefer name when the user refers to a document by title.',
     parameters: {
       type: 'object',
       properties: {
         document_id: {
           type: 'string',
-          description: 'The document ID to read'
+          description: 'The document ID to read (provide this OR name)'
+        },
+        name: {
+          type: 'string',
+          description: 'The document name to read, resolved to the newest match (provide this OR document_id)'
         }
       },
-      required: ['document_id']
+      required: []
     }
   },
   {
@@ -344,7 +348,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         category: {
           type: 'string',
           description: 'Optional category filter',
-          enum: ['outputs', 'templates', 'notes', 'backups', 'history']
+          enum: ['outputs', 'templates', 'notes', 'backups', 'history', 'troubleshooting', 'mops']
         }
       },
       required: ['query']
@@ -367,7 +371,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         category: {
           type: 'string',
           description: 'Document category for organization',
-          enum: ['outputs', 'templates', 'notes', 'backups', 'history']
+          enum: ['outputs', 'templates', 'notes', 'backups', 'history', 'troubleshooting', 'mops']
         },
         mode: {
           type: 'string',

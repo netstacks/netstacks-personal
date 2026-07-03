@@ -6,7 +6,8 @@
  */
 
 import type { TroubleshootingSession, SessionEntry } from '../types/troubleshooting';
-import { createDocument, type DocumentCategory } from '../api/docs';
+import { createDocument } from '../api/docs';
+import { resolveDocSaveTarget } from './docSaveTargets';
 import { resolveProvider } from './aiProviderResolver';
 import { formatElapsed } from './formatters';
 
@@ -105,11 +106,13 @@ export async function saveTroubleshootingSummary(
     content += `\n\n---\n\n*Related Topology: ${topologyId}*\n`;
   }
 
+  const { category, folder } = resolveDocSaveTarget('troubleshooting');
   const doc = await createDocument({
     name: summary.title,
-    category: 'troubleshooting' as DocumentCategory,
+    category,
     content_type: 'markdown',
     content,
+    parent_folder: folder,
   });
 
   return {

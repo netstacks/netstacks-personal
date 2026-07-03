@@ -72,6 +72,8 @@ import { createTask, getTask } from '../api/tasks';
 import { listAgentDefinitions, runAgentDefinition } from '../api/agentDefinitions';
 import { stripAnsi } from '../lib/ansi';
 import { buildSessionKnowledge } from '../lib/aiSessionContext';
+import { buildDocumentsOverview } from '../lib/aiDocumentsContext';
+import { resolveDocSaveTarget } from '../lib/docSaveTargets';
 
 // Re-export types for consumers
 export type { AgentState, AgentMessage, PendingCommand, PermissionMode };
@@ -275,7 +277,7 @@ export interface UseAIAgentOptions {
 
   // Document access callbacks (optional)
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>;
-  onReadDocument?: (documentId: string) => Promise<Document | null>;
+  onReadDocument?: (documentId: string, byName?: boolean) => Promise<Document | null>;
   onSearchDocuments?: (query: string, category?: DocumentCategory) => Promise<Document[]>;
   onSaveDocument?: (path: string, content: string, category?: DocumentCategory, mode?: 'overwrite' | 'append', sessionId?: string) => Promise<{ id: string; name: string }>;
 
@@ -310,6 +312,10 @@ export interface UseAIAgentOptions {
   // Topology AI tools callbacks (Phase 27-07)
   // When provided, enables AI to query/modify/analyze the active topology
   topologyCallbacks?: TopologyAICallbacks;
+  // When false (default), structural topology tools (add/remove/move devices &
+  // connections, structural updates) are withheld — the AI can still query,
+  // analyze, highlight, and annotate. Gated by ai.topology.allowStructuralEdits.
+  allowStructuralTopologyEdits?: boolean;
 
   // Active session context — the currently focused terminal tab
   activeSessionId?: string;
@@ -535,6 +541,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onTopologyDeviceUpdated,
     // Topology AI tools callbacks (Phase 27-07)
     topologyCallbacks,
+    allowStructuralTopologyEdits = false,
     // Active session context
     activeSessionId,
     activeSessionName,
@@ -827,14 +834,24 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const aiToolsEnabled = useCapabilitiesStore.getState().hasFeature('local_ai_tools');
   const availableTools: AgentTool[] = useMemo(() => {
     if (!aiToolsEnabled) return [];
+    let topoTools: AgentTool[] = [];
+    if (topologyCallbacks) {
+      topoTools = getTopologyTools(topologyCallbacks) as unknown as AgentTool[];
+      if (!allowStructuralTopologyEdits) {
+        // Withhold structural tools; keep query/analyze/highlight/annotate/export/path.
+        const STRUCTURAL = new Set([
+          'topology_add_device', 'topology_remove', 'topology_move',
+          'topology_add_connection', 'topology_update',
+        ]);
+        topoTools = topoTools.filter(t => !STRUCTURAL.has(t.name));
+      }
+    }
     return [
-      ...(topologyCallbacks
-        ? [...baseTools, ...getTopologyTools(topologyCallbacks) as unknown as AgentTool[]]
-        : baseTools),
+      ...(topologyCallbacks ? [...baseTools, ...topoTools] : baseTools),
       ...mcpTools,
       ...serverTools,
     ];
-  }, [aiToolsEnabled, baseTools, mcpTools, serverTools, topologyCallbacks]);
+  }, [aiToolsEnabled, baseTools, mcpTools, serverTools, topologyCallbacks, allowStructuralTopologyEdits]);
 
   // Add a message to the UI
   const addMessage = useCallback((message: AgentMessage) => {
@@ -1415,12 +1432,16 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       }
 
       case 'read_document': {
-        const documentId = input.document_id as string;
+        const documentId = (input.document_id as string) || (input.name as string);
+        const byName = !input.document_id && !!input.name;
         if (!onReadDocument) {
           return { content: 'Document access not available', is_error: true };
         }
+        if (!documentId) {
+          return { content: JSON.stringify({ error: 'Provide document_id or name' }), is_error: true };
+        }
         try {
-          const doc = await onReadDocument(documentId);
+          const doc = await onReadDocument(documentId, byName);
           if (!doc) {
             return { content: JSON.stringify({ error: 'Document not found' }), is_error: true };
           }
@@ -1470,7 +1491,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       case 'save_document': {
         const path = input.path as string;
         const content = input.content as string;
-        const category = (input.category as DocumentCategory) || 'outputs';
+        // When the AI omits a category, fall back to the user-configured default.
+        const category = (input.category as DocumentCategory) || resolveDocSaveTarget('aiAgentDefault').category;
         const mode = (input.mode as 'overwrite' | 'append') || 'overwrite';
         const sessionId = input.session_id as string | undefined;
 
@@ -2714,6 +2736,12 @@ Guidelines:
       requestBody.system_prompt = (requestBody.system_prompt || '') + knowledge;
     }
 
+    // Documents overview: tell the AI the Documents store exists + its shape.
+    if (onListDocuments) {
+      const docsOverview = await buildDocumentsOverview();
+      requestBody.system_prompt = (requestBody.system_prompt || '') + docsOverview;
+    }
+
     if (provider) {
       requestBody.provider = provider;
       // Get max tokens for this provider from settings
@@ -2819,6 +2847,12 @@ Guidelines:
       const sessionName = activeSessionNameRef.current || activeSessionIdRef.current;
       const knowledge = await buildSessionKnowledge(activeSessionIdRef.current, sessionName, activeMemorySessionIdRef.current);
       requestBody.system_prompt = (requestBody.system_prompt || '') + knowledge;
+    }
+
+    // Documents overview: tell the AI the Documents store exists + its shape.
+    if (onListDocuments) {
+      const docsOverview = await buildDocumentsOverview();
+      requestBody.system_prompt = (requestBody.system_prompt || '') + docsOverview;
     }
 
     if (provider) {

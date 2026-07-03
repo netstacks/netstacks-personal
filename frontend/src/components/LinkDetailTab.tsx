@@ -1000,7 +1000,7 @@ export default function LinkDetailTab({
     setSaveDialogOpen(false);
     try {
       const markdown = generateTabMarkdown();
-      const result = await saveEnrichmentToDoc(markdown, `link_${sourceName}_to_${targetName}`);
+      const result = await saveEnrichmentToDoc(markdown, `link_${sourceName}_to_${targetName}`, 'linkEnrichment');
       if (result.success) {
         setSaveMessage({ type: 'success', text: 'Saved to Docs' });
       } else {
@@ -1052,7 +1052,7 @@ export default function LinkDetailTab({
         model,
       });
 
-      const result = await saveEnrichmentToDoc(aiResponse, `link_${sourceName}_to_${targetName}_ai_enhanced`);
+      const result = await saveEnrichmentToDoc(aiResponse, `link_${sourceName}_to_${targetName}_ai_enhanced`, 'linkEnrichment');
       if (result.success) {
         setSaveMessage({ type: 'success', text: 'AI-enhanced doc saved' });
       } else {

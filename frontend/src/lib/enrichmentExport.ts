@@ -9,6 +9,7 @@ import { getErrorMessage } from '../api/errors'
 import type { Device } from '../types/topology';
 import type { DeviceEnrichment, InterfaceEnrichment, LinkEnrichment } from '../types/enrichment';
 import { createDocument, type NewDocument } from '../api/docs';
+import { resolveDocSaveTarget, type DocSaveSource } from './docSaveTargets';
 import { formatUptime, formatBytes } from './enrichmentHelpers';
 
 /**
@@ -278,7 +279,7 @@ function generateInterfaceMarkdown(intf: InterfaceEnrichment): string {
 export async function saveEnrichmentToDoc(
   content: string,
   filename: string,
-  category: 'notes' | 'outputs' = 'notes'
+  source: DocSaveSource = 'deviceEnrichment'
 ): Promise<{ success: boolean; documentId?: string; error?: string }> {
   try {
     // Sanitize filename
@@ -291,12 +292,15 @@ export async function saveEnrichmentToDoc(
     const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const docName = `${sanitizedName}_${timestamp}.md`;
 
+    // Resolve the user-configured category + folder for this source.
+    const { category, folder } = resolveDocSaveTarget(source);
+
     const newDoc: NewDocument = {
       name: docName,
       category: category,
-      content_type: 'text',
+      content_type: 'markdown',
       content: content,
-      parent_folder: 'snapshots',
+      parent_folder: folder,
     };
 
     const doc = await createDocument(newDoc);
@@ -345,5 +349,5 @@ export async function saveLinkEnrichmentToDoc(
     targetName
   );
   const filename = `link_${sourceName}_to_${targetName}`;
-  return saveEnrichmentToDoc(markdown, filename);
+  return saveEnrichmentToDoc(markdown, filename, 'linkEnrichment');
 }

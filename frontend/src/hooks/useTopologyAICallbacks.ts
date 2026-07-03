@@ -11,7 +11,9 @@
 import { useCallback, useMemo } from 'react';
 import type { TopologyAICallbacks } from '../lib/topologyAITools';
 import type { Topology, Device, Connection, DeviceType, DeviceStatus, ConnectionStatus } from '../types/topology';
-import type { ActionSource } from '../types/topologyHistory';
+import type { TopologyAction } from '../types/topologyHistory';
+import type { DeviceStatsMap, LiveStatsMap } from './useTopologyLive';
+import type { LinkEnrichment } from '../types/enrichment';
 import { createDevice, updateDevice as apiUpdateDevice, deleteDevice, createConnection, updateConnection as apiUpdateConnection, deleteConnection, updateDevicePosition } from '../api/topology';
 
 // Forward-declared type for annotations (not yet implemented)
@@ -35,15 +37,17 @@ export interface UseTopologyAICallbacksOptions {
   isTemporary?: boolean;
   /** Callback to update local topology state */
   setTopology: React.Dispatch<React.SetStateAction<Topology | null>>;
-  /** Callback to push action to history with source tracking */
-  pushAction: (action: {
-    type: string;
-    source: ActionSource;
-    description: string;
-    data: { before: unknown; after: unknown; context?: Record<string, string | undefined> };
-  }) => { id: string; source: ActionSource; description: string };
+  /** Callback to push action to history with source tracking (matches
+   *  useTopologyHistory's pushAction signature). */
+  pushAction: (action: Omit<TopologyAction, 'id' | 'timestamp'>) => TopologyAction;
   /** Callback to show AI action toast */
-  showAIActionToast?: (action: { id: string; source: ActionSource; description: string }) => void;
+  showAIActionToast?: (action: TopologyAction) => void;
+  /** Live SNMP device stats keyed by host IP (optional) */
+  deviceStats?: DeviceStatsMap | null;
+  /** Live SNMP per-interface stats keyed by "host:ifDescr" (optional) */
+  liveStats?: LiveStatsMap | null;
+  /** Per-connection link enrichment keyed by connection ID (optional) */
+  linkEnrichment?: Map<string, LinkEnrichment> | null;
 }
 
 /**
@@ -60,6 +64,8 @@ export function useTopologyAICallbacks({
   setTopology,
   pushAction,
   showAIActionToast,
+  deviceStats,
+  linkEnrichment,
 }: UseTopologyAICallbacksOptions): TopologyAICallbacks | null {
   // Don't return callbacks if no topology
   const effectiveTopologyId = topologyId || topology?.id;
@@ -75,6 +81,21 @@ export function useTopologyAICallbacks({
   const getConnectionById = useCallback((connectionId: string) => {
     return topology?.connections.find(c => c.id === connectionId);
   }, [topology]);
+
+  // === Live telemetry accessors (read-only) ===
+  // deviceStats is keyed by host IP; resolve deviceId -> device -> primaryIp
+  // (falling back to name) to look up SNMP stats.
+  const getDeviceStats = useCallback((deviceId: string) => {
+    if (!deviceStats) return undefined;
+    const device = topology?.devices.find(d => d.id === deviceId);
+    if (!device) return undefined;
+    const key = device.primaryIp || device.name;
+    return (key ? deviceStats.get(key) : undefined) || (device.name ? deviceStats.get(device.name) : undefined);
+  }, [deviceStats, topology]);
+
+  const getLinkStats = useCallback((connectionId: string) => {
+    return linkEnrichment?.get(connectionId);
+  }, [linkEnrichment]);
 
   // === Modification callbacks (tracked with source='ai') ===
 
@@ -491,6 +512,10 @@ export function useTopologyAICallbacks({
       getDeviceById,
       getConnectionById,
 
+      // Live telemetry
+      getDeviceStats,
+      getLinkStats,
+
       // Device operations
       addDevice,
       removeDevice,
@@ -512,6 +537,8 @@ export function useTopologyAICallbacks({
     getTopology,
     getDeviceById,
     getConnectionById,
+    getDeviceStats,
+    getLinkStats,
     addDevice,
     removeDevice,
     updateDevice,

@@ -22,6 +22,7 @@ import MonacoOverlordWidget from './MonacoOverlordWidget'
 import { LocalFileOps } from '../lib/fileOps'
 import { createAgentHttpClient } from '../api/localClient'
 import { createDocument } from '../api/docs'
+import { resolveDocSaveTarget } from '../lib/docSaveTargets'
 import { showToast } from './Toast'
 import { stripAnsi } from '../lib/ansi'
 import { sendChatMessage } from '../api/ai'
@@ -74,13 +75,15 @@ export async function saveScratchpadContent(content: string, ws: WorkspaceConfig
       showToast(`Saved to ${filePath}`, 'success')
     } else {
       const ts = formatTimestamp(new Date())
+      const { category, folder } = resolveDocSaveTarget('scratchpad')
       await createDocument({
         name: `Scratch ${ts}`,
-        category: 'notes',
+        category,
         content_type: 'text',
         content,
+        parent_folder: folder,
       })
-      showToast('Saved to Docs › Notes', 'success')
+      showToast(`Saved to Docs › ${category}${folder ? ` › ${folder}` : ''}`, 'success')
     }
   } catch (err) {
     console.error('[Scratchpad] save failed:', err)

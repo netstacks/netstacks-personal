@@ -9,6 +9,8 @@ import { getErrorMessage } from '../api/errors'
  */
 
 import type { Topology, Device, Connection, DeviceType, DeviceStatus, ConnectionStatus } from '../types/topology';
+import type { DeviceLiveStats } from '../hooks/useTopologyLive';
+import type { LinkEnrichment } from '../types/enrichment';
 
 // Forward-declared type for annotations (not yet implemented)
 interface Annotation {
@@ -47,6 +49,11 @@ export interface TopologyAICallbacks {
   getTopology: () => Topology | null;
   getDeviceById: (deviceId: string) => Device | undefined;
   getConnectionById: (connectionId: string) => Connection | undefined;
+
+  // Live telemetry (read-only, from SNMP live polling; undefined when live
+  // stats aren't available for a device/link)
+  getDeviceStats?: (deviceId: string) => DeviceLiveStats | undefined;
+  getLinkStats?: (connectionId: string) => LinkEnrichment | undefined;
 
   // Modifications (tracked in undo history with source='ai')
   addDevice: (device: Partial<Device>) => Promise<Device>;
@@ -127,8 +134,8 @@ export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinitio
         properties: {
           analysis_type: {
             type: 'string',
-            enum: ['spof', 'redundancy', 'best_practices', 'summary'],
-            description: 'Type of analysis: spof=single points of failure, redundancy=check redundant paths, best_practices=compare to standards, summary=overall stats'
+            enum: ['spof', 'redundancy', 'best_practices', 'summary', 'health'],
+            description: 'Type of analysis: spof=single points of failure, redundancy=check redundant paths, best_practices=compare to standards, summary=overall stats, health=live SNMP health/error rollup (devices with degraded health, interfaces with in/out errors or discards). Use health to answer "why is this link showing errors" and "what is unhealthy right now".'
           },
           focus_area: {
             type: 'string',
@@ -963,6 +970,70 @@ export async function executeTopologyTool(
                 hasRedundancy: redundancy.hasRedundancy,
                 bestPracticesScore: bestPractices.score,
                 mainIssues: bestPractices.issues.slice(0, 3)
+              }),
+              is_error: false
+            };
+          }
+
+          case 'health': {
+            if (!callbacks.getDeviceStats) {
+              return {
+                content: JSON.stringify({
+                  analysis: 'Live Health',
+                  available: false,
+                  note: 'Live SNMP stats are not enabled for this topology. Turn on the Live SNMP toggle in the topology toolbar to collect per-interface error/health data.'
+                }),
+                is_error: false
+              };
+            }
+            const focusLower = focusArea?.toLowerCase();
+            const unhealthyDevices: Array<Record<string, unknown>> = [];
+            const errorInterfaces: Array<Record<string, unknown>> = [];
+            for (const device of topology.devices) {
+              if (focusLower && !device.name.toLowerCase().includes(focusLower)) continue;
+              const stats = callbacks.getDeviceStats(device.id);
+              if (!stats) continue;
+              const s = stats.interfaceSummary;
+              const hasErrors = s.totalInErrors > 0 || s.totalOutErrors > 0 || s.totalInDiscards > 0 || s.totalOutDiscards > 0;
+              if (stats.healthScore < 70 || hasErrors || s.down > 0) {
+                unhealthyDevices.push({
+                  name: device.name,
+                  healthScore: stats.healthScore,
+                  healthColor: stats.healthColor,
+                  cpuPercent: stats.cpuPercent,
+                  memoryPercent: stats.memoryPercent,
+                  interfacesUp: s.up,
+                  interfacesDown: s.down,
+                  totalInErrors: s.totalInErrors,
+                  totalOutErrors: s.totalOutErrors,
+                  totalInDiscards: s.totalInDiscards,
+                  totalOutDiscards: s.totalOutDiscards,
+                  maxUtilizationPercent: stats.maxUtilizationPercent,
+                });
+              }
+              for (const iface of stats.interfaces) {
+                if (iface.inErrors > 0 || iface.outErrors > 0) {
+                  errorInterfaces.push({
+                    device: device.name,
+                    interface: iface.ifDescr,
+                    alias: iface.ifAlias || undefined,
+                    operStatus: iface.operStatus,
+                    inErrors: iface.inErrors,
+                    outErrors: iface.outErrors,
+                    speedMbps: iface.speedMbps,
+                  });
+                }
+              }
+            }
+            return {
+              content: JSON.stringify({
+                analysis: 'Live Health',
+                available: true,
+                focusArea: focusArea || 'entire topology',
+                unhealthyDeviceCount: unhealthyDevices.length,
+                unhealthyDevices,
+                errorInterfaceCount: errorInterfaces.length,
+                errorInterfaces,
               }),
               is_error: false
             };

@@ -37,6 +37,8 @@ interface TopologyCanvas3DProps {
   onConnectionClick?: (connection: Connection, screenPosition: { x: number; y: number }) => void;
   /** Callback when a connection is right-clicked (context menu) */
   onConnectionContextMenu?: (connection: Connection, screenPosition: { x: number; y: number }) => void;
+  /** Callback when empty space (free space) is right-clicked */
+  onCanvasContextMenu?: (screenPosition: { x: number; y: number }) => void;
   /** Callback when device position changes (drag to reposition) */
   onDevicePositionChange?: (deviceId: string, x: number, y: number) => void;
   /** Whether connection drawing mode is active */
@@ -241,6 +243,7 @@ export default function TopologyCanvas3D({
   onDeviceClick,
   onDeviceDoubleClick,
   onDeviceContextMenu,
+  onCanvasContextMenu,
   onConnectionClick,
   onConnectionContextMenu,
   onDevicePositionChange,
@@ -451,9 +454,13 @@ export default function TopologyCanvas3D({
               ? (isPointerLocked ? 'none' : 'crosshair')
               : ((hoveredDeviceId || hoveredConnectionId) ? 'pointer' : 'grab'),
           }}
-          onPointerMissed={() => {
+          onPointerMissed={(ev: MouseEvent) => {
             setHoveredDeviceId(null);
             setHoveredConnectionId(null);
+            // Right-click that missed all meshes → free-space context menu.
+            if (ev.button === 2 && onCanvasContextMenu) {
+              onCanvasContextMenu({ x: ev.clientX, y: ev.clientY });
+            }
           }}
           onContextMenu={(e) => e.preventDefault()}
         >

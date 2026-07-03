@@ -35,7 +35,7 @@ interface AIInlinePopupProps {
   getTerminalContext?: (sessionId: string, lines?: number) => Promise<string>
   // Document access callbacks
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>
-  onReadDocument?: (documentId: string) => Promise<Document | null>
+  onReadDocument?: (documentId: string, byName?: boolean) => Promise<Document | null>
   onSearchDocuments?: (query: string, category?: DocumentCategory) => Promise<Document[]>
   onSaveDocument?: (path: string, content: string, category?: DocumentCategory, mode?: 'overwrite' | 'append', sessionId?: string) => Promise<{ id: string; name: string }>
   // Callback to continue conversation in full panel

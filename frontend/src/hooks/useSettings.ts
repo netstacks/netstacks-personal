@@ -75,6 +75,15 @@ export interface AppSettings {
   'ai.agent.maxIterations': number; // Max ReAct loop iterations
   'ai.agent.systemPrompt': string; // Custom system prompt
 
+  // Topology: allow the AI to structurally edit the active topology (add/remove/
+  // move devices & connections). Off by default — the AI can always query,
+  // analyze, highlight, and annotate.
+  'ai.topology.allowStructuralEdits': boolean;
+
+  // Documents: per-source auto-save targets (category + folder). Empty = use
+  // the built-in defaults in lib/docSaveTargets.ts. See DocSaveSource.
+  'documents.saveTargets': Partial<Record<string, { category: string; folder?: string }>>;
+
   // AUDIT FIX (EXEC-002): `ai.allowConfigChanges` was removed in favour of
   // server-side state controlled via `enableAiConfigMode`/`disableAiConfigMode`
   // in `api/ai.ts`. Use the new `useAiConfigMode` hook instead of reading
@@ -149,6 +158,8 @@ const defaultSettings: AppSettings = {
   'ai.agent.maxTokens': 4096,
   'ai.agent.maxIterations': 15,
   'ai.agent.systemPrompt': 'You are a network automation assistant. You help users gather information from network devices using SSH commands. You have access to tools for querying devices and executing read-only commands. Be concise and focus on the task at hand.',
+  'ai.topology.allowStructuralEdits': false,
+  'documents.saveTargets': {},
 
   // (AUDIT FIX EXEC-002) ai.allowConfigChanges removed — see above.
 

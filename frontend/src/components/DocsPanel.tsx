@@ -12,6 +12,7 @@ import {
   type ContentType,
 } from '../api/docs';
 import { downloadMopPackage, importMopPackage, parseMopPackageJson } from '../lib/mopExport';
+import { resolveDocSaveTarget } from '../lib/docSaveTargets';
 import { showToast } from './Toast';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { Icon } from '@iconify/react';
@@ -257,11 +258,13 @@ function DocsPanel({ onOpenDocument, onNewDocument }: DocsPanelProps) {
       const content = await file.text();
       const { package: pkg, warnings } = parseMopPackageJson(content);
 
+      const { category, folder } = resolveDocSaveTarget('mop');
       await createDocument({
         name: pkg.mop.name + '.mop.json',
-        category: 'mops',
+        category,
         content_type: 'json',
         content,
+        parent_folder: folder,
       });
 
       await fetchDocuments();

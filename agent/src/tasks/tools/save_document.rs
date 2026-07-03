@@ -40,6 +40,31 @@ impl SaveDocumentTool {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    /// Read the user-configured default category/folder for AI-agent document
+    /// saves (mirrored from the frontend setting `documents.aiAgentDefault`).
+    /// Returns (category, folder), each None if unset/unparseable.
+    async fn read_ai_agent_default(&self) -> (Option<String>, Option<String>) {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+                .bind("documents.aiAgentDefault")
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
+        if let Some((value,)) = row {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&value) {
+                let category = v.get("category").and_then(|c| c.as_str()).map(str::to_string);
+                let folder = v
+                    .get("folder")
+                    .and_then(|f| f.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(str::to_string);
+                return (category, folder);
+            }
+        }
+        (None, None)
+    }
 }
 
 #[async_trait]
@@ -89,8 +114,15 @@ impl Tool for SaveDocumentTool {
             return Err(ToolError::InvalidInput("name must not be empty".into()));
         }
 
+        // When the AI omits category, fall back to the user-configured default
+        // (mirrored from the frontend), then to "outputs". The configured folder
+        // (if any) becomes the document's parent folder.
+        let (default_category, default_folder) = self.read_ai_agent_default().await;
         let content_type = params.content_type.unwrap_or_else(|| "markdown".to_string());
-        let category = params.category.unwrap_or_else(|| "outputs".to_string());
+        let category = params
+            .category
+            .or(default_category)
+            .unwrap_or_else(|| "outputs".to_string());
         if !VALID_CONTENT_TYPES.contains(&content_type.as_str()) {
             return Err(ToolError::InvalidInput(format!(
                 "invalid content_type '{}'",
@@ -109,13 +141,14 @@ impl Tool for SaveDocumentTool {
         sqlx::query(
             r#"INSERT INTO documents
                (id, name, category, content_type, content, parent_folder, session_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)"#,
+               VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)"#,
         )
         .bind(&id)
         .bind(&params.name)
         .bind(&category)
         .bind(&content_type)
         .bind(&params.content)
+        .bind(&default_folder)
         .bind(&now)
         .bind(&now)
         .execute(&self.pool)

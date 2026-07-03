@@ -6,6 +6,7 @@ import type { MenuItem } from './ContextMenu'
 import { useContextMenu } from '../hooks/useContextMenu'
 import { PromoteToTaskDialog } from './PromoteToTaskDialog'
 import { useAIAgent, type AgentSession, type AgentMessage, type AddSessionContextParams, type NeighborParseResult, type AddNeighborParams, type AddNeighborResult, type NetBoxImportParams, type NetBoxImportResult, type CreateMopParams, type CreateMopResult } from '../hooks/useAIAgent'
+import type { TopologyAICallbacks } from '../lib/topologyAITools'
 import { useAgentTasks } from '../hooks/useAgentTasks'
 import { listAiConversations, getAiConversation, createAiConversation, updateAiConversation, deleteAiConversation, type AiConversationSummary } from '../api/aiConversations'
 import type { PermissionMode } from '../api/agent'
@@ -67,7 +68,7 @@ interface AISidePanelProps {
   /** Callback to list documents by category */
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>
   /** Callback to read document content by ID */
-  onReadDocument?: (documentId: string) => Promise<Document | null>
+  onReadDocument?: (documentId: string, byName?: boolean) => Promise<Document | null>
   /** Callback to search documents by name/content */
   onSearchDocuments?: (query: string, category?: DocumentCategory) => Promise<Document[]>
   /** Callback to save/create a document */
@@ -91,6 +92,10 @@ interface AISidePanelProps {
   onNetBoxImportTopology?: (params: NetBoxImportParams) => Promise<NetBoxImportResult>
   /** Callback when AI updates a topology device - triggers refresh */
   onTopologyDeviceUpdated?: (topologyId: string) => void
+  /** Topology AI tool callbacks for the active topology (query/analyze/modify). */
+  topologyCallbacks?: TopologyAICallbacks
+  /** When false (default), AI structural topology edits are withheld. */
+  allowStructuralTopologyEdits?: boolean
   /** MOP creation callback */
   onCreateMop?: (params: CreateMopParams) => Promise<CreateMopResult>
   /** External prompt to send (e.g., from AI Discover button) - increment counter to re-trigger same prompt */
@@ -185,6 +190,8 @@ const AISidePanel = ({
   onNetBoxGetNeighbors,
   onNetBoxImportTopology,
   onTopologyDeviceUpdated,
+  topologyCallbacks,
+  allowStructuralTopologyEdits,
   onCreateMop,
   externalPrompt,
   onTroubleshootingCapture,
@@ -513,6 +520,9 @@ const AISidePanel = ({
     onCreateMop,
     // Topology refresh callback
     onTopologyDeviceUpdated,
+    // Topology AI tools for the active topology (Phase 27-07)
+    topologyCallbacks,
+    allowStructuralTopologyEdits,
     // Active session context — tells the AI which session is focused
     activeSessionId: selectedSession,
     activeSessionName: availableSessions.find(s => s.id === selectedSession)?.name,

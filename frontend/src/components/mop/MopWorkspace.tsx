@@ -39,6 +39,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useCapabilitiesStore } from '../../stores/capabilitiesStore';
 import { execMopCommand, type ExecCommandResult } from '../../api/mopTestTerminal';
 import { createDocument, type Document } from '../../api/docs';
+import { resolveDocSaveTarget } from '../../lib/docSaveTargets';
 import { generateMopDocument, type MopDocumentData } from '../../lib/mopDocumentGenerator';
 import type { StepSourceType } from '../../types/mop';
 import { loadConnectTargets } from '../../api/enterpriseProfiles';
@@ -1894,11 +1895,13 @@ RULES:
     setAiError(null);
     try {
       const markdown = generateMopDocument(buildDocumentData());
+      const { category, folder } = resolveDocSaveTarget('mop');
       const doc = await createDocument({
         name: `MOP - ${nameValue || 'Untitled'}`,
-        category: 'mops',
+        category,
         content_type: 'markdown',
         content: markdown,
+        parent_folder: folder,
       });
       onOpenDocument?.(doc);
     } catch (err) {
@@ -1918,11 +1921,13 @@ RULES:
         'You are a senior network engineer writing a formal Method of Procedure document for review. Enhance the provided MOP markdown: add an executive summary at the top, improve descriptions, add risk analysis notes, ensure professional documentation tone. Keep all technical data accurate — do not invent commands or outputs. Return only the enhanced markdown.',
         rawMarkdown
       );
+      const { category, folder } = resolveDocSaveTarget('mop');
       const doc = await createDocument({
         name: `MOP - ${nameValue || 'Untitled'}`,
-        category: 'mops',
+        category,
         content_type: 'markdown',
         content: enhanced,
+        parent_folder: folder,
       });
       onOpenDocument?.(doc);
     } catch (err) {

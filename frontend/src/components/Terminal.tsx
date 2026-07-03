@@ -23,6 +23,7 @@ import { useSettings } from '../hooks/useSettings'
 import { getTerminalTheme } from '../lib/terminalThemes'
 import { RecordingCapture } from '../api/recordings'
 import { createDocument, getDocument, updateDocument, type DocumentCategory, type ContentType } from '../api/docs'
+import { resolveDocSaveTarget } from '../lib/docSaveTargets'
 import { showToast } from './Toast'
 import { getImageFromClipboard, convertToPng } from '../lib/clipboard'
 import { LocalFileOps } from '../lib/fileOps'
@@ -1880,8 +1881,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     if (lowerPath.startsWith('notes/')) return 'notes'
     if (lowerPath.startsWith('backups/')) return 'backups'
     if (lowerPath.startsWith('history/')) return 'history'
-    // Default to outputs for captured terminal output
-    return 'outputs'
+    // Fall back to the user-configured terminal-capture category.
+    return resolveDocSaveTarget('terminalCapture').category
   }, [])
 
   // Helper to detect content type from content
