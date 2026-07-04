@@ -370,3 +370,29 @@ export function mapNetBoxRoleToDeviceType(roleSlug?: string | null): DeviceType 
 
   return 'unknown';
 }
+
+/**
+ * View-only device visibility filters for the topology editor.
+ * Two independent axes: discovery (managed vs. LLDP/CDP neighbor) and
+ * operational status. A device is shown only if it passes BOTH axes.
+ */
+export interface DeviceFilterState {
+  discovery: {
+    /** Show devices you connected to / imported (isNeighbor falsy). */
+    managed: boolean;
+    /** Show discovered LLDP/CDP neighbor devices (isNeighbor true). */
+    neighbors: boolean;
+  };
+  status: {
+    online: boolean;
+    warning: boolean;
+    offline: boolean;
+    unknown: boolean;
+  };
+}
+
+/** Default filters: everything visible. */
+export const DEFAULT_DEVICE_FILTERS: DeviceFilterState = {
+  discovery: { managed: true, neighbors: true },
+  status: { online: true, warning: true, offline: true, unknown: true },
+};

@@ -6,14 +6,16 @@
 
 import { useState } from 'react';
 import type { DeviceType } from '../types/topology';
+import type { DeviceFilterState } from '../types/topology';
 import type { ShapeType } from '../types/annotations';
 import type { TopologyEnrichmentOptions } from '../types/tracerouteEnrichment';
+import type { LayoutType } from '../lib/topologyLayout';
 import { useMultipleDropdowns } from '../hooks/useDropdown';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import './TopologyToolbar.css';
 
 /** Dropdown keys for the toolbar */
-const DROPDOWN_KEYS = ['device', 'shape', 'layers', 'export', 'enrich'] as const;
+const DROPDOWN_KEYS = ['device', 'shape', 'layers', 'export', 'enrich', 'layout'] as const;
 type DropdownKey = typeof DROPDOWN_KEYS[number];
 
 /** Enrichment source info passed from parent */
@@ -86,6 +88,8 @@ export interface TopologyToolbarProps {
   viewMode?: ViewMode;
   /** Callback when view mode changes */
   onViewModeChange?: (mode: ViewMode) => void;
+  /** Callback to apply an auto-layout to the topology */
+  onApplyLayout?: (type: LayoutType) => void;
   /** Callback to save topology to docs */
   onSaveToDocs?: () => void;
   /** Whether save to docs is in progress */
@@ -112,6 +116,10 @@ export interface TopologyToolbarProps {
   isTracerouteTopology?: boolean;
   /** Whether discovery is currently running */
   isDiscovering?: boolean;
+  /** Current device visibility filters (discovery + status axes) */
+  deviceFilters?: DeviceFilterState;
+  /** Toggle a device filter value */
+  onDeviceFilterToggle?: (axis: 'discovery' | 'status', key: string) => void;
 }
 
 /** All device types with display labels */
@@ -148,6 +156,14 @@ const LAYERS: { key: keyof LayerVisibility; label: string }[] = [
   { key: 'connections', label: 'Connections' },
   { key: 'annotations', label: 'Annotations' },
   { key: 'grid', label: 'Grid' },
+];
+
+/** Auto-layout formats with display labels. */
+const LAYOUTS: { type: LayoutType; label: string }[] = [
+  { type: 'hierarchical', label: 'Hierarchical' },
+  { type: 'forceDirected', label: 'Force-Directed' },
+  { type: 'circular', label: 'Circular' },
+  { type: 'grid', label: 'Grid' },
 ];
 
 /** Inline enrich dropdown sub-component */
@@ -387,6 +403,7 @@ export default function TopologyToolbar({
   enrichableDeviceCount = 0,
   viewMode = '2d',
   onViewModeChange,
+  onApplyLayout,
   onSaveToDocs,
   savingToDocs = false,
   onSaveTopology,
@@ -398,6 +415,8 @@ export default function TopologyToolbar({
   onDiscoverNetwork,
   isTracerouteTopology = false,
   isDiscovering = false,
+  deviceFilters,
+  onDeviceFilterToggle,
 }: TopologyToolbarProps) {
   // Consolidated dropdown state management with click-outside handling
   const dropdown = useMultipleDropdowns<DropdownKey>(DROPDOWN_KEYS);
@@ -451,6 +470,45 @@ export default function TopologyToolbar({
               </svg>
               <span>3D</span>
             </button>
+          </div>
+          <div className="toolbar-divider" />
+        </>
+      )}
+
+      {/* Auto-Layout Dropdown */}
+      {onApplyLayout && (
+        <>
+          <div className="toolbar-group">
+            <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('layout')}>
+              <button
+                className="toolbar-tool-btn has-dropdown"
+                onClick={() => dropdown.toggle('layout')}
+                title="Auto-layout"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                  <circle cx="5" cy="6" r="2" />
+                  <circle cx="19" cy="6" r="2" />
+                  <circle cx="12" cy="18" r="2" />
+                  <path d="M7 6h10M6 8l5 8M18 8l-5 8" />
+                </svg>
+                <svg className="dropdown-arrow" viewBox="0 0 12 12" width="8" height="8">
+                  <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+              {dropdown.isOpen('layout') && (
+                <div className="toolbar-dropdown">
+                  {LAYOUTS.map(({ type, label }) => (
+                    <button
+                      key={type}
+                      className="dropdown-item"
+                      onClick={() => { onApplyLayout(type); dropdown.close('layout'); }}
+                    >
+                      <span className="dropdown-label">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="toolbar-divider" />
         </>
@@ -745,6 +803,40 @@ export default function TopologyToolbar({
                   <span className="dropdown-label">{label}</span>
                 </label>
               ))}
+              {deviceFilters && onDeviceFilterToggle && (
+                <>
+                  <div className="dropdown-section-label">Discovery</div>
+                  <label className="dropdown-item checkbox-item">
+                    <input
+                      type="checkbox"
+                      checked={deviceFilters.discovery.managed}
+                      onChange={() => onDeviceFilterToggle('discovery', 'managed')}
+                    />
+                    <span className="dropdown-label">Managed</span>
+                  </label>
+                  <label className="dropdown-item checkbox-item">
+                    <input
+                      type="checkbox"
+                      checked={deviceFilters.discovery.neighbors}
+                      onChange={() => onDeviceFilterToggle('discovery', 'neighbors')}
+                    />
+                    <span className="dropdown-label">Neighbors</span>
+                  </label>
+                  <div className="dropdown-section-label">Status</div>
+                  {(['online', 'warning', 'offline', 'unknown'] as const).map(key => (
+                    <label key={key} className="dropdown-item checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={deviceFilters.status[key]}
+                        onChange={() => onDeviceFilterToggle('status', key)}
+                      />
+                      <span className="dropdown-label">
+                        {key.charAt(0).toUpperCase() + key.slice(1)}
+                      </span>
+                    </label>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </div>

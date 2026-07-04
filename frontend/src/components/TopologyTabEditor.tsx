@@ -27,8 +27,13 @@ import { getCurrentMode } from '../api/client';
 import { listProfiles } from '../api/profiles';
 import type { CredentialProfile } from '../api/profiles';
 import { executeHistoryAction } from '../lib/topologyHistoryActions';
+import { computeLayout } from '../lib/topologyLayout';
+import type { LayoutType } from '../lib/topologyLayout';
+import { filterTopology } from '../lib/topologyFilters';
 import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../api/annotations';
 import type { Topology, Device, Connection } from '../types/topology';
+import { DEFAULT_DEVICE_FILTERS } from '../types/topology';
+import type { DeviceFilterState } from '../types/topology';
 import type { Annotation, ShapeType, TextAnnotation, ShapeAnnotation, LineAnnotation } from '../types/annotations';
 import type { TopologyEnrichmentState, TopologyEnrichmentOptions, LinkPortStats } from '../types/tracerouteEnrichment';
 import { enrichTopology, applyEnrichmentToTopology } from '../lib/tracerouteEnrichment';
@@ -186,6 +191,7 @@ export default function TopologyTabEditor({
     annotations: true,
     grid: true,
   });
+  const [deviceFilters, setDeviceFilters] = useState<DeviceFilterState>(DEFAULT_DEVICE_FILTERS);
 
   // Undo/Redo history hook with AI action tracking
   const {
@@ -1352,6 +1358,61 @@ export default function TopologyTabEditor({
     }));
   }, []);
 
+  // Toggle a device visibility filter (discovery or status axis).
+  const handleDeviceFilterToggle = useCallback((axis: 'discovery' | 'status', key: string) => {
+    setDeviceFilters(prev => ({
+      ...prev,
+      [axis]: {
+        ...prev[axis],
+        [key]: !(prev[axis] as Record<string, boolean>)[key],
+      },
+    }));
+  }, []);
+
+  // Apply an auto-layout: reposition all devices in one undoable action.
+  const handleApplyLayout = useCallback(async (type: LayoutType) => {
+    if (!topology) return;
+    const positions = computeLayout(type, topology.devices, topology.connections);
+    if (positions.size === 0) return;
+
+    // Capture before/after for a single bulk history entry.
+    const before = topology.devices.map(d => ({ deviceId: d.id, x: d.x, y: d.y }));
+    const after = topology.devices.map(d => {
+      const np = positions.get(d.id);
+      return { deviceId: d.id, x: np ? np.x : d.x, y: np ? np.y : d.y };
+    });
+
+    // Update local state immutably.
+    setTopology(prev => prev ? {
+      ...prev,
+      devices: prev.devices.map(d => {
+        const np = positions.get(d.id);
+        return np ? { ...d, x: np.x, y: np.y } : d;
+      }),
+    } : prev);
+
+    const layoutLabels: Record<LayoutType, string> = {
+      grid: 'Grid', circular: 'Circular', hierarchical: 'Hierarchical', forceDirected: 'Force-Directed',
+    };
+    pushAction({
+      type: 'bulk',
+      source: 'user',
+      description: `Auto-layout: ${layoutLabels[type]}`,
+      data: { before, after, context: { topologyId: topologyId || topology.id } },
+    });
+
+    // Persist positions for saved topologies.
+    if (!isTemporary && topologyId) {
+      for (const pos of after) {
+        try {
+          await updateDevicePosition(topologyId, pos.deviceId, pos.x, pos.y);
+        } catch (err) {
+          console.error('Failed to persist layout position:', err);
+        }
+      }
+    }
+  }, [topology, topologyId, isTemporary, pushAction]);
+
   /**
    * Handle click on empty canvas space - for placing devices, shapes, etc.
    */
@@ -1990,6 +2051,7 @@ export default function TopologyTabEditor({
    */
   const exportToSvg = useCallback(async () => {
     if (!topology) return;
+    const view = filterTopology(topology, deviceFilters);
 
     const width = 1000;
     const height = 1000;
@@ -2016,9 +2078,9 @@ export default function TopologyTabEditor({
 
     // Draw connections
     svg += '  <g class="connections">\n';
-    for (const conn of topology.connections) {
-      const source = topology.devices.find(d => d.id === conn.sourceDeviceId);
-      const target = topology.devices.find(d => d.id === conn.targetDeviceId);
+    for (const conn of view.connections) {
+      const source = view.devices.find(d => d.id === conn.sourceDeviceId);
+      const target = view.devices.find(d => d.id === conn.targetDeviceId);
       if (!source || !target) continue;
 
       const color = conn.color || (conn.status === 'active' ? '#4caf50' : conn.status === 'degraded' ? '#ff9800' : '#666666');
@@ -2036,7 +2098,7 @@ export default function TopologyTabEditor({
 
     // Draw devices
     svg += '  <g class="devices">\n';
-    for (const device of topology.devices) {
+    for (const device of view.devices) {
       const statusColor = device.status === 'online' ? '#4caf50' : device.status === 'warning' ? '#ff9800' : device.status === 'offline' ? '#f44336' : '#888888';
 
       // Device icon (simplified rectangle with status indicator)
@@ -2062,7 +2124,7 @@ export default function TopologyTabEditor({
     });
     if (!filePath) return;
     await writeTextFile(filePath, svg);
-  }, [topology]);
+  }, [topology, deviceFilters]);
 
   /**
    * Export topology to JSON format via native save dialog
@@ -2244,6 +2306,11 @@ export default function TopologyTabEditor({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [drawingConnection, linePoints, currentTool, handleUndo, handleRedo, handleToolChange, selectedAnnotationId, handleDeleteSelectedAnnotation]);
 
+  const filteredTopology = useMemo(
+    () => topology ? filterTopology(topology, deviceFilters) : topology,
+    [topology, deviceFilters],
+  );
+
   if (loading) {
     return (
       <div className="topology-tab-editor loading">
@@ -2292,6 +2359,7 @@ export default function TopologyTabEditor({
         enrichableDeviceCount={topology.devices.filter(d => d.primaryIp).length}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
+        onApplyLayout={handleApplyLayout}
         onSaveToDocs={!isTemporary && topologyId ? handleSaveToDocs : undefined}
         savingToDocs={savingToDocs}
         onSaveTopology={isTemporary && topology && topology.devices.length > 0 ? handleSaveTopology : undefined}
@@ -2307,13 +2375,15 @@ export default function TopologyTabEditor({
         isTracerouteTopology={isTemporary}
         onDiscoverNetwork={handleDiscoverNetwork}
         isDiscovering={isDiscoveringNetwork}
+        deviceFilters={deviceFilters}
+        onDeviceFilterToggle={handleDeviceFilterToggle}
       />
 
       {/* Canvas */}
       <div className="topology-canvas-container">
         {viewMode === '2d' ? (
           <TopologyCanvas
-            topology={topology}
+            topology={filteredTopology!}
             selectedDeviceId={selectedDeviceId}
             onDeviceClick={handleDeviceClick}
             onDeviceDoubleClick={onDeviceDoubleClick}
@@ -2349,7 +2419,7 @@ export default function TopologyTabEditor({
           />
         ) : (
           <TopologyCanvas3D
-            topology={topology}
+            topology={filteredTopology!}
             selectedDeviceId={selectedDeviceId}
             onDeviceClick={handleDeviceClick}
             onDeviceDoubleClick={onDeviceDoubleClick}
