@@ -1469,6 +1469,13 @@ function AppContent() {
     updateAppSetting('app.setupComplete', true)
   }, [updateAppSetting])
 
+  // Re-open the setup wizard from Settings → General → Onboarding.
+  useEffect(() => {
+    const handler = () => setWizardOpen(true)
+    window.addEventListener('netstacks:open-setup-wizard', handler)
+    return () => window.removeEventListener('netstacks:open-setup-wizard', handler)
+  }, [])
+
   const handleWizardOpenIntegrations = useCallback(() => {
     handleWizardClose()
     openSettingsTab('integrations')

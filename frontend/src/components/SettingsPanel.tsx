@@ -514,6 +514,21 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
                 <PanelSettingsPanel />
               </div>
 
+              {/* Onboarding — re-open the first-run setup wizard on demand */}
+              <div className="settings-category">
+                <h3 className="settings-category-title">Onboarding</h3>
+                <button
+                  className="btn-secondary"
+                  onClick={() => window.dispatchEvent(new CustomEvent('netstacks:open-setup-wizard'))}
+                >
+                  Re-run Setup Wizard
+                </button>
+                <p className="settings-note">
+                  Walk through AI provider setup, NetBox, and the core concepts again.
+                  (Also available from the command palette → “Setup Wizard”.)
+                </p>
+              </div>
+
               {/* Reset — last in the tab so it doesn't get clicked by
                   mistake before users see what's available to tweak. */}
               <div className="settings-category">

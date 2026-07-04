@@ -528,6 +528,19 @@ pub async fn load_ai_config(
         );
     }
 
+    // Reject unsupported provider names up front with a clear message, before
+    // demanding a vault key (otherwise a stale/unknown provider value surfaces
+    // the misleading "No API key found for <x>").
+    if !matches!(provider_name, "anthropic" | "openai" | "openrouter") {
+        return (
+            Err(format!(
+                "Unsupported AI provider '{}'. Choose anthropic, openai, ollama, openrouter, litellm, or custom in Settings → AI.",
+                provider_name
+            )),
+            custom_prompt,
+        );
+    }
+
     // --- Keyed providers: require an unlocked vault + a non-empty key ---
     if !dp.is_unlocked() {
         return (Err("Vault is locked. Unlock the vault to access AI API keys.".into()), custom_prompt);
