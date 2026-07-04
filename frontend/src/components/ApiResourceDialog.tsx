@@ -15,6 +15,7 @@ import type {
   QuickActionResult,
 } from '../types/quickAction'
 import { PasswordInput } from './PasswordInput'
+import AskAiHelp from './AskAiHelp'
 import './ApiResourceDialog.css'
 
 // Icons
@@ -363,6 +364,7 @@ export default function ApiResourceDialog({
       <div className="api-resource-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="api-resource-dialog-header">
           <h2>{isEdit ? 'Edit API Resource' : 'Add API Resource'}</h2>
+          <AskAiHelp prompt="Help me fill out this API Resource form. Explain Base URL, Test Path, and which Authentication type to pick (none / bearer token / basic / api-key header / custom header / multi-step), and how to set it up for the external API I'm integrating." />
           <button className="api-resource-dialog-close" onClick={onClose} title="Close">{Icons.x}</button>
         </div>
 
