@@ -66,3 +66,10 @@ export async function listTrustedHostKeys(): Promise<TrustedHostKey[]> {
 export async function deleteTrustedHostKey(host: string, port: number): Promise<void> {
   await getClient().http.delete(`/host-keys/${encodeURIComponent(host)}/${port}`);
 }
+
+/** DELETE /api/host-keys — purge ALL trusted keys. Every host re-prompts (TOFU)
+ *  on next connect. Returns how many were removed. */
+export async function purgeTrustedHostKeys(): Promise<number> {
+  const { data } = await getClient().http.delete('/host-keys');
+  return (data?.removed as number) ?? 0;
+}

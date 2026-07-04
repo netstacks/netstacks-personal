@@ -5,6 +5,12 @@
   gap: 12px;
 }
 
+.host-keys-tab .host-keys-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .host-keys-tab .host-keys-header h3 {
   margin: 0 0 4px 0;
 }

@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   listTrustedHostKeys,
   deleteTrustedHostKey,
+  purgeTrustedHostKeys,
   type TrustedHostKey,
 } from '../api/hostKeys'
 import { confirmDialog } from './ConfirmDialog'
@@ -79,6 +80,34 @@ export default function HostKeysTab() {
     })
   }
 
+  const handlePurgeAll = async () => {
+    const ok = await confirmDialog({
+      title: 'Purge ALL trusted host keys?',
+      body: (
+        <>
+          Remove <strong>all {keys.length}</strong> trusted host key
+          {keys.length === 1 ? '' : 's'}? Every host will prompt you to verify a
+          fresh fingerprint on the next connection. Use this only to reset all
+          TOFU trust — e.g. after a large-scale re-key or to clear a store you no
+          longer trust.
+        </>
+      ),
+      confirmLabel: 'Purge all',
+      destructive: true,
+    })
+    if (!ok) return
+
+    await run(async () => {
+      try {
+        const removed = await purgeTrustedHostKeys()
+        setKeys([])
+        showToast(`Purged ${removed} trusted host key${removed === 1 ? '' : 's'}`, 'success')
+      } catch (err) {
+        showToast(getErrorMessage(err, 'Failed to purge host keys'), 'error')
+      }
+    })
+  }
+
   const filtered = filter.trim()
     ? keys.filter((k) =>
         `${k.host}:${k.port} ${k.key_type} ${k.fingerprint}`
@@ -100,14 +129,26 @@ export default function HostKeysTab() {
               re-key.
             </p>
           </div>
-          <button
-            className="btn-secondary"
-            onClick={load}
-            disabled={loading || submitting}
-            title="Reload trusted host keys"
-          >
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
+          <div className="host-keys-header-actions">
+            {keys.length > 0 && (
+              <button
+                className="btn-danger"
+                onClick={handlePurgeAll}
+                disabled={loading || submitting}
+                title="Remove all trusted host keys"
+              >
+                Purge All
+              </button>
+            )}
+            <button
+              className="btn-secondary"
+              onClick={load}
+              disabled={loading || submitting}
+              title="Reload trusted host keys"
+            >
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
         </div>
 
         {error && <div className="settings-error">{error}</div>}

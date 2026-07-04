@@ -286,6 +286,23 @@ impl HostKeyStore {
         Ok(true)
     }
 
+    /// Remove ALL trusted host keys. Returns the number removed. On the next
+    /// connection to any host the user will get a fresh TOFU prompt.
+    pub fn clear_all(&mut self) -> Result<usize, HostKeyError> {
+        let count = self.known_keys.len();
+        if count == 0 {
+            return Ok(0);
+        }
+        self.known_keys.clear();
+        self.save_to_file()?;
+        tracing::warn!(
+            target: "audit",
+            count = %count,
+            "ALL host keys purged from known_hosts via user request"
+        );
+        Ok(count)
+    }
+
     /// Save all known host keys to the known_hosts file.
     ///
     /// Creates the parent directory if it doesn't exist.

@@ -1361,7 +1361,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/host-keys/prompts", get(api::list_host_key_prompts))
         .route("/host-keys/prompts/:id/approve", post(api::approve_host_key_prompt))
         .route("/host-keys/prompts/:id/reject", post(api::reject_host_key_prompt))
-        .route("/host-keys", get(api::list_host_keys))
+        .route("/host-keys", get(api::list_host_keys).delete(api::purge_host_keys))
         .route("/host-keys/:host/:port", delete(api::delete_host_key))
         // AUDIT FIX (EXEC-017): per-tool-call approval prompts for ReAct tasks
         .route("/tasks/:task_id/pending-approvals", get(api::list_task_pending_approvals))

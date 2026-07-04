@@ -10979,6 +10979,23 @@ pub async fn delete_host_key(
     }
 }
 
+#[derive(Serialize)]
+pub struct PurgeHostKeysResponse {
+    pub removed: usize,
+}
+
+/// DELETE /api/host-keys — purge ALL trusted host keys. Every subsequent
+/// connection re-prompts (TOFU). Returns how many were removed.
+pub async fn purge_host_keys() -> Result<Json<PurgeHostKeysResponse>, ApiError> {
+    let store_arc = crate::ssh::host_keys::load_default_store();
+    let mut store = store_arc.lock().await;
+    let removed = store.clear_all().map_err(|e| ApiError {
+        error: format!("Failed to purge host keys: {}", e),
+        code: "HOST_KEY_REMOVE_FAILED".to_string(),
+    })?;
+    Ok(Json(PurgeHostKeysResponse { removed }))
+}
+
 // === AI Config-Mode Endpoints (AUDIT FIX EXEC-002) ===
 //
 // These three endpoints replace the request-body `allow_config_changes`
