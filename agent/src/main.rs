@@ -1007,6 +1007,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
             "/mapped-keys/:key_id",
             put(api::update_mapped_key).delete(api::delete_mapped_key),
         )
+        .route(
+            "/mapped-keys/:key_id/reveal",
+            get(api::reveal_mapped_key),
+        )
         // Custom Commands (right-click menu)
         .route(
             "/custom-commands",

@@ -105,6 +105,7 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), DbError> {
     migrate_mcp_tables(pool).await?;
     migrate_remove_profile_terminal_fields(pool).await?;
     migrate_mapped_keys_to_global(pool).await?;
+    migrate_mapped_keys_secret(pool).await?;
     migrate_documents_recording_content_type(pool).await?;
     migrate_profile_terminal_defaults(pool).await?;
     migrate_change_device_overrides(pool).await?;
@@ -1800,6 +1801,25 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
 
     tracing::info!("Migrated mapped_keys from profile-scoped to global");
 
+    Ok(())
+}
+
+/// Add `is_secret` + `command_encrypted` to `mapped_keys` so a mapped key's
+/// command can be encrypted in the vault instead of stored plaintext.
+/// Existing rows default to non-secret; nothing they previously stored changes.
+async fn migrate_mapped_keys_secret(pool: &SqlitePool) -> Result<(), DbError> {
+    if !column_exists(pool, "mapped_keys", "is_secret").await? {
+        sqlx::query("ALTER TABLE mapped_keys ADD COLUMN is_secret INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to add mapped_keys.is_secret: {}", e)))?;
+    }
+    if !column_exists(pool, "mapped_keys", "command_encrypted").await? {
+        sqlx::query("ALTER TABLE mapped_keys ADD COLUMN command_encrypted BLOB")
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to add mapped_keys.command_encrypted: {}", e)))?;
+    }
     Ok(())
 }
 

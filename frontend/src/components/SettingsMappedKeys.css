@@ -282,3 +282,30 @@
   padding: 8px;
   border-radius: 4px;
 }
+
+.mk-secret-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+  cursor: pointer;
+}
+.mapped-keys-command-secret {
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 1px;
+}
+.mapped-keys-reveal {
+  background: none;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  color: inherit;
+}
+.mapped-keys-secret-badge {
+  font-size: 11px;
+  opacity: 0.7;
+}

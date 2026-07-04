@@ -4,12 +4,17 @@ import {
   createMappedKey,
   updateMappedKey,
   deleteMappedKey,
+  revealMappedKey,
   type MappedKey,
 } from '../api/mappedKeys';
 import { confirmDialog } from './ConfirmDialog';
+import { showToast } from './Toast';
+import { useMode } from '../hooks/useMode';
+import { getErrorMessage } from '../api/errors';
 import './SettingsMappedKeys.css';
 
 export default function SettingsMappedKeys() {
+  const { isEnterprise } = useMode();
   const [keys, setKeys] = useState<MappedKey[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,6 +23,11 @@ export default function SettingsMappedKeys() {
   const [capturedKeyCombo, setCapturedKeyCombo] = useState('');
   const [newCommand, setNewCommand] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newIsSecret, setNewIsSecret] = useState(false);
+
+  // Secret reveal state — id of the row whose secret command is shown, + value
+  const [revealedId, setRevealedId] = useState<string | null>(null);
+  const [revealedValue, setRevealedValue] = useState('');
 
   // Edit state — id of the row being edited (null = none), plus a draft
   // of the captured combo / command / description that mirrors the
@@ -26,6 +36,7 @@ export default function SettingsMappedKeys() {
   const [editCombo, setEditCombo] = useState('');
   const [editCommand, setEditCommand] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editIsSecret, setEditIsSecret] = useState(false);
   const [isEditCapturing, setIsEditCapturing] = useState(false);
 
   useEffect(() => {
@@ -90,21 +101,36 @@ export default function SettingsMappedKeys() {
         key_combo: capturedKeyCombo.trim(),
         command: newCommand.trim(),
         description: newDescription.trim() || null,
+        is_secret: newIsSecret,
       });
       setKeys(prev => [...prev, created]);
       setCapturedKeyCombo('');
       setNewCommand('');
       setNewDescription('');
+      setNewIsSecret(false);
     } catch (err) {
       console.error('Failed to create mapped key:', err);
+      showToast(getErrorMessage(err, 'Failed to create mapped key'), 'error');
     }
-  }, [capturedKeyCombo, newCommand, newDescription]);
+  }, [capturedKeyCombo, newCommand, newDescription, newIsSecret]);
 
-  const startEdit = useCallback((key: MappedKey) => {
+  const startEdit = useCallback(async (key: MappedKey) => {
+    // Secret commands aren't held in the list payload — fetch the plaintext
+    // to prefill the edit form (requires the vault unlocked).
+    let command = key.command;
+    if (key.is_secret) {
+      try {
+        command = await revealMappedKey(key.id);
+      } catch (err) {
+        showToast(getErrorMessage(err, 'Unlock the vault to edit this secret shortcut'), 'warning');
+        return;
+      }
+    }
     setEditingId(key.id);
     setEditCombo(key.key_combo);
-    setEditCommand(key.command);
+    setEditCommand(command);
     setEditDescription(key.description || '');
+    setEditIsSecret(key.is_secret);
     setIsEditCapturing(false);
   }, []);
 
@@ -113,6 +139,7 @@ export default function SettingsMappedKeys() {
     setEditCombo('');
     setEditCommand('');
     setEditDescription('');
+    setEditIsSecret(false);
     setIsEditCapturing(false);
   }, []);
 
@@ -123,13 +150,30 @@ export default function SettingsMappedKeys() {
         key_combo: editCombo.trim(),
         command: editCommand.trim(),
         description: editDescription.trim() || null,
+        is_secret: editIsSecret,
       });
       setKeys((prev) => prev.map((k) => (k.id === editingId ? updated : k)));
       cancelEdit();
     } catch (err) {
       console.error('Failed to update mapped key:', err);
+      showToast(getErrorMessage(err, 'Failed to update mapped key'), 'error');
     }
-  }, [editingId, editCombo, editCommand, editDescription, cancelEdit]);
+  }, [editingId, editCombo, editCommand, editDescription, editIsSecret, cancelEdit]);
+
+  const toggleReveal = useCallback(async (key: MappedKey) => {
+    if (revealedId === key.id) {
+      setRevealedId(null);
+      setRevealedValue('');
+      return;
+    }
+    try {
+      const value = await revealMappedKey(key.id);
+      setRevealedId(key.id);
+      setRevealedValue(value);
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Unlock the vault to reveal this shortcut'), 'warning');
+    }
+  }, [revealedId]);
 
   const handleDelete = useCallback(async (id: string) => {
     const ok = await confirmDialog({
@@ -177,7 +221,23 @@ export default function SettingsMappedKeys() {
                     <div className="mapped-keys-item-main">
                       <span className="mapped-keys-combo">{key.key_combo}</span>
                       <span className="mapped-keys-arrow">&rarr;</span>
-                      <span className="mapped-keys-command">{key.command}</span>
+                      {key.is_secret ? (
+                        <>
+                          <span className="mapped-keys-command mapped-keys-command-secret">
+                            {revealedId === key.id ? revealedValue : '•••••••'}
+                          </span>
+                          <button
+                            className="mapped-keys-reveal"
+                            onClick={() => toggleReveal(key)}
+                            title={revealedId === key.id ? 'Hide' : 'Reveal'}
+                          >
+                            {revealedId === key.id ? 'Hide' : 'Reveal'}
+                          </button>
+                          <span className="mapped-keys-secret-badge" title="Encrypted in vault">🔒</span>
+                        </>
+                      ) : (
+                        <span className="mapped-keys-command">{key.command}</span>
+                      )}
                       <button
                         className="mapped-keys-edit"
                         onClick={() => startEdit(key)}
@@ -213,7 +273,7 @@ export default function SettingsMappedKeys() {
                       </button>
                     </div>
                     <input
-                      type="text"
+                      type={editIsSecret ? 'password' : 'text'}
                       value={editCommand}
                       onChange={(e) => setEditCommand(e.target.value)}
                       className="mk-input-command"
@@ -253,6 +313,16 @@ export default function SettingsMappedKeys() {
                     onChange={(e) => setEditDescription(e.target.value)}
                     className="mk-input-description"
                   />
+                  {!isEnterprise && (
+                    <label className="mk-secret-toggle">
+                      <input
+                        type="checkbox"
+                        checked={editIsSecret}
+                        onChange={(e) => setEditIsSecret(e.target.checked)}
+                      />
+                      <span>Secret (encrypt command in vault)</span>
+                    </label>
+                  )}
                 </div>
               );
             })}
@@ -283,7 +353,7 @@ export default function SettingsMappedKeys() {
               )}
             </div>
             <input
-              type="text"
+              type={newIsSecret ? 'password' : 'text'}
               placeholder="Command to send"
               value={newCommand}
               onChange={(e) => setNewCommand(e.target.value)}
@@ -312,6 +382,16 @@ export default function SettingsMappedKeys() {
             onChange={(e) => setNewDescription(e.target.value)}
             className="mk-input-description"
           />
+          {!isEnterprise && (
+            <label className="mk-secret-toggle">
+              <input
+                type="checkbox"
+                checked={newIsSecret}
+                onChange={(e) => setNewIsSecret(e.target.checked)}
+              />
+              <span>Secret (encrypt command in vault)</span>
+            </label>
+          )}
         </div>
       </div>
     </div>

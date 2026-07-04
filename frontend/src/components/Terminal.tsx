@@ -42,7 +42,7 @@ import { useSessionContext } from '../hooks/useSessionContext'
 import type { SessionContext as SessionContextType } from '../types/sessionContext'
 // getWsUrl replaced by getClient().wsUrlWithAuth()
 import { getSession, listSessions } from '../api/sessions'
-import { listMappedKeys, type MappedKey } from '../api/mappedKeys'
+import { listMappedKeys, revealMappedKey, type MappedKey } from '../api/mappedKeys'
 import { listCustomCommands, type CustomCommand } from '../api/customCommands'
 import { executeQuickAction } from '../api/quickActions'
 import { runScript, runScriptStream, analyzeScript, getScript, type ScriptStreamEvent } from '../api/scripts'
@@ -2310,14 +2310,29 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
           if (matchedKey) {
             e.preventDefault()
             e.stopPropagation()
-            const commandWithEnter = matchedKey.command + '\r'
-            // Send via the appropriate transport
-            if (enterpriseSendDataRef.current) {
-              enterpriseSendDataRef.current(commandWithEnter)
-            } else if (jumpboxSendDataRef.current) {
-              jumpboxSendDataRef.current(commandWithEnter)
-            } else if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({ type: 'Input', data: commandWithEnter }))
+
+            const sendCommand = (cmd: string) => {
+              const commandWithEnter = cmd + '\r'
+              // Send via the appropriate transport
+              if (enterpriseSendDataRef.current) {
+                enterpriseSendDataRef.current(commandWithEnter)
+              } else if (jumpboxSendDataRef.current) {
+                jumpboxSendDataRef.current(commandWithEnter)
+              } else if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ type: 'Input', data: commandWithEnter }))
+              }
+            }
+
+            if (matchedKey.is_secret) {
+              // The secret's plaintext is never held in memory — fetch it on
+              // demand. Requires the vault unlocked (403 VAULT_LOCKED otherwise).
+              revealMappedKey(matchedKey.id)
+                .then(sendCommand)
+                .catch(() => {
+                  showToast('Vault is locked — unlock the app to use this shortcut', 'warning')
+                })
+            } else {
+              sendCommand(matchedKey.command)
             }
             return
           }

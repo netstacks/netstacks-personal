@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS mapped_keys (
     key_combo TEXT NOT NULL UNIQUE,
     command TEXT NOT NULL,
     description TEXT,
+    is_secret INTEGER NOT NULL DEFAULT 0,
+    command_encrypted BLOB,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

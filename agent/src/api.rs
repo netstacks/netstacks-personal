@@ -750,6 +750,21 @@ pub async fn delete_mapped_key(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Reveal (decrypt) a secret mapped key's command. Requires the vault to be
+/// unlocked; returns 403 VAULT_LOCKED otherwise.
+#[derive(Serialize)]
+pub struct RevealMappedKeyResponse {
+    pub command: String,
+}
+
+pub async fn reveal_mapped_key(
+    State(state): State<Arc<AppState>>,
+    Path(key_id): Path<String>,
+) -> Result<Json<RevealMappedKeyResponse>, ApiError> {
+    let command = state.provider.reveal_mapped_key(&key_id).await?;
+    Ok(Json(RevealMappedKeyResponse { command }))
+}
+
 // === Custom Command Endpoints ===
 
 /// List all custom commands

@@ -10,6 +10,15 @@ import type { TopologyAction } from '../types/topologyHistory';
 import { updateDevicePosition, createConnection, deleteConnection, deleteDevice } from '../api/topology';
 
 /**
+ * One device's position within a bulk move (e.g. auto-layout).
+ */
+interface BulkMovePosition {
+  deviceId: string;
+  x: number;
+  y: number;
+}
+
+/**
  * Direction of action execution
  * - 'undo': Reverse the action (restore before state)
  * - 'redo': Re-apply the action (restore after state)
@@ -136,6 +145,32 @@ async function applyRemoveConnection(
 }
 
 /**
+ * Apply a set of device positions in one state update, then persist each.
+ */
+async function applyBulkMove(
+  positions: BulkMovePosition[],
+  deps: ActionExecutorDeps
+): Promise<void> {
+  const byId = new Map(positions.map(p => [p.deviceId, p]));
+  deps.setTopology(prev => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      devices: prev.devices.map(d => {
+        const np = byId.get(d.id);
+        return np ? { ...d, x: np.x, y: np.y } : d;
+      }),
+    };
+  });
+
+  if (!deps.isTemporary && deps.topologyId) {
+    for (const pos of positions) {
+      await updateDevicePosition(deps.topologyId, pos.deviceId, pos.x, pos.y);
+    }
+  }
+}
+
+/**
  * Execute a topology action in the specified direction (undo or redo).
  *
  * This unified function handles both undo and redo by selecting the appropriate
@@ -220,6 +255,14 @@ export async function executeHistoryAction(
       } else {
         // Redo remove = remove the connection again
         await applyRemoveConnection(connectionData, deps);
+      }
+      break;
+    }
+
+    case 'bulk': {
+      const positions = (isUndo ? action.data.before : action.data.after) as BulkMovePosition[] | null;
+      if (positions && Array.isArray(positions)) {
+        await applyBulkMove(positions, deps);
       }
       break;
     }

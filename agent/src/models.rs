@@ -349,6 +349,7 @@ pub struct MappedKey {
     pub key_combo: String,
     pub command: String,
     pub description: Option<String>,
+    pub is_secret: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -358,6 +359,8 @@ pub struct NewMappedKey {
     pub key_combo: String,
     pub command: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub is_secret: bool,
 }
 
 /// Request to update a mapped key
@@ -366,6 +369,8 @@ pub struct UpdateMappedKey {
     pub key_combo: Option<String>,
     pub command: Option<String>,
     pub description: Option<Option<String>>,
+    #[serde(default)]
+    pub is_secret: Option<bool>,
 }
 
 /// Snippet (command snippet for a session or global)
