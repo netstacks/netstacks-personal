@@ -35,6 +35,9 @@ import { sendChatMessage, AiNotConfiguredError, type ChatMessage } from '../api/
 import { resolveProvider } from '../lib/aiProviderResolver';
 import { listNetBoxSources, getNetBoxSourceConnection } from '../api/netboxSources';
 import { fetchDeviceByName, type NetBoxDevice } from '../api/netbox';
+import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
+import DetailSections from './detail/DetailSections';
+import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import './DeviceDetailTab.css';
 
 /** SNMP-polled resource data */
@@ -969,6 +972,18 @@ export default function DeviceDetailTab({
     ? formatRelativeTime(new Date(enrichment.collectedAt))
     : 'Never';
 
+  // Build detail context for shared composer
+  const isEnterpriseFlag = useCapabilitiesStore(s => s.isEnterprise)();
+  const hasFeatureRaw = useCapabilitiesStore(s => s.hasFeature);
+  const detailContext = useMemo(() => ({
+    enrichment,
+    liveStats: undefined, // Tab doesn't have DeviceLiveStats; SNMP resources are separate
+    profile: null, // Tab doesn't currently resolve profile; can be added later if needed
+    connected: undefined, // Not readily determinable in tab context
+    isEnterprise: isEnterpriseFlag,
+    hasFeature: (name: string) => hasFeatureRaw(name as any),
+  }), [enrichment, isEnterpriseFlag, hasFeatureRaw]);
+
   // Filtered and sorted interfaces
   const filteredInterfaces = useMemo(() => {
     if (!interfaces) return [];
@@ -1604,38 +1619,12 @@ export default function DeviceDetailTab({
             <span>System Information</span>
           </div>
           <div className="device-detail-tab-card-body">
+            {/* Render shared detail sections from providers */}
+            {device && <DetailSections sections={buildDeviceDetail(device, detailContext)} />}
+
+            {/* SNMP MIB extras and NetBox/site/role/platform data not covered by base providers */}
             <table className="device-detail-tab-info-table">
               <tbody>
-                <tr>
-                  <td className="label">Vendor</td>
-                  <td className="value">{vendor}</td>
-                </tr>
-                <tr>
-                  <td className="label">Model</td>
-                  <td className="value">{model}</td>
-                </tr>
-                <tr>
-                  <td className="label">OS Version</td>
-                  <td className="value">{osVersion}</td>
-                </tr>
-                <tr>
-                  <td className="label">Serial Number</td>
-                  <td className="value">{serial}</td>
-                </tr>
-                <tr>
-                  <td className="label">Hostname</td>
-                  <td className="value">{hostname}</td>
-                </tr>
-                <tr>
-                  <td className="label">Uptime</td>
-                  <td className="value">{getUptimeDisplay()}</td>
-                </tr>
-                {enrichment?.cliFlavor && (
-                  <tr>
-                    <td className="label">CLI Flavor</td>
-                    <td className="value">{enrichment.cliFlavor}</td>
-                  </tr>
-                )}
                 {snmpSystemInfo.Location && (
                   <tr>
                     <td className="label">Location</td>
@@ -1664,12 +1653,6 @@ export default function DeviceDetailTab({
                   <tr>
                     <td className="label">SNMP Uptime</td>
                     <td className="value">{snmpSystemInfo['SNMP Uptime']}</td>
-                  </tr>
-                )}
-                {device?.primaryIp && (
-                  <tr>
-                    <td className="label">Management IP</td>
-                    <td className="value">{device.primaryIp}</td>
                   </tr>
                 )}
                 {device?.site && (

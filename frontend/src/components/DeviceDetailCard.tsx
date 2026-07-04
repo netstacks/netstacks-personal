@@ -9,14 +9,17 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Device } from '../types/topology';
 import type { DeviceEnrichment, InterfaceEnrichment } from '../types/enrichment';
 import type { DeviceLiveStats, InterfaceLiveStats } from '../hooks/useTopologyLive';
+import type { CredentialProfile } from '../api/profiles';
 import { formatRate } from '../utils/formatRate';
 import {
-  formatUptime,
   formatBytes,
   getResourceLevel,
   getResourceLevelColor,
   getStatusColor,
 } from '../lib/enrichmentHelpers';
+import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
+import DetailSections from './detail/DetailSections';
+import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import './DeviceDetailCard.css';
 
 interface DeviceDetailCardProps {
@@ -40,6 +43,10 @@ interface DeviceDetailCardProps {
   deviceLiveStats?: DeviceLiveStats;
   /** Live per-interface stats (keyed by "host:ifDescr") */
   liveInterfaceStats?: Map<string, InterfaceLiveStats>;
+  /** Resolved credential profile */
+  profile?: CredentialProfile | null;
+  /** Connection status (matched against active sessions) */
+  connected?: boolean;
 }
 
 /**
@@ -56,6 +63,8 @@ export default function DeviceDetailCard({
   onOpenTerminal,
   deviceLiveStats,
   liveInterfaceStats,
+  profile,
+  connected,
 }: DeviceDetailCardProps) {
   // Dragging state
   const [position, setPosition] = useState(initialPosition);
@@ -64,6 +73,19 @@ export default function DeviceDetailCard({
 
   // Collapsible sections
   const [interfacesExpanded, setInterfacesExpanded] = useState(false);
+
+  // Build detail sections from providers
+  const isEnterprise = useCapabilitiesStore(s => s.isEnterprise)();
+  const hasFeatureRaw = useCapabilitiesStore(s => s.hasFeature);
+  const detailCtx = {
+    enrichment,
+    liveStats: deviceLiveStats,
+    profile,
+    connected,
+    isEnterprise,
+    hasFeature: (name: string) => hasFeatureRaw(name as any),
+  };
+  const sections = buildDeviceDetail(device, detailCtx);
 
   // Constrain initial position to viewport
   useEffect(() => {
@@ -147,33 +169,7 @@ export default function DeviceDetailCard({
   }, [onClose]);
 
   // Get display values
-  const vendor = enrichment?.vendor || device.vendor || 'Unknown';
-  const model = enrichment?.model || device.model || device.platform || 'Unknown';
-  const serial = enrichment?.serialNumber || device.serial || 'N/A';
   const hostname = enrichment?.hostname || device.name;
-
-  // Uptime (enrichment > live stats > device prop)
-  const getUptimeDisplay = (): string => {
-    if (enrichment?.uptimeSeconds !== undefined) {
-      return formatUptime(enrichment.uptimeSeconds);
-    }
-    if (enrichment?.uptimeFormatted) {
-      return enrichment.uptimeFormatted;
-    }
-    if (deviceLiveStats?.sysUptimeSeconds !== null && deviceLiveStats?.sysUptimeSeconds !== undefined) {
-      return formatUptime(deviceLiveStats.sysUptimeSeconds);
-    }
-    if (device.uptime) {
-      return device.uptime;
-    }
-    return 'N/A';
-  };
-
-  // OS version fallback to live sysDescr
-  const osVersionDisplay = enrichment?.osVersion || device.version ||
-    (deviceLiveStats?.sysDescr
-      ? (deviceLiveStats.sysDescr.length > 80 ? deviceLiveStats.sysDescr.slice(0, 80) + '...' : deviceLiveStats.sysDescr)
-      : 'Unknown');
 
   // Resources (enrichment takes precedence, then live stats)
   const liveCpu = enrichment?.cpuPercent ?? deviceLiveStats?.cpuPercent ?? undefined;
@@ -373,32 +369,8 @@ export default function DeviceDetailCard({
 
       {/* Body */}
       <div className="device-detail-card-body">
-        {/* System Information */}
-        <div className="device-detail-card-section">
-          <div className="device-detail-card-section-title">System Information</div>
-          <div className="device-detail-card-info-grid">
-            <div className="device-detail-card-info-row">
-              <span className="device-detail-card-info-label">Vendor</span>
-              <span className="device-detail-card-info-value">{vendor}</span>
-            </div>
-            <div className="device-detail-card-info-row">
-              <span className="device-detail-card-info-label">Model</span>
-              <span className="device-detail-card-info-value">{model}</span>
-            </div>
-            <div className="device-detail-card-info-row">
-              <span className="device-detail-card-info-label">OS Version</span>
-              <span className="device-detail-card-info-value">{osVersionDisplay}</span>
-            </div>
-            <div className="device-detail-card-info-row">
-              <span className="device-detail-card-info-label">Serial</span>
-              <span className="device-detail-card-info-value">{serial}</span>
-            </div>
-            <div className="device-detail-card-info-row">
-              <span className="device-detail-card-info-label">Uptime</span>
-              <span className="device-detail-card-info-value">{getUptimeDisplay()}</span>
-            </div>
-          </div>
-        </div>
+        {/* Detail sections from providers (compact only) */}
+        <DetailSections sections={sections.filter(s => s.compact)} />
 
         {/* Resources */}
         {hasResources && (
@@ -413,86 +385,6 @@ export default function DeviceDetailCard({
 
         {/* Interfaces */}
         {renderInterfaces()}
-
-        {/* Traceroute Enrichment (shown when device has traceroute metadata) */}
-        {device.metadata?.hopNumber && (
-          <div className="device-detail-card-section">
-            <div className="device-detail-card-section-title">Traceroute Enrichment</div>
-            <div className="device-detail-card-info-grid">
-              {device.metadata.classification && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">Classification</span>
-                  <span className="device-detail-card-info-value" style={{
-                    color: device.metadata.classification === 'managed' ? '#4caf50' :
-                           device.metadata.classification === 'external' ? '#2196f3' :
-                           device.metadata.classification === 'isp-transit' ? '#ff9800' : '#888',
-                  }}>
-                    {device.metadata.classification}
-                  </span>
-                </div>
-              )}
-              {device.metadata.asn && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">ASN</span>
-                  <span className="device-detail-card-info-value" style={{ color: '#4a9eff' }}>
-                    AS{device.metadata.asn}{device.metadata.asnName ? ` - ${device.metadata.asnName}` : ''}
-                  </span>
-                </div>
-              )}
-              {device.metadata.whoisOrg && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">Organization</span>
-                  <span className="device-detail-card-info-value">{device.metadata.whoisOrg}</span>
-                </div>
-              )}
-              {device.metadata.whoisCidr && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">CIDR</span>
-                  <span className="device-detail-card-info-value" style={{ fontFamily: 'monospace' }}>
-                    {device.metadata.whoisCidr}
-                  </span>
-                </div>
-              )}
-              {device.metadata.whoisCountry && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">Country</span>
-                  <span className="device-detail-card-info-value">{device.metadata.whoisCountry}</span>
-                </div>
-              )}
-              {device.metadata.interfaceName && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">Interface</span>
-                  <span className="device-detail-card-info-value" style={{ color: '#4ec9b0', fontFamily: 'monospace' }}>
-                    {device.metadata.interfaceName}
-                    {device.metadata.interfaceDescription ? ` (${device.metadata.interfaceDescription})` : ''}
-                  </span>
-                </div>
-              )}
-              {device.metadata.dnsHostnames && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">DNS</span>
-                  <span className="device-detail-card-info-value">{device.metadata.dnsHostnames}</span>
-                </div>
-              )}
-              {device.metadata.netboxUrl && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">NetBox</span>
-                  <span className="device-detail-card-info-value" style={{ color: '#4a9eff' }}>
-                    Device #{device.netboxId}
-                  </span>
-                </div>
-              )}
-              {device.metadata.enrichmentSources && (
-                <div className="device-detail-card-info-row">
-                  <span className="device-detail-card-info-label">Sources</span>
-                  <span className="device-detail-card-info-value" style={{ color: '#888' }}>
-                    {device.metadata.enrichmentSources}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Footer */}

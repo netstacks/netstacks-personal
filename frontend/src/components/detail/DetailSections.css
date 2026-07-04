@@ -1,0 +1,54 @@
+/**
+ * DetailSections styles
+ * Minimal additions to existing device-detail-card-* classes
+ */
+
+.detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Link fields */
+.detail-field-link {
+  color: #4a9eff;
+  text-decoration: none;
+}
+
+.detail-field-link:hover {
+  text-decoration: underline;
+}
+
+/* Badge fields */
+.detail-field-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Tone colors */
+.detail-field-tone-default {
+  /* No special styling for default tone */
+}
+
+.detail-field-tone-good {
+  background-color: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+}
+
+.detail-field-tone-warn {
+  background-color: rgba(255, 152, 0, 0.2);
+  color: #ff9800;
+}
+
+.detail-field-tone-bad {
+  background-color: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+}
+
+.detail-field-tone-muted {
+  background-color: rgba(136, 136, 136, 0.2);
+  color: #888;
+}

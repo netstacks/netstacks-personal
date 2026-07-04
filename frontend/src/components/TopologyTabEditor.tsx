@@ -285,6 +285,7 @@ export default function TopologyTabEditor({
   // Cached SNMP profile (first profile with snmp_communities)
   const [snmpProfileId, setSnmpProfileId] = useState<string | null>(null);
   const [snmpProfileLoaded, setSnmpProfileLoaded] = useState(false);
+  const [profiles, setProfiles] = useState<CredentialProfile[]>([]);
 
   // Load SNMP-capable profile once
   useEffect(() => {
@@ -294,8 +295,11 @@ export default function TopologyTabEditor({
         const profiles: CredentialProfile[] = await listProfiles();
         // We cannot check vault credentials from frontend list API
         // Use the first profile as SNMP profile (backend will resolve communities from vault)
-        if (!cancelled && profiles.length > 0) {
-          setSnmpProfileId(profiles[0].id);
+        if (!cancelled) {
+          setProfiles(profiles);
+          if (profiles.length > 0) {
+            setSnmpProfileId(profiles[0].id);
+          }
         }
       } catch (err) {
         console.warn('[TopologyTabEditor] Failed to load profiles for SNMP:', err);
@@ -2523,6 +2527,8 @@ export default function TopologyTabEditor({
           } : undefined}
           deviceLiveStats={isLiveActive ? activeDeviceStats.get(detailCard.device.primaryIp || '') : undefined}
           liveInterfaceStats={isLiveActive ? activeLiveStats : undefined}
+          profile={profiles.find(p => p.id === detailCard.device.profileId) ?? null}
+          connected={connectedSessions.some(s => s.host === detailCard.device.primaryIp || s.id === detailCard.device.sessionId)}
         />
       )}
 
