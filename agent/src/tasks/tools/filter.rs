@@ -223,9 +223,7 @@ impl CommandFilter {
         // Allow-list: compare against the first whitespace-delimited token.
         let first_token = normalized.split_whitespace().next().unwrap_or("");
         let is_allowed = self
-            .allowed_prefixes
-            .iter()
-            .any(|prefix| first_token == *prefix);
+            .allowed_prefixes.contains(&first_token);
 
         if is_allowed {
             Ok(())

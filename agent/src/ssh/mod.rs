@@ -444,16 +444,14 @@ impl SshSession {
                     // Handle incoming data from SSH
                     msg = channel.wait() => {
                         match msg {
-                            Some(ChannelMsg::Data { data }) => {
-                                if output_tx.send(data.to_vec()).is_err() {
+                            Some(ChannelMsg::Data { data })
+                                if output_tx.send(data.to_vec()).is_err() => {
                                     break;
                                 }
-                            }
-                            Some(ChannelMsg::ExtendedData { data, .. }) => {
-                                if output_tx.send(data.to_vec()).is_err() {
+                            Some(ChannelMsg::ExtendedData { data, .. })
+                                if output_tx.send(data.to_vec()).is_err() => {
                                     break;
                                 }
-                            }
                             Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
                                 break;
                             }
@@ -544,16 +542,14 @@ impl SshSession {
                     // Handle incoming data from SSH
                     msg = channel.wait() => {
                         match msg {
-                            Some(ChannelMsg::Data { data }) => {
-                                if output_tx.send(data.to_vec()).is_err() {
+                            Some(ChannelMsg::Data { data })
+                                if output_tx.send(data.to_vec()).is_err() => {
                                     break;
                                 }
-                            }
-                            Some(ChannelMsg::ExtendedData { data, .. }) => {
-                                if output_tx.send(data.to_vec()).is_err() {
+                            Some(ChannelMsg::ExtendedData { data, .. })
+                                if output_tx.send(data.to_vec()).is_err() => {
                                     break;
                                 }
-                            }
                             Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
                                 break;
                             }
@@ -1348,6 +1344,18 @@ async fn wait_for_prompt(
     }
 }
 
+/// One batch of shell commands for `execute_commands_via_shell`:
+/// setup commands, the (step_id, command) list, teardown commands,
+/// and the per-command timeout.
+pub struct ShellCommandBatch {
+    pub auto_commands: Vec<String>,
+    /// (step_id, command)
+    pub commands: Vec<(String, String)>,
+    /// Commands to run after all steps (e.g. exit, write memory)
+    pub post_commands: Vec<String>,
+    pub timeout_per_command: Duration,
+}
+
 /// Execute multiple commands via an interactive shell channel (PTY).
 ///
 /// Opens a single SSH connection with a PTY shell, sends auto_commands first
@@ -1364,12 +1372,10 @@ pub async fn execute_commands_via_shell(
     config: SshConfig,
     _session_id: String,
     session_name: String,
-    auto_commands: Vec<String>,
-    commands: Vec<(String, String)>, // (step_id, command)
-    post_commands: Vec<String>,      // commands to run after all steps (e.g. exit, write memory)
-    timeout_per_command: Duration,
+    batch: ShellCommandBatch,
     auto_accept_changed_keys: bool,
 ) -> ShellExecutionResults {
+    let ShellCommandBatch { auto_commands, commands, post_commands, timeout_per_command } = batch;
     let prompt_timeout = Duration::from_secs(15);
 
     // If connection/auth fails, return error for all commands

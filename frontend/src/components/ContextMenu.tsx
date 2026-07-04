@@ -361,10 +361,12 @@ export const getAIMenuItems = (
   onFix: () => void,
   onSuggest: () => void,
   onCopy: () => void,
+  onPaste: () => void,
   onAskAI: () => void,
   onSessionSettings?: () => void
 ): MenuItem[] => {
   const hasSelection = selectedText.trim().length > 0
+  const isMac = navigator.platform.toUpperCase().includes('MAC')
 
   const items: MenuItem[] = [
     {
@@ -429,7 +431,7 @@ export const getAIMenuItems = (
     {
       id: 'copy',
       label: 'Copy',
-      shortcut: 'Cmd+C',
+      shortcut: isMac ? 'Cmd+C' : 'Ctrl+Shift+C',
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -438,6 +440,18 @@ export const getAIMenuItems = (
       ),
       disabled: !hasSelection,
       action: onCopy
+    },
+    {
+      id: 'paste',
+      label: 'Paste',
+      shortcut: isMac ? 'Cmd+V' : 'Ctrl+Shift+V',
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+        </svg>
+      ),
+      action: onPaste
     },
   ]
 

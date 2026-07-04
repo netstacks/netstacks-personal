@@ -8,6 +8,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+/// Cached enrichment hit: (matcher_name, sources, errors).
+pub type CachedEnrichment = (String, HashMap<String, Value>, HashMap<String, String>);
+
 #[derive(Debug, Clone)]
 struct CacheEntry {
     sources: HashMap<String, Value>,
@@ -41,7 +44,7 @@ impl EnrichmentCache {
         session_host: &str,
         token_type: &str,
         token: &str,
-    ) -> Option<(String, HashMap<String, Value>, HashMap<String, String>)> {
+    ) -> Option<CachedEnrichment> {
         self.maybe_cleanup();
         let key = Self::make_key(session_host, token_type, token);
         match self.entries.get(&key) {

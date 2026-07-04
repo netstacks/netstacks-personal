@@ -275,6 +275,13 @@ function TopologyPanelContent({
     fetchData();
   }, [fetchData]);
 
+  // Refresh when a topology is created outside this panel (e.g. discovery flow).
+  useEffect(() => {
+    const onChanged = () => fetchData();
+    window.addEventListener('topologies-changed', onChanged);
+    return () => window.removeEventListener('topologies-changed', onChanged);
+  }, [fetchData]);
+
   // ── Focus rename inputs ──
 
   useEffect(() => {

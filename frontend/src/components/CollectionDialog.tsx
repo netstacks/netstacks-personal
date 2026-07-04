@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { NeighborParser } from '../lib/neighborParser';
 import type { DeviceType } from '../types/topology';
 import { getClient } from '../api/client';
+import { getLibreNmsDevices } from '../api/librenms';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './CollectionDialog.css';
 
@@ -459,12 +460,13 @@ export default function CollectionDialog({
       let devices: DiscoveredDevice[] = [];
 
       if (source.type === 'librenms') {
-        const { data } = await getClient().http.get(`/librenms-sources/${source.id}/devices`);
-        devices = data.map((d: { hostname: string; ip: string; sysDescr?: string }) => ({
-          name: d.hostname,
+        // getLibreNmsDevices unwraps the agent's {devices: [...]} envelope.
+        const lnmsDevices = await getLibreNmsDevices(source.id);
+        devices = lnmsDevices.map((d) => ({
+          name: d.sysName || d.hostname,
           ip: d.ip,
           type: 'unknown' as DeviceType,
-          platform: d.sysDescr,
+          platform: d.os ?? d.hardware ?? undefined,
           selected: true,
         }));
       } else if (source.type === 'netstacksCrawler') {

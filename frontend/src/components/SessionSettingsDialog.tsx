@@ -28,6 +28,7 @@ import { listProfiles, type CredentialProfile } from '../api/profiles';
 import { TERMINAL_THEMES } from '../lib/terminalThemes';
 import SessionContextEditor from './SessionContextEditor';
 import DeviceMemoryEditor from './DeviceMemoryEditor';
+import ProfileEditorDialog from './ProfileEditorDialog';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 
 interface SessionSettingsDialogProps {
@@ -103,6 +104,9 @@ function SessionSettingsDialog({
   const [jumpSessions, setJumpSessions] = useState<Session[]>([]);
   const [jumpDependents, setJumpDependents] = useState<JumpDependents | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
+  // Inline profile creation from the SSH tab, so a first-time user doesn't
+  // have to leave the dialog for Settings → Profiles.
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const hasAITools = useCapabilitiesStore((s) => s.hasFeature('local_ai_tools'));
 
@@ -662,7 +666,13 @@ function SessionSettingsDialog({
                   {profiles.length === 0 ? (
                     <div className="profile-warning">
                       <span>No credential profiles configured.</span>
-                      <span className="form-hint">Create a profile in Settings → Profiles first.</span>
+                      <button
+                        type="button"
+                        className="btn-secondary profile-create-btn"
+                        onClick={() => setProfileEditorOpen(true)}
+                      >
+                        + Create Profile
+                      </button>
                     </div>
                   ) : (
                     <>
@@ -683,6 +693,14 @@ function SessionSettingsDialog({
                         {selectedProfile
                           ? `Uses: ${selectedProfile.username}@:${selectedProfile.port} (${selectedProfile.auth_type})`
                           : 'All authentication settings come from the selected profile'}
+                        {' · '}
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setProfileEditorOpen(true)}
+                        >
+                          New profile
+                        </button>
                       </span>
                     </>
                   )}
@@ -1143,6 +1161,28 @@ function SessionSettingsDialog({
             {saving ? 'Saving...' : 'Save'}
           </button>
         </div>
+
+        {/* Inline profile creation (SSH tab shortcut) */}
+        <ProfileEditorDialog
+          isOpen={profileEditorOpen}
+          profile={null}
+          cloneFrom={null}
+          profiles={profiles}
+          onClose={() => setProfileEditorOpen(false)}
+          onSaved={() => {
+            setProfileEditorOpen(false);
+            const known = new Set(profiles.map((p) => p.id));
+            listProfiles()
+              .then((next) => {
+                setProfiles(next);
+                // Auto-select the profile that was just created.
+                const created = next.find((p) => !known.has(p.id));
+                if (created) setSelectedProfileId(created.id);
+              })
+              .catch(() => {});
+            window.dispatchEvent(new Event('profiles-changed'));
+          }}
+        />
       </div>
     </div>
   );

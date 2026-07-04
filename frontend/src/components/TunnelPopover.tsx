@@ -12,6 +12,7 @@ interface TunnelPopoverProps {
 
 export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopoverProps) {
   const tunnels = useTunnelStore(state => state.tunnels)
+  const loadError = useTunnelStore(state => state.error)
   const [search, setSearch] = useState('')
   const [contextMenu, setContextMenu] = useState<{ tunnel: TunnelWithState; x: number; y: number } | null>(null)
   const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu)
@@ -156,7 +157,9 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
           <div className="tunnel-popover-empty">
             <div className="tunnel-popover-empty-icon">&#8651;</div>
             <div className="tunnel-popover-empty-text">
-              {tunnels.length === 0 ? 'No tunnels configured' : 'No matching tunnels'}
+              {loadError
+                ? `Failed to load tunnels: ${loadError}`
+                : tunnels.length === 0 ? 'No tunnels configured' : 'No matching tunnels'}
             </div>
             {tunnels.length === 0 && (
               <div className="tunnel-popover-empty-hint">

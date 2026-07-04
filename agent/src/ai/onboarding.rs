@@ -238,9 +238,11 @@ mod tests {
 
     #[test]
     fn test_profile_update_partial_merge() {
-        let mut profile = AiEngineerProfile::default();
-        profile.name = Some("Atlas".to_string());
-        profile.behavior_mode = Some("assistant".to_string());
+        let mut profile = AiEngineerProfile {
+            name: Some("Atlas".to_string()),
+            behavior_mode: Some("assistant".to_string()),
+            ..Default::default()
+        };
 
         let update = ProfileUpdate {
             behavior_mode: Some("coworker".to_string()),

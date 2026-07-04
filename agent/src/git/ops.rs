@@ -14,7 +14,7 @@ impl GitOps {
     /// This is an associated function (no &self) since the repo doesn't exist yet.
     pub async fn clone_repo(url: &str, destination: &str) -> Result<(), GitError> {
         let output = tokio::process::Command::new("git")
-            .args(&["clone", url, destination])
+            .args(["clone", url, destination])
             .output()
             .await
             .map_err(GitError::Io)?;
@@ -207,7 +207,7 @@ impl GitOps {
             .filter(|l| !l.is_empty())
             .map(|line| {
                 let parts: Vec<&str> = line.splitn(3, "|||").collect();
-                let name = parts.get(0).unwrap_or(&"").to_string();
+                let name = parts.first().unwrap_or(&"").to_string();
                 let upstream = parts
                     .get(1)
                     .filter(|s| !s.is_empty())
@@ -303,8 +303,7 @@ impl GitOps {
             .filter(|(_, l)| !l.is_empty())
             .map(|(i, line)| {
                 let parts: Vec<&str> = line.splitn(2, "|||").collect();
-                let branch = parts
-                    .get(0)
+                let branch = parts.first()
                     .unwrap_or(&"")
                     .trim_start_matches("stash@{")
                     .trim_end_matches('}')
@@ -376,7 +375,7 @@ impl GitOps {
         // workspace path cannot inject. git invokes `<editor> <todo>`, so the
         // todo file git generated lands in $0.
         let output = tokio::process::Command::new("git")
-            .args(&["rebase", "-i", base_hash])
+            .args(["rebase", "-i", base_hash])
             .current_dir(&self.cwd)
             .env("GIT_SEQUENCE_EDITOR", r#"sh -c 'cat "$NS_REBASE_TODO" > "$0"'"#)
             .env("NS_REBASE_TODO", &todo_path)
@@ -480,7 +479,7 @@ fn parse_log_output(output: &str) -> Vec<CommitInfo> {
                 })
                 .unwrap_or_default();
             CommitInfo {
-                hash: parts.get(0).unwrap_or(&"").to_string(),
+                hash: parts.first().unwrap_or(&"").to_string(),
                 short_hash: parts.get(1).unwrap_or(&"").to_string(),
                 message: parts.get(2).unwrap_or(&"").to_string(),
                 author: parts.get(3).unwrap_or(&"").to_string(),
@@ -499,18 +498,18 @@ fn parse_blame_output(output: &str) -> Vec<BlameLine> {
     let mut current_line_no: usize = 0;
 
     for line in output.lines() {
-        if line.starts_with('\t') {
+        if let Some(content) = line.strip_prefix('\t') {
             lines.push(BlameLine {
                 line_number: current_line_no,
                 hash: current_hash[..7.min(current_hash.len())].to_string(),
                 author: current_author.clone(),
                 date: current_date.clone(),
-                content: line[1..].to_string(),
+                content: content.to_string(),
             });
         } else if line.starts_with("author ") && !line.starts_with("author-") {
             current_author = line[7..].to_string();
-        } else if line.starts_with("author-time ") {
-            current_date = line[12..].to_string();
+        } else if let Some(time) = line.strip_prefix("author-time ") {
+            current_date = time.to_string();
         } else {
             let parts: Vec<&str> = line.splitn(4, ' ').collect();
             if parts.len() >= 3 && parts[0].len() == 40 {
@@ -524,9 +523,8 @@ fn parse_blame_output(output: &str) -> Vec<BlameLine> {
 
 fn parse_branch_output(output: &str) -> Option<GitBranchInfo> {
     for line in output.lines() {
-        if line.starts_with("## ") {
+        if let Some(rest) = line.strip_prefix("## ") {
             // ## main...origin/main [ahead 2, behind 1]
-            let rest = &line[3..];
             let (name_part, tracking) = rest.split_once("...").unwrap_or((rest, ""));
             let name = name_part.trim().to_string();
             let ahead = tracking

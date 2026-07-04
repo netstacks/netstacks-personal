@@ -90,8 +90,12 @@ pub struct TerminalContext {
 }
 
 /// Session context entry - tribal knowledge about a device (Phase 14)
+///
+/// Field names stay snake_case (no rename_all): the frontend interface
+/// (frontend/src/api/ai.ts SessionContextEntry) and the sibling struct the
+/// sessions endpoint serializes (models.rs SessionContext) are both
+/// snake_case, so this must match or /ai/chat deserialization fails.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct SessionContextEntry {
     pub id: String,
     pub issue: String,

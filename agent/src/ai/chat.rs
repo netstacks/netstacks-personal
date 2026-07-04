@@ -211,10 +211,9 @@ pub async fn chat_completion(
             ctx.ai_profile = ai_profile;
             Some(ctx)
         }
-        None => ai_profile.map(|p| {
-            let mut ctx = super::providers::AiContext::default();
-            ctx.ai_profile = Some(p);
-            ctx
+        None => ai_profile.map(|p| super::providers::AiContext {
+            ai_profile: Some(p),
+            ..Default::default()
         }),
     };
     let response = provider.chat_completion(req.messages, context).await?;

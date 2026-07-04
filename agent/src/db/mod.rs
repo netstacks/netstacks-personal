@@ -1430,8 +1430,8 @@ async fn migrate_profile_only_auth(pool: &SqlitePool) -> Result<(), DbError> {
 /// This drops the old session_id-based table and recreates it with profile_id
 async fn migrate_mapped_keys_to_profiles(pool: &SqlitePool) -> Result<(), DbError> {
     // Check if mapped_keys table exists and has session_id column (old schema)
-    if table_exists(pool, "mapped_keys").await? {
-        if column_exists(pool, "mapped_keys", "session_id").await? {
+    if table_exists(pool, "mapped_keys").await?
+        && column_exists(pool, "mapped_keys", "session_id").await? {
             // Drop the old table and recreate with profile_id
             // Any existing session-based mapped keys will be lost since we're migrating to profiles
             sqlx::query("DROP TABLE mapped_keys")
@@ -1460,7 +1460,6 @@ async fn migrate_mapped_keys_to_profiles(pool: &SqlitePool) -> Result<(), DbErro
 
             tracing::info!("Migrated mapped_keys table from session-based to profile-based");
         }
-    }
 
     // Also drop the old session-based index if it exists (from previous schema.sql)
     let _ = sqlx::query("DROP INDEX IF EXISTS idx_mapped_keys_session")
@@ -2007,14 +2006,11 @@ async fn migrate_documents_mops_category(pool: &SqlitePool) -> Result<(), DbErro
     .execute(pool)
     .await;
 
-    match test_result {
-        Ok(_) => {
-            let _ = sqlx::query("DELETE FROM documents WHERE id = '__test_mops__'")
-                .execute(pool)
-                .await;
-            return Ok(());
-        }
-        Err(_) => {}
+    if test_result.is_ok() {
+        let _ = sqlx::query("DELETE FROM documents WHERE id = '__test_mops__'")
+            .execute(pool)
+            .await;
+        return Ok(());
     }
 
     tracing::info!("Updating documents table CHECK constraint to include 'mops' category");
@@ -2094,14 +2090,11 @@ async fn migrate_changes_nullable_session_id(pool: &SqlitePool) -> Result<(), Db
     .execute(pool)
     .await;
 
-    match test_result {
-        Ok(_) => {
-            let _ = sqlx::query("DELETE FROM changes WHERE id = '__test_null_sid__'")
-                .execute(pool)
-                .await;
-            return Ok(());
-        }
-        Err(_) => {}
+    if test_result.is_ok() {
+        let _ = sqlx::query("DELETE FROM changes WHERE id = '__test_null_sid__'")
+            .execute(pool)
+            .await;
+        return Ok(());
     }
 
     tracing::info!("Making changes.session_id nullable for imported MOPs");

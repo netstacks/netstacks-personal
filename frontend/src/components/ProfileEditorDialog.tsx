@@ -316,6 +316,11 @@ export default function ProfileEditorDialog({
       setActiveTab('auth');
       return;
     }
+    if (authType === 'key' && !keyPath.trim()) {
+      setError('Key file path is required for public key authentication');
+      setActiveTab('auth');
+      return;
+    }
 
     setSaving(true);
     setError(null);

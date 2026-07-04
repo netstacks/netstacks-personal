@@ -23,6 +23,7 @@ use super::providers::{
 
 /// Sanitization configuration stored as a JSON setting
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct SanitizationConfig {
     /// Redact IPv4 addresses (10.0.0.1, 192.168.1.0/24)
     #[serde(default)]
@@ -47,19 +48,6 @@ pub struct SanitizationConfig {
     pub allowlist: Vec<String>,
 }
 
-impl Default for SanitizationConfig {
-    fn default() -> Self {
-        Self {
-            redact_ip_addresses: false,
-            redact_ipv6_addresses: false,
-            redact_mac_addresses: false,
-            redact_hostnames: false,
-            redact_usernames: false,
-            custom_patterns: Vec::new(),
-            allowlist: Vec::new(),
-        }
-    }
-}
 
 /// A user-defined custom regex pattern.
 /// Accepts both `regex` and `pattern` field names for compatibility with controller.

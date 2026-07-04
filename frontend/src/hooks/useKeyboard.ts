@@ -116,6 +116,31 @@ export function isMac(): boolean {
   return navigator.platform.toUpperCase().indexOf('MAC') >= 0
 }
 
+/**
+ * Format a keyboard hint for the current platform. Accepts word style
+ * ('Cmd+Shift+T', 'CmdOrCtrl+P') and mac glyph style ('⇧⌘S').
+ * On mac the string is returned in Cmd form; elsewhere Cmd becomes Ctrl
+ * and glyphs are expanded to words ('⇧⌘S' → 'Ctrl+Shift+S').
+ */
+export function displayShortcut(s: string): string {
+  if (isMac()) return s.replace(/CmdOrCtrl/g, 'Cmd')
+  const words = s
+    .replace(/([⌘⇧⌥⌃])/g, '$1+')
+    .replace(/⌘/g, 'Cmd')
+    .replace(/⇧/g, 'Shift')
+    .replace(/⌥/g, 'Alt')
+    .replace(/⌃/g, 'Ctrl')
+    .replace(/CmdOrCtrl|Cmd/g, 'Ctrl')
+    .replace(/\+\++/g, '+')
+    .replace(/\+$/, '')
+  const modifierOrder = (p: string) => (p === 'Ctrl' ? 0 : p === 'Alt' ? 1 : p === 'Shift' ? 2 : 3)
+  return words
+    .split('+')
+    .filter(Boolean)
+    .sort((a, b) => modifierOrder(a) - modifierOrder(b))
+    .join('+')
+}
+
 // Storage key
 const STORAGE_KEY = 'netstacks-keybindings'
 

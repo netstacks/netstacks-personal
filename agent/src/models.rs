@@ -29,18 +29,15 @@ pub fn format_datetime(dt: &DateTime<Utc>) -> String {
 /// Determines where SSH connections originate
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ConnectionMode {
     /// SSH from this machine (Single User edition)
+    #[default]
     Local,
     /// SSH from Controller, terminal streamed to client (Enterprise)
     Controller { url: String },
 }
 
-impl Default for ConnectionMode {
-    fn default() -> Self {
-        Self::Local
-    }
-}
 
 fn default_folder_scope() -> String {
     "session".to_string()
@@ -142,30 +139,24 @@ fn default_scrollback_lines() -> u32 {
 /// Authentication method for SSH
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum AuthType {
+    #[default]
     Password,
     Key,
 }
 
-impl Default for AuthType {
-    fn default() -> Self {
-        Self::Password
-    }
-}
 
 /// Connection protocol for sessions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Protocol {
+    #[default]
     Ssh,
     Telnet,
 }
 
-impl Default for Protocol {
-    fn default() -> Self {
-        Self::Ssh
-    }
-}
 
 impl Protocol {
     pub fn as_str(&self) -> &'static str {
@@ -179,7 +170,9 @@ impl Protocol {
 /// CLI flavor for AI command suggestions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum CliFlavor {
+    #[default]
     Auto,
     Linux,
     CiscoIos,
@@ -194,11 +187,6 @@ pub enum CliFlavor {
     Fortinet,
 }
 
-impl Default for CliFlavor {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 /// Decrypted credential (only exists in memory)
 #[derive(Debug, Clone)]
@@ -1272,8 +1260,10 @@ pub struct UpdateRecording {
 /// Port forward type for SSH tunneling
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PortForwardType {
     /// Local forwarding (-L): Access remote service through local port
+    #[default]
     Local,
     /// Remote forwarding (-R): Expose local service to remote
     Remote,
@@ -1281,11 +1271,6 @@ pub enum PortForwardType {
     Dynamic,
 }
 
-impl Default for PortForwardType {
-    fn default() -> Self {
-        Self::Local
-    }
-}
 
 /// Port forward configuration for SSH sessions
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1314,7 +1299,9 @@ fn default_port_forward_enabled() -> bool {
 /// Status of a managed tunnel
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum TunnelStatus {
+    #[default]
     Disconnected,
     Connecting,
     Connected,
@@ -1322,11 +1309,6 @@ pub enum TunnelStatus {
     Failed,
 }
 
-impl Default for TunnelStatus {
-    fn default() -> Self {
-        Self::Disconnected
-    }
-}
 
 /// Persistent tunnel definition (stored in SQLite)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1539,7 +1521,9 @@ pub struct UpdateHighlightRule {
 /// Status for a change control record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ChangeStatus {
+    #[default]
     Draft,
     Executing,
     Validating,
@@ -1551,11 +1535,6 @@ pub enum ChangeStatus {
     Rejected,
 }
 
-impl Default for ChangeStatus {
-    fn default() -> Self {
-        ChangeStatus::Draft
-    }
-}
 
 impl ChangeStatus {
     pub fn as_str(&self) -> &'static str {

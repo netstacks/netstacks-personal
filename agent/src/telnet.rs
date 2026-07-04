@@ -190,8 +190,8 @@ fn process_telnet_data(data: &[u8]) -> (Vec<u8>, Vec<u8>) {
                     clean.push(IAC);
                     i += 2;
                 }
-                DO => {
-                    if i + 2 < data.len() {
+                DO
+                    if i + 2 < data.len() => {
                         let opt = data[i + 2];
                         match opt {
                             OPT_TERMINAL_TYPE | OPT_SUPPRESS_GO_AHEAD | OPT_NAWS => {
@@ -203,12 +203,9 @@ fn process_telnet_data(data: &[u8]) -> (Vec<u8>, Vec<u8>) {
                             }
                         }
                         i += 3;
-                    } else {
-                        i += 2;
                     }
-                }
-                WILL => {
-                    if i + 2 < data.len() {
+                WILL
+                    if i + 2 < data.len() => {
                         let opt = data[i + 2];
                         match opt {
                             OPT_ECHO | OPT_SUPPRESS_GO_AHEAD => {
@@ -220,10 +217,7 @@ fn process_telnet_data(data: &[u8]) -> (Vec<u8>, Vec<u8>) {
                             }
                         }
                         i += 3;
-                    } else {
-                        i += 2;
                     }
-                }
                 WONT | DONT => {
                     // Acknowledge
                     i += if i + 2 < data.len() { 3 } else { 2 };

@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import './SharedTerminal.css';
+import { openExternalUrl } from '../lib/openExternal';
 
 // WsMessage binary protocol types (matches controller's ws::protocol)
 const MSG_TYPE_DATA = 0x01;
@@ -87,17 +88,11 @@ export default function SharedTerminal({ token, controllerUrl }: SharedTerminalP
 
     const fit = new FitAddon();
     xterm.loadAddon(fit);
-    // Mirror the Terminal.tsx pattern: try the Tauri shell plugin first
-    // (works in the desktop app, opens in the OS default browser) and
-    // fall back to window.open for browser/dev mode. Without this,
-    // clicking a URL in the shared-session viewer did nothing in Tauri.
-    xterm.loadAddon(new WebLinksAddon(async (_event, uri) => {
-      try {
-        const { open } = await import('@tauri-apps/plugin-shell');
-        await open(uri);
-      } catch {
-        window.open(uri, '_blank', 'noopener,noreferrer');
-      }
+    // Mirror the Terminal.tsx pattern: opener plugin → shell plugin →
+    // window.open. Without this, clicking a URL in the shared-session
+    // viewer did nothing in Tauri (especially Linux AppImage builds).
+    xterm.loadAddon(new WebLinksAddon((_event, uri) => {
+      void openExternalUrl(uri);
     }));
 
     xterm.open(terminalRef.current);

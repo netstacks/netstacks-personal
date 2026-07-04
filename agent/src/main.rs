@@ -716,7 +716,7 @@ async fn async_main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok());
 
-    let bind_ip = cli_bind.unwrap_or_else(|| {
+    let bind_ip = cli_bind.unwrap_or({
         if remote_mode {
             std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED) // 0.0.0.0
         } else {

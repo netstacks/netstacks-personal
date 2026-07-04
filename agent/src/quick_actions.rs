@@ -365,15 +365,11 @@ pub async fn test_auth_step(
 pub async fn execute_action(
     resource: &ApiResource,
     credentials: Option<&StoredApiResourceCredential>,
-    method: &str,
-    path: &str,
-    headers: &serde_json::Value,
-    body: Option<&str>,
-    json_extract_path: Option<&str>,
-    user_variables: &HashMap<String, String>,
+    request: crate::api_resource_client::RequestSpec<'_>,
     cache: Option<&crate::api_resource_client::AuthCache>,
 ) -> QuickActionResult {
-    use crate::api_resource_client::ApiResourceClient;
+    use crate::api_resource_client::{ApiResourceClient, RequestSpec};
+    let RequestSpec { method, path, headers, body, json_extract_path, user_variables } = request;
     let mut client = match ApiResourceClient::new(resource.clone(), credentials.cloned()) {
         Ok(c) => c,
         Err(e) => {

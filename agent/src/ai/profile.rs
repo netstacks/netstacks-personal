@@ -258,17 +258,19 @@ mod tests {
 
     #[test]
     fn test_compile_for_chat_includes_all_segments() {
-        let mut profile = AiEngineerProfile::default();
-        profile.name = Some("Atlas".to_string());
-        profile.behavior_mode = Some("coworker".to_string());
-        profile.vendor_weights = HashMap::from([
-            ("cisco".to_string(), 0.7),
-            ("juniper".to_string(), 0.3),
-        ]);
-        profile.domain_focus = HashMap::from([
-            ("routing".to_string(), 0.8),
-            ("datacenter".to_string(), 0.5),
-        ]);
+        let profile = AiEngineerProfile {
+            name: Some("Atlas".to_string()),
+            behavior_mode: Some("coworker".to_string()),
+            vendor_weights: HashMap::from([
+                ("cisco".to_string(), 0.7),
+                ("juniper".to_string(), 0.3),
+            ]),
+            domain_focus: HashMap::from([
+                ("routing".to_string(), 0.8),
+                ("datacenter".to_string(), 0.5),
+            ]),
+            ..Default::default()
+        };
 
         let result = profile.compile_for_feature(AiFeature::Chat, 20000);
 
@@ -298,12 +300,14 @@ mod tests {
 
     #[test]
     fn test_knowledge_packs_respect_budget() {
-        let mut profile = AiEngineerProfile::default();
-        profile.domain_focus = HashMap::from([
-            ("routing".to_string(), 0.9),
-            ("datacenter".to_string(), 0.8),
-            ("security".to_string(), 0.7),
-        ]);
+        let profile = AiEngineerProfile {
+            domain_focus: HashMap::from([
+                ("routing".to_string(), 0.9),
+                ("datacenter".to_string(), 0.8),
+                ("security".to_string(), 0.7),
+            ]),
+            ..Default::default()
+        };
 
         // Very small budget — should only load core pack
         let result = profile.compile_for_feature(AiFeature::Chat, 500);

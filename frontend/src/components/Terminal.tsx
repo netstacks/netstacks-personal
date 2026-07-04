@@ -25,7 +25,8 @@ import { RecordingCapture } from '../api/recordings'
 import { createDocument, getDocument, updateDocument, type DocumentCategory, type ContentType } from '../api/docs'
 import { resolveDocSaveTarget } from '../lib/docSaveTargets'
 import { showToast } from './Toast'
-import { getImageFromClipboard, convertToPng } from '../lib/clipboard'
+import { getImageFromClipboard, convertToPng, copyToClipboard, readClipboardText } from '../lib/clipboard'
+import { openExternalUrl } from '../lib/openExternal'
 import { LocalFileOps } from '../lib/fileOps'
 import { createAgentHttpClient } from '../api/localClient'
 import { HighlightEngine, type AdHocHighlight, type DetectionRuleExtras } from '../lib/highlightEngine'
@@ -47,6 +48,7 @@ import { executeQuickAction } from '../api/quickActions'
 import { runScript, runScriptStream, analyzeScript, getScript, type ScriptStreamEvent } from '../api/scripts'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { TracerouteParser } from '../lib/tracerouteParser'
+import { displayShortcut } from '../hooks/useKeyboard'
 import { CommandWarningDialog } from './CommandWarningDialog'
 import { CommandWarningIndicator } from './CommandWarningIndicator'
 import { useNextStepSuggestions } from '../hooks/useNextStepSuggestions'
@@ -278,6 +280,10 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // in render (once the run handlers exist) so the once-registered listener can
   // call it without re-running the terminal setup effect.
   const buildForceActionsRef = useRef<(selection: string) => { id: string; label: string; run: () => void }[]>(() => [])
+
+  // Paste-from-clipboard bound to the live terminal instance (set in the
+  // terminal-creation effect; used by the context menu and middle-click).
+  const pasteFromClipboardRef = useRef<() => void>(() => {})
   // Troubleshooting capture callback (Phase 26)
   const onTroubleshootingCaptureRef = useRef(onTroubleshootingCapture)
   onTroubleshootingCaptureRef.current = onTroubleshootingCapture
@@ -2156,11 +2162,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // Load addons
     const fitAddon = new FitAddon()
     const webLinksAddon = new WebLinksAddon(async (_event, uri) => {
-      try {
-        const { open } = await import('@tauri-apps/plugin-shell')
-        await open(uri)
-      } catch {
-        window.open(uri, '_blank', 'noopener,noreferrer')
+      const opened = await openExternalUrl(uri)
+      if (!opened) {
+        showToast('Failed to open link in browser', 'error', 4000)
       }
     })
     const searchAddon = new SearchAddon()
@@ -2168,6 +2172,42 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(webLinksAddon)
     terminal.loadAddon(searchAddon)
+
+    // Clipboard paste that works inside the Tauri WebView (WebKitGTK on
+    // Linux blocks navigator.clipboard.readText — readClipboardText goes
+    // through the clipboard-manager plugin first). Exposed via ref for
+    // the context menu.
+    const pasteFromClipboard = async () => {
+      const text = await readClipboardText()
+      if (text) terminal.paste(text)
+    }
+    pasteFromClipboardRef.current = () => { void pasteFromClipboard() }
+
+    // SecureCRT/Linux-convention clipboard keys: Ctrl+Shift+C / Ctrl+Insert
+    // copy, Ctrl+Shift+V / Shift+Insert paste. Registered ahead of xterm's
+    // keyboard handling so they never reach the remote shell as input
+    // (plain Ctrl+C still sends SIGINT as a terminal must).
+    terminal.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const key = e.key.toLowerCase()
+      const ctrlShift = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey
+      const isCopy = (ctrlShift && key === 'c')
+        || (e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && key === 'insert')
+      const isPaste = (ctrlShift && key === 'v')
+        || (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && key === 'insert')
+      if (isCopy) {
+        e.preventDefault()
+        const selection = terminal.getSelection()
+        if (selection) void copyToClipboard(selection)
+        return false
+      }
+      if (isPaste) {
+        e.preventDefault()
+        void pasteFromClipboard()
+        return false
+      }
+      return true
+    })
 
     // Open terminal in container
     terminal.open(containerRef.current)
@@ -2293,7 +2333,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       }
 
       // Cmd+Shift+S or Ctrl+Shift+S - Open Save to Docs dialog
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
+      // (e.key is 'S' when Shift is held, so compare case-insensitively)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault()
         e.stopPropagation()
         openSaveToDocsDialogRef.current()
@@ -2319,15 +2360,26 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       }
     }
 
-    // Handle mouseup for auto-copy on select (SecureCRT-style)
+    // Handle mouseup for auto-copy on select (SecureCRT-style).
+    // copyToClipboard (not navigator.clipboard) — WebKitGTK on Linux
+    // rejects the browser API, the Tauri plugin path always works.
     const handleMouseUp = () => {
       if (!copyOnSelectRef.current) return
       const selection = terminal.getSelection()
       if (selection && selection.length > 0) {
-        navigator.clipboard.writeText(selection).catch(err => {
-          console.warn('Failed to copy selection to clipboard:', err)
-        })
+        void copyToClipboard(selection)
       }
+    }
+
+    // Middle-click paste (Linux/SecureCRT convention). Skipped while the
+    // remote app has mouse reporting on (vim, htop, ...) — the click
+    // belongs to the app and xterm forwards it.
+    const handleMiddleClick = (e: MouseEvent) => {
+      if (e.button !== 1) return
+      if (settingsRef.current['terminal.middleClickPaste'] === false) return
+      if (terminal.modes.mouseTrackingMode !== 'none') return
+      e.preventDefault()
+      pasteFromClipboardRef.current()
     }
 
     // Ctrl/Cmd+Scroll to adjust terminal font size
@@ -2377,6 +2429,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       terminalEl.addEventListener('contextmenu', handleContextMenu)
       terminalEl.addEventListener('keydown', handleKeyDown)
       terminalEl.addEventListener('mouseup', handleMouseUp)
+      terminalEl.addEventListener('mousedown', handleMiddleClick)
       terminalEl.addEventListener('wheel', handleWheel, { passive: false })
       terminalEl.addEventListener('paste', handlePaste as unknown as EventListener, true)
       terminalEl.addEventListener('webkitmouseforcewillbegin', handleForceWillBegin)
@@ -2405,6 +2458,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         terminalEl.removeEventListener('contextmenu', handleContextMenu)
         terminalEl.removeEventListener('keydown', handleKeyDown)
         terminalEl.removeEventListener('mouseup', handleMouseUp)
+        terminalEl.removeEventListener('mousedown', handleMiddleClick)
         terminalEl.removeEventListener('wheel', handleWheel)
         terminalEl.removeEventListener('paste', handlePaste as unknown as EventListener, true)
         terminalEl.removeEventListener('webkitmouseforcewillbegin', handleForceWillBegin)
@@ -3288,7 +3342,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   }, [])
 
   const handleDetectionCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text)
+    void copyToClipboard(text)
   }, [])
 
   const handleDetectionAIAction = useCallback((action: string, context: string) => {
@@ -3362,7 +3416,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     () => onAIAction?.('explain', contextMenuText, contextMenuPosition || { x: 100, y: 100 }, sessionId, sessionName),
     () => onAIAction?.('fix', contextMenuText, contextMenuPosition || { x: 100, y: 100 }, sessionId, sessionName),
     () => onAIAction?.('suggest', contextMenuText, contextMenuPosition || { x: 100, y: 100 }, sessionId, sessionName),
-    () => navigator.clipboard.writeText(contextMenuText),
+    () => { void copyToClipboard(contextMenuText) },
+    () => pasteFromClipboardRef.current(),
     handleAskAI,
     sessionId && onSessionSettings ? onSessionSettings : undefined
   )
@@ -3429,7 +3484,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     {
       id: 'save-to-docs',
       label: 'Save Output to Docs...',
-      shortcut: '⇧⌘S',
+      shortcut: displayShortcut('⇧⌘S'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />

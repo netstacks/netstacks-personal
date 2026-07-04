@@ -67,11 +67,7 @@ impl ConnectionKey {
                 })?;
             if let Some(id) = profile.jump_host_id {
                 Some(JumpKey::JumpHost(id))
-            } else if let Some(id) = profile.jump_session_id {
-                Some(JumpKey::Session(id))
-            } else {
-                None
-            }
+            } else { profile.jump_session_id.map(JumpKey::Session) }
         };
         Ok(Self {
             host: tunnel.host.clone(),
@@ -322,8 +318,7 @@ impl TunnelManager {
                         &remote_host,
                         remote_port,
                         cancel_clone,
-                        bytes_tx_clone,
-                        bytes_rx_clone,
+                        local_forward::ForwardCounters { tx: bytes_tx_clone, rx: bytes_rx_clone },
                     )
                     .await
                     {

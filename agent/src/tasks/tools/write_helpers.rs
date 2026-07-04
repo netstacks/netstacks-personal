@@ -212,6 +212,7 @@ pub fn build_read_file_command(filepath: &str) -> Result<String, String> {
 ///   * `PATTERN` and `REPLACEMENT` may not contain newlines
 ///   * `FLAGS` is a (possibly empty) subset of `g`, `i`, `I`, `p`, plus an
 ///     optional decimal occurrence count (e.g. `2g`)
+///
 /// All other sed features — `e`/`w`/`r` flags, `;`, newline-separated
 /// programs, `d`/`a`/`c`/`i`/`p` standalone commands, address ranges, branch
 /// labels, hold-space ops — are rejected.

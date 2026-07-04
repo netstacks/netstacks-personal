@@ -103,7 +103,7 @@ pub async fn stage_reset(pool: &SqlitePool, db_path: &Path) -> Result<(), String
     // database (SQLite creates the file header on first write) then run all
     // migrations — identical to a first-time install.
     let incoming = sibling(db_path, ".incoming");
-    std::fs::write(&incoming, &[]).map_err(|e| format!("staging reset failed: {e}"))?;
+    std::fs::write(&incoming, []).map_err(|e| format!("staging reset failed: {e}"))?;
     Ok(())
 }
 

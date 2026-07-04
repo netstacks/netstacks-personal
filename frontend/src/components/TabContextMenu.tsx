@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState, useLayoutEffect } from 'react'
 import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition'
 import './TabContextMenu.css'
+import { displayShortcut } from '../hooks/useKeyboard'
 
 export interface TabGroup {
   id: string
@@ -272,7 +273,7 @@ export default function TabContextMenu({
                   </svg>
                 </span>
                 Group Selected Tabs ({selectedTabCount})
-                <span className="tab-context-menu-shortcut">⌘G</span>
+                <span className="tab-context-menu-shortcut">{displayShortcut('⌘G')}</span>
               </button>
             </>
           )}

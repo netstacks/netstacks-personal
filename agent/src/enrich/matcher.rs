@@ -61,7 +61,7 @@ impl MatcherRegistry {
                 Some(Arc::new(CompiledMatcher { config, regexes }))
             })
             .collect();
-        compiled.sort_by(|a, b| b.config.priority.cmp(&a.config.priority));
+        compiled.sort_by_key(|m| std::cmp::Reverse(m.config.priority));
         Self { matchers: compiled }
     }
 

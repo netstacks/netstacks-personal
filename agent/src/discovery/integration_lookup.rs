@@ -531,7 +531,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test__resolve_hop_ips_empty() {
+    async fn test_resolve_hop_ips_empty() {
         let resolver = Arc::new(IntegrationResolver::new());
         let configs = IntegrationConfigs::default();
         let results = _resolve_hop_ips(&resolver, &[], &configs).await;

@@ -1038,7 +1038,7 @@ pub async fn move_folder(
             descendants: &mut std::collections::HashSet<String>,
         ) {
             for folder in folders {
-                if folder.parent_id.as_ref().map(|p| p.as_str()) == Some(folder_id) {
+                if folder.parent_id.as_deref() == Some(folder_id) {
                     descendants.insert(folder.id.clone());
                     collect_descendants(&folder.id, folders, descendants);
                 }
@@ -1838,8 +1838,7 @@ fn validate_proxy_url(url: &str) -> Result<(), ApiError> {
         });
     };
     // Extract host portion (stop at '/', ':', '?', '#')
-    let host = after_scheme
-        .splitn(2, |c| c == '/' || c == ':' || c == '?' || c == '#')
+    let host = after_scheme.split(['/', ':', '?', '#'])
         .next()
         .unwrap_or("")
         .to_lowercase();
@@ -2851,7 +2850,7 @@ pub async fn get_librenms_device_links(
             .buffered(CONCURRENCY)
             .collect()
             .await;
-        for (link, stats_opt) in links.iter_mut().zip(stats_results.into_iter()) {
+        for (link, stats_opt) in links.iter_mut().zip(stats_results) {
             if let Some(stats) = stats_opt {
                 link.local_port_in_rate_bps = stats.in_rate_bps;
                 link.local_port_out_rate_bps = stats.out_rate_bps;
@@ -3262,7 +3261,7 @@ pub async fn bulk_command(
     );
 
     let timeout_secs = req.timeout_secs.unwrap_or(30);
-    if timeout_secs < 1 || timeout_secs > 300 {
+    if !(1..=300).contains(&timeout_secs) {
         return Err(ApiError {
             error: "timeout_secs must be between 1 and 300".to_string(),
             code: "VALIDATION".to_string(),
@@ -3545,7 +3544,7 @@ pub async fn ai_ssh_execute(
     }
 
     let timeout_secs = req.timeout_secs.unwrap_or(30);
-    if timeout_secs < 1 || timeout_secs > 300 {
+    if !(1..=300).contains(&timeout_secs) {
         return Err(ApiError {
             error: "timeout_secs must be between 1 and 300".to_string(),
             code: "VALIDATION".to_string(),
@@ -3623,10 +3622,12 @@ pub async fn ai_ssh_execute(
         config,
         req.session_id.clone(),
         session.name.clone(),
-        Vec::new(), // no auto_commands — paging-disable is the AI's job
-        stepped,
-        Vec::new(), // no post_commands
-        std::time::Duration::from_secs(timeout_secs),
+        ssh::ShellCommandBatch {
+            auto_commands: Vec::new(), // paging-disable is the AI's job
+            commands: stepped,
+            post_commands: Vec::new(),
+            timeout_per_command: std::time::Duration::from_secs(timeout_secs),
+        },
         false, // never auto-accept changed host keys here
     )
     .await;
@@ -4191,7 +4192,7 @@ impl From<SftpError> for ApiError {
             SftpError::AuthFailed(msg) => ("AUTH_FAILED".to_string(), msg.clone()),
             SftpError::KeyError(msg) => ("KEY_ERROR".to_string(), msg.clone()),
             SftpError::ChannelError(msg) => ("CHANNEL_ERROR".to_string(), msg.clone()),
-            SftpError::SftpError(msg) => ("SFTP_ERROR".to_string(), msg.clone()),
+            SftpError::Protocol(msg) => ("SFTP_ERROR".to_string(), msg.clone()),
             SftpError::_NotFound(msg) => ("NOT_FOUND".to_string(), msg.clone()),
             SftpError::_PermissionDenied(msg) => ("PERMISSION_DENIED".to_string(), msg.clone()),
             SftpError::SessionNotFound => ("SESSION_NOT_FOUND".to_string(), "SFTP session not found".to_string()),
@@ -4715,7 +4716,7 @@ pub async fn export_mop_package(
                 let key = session_map
                     .get(&session_id)
                     .cloned()
-                    .unwrap_or_else(|| session_id);
+                    .unwrap_or(session_id);
                 let pkg_steps: Vec<MopPackageStep> = steps
                     .iter()
                     .map(|s| MopPackageStep {
@@ -4958,7 +4959,7 @@ pub async fn import_mop_package(
     })?;
     let device_overrides_json = device_overrides
         .as_ref()
-        .map(|o| serde_json::to_string(o))
+        .map(serde_json::to_string)
         .transpose()
         .map_err(|e| ApiError {
             error: format!("Failed to serialize device_overrides: {}", e),
@@ -5380,10 +5381,7 @@ pub async fn lookup_dns(Path(query): Path<String>) -> Json<DnsLookupResponse> {
         match format!("{}:0", query).to_socket_addrs() {
             Ok(addrs) => {
                 let results: Vec<String> = addrs
-                    .filter_map(|addr| {
-                        let ip = addr.ip();
-                        Some(ip.to_string())
-                    })
+                    .map(|addr| addr.ip().to_string())
                     .collect();
 
                 if results.is_empty() {
@@ -5668,7 +5666,7 @@ pub async fn move_topology_folder(
             descendants: &mut std::collections::HashSet<String>,
         ) {
             for folder in folders {
-                if folder.parent_id.as_ref().map(|p| p.as_str()) == Some(folder_id) {
+                if folder.parent_id.as_deref() == Some(folder_id) {
                     descendants.insert(folder.id.clone());
                     collect_descendants(&folder.id, folders, descendants);
                 }
@@ -5823,13 +5821,15 @@ pub async fn add_topology_device(
 
     let device = state.provider.add_discovered_device(
         &topology_id,
-        &name,
-        req.host.as_deref().unwrap_or(""),
-        req.device_type.as_deref().unwrap_or("unknown"),
-        req.x.unwrap_or(500.0),
-        req.y.unwrap_or(300.0),
-        req.profile_id.as_deref(),
-        req.snmp_profile_id.as_deref(),
+        crate::providers::NewDiscoveredDevice {
+            name: &name,
+            host: req.host.as_deref().unwrap_or(""),
+            device_type: req.device_type.as_deref().unwrap_or("unknown"),
+            x: req.x.unwrap_or(500.0),
+            y: req.y.unwrap_or(300.0),
+            profile_id: req.profile_id.as_deref(),
+            snmp_profile_id: req.snmp_profile_id.as_deref(),
+        },
     ).await?;
 
     Ok((StatusCode::CREATED, Json(device)))
@@ -6531,7 +6531,16 @@ pub async fn import_librenms_into_topology(
         placed += 1;
 
         let created = provider.add_discovered_device(
-            topology_id, &display_name, &dev.ip, &device_type, x, y, None, None,
+            topology_id,
+            crate::providers::NewDiscoveredDevice {
+                name: &display_name,
+                host: &dev.ip,
+                device_type: &device_type,
+                x,
+                y,
+                profile_id: None,
+                snmp_profile_id: None,
+            },
         ).await?;
 
         let details = UpdateTopologyDeviceDetails {
@@ -6672,7 +6681,16 @@ pub async fn import_crawler_into_topology(
         placed += 1;
 
         let created = provider.add_discovered_device(
-            topology_id, &display_name, &dev.ip, &device_type, x, y, None, None,
+            topology_id,
+            crate::providers::NewDiscoveredDevice {
+                name: &display_name,
+                host: &dev.ip,
+                device_type: &device_type,
+                x,
+                y,
+                profile_id: None,
+                snmp_profile_id: None,
+            },
         ).await?;
 
         let details = UpdateTopologyDeviceDetails {
@@ -7071,15 +7089,18 @@ pub async fn test_api_resource(
 
     let has_test_path = resource.test_path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false);
     let test_path = resource.test_path.as_deref().unwrap_or("/");
+    let empty_vars = std::collections::HashMap::new();
     let mut result = crate::quick_actions::execute_action(
         &resource,
         credentials.as_ref(),
-        "GET",
-        test_path,
-        &serde_json::json!({}),
-        None,
-        None,
-        &std::collections::HashMap::new(),
+        crate::api_resource_client::RequestSpec {
+            method: "GET",
+            path: test_path,
+            headers: &serde_json::json!({}),
+            body: None,
+            json_extract_path: None,
+            user_variables: &empty_vars,
+        },
         Some(&state.auth_cache),
     ).await;
 
@@ -7124,15 +7145,18 @@ pub async fn test_api_resource_inline(
 
     let has_test_path = req.resource.test_path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false);
     let test_path = req.resource.test_path.as_deref().unwrap_or("/").to_string();
+    let empty_vars = std::collections::HashMap::new();
     let mut result = crate::quick_actions::execute_action(
         &req.resource,
         credentials.as_ref(),
-        "GET",
-        &test_path,
-        &serde_json::json!({}),
-        None,
-        None,
-        &std::collections::HashMap::new(),
+        crate::api_resource_client::RequestSpec {
+            method: "GET",
+            path: &test_path,
+            headers: &serde_json::json!({}),
+            body: None,
+            json_extract_path: None,
+            user_variables: &empty_vars,
+        },
         None, // no cache for inline tests
     ).await;
 
@@ -7302,12 +7326,14 @@ pub async fn execute_quick_action(
     let result = crate::quick_actions::execute_action(
         &resource,
         credentials.as_ref(),
-        &action.method,
-        &action.path,
-        &action.headers,
-        action.body.as_deref(),
-        action.json_extract_path.as_deref(),
-        &user_variables,
+        crate::api_resource_client::RequestSpec {
+            method: &action.method,
+            path: &action.path,
+            headers: &action.headers,
+            body: action.body.as_deref(),
+            json_extract_path: action.json_extract_path.as_deref(),
+            user_variables: &user_variables,
+        },
         Some(&state.auth_cache),
     ).await;
 
@@ -7333,12 +7359,14 @@ pub async fn execute_inline_quick_action(
     let result = crate::quick_actions::execute_action(
         &resource,
         credentials.as_ref(),
-        &req.method,
-        &req.path,
-        &req.headers,
-        req.body.as_deref(),
-        req.json_extract_path.as_deref(),
-        &req.variables,
+        crate::api_resource_client::RequestSpec {
+            method: &req.method,
+            path: &req.path,
+            headers: &req.headers,
+            body: req.body.as_deref(),
+            json_extract_path: req.json_extract_path.as_deref(),
+            user_variables: &req.variables,
+        },
         Some(&state.auth_cache),
     ).await;
 
@@ -7806,12 +7834,14 @@ async fn execute_quick_action_step(
     let result = crate::quick_actions::execute_action(
         &resource,
         credentials.as_ref(),
-        &action.method,
-        &action.path,
-        &action.headers,
-        action.body.as_deref(),
-        action.json_extract_path.as_deref(),
-        &variables,
+        crate::api_resource_client::RequestSpec {
+            method: &action.method,
+            path: &action.path,
+            headers: &action.headers,
+            body: action.body.as_deref(),
+            json_extract_path: action.json_extract_path.as_deref(),
+            user_variables: &variables,
+        },
         auth_cache,
     ).await;
 
@@ -8059,10 +8089,12 @@ pub async fn execute_step(
         config,
         session_id.to_string(),
         session.name.clone(),
-        auto_commands,
-        vec![(step_id.clone(), step.command.clone())],
-        vec![], // no post-commands for single step execution
-        std::time::Duration::from_secs(60),
+        ssh::ShellCommandBatch {
+            auto_commands,
+            commands: vec![(step_id.clone(), step.command.clone())],
+            post_commands: vec![], // no post-commands for single step execution
+            timeout_per_command: std::time::Duration::from_secs(60),
+        },
         false, // auto_accept_changed_keys
     ).await;
 
@@ -8436,10 +8468,12 @@ pub async fn execute_device_phase(
             config,
             session_id.to_string(),
             session.name.clone(),
-            auto_commands,
-            cli_commands.clone(),
-            post_commands,
-            std::time::Duration::from_secs(60),
+            ssh::ShellCommandBatch {
+                auto_commands,
+                commands: cli_commands.clone(),
+                post_commands,
+                timeout_per_command: std::time::Duration::from_secs(60),
+            },
             false, // auto_accept_changed_keys
         ).await;
 
@@ -8684,8 +8718,8 @@ pub async fn analyze_mop_execution(
                 .map(|s| s.name)
                 .unwrap_or_else(|| device.device_name.clone());
             recommendations.push(format!("Review failed device: {}", name));
-            if device.error_message.is_some() {
-                recommendations.push(format!("Check error on {}: {}", name, device.error_message.as_ref().unwrap()));
+            if let Some(error_message) = &device.error_message {
+                recommendations.push(format!("Check error on {}: {}", name, error_message));
             }
         }
     }
@@ -9868,6 +9902,10 @@ pub async fn delete_mcp_server(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Row shape for `SELECT id, name, transport_type, command, args, enabled, url,
+/// auth_type, server_type FROM mcp_servers`.
+type McpServerRow = (String, String, String, String, String, i32, Option<String>, String, String);
+
 /// Connect to an MCP server and discover tools
 pub async fn connect_mcp_server(
     State(state): State<Arc<AppState>>,
@@ -9877,7 +9915,7 @@ pub async fn connect_mcp_server(
 
     // Load server config from database (no auth_token here — we fetch that
     // separately through the vault helper, see CRYPTO-002).
-    let row: Option<(String, String, String, String, String, i32, Option<String>, String, String)> = sqlx::query_as(
+    let row: Option<McpServerRow> = sqlx::query_as(
         "SELECT id, name, transport_type, command, args, enabled, url, auth_type, server_type FROM mcp_servers WHERE id = ?"
     )
     .bind(&id)
@@ -10019,7 +10057,7 @@ pub async fn update_mcp_server(
 ) -> Result<Json<McpServerResponse>, ApiError> {
     let pool = state.provider.get_pool();
 
-    let row: Option<(String, String, String, String, String, i32, Option<String>, String, String)> = sqlx::query_as(
+    let row: Option<McpServerRow> = sqlx::query_as(
         "SELECT id, name, transport_type, command, args, enabled, url, auth_type, server_type FROM mcp_servers WHERE id = ?"
     )
     .bind(&id)
@@ -10125,7 +10163,7 @@ pub async fn test_mcp_server(
 ) -> Result<Json<TestMcpServerResponse>, ApiError> {
     let pool = state.provider.get_pool();
 
-    let row: Option<(String, String, String, String, String, i32, Option<String>, String, String)> = sqlx::query_as(
+    let row: Option<McpServerRow> = sqlx::query_as(
         "SELECT id, name, transport_type, command, args, enabled, url, auth_type, server_type FROM mcp_servers WHERE id = ?"
     )
     .bind(&id)
@@ -11594,7 +11632,7 @@ pub async fn local_run_python(
 
         let _ = tx.send(Ok(SseEvent::default()
             .event("status")
-            .data(format!("Running {}...", path.split('/').last().unwrap_or(&path))))).await;
+            .data(format!("Running {}...", path.split('/').next_back().unwrap_or(&path))))).await;
 
         let prepared = crate::scripts::prepare_script_for_run(&content, main_args.as_deref());
 
@@ -11894,8 +11932,10 @@ mod tests {
         let topo = provider.create_topology("dedup").await.unwrap();
 
         // Pre-seed: device with same hostname
-        provider.add_discovered_device(&topo.id, "core-sw-01", "10.0.0.1", "switch", 200.0, 200.0, None, None)
-            .await.unwrap();
+        provider.add_discovered_device(&topo.id, crate::providers::NewDiscoveredDevice {
+            name: "core-sw-01", host: "10.0.0.1", device_type: "switch",
+            x: 200.0, y: 200.0, profile_id: None, snmp_profile_id: None,
+        }).await.unwrap();
 
         let devs = vec![
             lib_dev(1, "core-sw-01", "10.0.0.99", "Catalyst", "IOS"),   // dup by name
@@ -11973,8 +12013,10 @@ mod tests {
         let topo = provider.create_topology("crawler").await.unwrap();
 
         // Pre-seed a device by IP only
-        provider.add_discovered_device(&topo.id, "preexisting", "192.168.1.10", "switch", 100.0, 100.0, None, None)
-            .await.unwrap();
+        provider.add_discovered_device(&topo.id, crate::providers::NewDiscoveredDevice {
+            name: "preexisting", host: "192.168.1.10", device_type: "switch",
+            x: 100.0, y: 100.0, profile_id: None, snmp_profile_id: None,
+        }).await.unwrap();
 
         let devs = vec![
             crawler_dev("192.168.1.10", Some("ignored-dup-ip"), None, "Catalyst", "IOS", None), // dup by IP
@@ -12601,7 +12643,7 @@ pub async fn test_enrichment_source(
     };
 
     let elapsed = started.elapsed().as_millis() as u64;
-    let full_url = format!("{}", path);  // path only (base_url is internal to client)
+    let full_url = path.to_string();  // path only (base_url is internal to client)
     match result {
         Ok((status, body)) => {
             // Substitute the same template vars in response_unwrap so JSONPath

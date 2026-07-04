@@ -619,16 +619,14 @@ fn interface_name_matches(if_descr: &str, target: &str) -> bool {
     // Try expanding the target abbreviation and match against if_descr
     for (abbrev, full) in INTERFACE_ABBREVIATIONS {
         // Target is abbreviated, if_descr is full
-        if target.starts_with(abbrev) {
-            let suffix = &target[abbrev.len()..];
+        if let Some(suffix) = target.strip_prefix(abbrev) {
             let expanded = format!("{}{}", full, suffix);
             if if_descr.eq_ignore_ascii_case(&expanded) {
                 return true;
             }
         }
         // if_descr is abbreviated, target is full
-        if if_descr.starts_with(abbrev) {
-            let suffix = &if_descr[abbrev.len()..];
+        if let Some(suffix) = if_descr.strip_prefix(abbrev) {
             let expanded = format!("{}{}", full, suffix);
             if expanded.eq_ignore_ascii_case(target) {
                 return true;

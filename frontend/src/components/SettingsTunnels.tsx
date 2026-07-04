@@ -33,6 +33,7 @@ function isLoopbackAddress(value: string): boolean {
 
 export default function SettingsTunnels() {
   const tunnels = useTunnelStore(state => state.tunnels)
+  const loadError = useTunnelStore(state => state.error)
   const fetchTunnels = useTunnelStore(state => state.fetchTunnels)
   const [profiles, setProfiles] = useState<CredentialProfile[]>([])
   const [jumpHosts, setJumpHosts] = useState<JumpHost[]>([])
@@ -403,7 +404,18 @@ export default function SettingsTunnels() {
         )}
       </div>
 
-      {tunnels.length === 0 && !showForm ? (
+      {loadError && !showForm ? (
+        <div className="settings-category">
+          <div className="setting-item">
+            <div className="setting-description tunnel-load-error" style={{ textAlign: 'center', padding: 'var(--spacing-lg) 0' }}>
+              Failed to load tunnels: {loadError}
+              <button className="btn-secondary" style={{ marginLeft: 12 }} onClick={() => fetchTunnels()}>
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : tunnels.length === 0 && !showForm ? (
         <div className="settings-category">
           <div className="setting-item">
             <div className="setting-description" style={{ textAlign: 'center', padding: 'var(--spacing-lg) 0' }}>

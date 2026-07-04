@@ -172,7 +172,7 @@ export default function ProfilesTab() {
                 </div>
                 <div className="profile-details">
                   <span className="profile-user">
-                    {profile.username}@:{profile.port}
+                    {profile.username} · port {profile.port}
                   </span>
                   <span className="profile-separator">-</span>
                   <span className={`profile-auth-badge ${profile.auth_type}`}>

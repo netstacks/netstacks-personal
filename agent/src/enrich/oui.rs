@@ -63,7 +63,7 @@ async fn maybe_refresh(provider: Arc<dyn DataProvider>) -> Result<MaintenanceRes
             .map_err(|e| format!("get_setting: {}", e))?;
         match last.as_str() {
             None => { tracing::info!("oui: no last-refresh timestamp — will refresh"); true }
-            Some(s) if s.is_empty() => { tracing::info!("oui: empty last-refresh timestamp — will refresh"); true }
+            Some("") => { tracing::info!("oui: empty last-refresh timestamp — will refresh"); true }
             Some(s) => match DateTime::parse_from_rfc3339(s) {
                 Ok(ts) => {
                     let age = Utc::now().signed_duration_since(ts.with_timezone(&Utc));

@@ -7,6 +7,7 @@ import {
   type Command as RegistryCommand,
 } from '../commands'
 import './CommandPalette.css'
+import { isMac, displayShortcut } from '../hooks/useKeyboard'
 
 /**
  * Legacy prop shape for ad-hoc commands. The palette now also reads
@@ -74,6 +75,8 @@ function rowFromLegacy(cmd: Command, onClose: () => void): Row {
 /** Pretty-printer for Tauri accelerator strings (CmdOrCtrl+Shift+P → ⌘⇧P). */
 function fmtShortcut(acc: string | undefined): string | undefined {
   if (!acc) return undefined
+  // Non-mac platforms get textual Ctrl+... hints instead of mac glyphs.
+  if (!isMac()) return displayShortcut(acc)
   return acc
     .replace(/CmdOrCtrl/g, '⌘')
     .replace(/Cmd/g, '⌘')

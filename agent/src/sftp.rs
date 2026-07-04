@@ -32,7 +32,7 @@ pub enum SftpError {
     ChannelError(String),
 
     #[error("SFTP error: {0}")]
-    SftpError(String),
+    Protocol(String),
 
     #[error("File not found: {0}")]
     _NotFound(String),
@@ -55,7 +55,7 @@ impl From<russh::Error> for SftpError {
 
 impl From<russh_sftp::client::error::Error> for SftpError {
     fn from(e: russh_sftp::client::error::Error) -> Self {
-        SftpError::SftpError(e.to_string())
+        SftpError::Protocol(e.to_string())
     }
 }
 
@@ -256,7 +256,7 @@ impl SftpSession {
         // Create SFTP session
         let sftp = RusshSftpSession::new(channel.into_stream())
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         // Re-open a channel reference for management (we gave ownership to stream)
         let channel = handle
@@ -277,7 +277,7 @@ impl SftpSession {
             .sftp
             .read_dir(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         let mut entries = Vec::new();
         for entry in dir {
@@ -326,12 +326,12 @@ impl SftpSession {
             .sftp
             .open(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         let mut data = Vec::new();
         file.read_to_end(&mut data)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         Ok(data)
     }
@@ -344,15 +344,15 @@ impl SftpSession {
             .sftp
             .create(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         file.write_all(data)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         file.shutdown()
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         Ok(())
     }
@@ -362,7 +362,7 @@ impl SftpSession {
         self.sftp
             .create_dir(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))
+            .map_err(|e| SftpError::Protocol(e.to_string()))
     }
 
     /// Remove a file.
@@ -370,7 +370,7 @@ impl SftpSession {
         self.sftp
             .remove_file(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))
+            .map_err(|e| SftpError::Protocol(e.to_string()))
     }
 
     /// Remove a directory.
@@ -378,7 +378,7 @@ impl SftpSession {
         self.sftp
             .remove_dir(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))
+            .map_err(|e| SftpError::Protocol(e.to_string()))
     }
 
     /// Rename a file or directory.
@@ -386,7 +386,7 @@ impl SftpSession {
         self.sftp
             .rename(from, to)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))
+            .map_err(|e| SftpError::Protocol(e.to_string()))
     }
 
     /// Get file/directory info.
@@ -395,7 +395,7 @@ impl SftpSession {
             .sftp
             .metadata(path)
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))?;
+            .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
         let name = Path::new(path)
             .file_name()
@@ -422,7 +422,7 @@ impl SftpSession {
         self.sftp
             .canonicalize(".")
             .await
-            .map_err(|e| SftpError::SftpError(e.to_string()))
+            .map_err(|e| SftpError::Protocol(e.to_string()))
     }
 }
 

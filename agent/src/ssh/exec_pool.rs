@@ -3,8 +3,8 @@
 //!
 //! ## Why this exists
 //!
-//! `exec_on_remote` does a full TCP-connect + SSH handshake + auth + exec
-//! + disconnect every call. The DeviceDetailTab fires ~15 SNMP queries
+//! `exec_on_remote` does a full TCP-connect + SSH handshake + auth + exec +
+//! disconnect every call. The DeviceDetailTab fires ~15 SNMP queries
 //! roughly concurrently when a device tab opens; without pooling, that's
 //! 15 fresh handshakes against the bastion's sshd in a few hundred
 //! milliseconds — easily tripping `MaxStartups` (OpenSSH default
@@ -88,10 +88,7 @@ pub async fn exec_on_remote_pooled(
 
     // Refresh-or-connect under the per-key lock so we never race on
     // tearing down a stale entry while another caller starts a new one.
-    let needs_new = match &*guard {
-        Some(entry) if entry.last_used.elapsed() < POOL_TTL => false,
-        _ => true,
-    };
+    let needs_new = !matches!(&*guard, Some(entry) if entry.last_used.elapsed() < POOL_TTL);
 
     if needs_new {
         if let Some(old) = guard.take() {

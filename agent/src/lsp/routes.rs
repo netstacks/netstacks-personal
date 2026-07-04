@@ -300,19 +300,14 @@ async fn bridge_websocket_to_session(
     // Task: drain WebSocket → LSP child stdin
     let inbound_task = tokio::spawn(async move {
         while let Some(msg) = ws_rx.next().await {
-            match msg {
-                Ok(Message::Text(text)) => {
-                    if inbound.send(text.into_bytes()).await.is_err() {
-                        return;
-                    }
-                }
-                Ok(Message::Binary(bytes)) => {
-                    if inbound.send(bytes.to_vec()).await.is_err() {
-                        return;
-                    }
-                }
+            let payload = match msg {
+                Ok(Message::Text(text)) => text.into_bytes(),
+                Ok(Message::Binary(bytes)) => bytes.to_vec(),
                 Ok(Message::Close(_)) | Err(_) => return,
-                _ => {}
+                _ => continue,
+            };
+            if inbound.send(payload).await.is_err() {
+                return;
             }
         }
     });

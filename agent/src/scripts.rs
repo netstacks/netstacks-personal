@@ -847,17 +847,24 @@ pub async fn run_script_once(
     })
 }
 
+/// Device identity + serialized payload injected into a per-session script
+/// run as `NETSTACKS_DEVICE*` env vars.
+struct SessionScriptDevice<'a> {
+    json: &'a str,
+    host: &'a str,
+    name: &'a str,
+    device_type: &'a str,
+}
+
 /// Run a script for a single device/session with injected env vars
 async fn run_script_for_session(
     uv_path: &std::path::Path,
     script_path: &std::path::Path,
-    device_json: &str,
-    device_host: &str,
-    device_name: &str,
-    device_type: &str,
+    device: SessionScriptDevice<'_>,
     custom_input: Option<&str>,
     main_args: Option<&str>,
 ) -> ScriptDeviceResult {
+    let SessionScriptDevice { json: device_json, host: device_host, name: device_name, device_type } = device;
     let start = Instant::now();
 
     let mut cmd = Command::new(uv_path);
@@ -1051,10 +1058,7 @@ pub async fn run_script(
             let mut result = run_script_for_session(
                 &uv,
                 &script_path,
-                djson,
-                host,
-                name,
-                dtype,
+                SessionScriptDevice { json: djson, host, name, device_type: dtype },
                 custom_input,
                 main_args,
             )
@@ -1074,10 +1078,7 @@ pub async fn run_script(
                 let mut result = run_script_for_session(
                     &uv_path,
                     &sp,
-                    &djson,
-                    &host,
-                    &name,
-                    &dtype,
+                    SessionScriptDevice { json: &djson, host: &host, name: &name, device_type: &dtype },
                     ci.as_deref(),
                     ma.as_deref(),
                 )
@@ -1259,8 +1260,7 @@ fn find_top_level_eq(s: &str) -> Option<usize> {
     let mut in_str: Option<u8> = None;
     let mut prev_backslash = false;
 
-    for i in 0..bytes.len() {
-        let b = bytes[i];
+    for (i, &b) in bytes.iter().enumerate() {
         if let Some(delim) = in_str {
             if !prev_backslash && b == delim {
                 in_str = None;

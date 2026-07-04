@@ -166,6 +166,14 @@ const defaultSettings: Setting[] = [
     value: false,
   },
   {
+    id: 'terminal.middleClickPaste',
+    category: 'Terminal',
+    label: 'Middle-Click Paste',
+    description: 'Paste the clipboard on middle mouse click (SecureCRT-style). Ignored while the remote app is using the mouse (vim, htop, ...)',
+    type: 'boolean',
+    value: true,
+  },
+  {
     id: 'terminal.fontWeight',
     category: 'Terminal',
     label: 'Font Weight',

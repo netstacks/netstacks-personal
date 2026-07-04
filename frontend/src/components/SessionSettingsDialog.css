@@ -1045,3 +1045,23 @@ select.inherited {
   background: var(--color-danger);
   color: white;
 }
+
+/* Inline profile creation shortcut (SSH tab) */
+.profile-create-btn {
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent, #4a9eda);
+  cursor: pointer;
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.link-button:hover {
+  color: var(--color-accent-hover, #6cb4e8);
+}

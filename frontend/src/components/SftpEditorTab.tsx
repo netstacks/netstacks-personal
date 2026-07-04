@@ -4,6 +4,7 @@ import { confirmDialog } from './ConfirmDialog';
 import './SftpEditorTab.css';
 
 import { getErrorMessage } from '../api/errors'
+import { displayShortcut } from '../hooks/useKeyboard'
 interface SftpEditorTabProps {
   connectionId: string;
   filePath: string;
@@ -217,7 +218,7 @@ export default function SftpEditorTab({
             className="sftp-editor-btn primary"
             onClick={handleSave}
             disabled={!isDirty || saving}
-            title="Save (Cmd+S)"
+            title={`Save (${displayShortcut('Cmd+S')})`}
           >
             {Icons.save}
             Save

@@ -41,6 +41,31 @@ enum SessionKind {
     },
 }
 
+/// Target SSH endpoint + credentials for a terminal session.
+pub struct SshTarget<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub username: &'a str,
+    pub password: Option<&'a str>,
+    pub key_path: Option<&'a str>,
+    pub key_passphrase: Option<&'a str>,
+    /// Legacy SSH support for older devices
+    pub legacy_ssh: bool,
+}
+
+/// Jump host (bastion) endpoint + credentials for russh ProxyJump.
+pub struct SshJump<'a> {
+    pub host: &'a str,
+    /// Defaults to 22 when unset.
+    pub port: Option<u16>,
+    /// Defaults to the target username when unset.
+    pub username: Option<&'a str>,
+    pub password: Option<&'a str>,
+    pub key_path: Option<&'a str>,
+    pub key_passphrase: Option<&'a str>,
+    pub legacy_ssh: bool,
+}
+
 /// A terminal session (local PTY or SSH)
 pub struct TerminalSession {
     pub id: String,
@@ -177,33 +202,21 @@ impl TerminalSession {
     }
 
     /// Create a new SSH session using native russh library.
-    /// When `jump_host` is set, routes through it via russh ProxyJump
+    /// When `jump` is set, routes through it via russh ProxyJump
     /// (each hop authenticates with its own credentials).
     pub async fn new_ssh(
         id: String,
         output_tx: mpsc::UnboundedSender<TerminalMessage>,
-        host: &str,
-        port: u16,
-        username: &str,
-        password: Option<&str>,
-        key_path: Option<&str>,
-        key_passphrase: Option<&str>,
+        target: SshTarget<'_>,
         // Jump host / proxy support
-        jump_host: Option<&str>,
-        jump_port: Option<u16>,
-        jump_username: Option<&str>,
-        jump_password: Option<&str>,
-        jump_key_path: Option<&str>,
-        jump_key_passphrase: Option<&str>,
-        jump_legacy_ssh: bool,
+        jump: Option<SshJump<'_>>,
         // Port forwarding - delegated to TunnelManager
         port_forwards: Vec<PortForward>,
-        // Legacy SSH support for older devices
-        legacy_ssh: bool,
         // Initial PTY dimensions from frontend (0 = use defaults)
         initial_cols: u32,
         initial_rows: u32,
     ) -> Result<Self, anyhow::Error> {
+        let SshTarget { host, port, username, password, key_path, key_passphrase, legacy_ssh } = target;
         // Port forwards are started via TunnelManager in ws.rs, not here
         let _ = port_forwards;
 
@@ -229,15 +242,16 @@ impl TerminalSession {
         };
 
         // Connect — via jump host (native russh ProxyJump) or direct
-        let session = if let Some(jump_host_str) = jump_host {
-            let jump_user = jump_username.unwrap_or(username);
-            let jump_p = jump_port.unwrap_or(22);
-            let jump_auth = if let Some(pw) = jump_password {
+        let session = if let Some(jump) = jump {
+            let jump_host_str = jump.host;
+            let jump_user = jump.username.unwrap_or(username);
+            let jump_p = jump.port.unwrap_or(22);
+            let jump_auth = if let Some(pw) = jump.password {
                 SshAuth::Password(pw.to_string())
-            } else if let Some(kp) = jump_key_path {
+            } else if let Some(kp) = jump.key_path {
                 SshAuth::KeyFile {
                     path: kp.to_string(),
-                    passphrase: jump_key_passphrase.map(|s| s.to_string()),
+                    passphrase: jump.key_passphrase.map(|s| s.to_string()),
                 }
             } else {
                 return Err(anyhow::anyhow!(
@@ -251,7 +265,7 @@ impl TerminalSession {
                 port: jump_p,
                 username: jump_user.to_string(),
                 auth: jump_auth,
-                legacy_ssh: jump_legacy_ssh,
+                legacy_ssh: jump.legacy_ssh,
                 skip_keyboard_interactive: false,
             };
             tracing::info!(
@@ -333,18 +347,13 @@ impl TerminalSession {
         let reader_session = session.clone();
         let reader_handle = tokio::spawn(async move {
             let mut decoder = Utf8Decoder::new();
-            loop {
-                match reader_session.recv().await {
-                    Ok(Some(data)) => {
-                        let text = decoder.decode(&data);
-                        if text.is_empty() {
-                            continue;
-                        }
-                        if output_tx.send(TerminalMessage::Output(text)).is_err() {
-                            break;
-                        }
-                    }
-                    Ok(None) | Err(_) => break,
+            while let Ok(Some(data)) = reader_session.recv().await {
+                let text = decoder.decode(&data);
+                if text.is_empty() {
+                    continue;
+                }
+                if output_tx.send(TerminalMessage::Output(text)).is_err() {
+                    break;
                 }
             }
         });
@@ -435,24 +444,11 @@ impl TerminalManager {
     pub async fn create_ssh_session(
         &self,
         output_tx: mpsc::UnboundedSender<TerminalMessage>,
-        host: &str,
-        port: u16,
-        username: &str,
-        password: Option<&str>,
-        key_path: Option<&str>,
-        key_passphrase: Option<&str>,
+        target: SshTarget<'_>,
         // Jump host / proxy support (Phase 06.2)
-        jump_host: Option<&str>,
-        jump_port: Option<u16>,
-        jump_username: Option<&str>,
-        jump_password: Option<&str>,
-        jump_key_path: Option<&str>,
-        jump_key_passphrase: Option<&str>,
-        jump_legacy_ssh: bool,
+        jump: Option<SshJump<'_>>,
         // Port forwarding (Phase 06.3)
         port_forwards: Vec<PortForward>,
-        // Legacy SSH support for older devices
-        legacy_ssh: bool,
         // Initial PTY dimensions from frontend
         initial_cols: u32,
         initial_rows: u32,
@@ -461,21 +457,9 @@ impl TerminalManager {
         let session = TerminalSession::new_ssh(
             id.clone(),
             output_tx,
-            host,
-            port,
-            username,
-            password,
-            key_path,
-            key_passphrase,
-            jump_host,
-            jump_port,
-            jump_username,
-            jump_password,
-            jump_key_path,
-            jump_key_passphrase,
-            jump_legacy_ssh,
+            target,
+            jump,
             port_forwards,
-            legacy_ssh,
             initial_cols,
             initial_rows,
         ).await?;

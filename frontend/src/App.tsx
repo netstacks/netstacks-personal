@@ -79,7 +79,7 @@ import type { QuickActionResult, ApiResource } from './types/quickAction'
 import ApiResourceDialog from './components/ApiResourceDialog'
 import type { GlobalSnippet } from './api/snippets'
 import { useMultiSend } from './hooks/useMultiSend'
-import { useKeyboard } from './hooks/useKeyboard'
+import { useKeyboard, displayShortcut } from './hooks/useKeyboard'
 import { OVERLORD_OPEN_AI_POPUP_EVENT, type OverlordOpenAIPopupDetail } from './hooks/useMonacoOverlord'
 import { TabSelectionProvider, useTabSelection } from './hooks/useTabSelection'
 import { useEnrichment } from './hooks/useEnrichment'
@@ -1078,6 +1078,9 @@ function AppContent() {
   }, [tabs])
 
   const openBackupHistoryTab = useCallback((deviceId: string, deviceName: string) => {
+    // Backup history is enterprise-only (Controller /config/* routes). Callers
+    // include AI-panel navigation callbacks that fire in any mode, so gate here.
+    if (!isEnterprise) return
     const existing = tabs.find(t => t.type === 'backup-history' && t.backupDeviceId === deviceId)
     if (existing) {
       setActiveTabId(existing.id)
@@ -1093,7 +1096,7 @@ function AppContent() {
     }
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newTab.id)
-  }, [tabs])
+  }, [tabs, isEnterprise])
 
   const activeSessionName = useMemo(() => {
     if (!activeTabId) return undefined
@@ -2373,6 +2376,76 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
     window.addEventListener('netstacks:open-session', handleOpenSession)
     return () => window.removeEventListener('netstacks:open-session', handleOpenSession)
   }, [getEffectiveFontSettings])
+
+  // Pop a popped-out terminal window back in as a tab. The popout emits the
+  // Tauri 'pop-back-in' event (or postMessage in browser mode) with the same
+  // params handlePopoutTab sent it, then closes itself.
+  useEffect(() => {
+    interface PopBackInPayload {
+      sessionId?: string
+      sessionName?: string
+      protocol?: 'ssh' | 'telnet'
+      cliFlavor?: string
+      terminalTheme?: string
+      fontSize?: number
+      fontFamily?: string
+      enterpriseProfileId?: string
+      enterpriseSessionDefinitionId?: string
+      enterpriseTargetHost?: string
+      enterpriseTargetPort?: number
+      isJumpbox?: boolean
+    }
+
+    const restoreTab = (p: PopBackInPayload) => {
+      const newId = `popin-${p.sessionId || 'local'}-${Date.now()}`
+      const newTab: Tab = {
+        id: newId,
+        type: 'terminal',
+        title: p.sessionName || 'Terminal',
+        sessionId: p.sessionId,
+        protocol: p.protocol || 'ssh',
+        cliFlavor: (p.cliFlavor as CliFlavor) || 'auto',
+        terminalTheme: p.terminalTheme,
+        fontSize: p.fontSize,
+        fontFamily: p.fontFamily,
+        enterpriseProfileId: p.enterpriseProfileId,
+        enterpriseSessionDefinitionId: p.enterpriseSessionDefinitionId,
+        enterpriseTargetHost: p.enterpriseTargetHost,
+        enterpriseTargetPort: p.enterpriseTargetPort,
+        isJumpbox: p.isJumpbox,
+        status: 'connecting',
+      }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(newId)
+    }
+
+    // Tauri path
+    let unlisten: (() => void) | undefined
+    import('@tauri-apps/api/event')
+      .then(({ listen }) =>
+        listen<PopBackInPayload>('pop-back-in', (event) => {
+          restoreTab(event.payload)
+          // Bring the main window forward so the restored tab is visible.
+          import('@tauri-apps/api/window')
+            .then(({ getCurrentWindow }) => getCurrentWindow().setFocus())
+            .catch(() => {})
+        })
+      )
+      .then((fn) => { unlisten = fn })
+      .catch(() => { /* not in Tauri */ })
+
+    // Browser-popout path (window.open fallback posts to its opener)
+    const handleMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return
+      if (e.data?.type === 'netstacks:pop-back-in') restoreTab(e.data.payload as PopBackInPayload)
+    }
+    window.addEventListener('message', handleMessage)
+
+    return () => {
+      unlisten?.()
+      window.removeEventListener('message', handleMessage)
+    }
+  }, [])
 
   // Handle "Open script output in doc tab" (unsaved until user explicitly saves)
   useEffect(() => {
@@ -4621,6 +4694,8 @@ def main(command: str = "show version"):
       }
       setDiscoveryTargetTopologyId(null)
       setDiscoveryModalOpen(false)
+      // Discovery may have created a topology — refresh the sidebar list.
+      window.dispatchEvent(new Event('topologies-changed'))
     } catch (err) {
       console.error('Failed to save topology:', err)
       showToast(`Failed to save topology: ${getErrorMessage(err)}`, 'error')
@@ -6741,7 +6816,7 @@ def main(command: str = "show version"):
             <button
               className="activity-bar-item"
               onClick={() => openSettingsTab()}
-              title="Settings (Cmd+,)" data-testid="nav-settings"
+              title={`Settings (${displayShortcut('Cmd+,')})`} data-testid="nav-settings"
             >
               {Icons.settings}
             </button>
@@ -7115,7 +7190,7 @@ def main(command: str = "show version"):
                 {tabs.length === 0 ? (
                   <div className="welcome">
                     <img src={`${import.meta.env.BASE_URL}logo.png`} alt="NetStacks" className="welcome-logo" />
-                    <p className="welcome-hint">Press <kbd>Cmd+T</kbd> to open a terminal</p>
+                    <p className="welcome-hint">Press <kbd>{displayShortcut('Cmd+T')}</kbd> to open a terminal</p>
                   </div>
                 ) : (
                   /* Phase 25: Always render all tabs, use CSS for split view layout */

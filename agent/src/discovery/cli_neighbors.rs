@@ -797,7 +797,7 @@ Interface Ethernet2 detected 1 LLDP neighbors:
     }
 
     #[test]
-    fn test__parse_neighbor_output_auto_detect() {
+    fn test_parse_neighbor_output_auto_detect() {
         let cdp_output = r#"Device ID: switch1
 Interface: Gi0/0, Port ID (outgoing port): Gi1/0/1
 "#;

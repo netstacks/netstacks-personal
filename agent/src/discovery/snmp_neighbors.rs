@@ -171,8 +171,7 @@ fn extract_lldp_mgmt_ip(
         if let Some(suffix) = extract_index_suffix(oid, prefix) {
             // suffix format: timeMark.localPortNum.remIndex.addrSubtype.addrLen.a.b.c.d
             // neighbor_key is: timeMark.localPortNum.remIndex
-            if suffix.starts_with(neighbor_key) {
-                let remaining = &suffix[neighbor_key.len()..];
+            if let Some(remaining) = suffix.strip_prefix(neighbor_key) {
                 let remaining = remaining.strip_prefix('.').unwrap_or(remaining);
                 let parts: Vec<&str> = remaining.split('.').collect();
                 // parts[0] = addrSubtype (1=IPv4)

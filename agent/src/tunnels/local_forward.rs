@@ -15,6 +15,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::PooledConnection;
 
+/// Shared tx/rx byte counters for a running forward task.
+pub struct ForwardCounters {
+    pub tx: Arc<AtomicU64>,
+    pub rx: Arc<AtomicU64>,
+}
+
 /// Run a local forward: bind a TCP listener on `bind_address:local_port` and
 /// for each accepted connection, open an SSH direct-tcpip channel to
 /// `remote_host:remote_port`, then bridge data in both directions.
@@ -27,9 +33,9 @@ pub async fn run_local_forward(
     remote_host: &str,
     remote_port: u16,
     cancel: CancellationToken,
-    bytes_tx: Arc<AtomicU64>,
-    bytes_rx: Arc<AtomicU64>,
+    counters: ForwardCounters,
 ) -> Result<(), String> {
+    let ForwardCounters { tx: bytes_tx, rx: bytes_rx } = counters;
     let addr = format!("{}:{}", bind_address, local_port);
     let listener = TcpListener::bind(&addr)
         .await

@@ -76,7 +76,7 @@ pub fn search(query: &str) -> Vec<KbHit> {
             scored.push((score, d));
         }
     }
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|s| std::cmp::Reverse(s.0));
     scored
         .into_iter()
         .map(|(_, d)| KbHit {

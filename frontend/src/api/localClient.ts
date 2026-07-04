@@ -137,6 +137,12 @@ export function createLocalClient(): NetStacksClient {
 export function createRemoteAgentClient(baseUrl: string, authToken: string): NetStacksClient {
   const http = createAgentHttpClient(baseUrl, authToken);
 
+  // Several standalone features (script run streaming, LSP install progress,
+  // workspace output, AI agent chat) authenticate via getSidecarAuthToken()
+  // rather than the axios instance. In a remote-agent window no Tauri event
+  // ever sets it, so those calls would 401 — seed it with this window's token.
+  setSidecarAuthToken(authToken);
+
   return {
     http,
     mode: 'standalone',

@@ -195,8 +195,8 @@ pub(crate) async fn pump_channel_to_socket(
                     0 => break,
                     n => {
                         channel.data(&buf[..n]).await
-                            .map_err(|e| std::io::Error::new(
-                                std::io::ErrorKind::Other, e.to_string()
+                            .map_err(|e| std::io::Error::other(
+                                e.to_string()
                             ))?;
                     }
                 }

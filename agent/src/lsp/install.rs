@@ -185,7 +185,7 @@ pub async fn install_plugin(
         extract_binary_from_wheel(&temp_wheel_clone, &binary_name_clone, &dest_binary_clone)
     })
     .await
-    .map_err(|e| InstallError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
+    .map_err(|e| InstallError::Io(std::io::Error::other(e)))??;
 
     // Clean up temp wheel
     let _ = tokio::fs::remove_file(&temp_wheel).await;

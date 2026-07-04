@@ -52,6 +52,36 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
+ * readClipboardText — mirror of copyToClipboard for reads.
+ *
+ * WebKitGTK (Linux Tauri) gates navigator.clipboard.readText far more
+ * aggressively than writes, so the Tauri plugin is the only reliable
+ * path inside the bundled app. Returns null when nothing readable.
+ */
+export async function readClipboardText(): Promise<string | null> {
+  // 1. Tauri plugin.
+  try {
+    const { readText } = await import('@tauri-apps/plugin-clipboard-manager')
+    const text = await readText()
+    if (text) return text
+  } catch {
+    // Plugin unavailable (non-Tauri context) — try the browser API.
+  }
+
+  // 2. Browser clipboard API.
+  try {
+    if (navigator.clipboard?.readText) {
+      const text = await navigator.clipboard.readText()
+      if (text) return text
+    }
+  } catch {
+    // Denied by the WebView — nothing more we can do.
+  }
+
+  return null
+}
+
+/**
  * Extract the first image blob from a paste event's clipboard data.
  * Returns null if no image is present (let xterm handle text paste).
  */

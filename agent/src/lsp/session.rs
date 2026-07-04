@@ -252,7 +252,7 @@ async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
         if n == 0 {
             return Ok(None);
         }
-        let line = line.trim_end_matches(|c| c == '\r' || c == '\n');
+        let line = line.trim_end_matches(['\r', '\n']);
         if line.is_empty() {
             break;
         }

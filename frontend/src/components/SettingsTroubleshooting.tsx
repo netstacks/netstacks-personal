@@ -6,6 +6,7 @@ import {
 } from '../api/troubleshootingSettings';
 import type { TroubleshootingSettings } from '../types/troubleshooting';
 import './SettingsTroubleshooting.css';
+import { displayShortcut } from '../hooks/useKeyboard'
 
 /**
  * SettingsTroubleshooting Component
@@ -128,7 +129,7 @@ export default function SettingsTroubleshooting() {
             </p>
             <p>
               Start a session from the status bar or use the keyboard shortcut{' '}
-              <kbd>Cmd+Shift+T</kbd>.
+              <kbd>{displayShortcut('Cmd+Shift+T')}</kbd>.
             </p>
           </div>
         </div>

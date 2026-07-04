@@ -11,6 +11,8 @@ export interface AppSettings {
   // Terminal
   'terminal.defaultTheme': string;
   'terminal.copyOnSelect': boolean;
+  // Middle-click pastes the clipboard (Linux/SecureCRT convention).
+  'terminal.middleClickPaste': boolean;
   'terminal.fontWeight': string;
   // Liquid-glass (translucent/blurred) chrome, modals, popovers & AI panels.
   'ui.glassEffects': boolean;
@@ -119,6 +121,7 @@ const defaultSettings: AppSettings = {
   // Terminal
   'terminal.defaultTheme': 'default',
   'terminal.copyOnSelect': false,
+  'terminal.middleClickPaste': true,
   'terminal.fontWeight': 'normal',
   'ui.glassEffects': true,
   'ui.showTitleBar': true,

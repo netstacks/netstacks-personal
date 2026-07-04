@@ -1,5 +1,10 @@
-import { getClient } from './client';
+import { getClient, getCurrentMode } from './client';
 import type { PortForwardType } from './sessions';
+
+// Tunnels live at different prefixes per backend: the local agent serves
+// /api/tunnels/*, while the Controller serves /api/admin/tunnels/* (managed
+// via the Admin UI). The client base URL already ends in /api.
+const tunnelsBase = () => (getCurrentMode() === 'enterprise' ? '/admin/tunnels' : '/tunnels');
 
 // === Types ===
 
@@ -78,47 +83,47 @@ export interface UpdateTunnel {
 // === API Functions ===
 
 export async function listTunnels(): Promise<TunnelWithState[]> {
-  const { data } = await getClient().http.get('/admin/tunnels');
+  const { data } = await getClient().http.get(tunnelsBase());
   return data;
 }
 
 export async function createTunnel(tunnel: NewTunnel): Promise<Tunnel> {
-  const { data } = await getClient().http.post('/admin/tunnels', tunnel);
+  const { data } = await getClient().http.post(tunnelsBase(), tunnel);
   return data;
 }
 
 export async function updateTunnel(id: string, update: UpdateTunnel): Promise<Tunnel> {
-  const { data } = await getClient().http.put(`/admin/tunnels/${id}`, update);
+  const { data } = await getClient().http.put(`${tunnelsBase()}/${id}`, update);
   return data;
 }
 
 export async function deleteTunnel(id: string): Promise<void> {
-  await getClient().http.delete(`/admin/tunnels/${id}`);
+  await getClient().http.delete(`${tunnelsBase()}/${id}`);
 }
 
 export async function startTunnel(id: string): Promise<void> {
-  await getClient().http.post(`/admin/tunnels/${id}/start`);
+  await getClient().http.post(`${tunnelsBase()}/${id}/start`);
 }
 
 export async function stopTunnel(id: string): Promise<void> {
-  await getClient().http.post(`/admin/tunnels/${id}/stop`);
+  await getClient().http.post(`${tunnelsBase()}/${id}/stop`);
 }
 
 export async function reconnectTunnel(id: string): Promise<void> {
-  await getClient().http.post(`/admin/tunnels/${id}/reconnect`);
+  await getClient().http.post(`${tunnelsBase()}/${id}/reconnect`);
 }
 
 export async function getTunnelStatus(): Promise<TunnelRuntimeState[]> {
-  const { data } = await getClient().http.get('/admin/tunnels/status');
+  const { data } = await getClient().http.get(`${tunnelsBase()}/status`);
   return data;
 }
 
 export async function startAllTunnels(): Promise<void> {
-  await getClient().http.post('/admin/tunnels/start-all');
+  await getClient().http.post(`${tunnelsBase()}/start-all`);
 }
 
 export async function stopAllTunnels(): Promise<void> {
-  await getClient().http.post('/admin/tunnels/stop-all');
+  await getClient().http.post(`${tunnelsBase()}/stop-all`);
 }
 
 // === Helpers ===

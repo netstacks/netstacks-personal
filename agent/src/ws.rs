@@ -14,7 +14,7 @@ use subtle::ConstantTimeEq;
 
 use crate::api::AppState;
 use crate::models::{AuthType, PortForward};
-use crate::terminal::{TerminalManager, TerminalMessage};
+use crate::terminal::{SshJump, SshTarget, TerminalManager, TerminalMessage};
 
 /// Combined state for WebSocket handlers
 #[derive(Clone)]
@@ -132,7 +132,7 @@ async fn handle_local_terminal(socket: WebSocket, manager: Arc<TerminalManager>,
             let _ = ws_tx
                 .send(Message::Text(
                     serde_json::to_string(&TerminalMessage::Error(e.to_string()))
-                        .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into(),
+                        .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }),
                 ))
                 .await;
             return;
@@ -155,7 +155,7 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
             let msg = ServerMessage::Error { data: e };
             let _ = ws_tx
                 .send(Message::Text(serde_json::to_string(&msg)
-                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into()))
+                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
                 .await;
             return;
         }
@@ -172,21 +172,25 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
     // Create SSH session with initial dimensions from frontend
     let session_id = match manager.create_ssh_session(
         pty_tx,
-        &ssh_params.host,
-        ssh_params.port,
-        &ssh_params.username,
-        ssh_params.password.as_deref(),
-        ssh_params.key_path.as_deref(),
-        ssh_params.key_passphrase.as_deref(),
-        ssh_params.jump_host.as_deref(),
-        ssh_params.jump_port,
-        ssh_params.jump_username.as_deref(),
-        ssh_params.jump_password.as_deref(),
-        ssh_params.jump_key_path.as_deref(),
-        ssh_params.jump_key_passphrase.as_deref(),
-        ssh_params.jump_legacy_ssh,
+        SshTarget {
+            host: &ssh_params.host,
+            port: ssh_params.port,
+            username: &ssh_params.username,
+            password: ssh_params.password.as_deref(),
+            key_path: ssh_params.key_path.as_deref(),
+            key_passphrase: ssh_params.key_passphrase.as_deref(),
+            legacy_ssh: ssh_params.legacy_ssh,
+        },
+        ssh_params.jump_host.as_deref().map(|jump_host| SshJump {
+            host: jump_host,
+            port: ssh_params.jump_port,
+            username: ssh_params.jump_username.as_deref(),
+            password: ssh_params.jump_password.as_deref(),
+            key_path: ssh_params.jump_key_path.as_deref(),
+            key_passphrase: ssh_params.jump_key_passphrase.as_deref(),
+            legacy_ssh: ssh_params.jump_legacy_ssh,
+        }),
         ssh_params.port_forwards,
-        ssh_params.legacy_ssh,
         query.cols,
         query.rows,
     ).await {
@@ -198,7 +202,7 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
             };
             let _ = ws_tx
                 .send(Message::Text(serde_json::to_string(&msg)
-                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into()))
+                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
                 .await;
             return;
         }
@@ -265,7 +269,7 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
     };
     if ws_tx
         .send(Message::Text(serde_json::to_string(&connected_msg)
-            .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into()))
+            .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
         .await
         .is_err()
     {
@@ -326,7 +330,7 @@ where
                 }
             };
 
-            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+            if ws_tx.send(Message::Text(json)).await.is_err() {
                 tracing::info!("WebSocket closed for {}", session_id_for_output);
                 break;
             }
@@ -425,7 +429,7 @@ where
                 }
             };
 
-            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+            if ws_tx.send(Message::Text(json)).await.is_err() {
                 tracing::info!("WebSocket closed for {}", session_id_for_output);
                 break;
             }
@@ -991,7 +995,7 @@ async fn handle_telnet_terminal(
             let msg = ServerMessage::Error { data: format!("Failed to get Telnet params: {}", e) };
             let _ = ws_tx
                 .send(Message::Text(serde_json::to_string(&msg)
-                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into()))
+                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
                 .await;
             return;
         }
@@ -1018,7 +1022,7 @@ async fn handle_telnet_terminal(
             };
             let _ = ws_tx
                 .send(Message::Text(serde_json::to_string(&msg)
-                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into()))
+                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
                 .await;
             return;
         }
@@ -1043,7 +1047,7 @@ async fn handle_telnet_terminal(
     };
     if ws_tx
         .send(Message::Text(serde_json::to_string(&connected_msg)
-            .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() }).into()))
+            .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
         .await
         .is_err()
     {
@@ -1218,7 +1222,7 @@ async fn handle_topology_live(socket: WebSocket, app_state: Arc<AppState>) {
     // Task to forward outgoing messages to WebSocket
     let output_task = tokio::spawn(async move {
         while let Some(msg) = msg_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+            if ws_tx.send(Message::Text(msg)).await.is_err() {
                 break;
             }
         }
@@ -1251,7 +1255,7 @@ async fn handle_topology_live(socket: WebSocket, app_state: Arc<AppState>) {
                         }
 
                         // Clamp interval: minimum 10, maximum 300
-                        let interval = interval_secs.max(10).min(300);
+                        let interval = interval_secs.clamp(10, 300);
 
                         let msg_tx = msg_tx.clone();
                         let app_state = app_state.clone();
@@ -1664,7 +1668,7 @@ async fn handle_task_progress(socket: WebSocket, app_state: Arc<AppState>) {
             "max_concurrent": app_state.task_registry.max_concurrent(),
         });
         if let Ok(json) = serde_json::to_string(&init_msg) {
-            let _ = ws_tx.send(Message::Text(json.into())).await;
+            let _ = ws_tx.send(Message::Text(json)).await;
         }
     }
 
@@ -1674,7 +1678,7 @@ async fn handle_task_progress(socket: WebSocket, app_state: Arc<AppState>) {
             match progress_rx.recv().await {
                 Ok(event) => {
                     if let Ok(json) = serde_json::to_string(&event) {
-                        if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                        if ws_tx.send(Message::Text(json)).await.is_err() {
                             break;
                         }
                     }

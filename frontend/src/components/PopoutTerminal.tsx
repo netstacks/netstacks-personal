@@ -40,29 +40,34 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
     : 'var(--color-text-secondary)'
 
   const handlePopBackIn = useCallback(async () => {
+    const payload = {
+      sessionId,
+      sessionName,
+      protocol,
+      cliFlavor,
+      terminalTheme,
+      fontSize,
+      fontFamily,
+      enterpriseProfileId,
+      enterpriseSessionDefinitionId,
+      enterpriseTargetHost,
+      enterpriseTargetPort,
+      isJumpbox,
+    }
     try {
       const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
       const currentWindow = getCurrentWebviewWindow()
-      // Emit event to main window so it can re-create the tab
+      // Emit event to main window (App.tsx pop-back-in listener re-creates the tab)
       const { emit } = await import('@tauri-apps/api/event')
-      await emit('pop-back-in', {
-        sessionId,
-        sessionName,
-        protocol,
-        cliFlavor,
-        terminalTheme,
-        fontSize,
-        fontFamily,
-        enterpriseProfileId,
-        enterpriseSessionDefinitionId,
-        enterpriseTargetHost,
-        enterpriseTargetPort,
-        isJumpbox,
-      })
+      await emit('pop-back-in', payload)
       // Close this popout window
       await currentWindow.close()
     } catch {
-      // Not in Tauri environment
+      // Not in Tauri environment — hand the tab back to the opener window.
+      window.opener?.postMessage(
+        { type: 'netstacks:pop-back-in', payload },
+        window.location.origin
+      )
       window.close()
     }
   }, [sessionId, sessionName, protocol, cliFlavor, terminalTheme, fontSize, fontFamily, enterpriseProfileId, enterpriseSessionDefinitionId, enterpriseTargetHost, enterpriseTargetPort, isJumpbox])
