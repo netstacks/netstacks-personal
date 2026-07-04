@@ -75,7 +75,8 @@ import QuickCallVariablesDialog, { extractCallVariables } from './components/Qui
 import type { QuickPrompt } from './api/quickPrompts'
 import type { QuickAction } from './api/quickActions'
 import { executeQuickAction } from './api/quickActions'
-import type { QuickActionResult } from './types/quickAction'
+import type { QuickActionResult, ApiResource } from './types/quickAction'
+import ApiResourceDialog from './components/ApiResourceDialog'
 import type { GlobalSnippet } from './api/snippets'
 import { useMultiSend } from './hooks/useMultiSend'
 import { useKeyboard } from './hooks/useKeyboard'
@@ -559,6 +560,10 @@ function AppContent() {
 
   // First-run onboarding wizard (SP2)
   const [wizardOpen, setWizardOpen] = useState(false)
+
+  // AI-proposed API Resource prefill (SP5-C): the AI assembles a config and the
+  // user enters the secret + saves in this dialog.
+  const [prefillApiResource, setPrefillApiResource] = useState<ApiResource | null>(null)
 
   // Active topology (published by TopologyTabEditor) → AI topology tools.
   // Individual selectors avoid re-rendering App on unrelated store writes.
@@ -1468,6 +1473,26 @@ function AppContent() {
     handleWizardClose()
     openSettingsTab('integrations')
   }, [handleWizardClose, openSettingsTab])
+
+  // AI proposes an API Resource → open the dialog pre-filled (SP5-C).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<Partial<ApiResource>>).detail
+      if (!d) return
+      setPrefillApiResource({
+        id: '',
+        name: d.name || '',
+        base_url: d.base_url || '',
+        auth_type: (d.auth_type as ApiResource['auth_type']) || 'none',
+        auth_header_name: d.auth_header_name,
+        test_path: d.test_path,
+        verify_ssl: true,
+        timeout_secs: 30,
+      } as ApiResource)
+    }
+    window.addEventListener('netstacks:prefill-api-resource', handler as EventListener)
+    return () => window.removeEventListener('netstacks:prefill-api-resource', handler as EventListener)
+  }, [])
 
   // macOS Force Touch (force click) on a terminal → open the action popover.
   // Built-in actions (Search Web, Copy) plus the user's custom commands flagged
@@ -8401,6 +8426,19 @@ def main(command: str = "show version"):
         onClose={handleWizardClose}
         onOpenIntegrations={handleWizardOpenIntegrations}
       />
+
+      {/* AI-proposed API Resource (SP5-C) — user enters the secret + saves */}
+      {prefillApiResource && (
+        <ApiResourceDialog
+          resource={prefillApiResource}
+          mode="create"
+          onClose={() => setPrefillApiResource(null)}
+          onSaved={() => {
+            setPrefillApiResource(null)
+            showToast('API Resource saved — the AI can now use it to collect and onboard devices.', 'success')
+          }}
+        />
+      )}
 
       {/* Auto-update checker (Tauri only) */}
       {isTauri && <UpdateChecker />}

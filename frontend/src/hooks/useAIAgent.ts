@@ -58,7 +58,9 @@ import {
   createRecommendationMessage,
   type ConfigRecommendation,
 } from '../api/agent';
-import { listSessions as apiListSessions, listFolders as apiListFolders, updateSession as apiUpdateSession, type CliFlavor, type Session, type Folder } from '../api/sessions';
+import { listSessions as apiListSessions, listFolders as apiListFolders, updateSession as apiUpdateSession, createSession, createFolder, type CliFlavor, type Session, type Folder } from '../api/sessions';
+import { listProfiles } from '../api/profiles';
+import { confirmDialog } from '../components/ConfirmDialog';
 import { listEnterpriseSessionDefinitions, listUserFolders as apiListUserFolders } from '../api/enterpriseSessions';
 import { getCurrentMode } from '../api/client';
 import { parseApiError, getErrorMessage } from '../api/errors';
@@ -75,6 +77,7 @@ import { buildSessionKnowledge } from '../lib/aiSessionContext';
 import { buildDocumentsOverview } from '../lib/aiDocumentsContext';
 import { resolveDocSaveTarget } from '../lib/docSaveTargets';
 import { searchDocsKb, readDocsKb } from '../api/docsKb';
+import { listApiResources, executeInlineQuickAction } from '../api/quickActions';
 
 // Re-export types for consumers
 export type { AgentState, AgentMessage, PendingCommand, PermissionMode };
@@ -1519,6 +1522,145 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
             content: `Failed to save document: ${getErrorMessage(err)}`,
             is_error: true,
           };
+        }
+      }
+
+      // Generic API access — call any configured API Resource (no bash)
+      case 'list_api_resources': {
+        try {
+          const list = await listApiResources();
+          return {
+            content: JSON.stringify(list.map(r => ({ id: r.id, name: r.name, base_url: r.base_url, auth_type: r.auth_type }))),
+            is_error: false,
+          };
+        } catch (err) {
+          return { content: `Failed to list API Resources: ${getErrorMessage(err)}`, is_error: true };
+        }
+      }
+      case 'call_api_resource': {
+        try {
+          const wanted = String(input.resource ?? '').trim();
+          const list = await listApiResources();
+          const res = list.find(r => r.id === wanted) || list.find(r => r.name.toLowerCase() === wanted.toLowerCase());
+          if (!res) {
+            return { content: `No API Resource "${wanted}". Use list_api_resources to see available ones.`, is_error: true };
+          }
+          const method = String(input.method ?? 'GET').toUpperCase();
+          const result = await executeInlineQuickAction({
+            api_resource_id: res.id,
+            method,
+            path: String(input.path ?? '/'),
+            body: input.body as string | undefined,
+          });
+          return { content: JSON.stringify(result), is_error: false };
+        } catch (err) {
+          return { content: `API call failed: ${getErrorMessage(err)}`, is_error: true };
+        }
+      }
+
+      case 'onboard_devices': {
+        try {
+          const wanted = String(input.resource ?? '').trim();
+          const resources = await listApiResources();
+          const res = resources.find(r => r.id === wanted) || resources.find(r => r.name.toLowerCase() === wanted.toLowerCase());
+          if (!res) {
+            return { content: `No API Resource "${wanted}". Use list_api_resources first.`, is_error: true };
+          }
+          // Resolve the credential profile (required — sessions get auth from it).
+          const wantedProfile = String(input.profile ?? '').trim();
+          const profiles = await listProfiles();
+          const profile = profiles.find(p => p.id === wantedProfile) || profiles.find(p => p.name.toLowerCase() === wantedProfile.toLowerCase());
+          if (!profile) {
+            return {
+              content: `No credential profile "${wantedProfile}". Available: ${profiles.map(p => p.name).join(', ') || '(none — create one in Settings → Profiles)'}.`,
+              is_error: true,
+            };
+          }
+          // Fetch the device list.
+          const result = await executeInlineQuickAction({
+            api_resource_id: res.id,
+            method: String(input.method ?? 'GET').toUpperCase(),
+            path: String(input.path ?? '/'),
+          });
+          if (!result.success) {
+            return { content: `Fetch failed (${result.status_code}): ${result.error ?? 'unknown error'}`, is_error: true };
+          }
+          // Locate the array of rows.
+          let body: unknown = result.raw_body;
+          if (typeof body === 'string') { try { body = JSON.parse(body); } catch { /* leave as string */ } }
+          const walk = (obj: unknown, path?: string): unknown =>
+            !path ? obj : path.split('.').reduce<unknown>((acc, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined), obj);
+          const arr = walk(body, input.list_path ? String(input.list_path) : undefined);
+          if (!Array.isArray(arr)) {
+            return { content: `Response is not an array${input.list_path ? ` at "${input.list_path}"` : ''}. Inspect it with call_api_resource and pass the correct list_path.`, is_error: true };
+          }
+          // Map rows → {name, host}.
+          const nameField = String(input.name_field);
+          const hostField = String(input.host_field);
+          const cap = typeof input.limit === 'number' ? input.limit : 500;
+          const devices = arr
+            .map(row => ({
+              name: String(walk(row, nameField) ?? '').trim(),
+              host: String(walk(row, hostField) ?? '').trim(),
+            }))
+            .filter(d => d.name && d.host)
+            .slice(0, cap);
+          if (devices.length === 0) {
+            return { content: `No devices with both "${nameField}" and "${hostField}" found in the response.`, is_error: true };
+          }
+          // Preview + explicit confirm before creating anything.
+          const folderName = input.folder ? String(input.folder).trim() : '';
+          const sample = devices.slice(0, 8).map(d => `• ${d.name} (${d.host})`).join('\n');
+          const ok = await confirmDialog({
+            title: 'Onboard devices?',
+            body: `Create ${devices.length} session${devices.length === 1 ? '' : 's'} using profile "${profile.name}"${folderName ? ` in folder "${folderName}"` : ''}?\n\n${sample}${devices.length > 8 ? `\n…and ${devices.length - 8} more` : ''}`,
+            confirmLabel: `Onboard ${devices.length}`,
+          });
+          if (!ok) {
+            return { content: 'User cancelled onboarding — no sessions created.', is_error: false };
+          }
+          // Optional folder.
+          let folderId: string | undefined;
+          if (folderName) {
+            try { folderId = (await createFolder(folderName)).id; } catch { /* create at root on folder failure */ }
+          }
+          const cliFlavor = input.cli_flavor ? String(input.cli_flavor) : 'auto';
+          let created = 0;
+          const failures: string[] = [];
+          for (const d of devices) {
+            try {
+              await createSession({ name: d.name, host: d.host, profile_id: profile.id, folder_id: folderId ?? null, cli_flavor: cliFlavor as CliFlavor });
+              created++;
+            } catch (err) {
+              failures.push(`${d.name}: ${getErrorMessage(err)}`);
+            }
+          }
+          return {
+            content: JSON.stringify({ created, failed: failures.length, folder: folderName || null, errors: failures.slice(0, 10) }, null, 2),
+            is_error: false,
+          };
+        } catch (err) {
+          return { content: `Onboarding failed: ${getErrorMessage(err)}`, is_error: true };
+        }
+      }
+
+      case 'propose_api_resource': {
+        // Open the API Resource dialog pre-filled; the USER enters the secret.
+        const prefill = {
+          name: String(input.name ?? ''),
+          base_url: String(input.base_url ?? ''),
+          auth_type: String(input.auth_type ?? 'none'),
+          auth_header_name: input.auth_header_name ? String(input.auth_header_name) : undefined,
+          test_path: input.test_path ? String(input.test_path) : undefined,
+        };
+        try {
+          window.dispatchEvent(new CustomEvent('netstacks:prefill-api-resource', { detail: prefill }));
+          return {
+            content: `Opened the API Resource dialog pre-filled for "${prefill.name}". Ask the user to paste their API token/credentials and click Test, then Save. Once saved, I can list_api_resources and call_api_resource to collect and onboard devices.`,
+            is_error: false,
+          };
+        } catch (err) {
+          return { content: `Could not open the API Resource dialog: ${getErrorMessage(err)}`, is_error: true };
         }
       }
 

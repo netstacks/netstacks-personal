@@ -386,6 +386,61 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['path', 'content']
     }
   },
+  // Generic API access — call any configured API Resource (no bash needed)
+  {
+    name: 'list_api_resources',
+    description: 'List the configured API Resources (reusable external HTTP endpoints: base URL + auth). Use this to discover which external systems you can call before using call_api_resource.',
+    parameters: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'call_api_resource',
+    description: 'Call a configured API Resource (by name or id) and return the response. Use this to check or query any external API the user has set up — CMDBs, IPAM, monitoring, ticketing — WITHOUT needing bash. Read-only usage (GET, or POST for search/query endpoints). For anything that changes remote state, confirm with the user first.',
+    parameters: {
+      type: 'object',
+      properties: {
+        resource: { type: 'string', description: 'API Resource name or id (from list_api_resources)' },
+        method: { type: 'string', description: 'HTTP method (default GET)', enum: ['GET', 'POST'] },
+        path: { type: 'string', description: 'Path appended to the resource base URL, e.g. /api/devices?limit=50' },
+        body: { type: 'string', description: 'Optional request body (JSON string) for POST' }
+      },
+      required: ['resource', 'path']
+    }
+  },
+  {
+    name: 'propose_api_resource',
+    description: 'Open the API Resource creation dialog PRE-FILLED with a configuration you assembled (from a Swagger/OpenAPI spec + the user\'s auth description). The user enters the secret token and clicks Test/Save — secrets never pass through you. Use this to help a user connect a generic CMDB/API before onboarding devices. After the user saves, use list_api_resources / call_api_resource to proceed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Friendly name, e.g. "Acme CMDB"' },
+        base_url: { type: 'string', description: 'Base URL, e.g. https://cmdb.example.com' },
+        auth_type: { type: 'string', description: 'Auth type', enum: ['none', 'bearer_token', 'basic', 'api_key_header', 'custom_header'] },
+        auth_header_name: { type: 'string', description: 'Header name for api_key_header/custom_header (e.g. X-API-Key)' },
+        test_path: { type: 'string', description: 'A path that requires auth to verify the connection, e.g. /api/devices' }
+      },
+      required: ['name', 'base_url', 'auth_type']
+    }
+  },
+  {
+    name: 'onboard_devices',
+    description: 'Collect devices from a configured API Resource (e.g. a CMDB) and onboard them as ready-to-connect sessions, assigning a default credential profile. Fetches the endpoint, maps fields you specify to session name + host, shows the user a preview, and creates the sessions ONLY after the user confirms. Use call_api_resource first to inspect the response shape and pick the right field names.',
+    parameters: {
+      type: 'object',
+      properties: {
+        resource: { type: 'string', description: 'API Resource name or id to fetch devices from' },
+        path: { type: 'string', description: 'Endpoint path returning the device list, e.g. /api/devices?limit=500' },
+        method: { type: 'string', description: 'HTTP method (default GET)', enum: ['GET', 'POST'] },
+        list_path: { type: 'string', description: 'Dot-path to the device array in the response (e.g. "results" or "data.devices"). Omit if the response is already an array.' },
+        name_field: { type: 'string', description: 'Field on each row to use as the session name (e.g. "name" or "hostname")' },
+        host_field: { type: 'string', description: 'Field on each row to use as the host/IP (e.g. "primary_ip" or "mgmt_address")' },
+        profile: { type: 'string', description: 'Credential profile name or id to assign to every onboarded session (all auth comes from the profile)' },
+        folder: { type: 'string', description: 'Optional folder name to create/place the sessions under' },
+        cli_flavor: { type: 'string', description: 'Optional default CLI flavor (default "auto")' },
+        limit: { type: 'number', description: 'Optional safety cap on how many devices to onboard (default 500)' }
+      },
+      required: ['resource', 'path', 'name_field', 'host_field', 'profile']
+    }
+  },
   // NetStacks bundled usage docs (how the app itself works)
   {
     name: 'search_netstacks_docs',
@@ -1852,6 +1907,13 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
   // Always include document tools (read and write)
   const docTools = ['list_documents', 'read_document', 'search_documents', 'save_document'];
   for (const name of docTools) {
+    const tool = AGENT_TOOLS.find(t => t.name === name);
+    if (tool) tools.push(tool);
+  }
+
+  // Always include the generic API-access tools (call any configured API Resource)
+  const apiResourceTools = ['list_api_resources', 'call_api_resource', 'propose_api_resource', 'onboard_devices'];
+  for (const name of apiResourceTools) {
     const tool = AGENT_TOOLS.find(t => t.name === name);
     if (tool) tools.push(tool);
   }
