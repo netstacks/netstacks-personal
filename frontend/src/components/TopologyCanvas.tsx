@@ -13,6 +13,7 @@ import { drawDevice } from './DeviceIcons';
 import { renderAnnotations, hitTestAnnotation, type CanvasTransform } from './AnnotationRenderer';
 import AIInlinePopup from './AIInlinePopup';
 import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
+import type { LayerVisibility } from './TopologyToolbar';
 import './TopologyCanvas.css';
 
 interface TopologyCanvasProps {
@@ -78,6 +79,9 @@ interface TopologyCanvasProps {
    *  tracerouteEnrichment.linkStats). Defaults to false; toggle via the
    *  "Show port stats" button in TopologyToolbar. */
   showPortStats?: boolean;
+  /** Layer visibility toggles (Layers dropdown). Each layer defaults to
+   *  visible when the prop or a given key is omitted. */
+  visibleLayers?: LayerVisibility;
 }
 
 /** Resize handle positions */
@@ -167,6 +171,7 @@ export default function TopologyCanvas({
   className = '',
   tracerouteEnrichment,
   showPortStats = false,
+  visibleLayers,
 }: TopologyCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1521,7 +1526,7 @@ export default function TopologyCanvas({
     ctx.scale(zoom, zoom);
 
     // Draw grid
-    drawGrid(ctx);
+    if (visibleLayers?.grid !== false) drawGrid(ctx);
 
     // Draw ASN zone backgrounds for traceroute enrichment
     if (tracerouteEnrichment?.asnZones && tracerouteEnrichment.asnZones.length > 0 && topology) {
@@ -1574,7 +1579,7 @@ export default function TopologyCanvas({
     }
 
     // Draw connections first (so devices appear on top)
-    drawConnections(ctx);
+    if (visibleLayers?.connections !== false) drawConnections(ctx);
 
     // Draw temporary connection line from source to cursor when drawing
     if (drawingConnection && connectionSource && cursorWorldPosition) {
@@ -1590,7 +1595,7 @@ export default function TopologyCanvas({
     }
 
     // Draw devices
-    drawDevices(ctx);
+    if (visibleLayers?.devices !== false) drawDevices(ctx);
 
     // Draw annotations on top of everything (in world coordinates)
     if (annotations.length > 0) {
@@ -1624,7 +1629,7 @@ export default function TopologyCanvas({
     }
 
     ctx.restore();
-  }, [canvasSize, viewOffset, zoom, drawGrid, drawConnections, drawDevices, drawingConnection, connectionSource, cursorWorldPosition, toCanvasX, toCanvasY, getDevicePosition, annotations, selectedAnnotationId, localAnnotationPositions, localAnnotationSizes, tracerouteEnrichment, topology]);
+  }, [canvasSize, viewOffset, zoom, drawGrid, drawConnections, drawDevices, drawingConnection, connectionSource, cursorWorldPosition, toCanvasX, toCanvasY, getDevicePosition, annotations, selectedAnnotationId, localAnnotationPositions, localAnnotationSizes, tracerouteEnrichment, topology, visibleLayers]);
 
   /**
    * Handle mouse move for hover detection, panning, and device dragging
@@ -1923,6 +1928,13 @@ export default function TopologyCanvas({
 
       // Notify parent to close any overlays (detail cards, etc.)
       onCanvasMouseDown?.();
+
+      // Only the left button drives canvas interaction here. Right/middle
+      // clicks are handled entirely by onContextMenu — without this guard a
+      // right-click near a link falls through to the connection-click branch
+      // below and pops the link-detail card *in addition to* the device
+      // context menu.
+      if (event.button !== 0) return;
 
       const rect = canvas.getBoundingClientRect();
       const screenX = event.clientX - rect.left;

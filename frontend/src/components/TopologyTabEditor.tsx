@@ -2402,6 +2402,7 @@ export default function TopologyTabEditor({
             deviceStats={isLiveActive ? activeDeviceStats : undefined}
             tracerouteEnrichment={traceEnrichment || undefined}
             showPortStats={showPortStats}
+            visibleLayers={visibleLayers}
             onCanvasMouseDown={() => {
               // Close overlays when starting canvas interaction (enables drag even when cards are open)
               setDetailCard(null);
@@ -2420,6 +2421,7 @@ export default function TopologyTabEditor({
         ) : (
           <TopologyCanvas3D
             topology={filteredTopology!}
+            visibleLayers={visibleLayers}
             selectedDeviceId={selectedDeviceId}
             onDeviceClick={handleDeviceClick}
             onDeviceDoubleClick={onDeviceDoubleClick}

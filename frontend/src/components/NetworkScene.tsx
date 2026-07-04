@@ -6,10 +6,13 @@ import type { Topology, Device, Connection } from '../types/topology';
 import type { LiveStatsMap, DeviceStatsMap } from '../hooks/useTopologyLive';
 import DeviceMesh from './DeviceMesh';
 import ConnectionLine3D from './ConnectionLine3D';
+import type { LayerVisibility } from './TopologyToolbar';
 
 interface NetworkSceneProps {
   /** Topology data to render */
   topology: Topology | null;
+  /** Layer visibility toggles; each layer defaults to visible when omitted */
+  visibleLayers?: LayerVisibility;
   /** Currently selected device ID */
   selectedDeviceId: string | null;
   /** Currently hovered device ID */
@@ -65,6 +68,7 @@ interface NetworkSceneProps {
  */
 export default function NetworkScene({
   topology,
+  visibleLayers,
   selectedDeviceId,
   hoveredDeviceId,
   hoveredConnectionId,
@@ -120,7 +124,7 @@ export default function NetworkScene({
   return (
     <group>
       {/* Connections - render first so devices appear on top */}
-      {topology.connections.map((conn) => {
+      {visibleLayers?.connections !== false && topology.connections.map((conn) => {
         const sourcePos = devicePositions.get(conn.sourceDeviceId);
         const targetPos = devicePositions.get(conn.targetDeviceId);
 
@@ -150,7 +154,7 @@ export default function NetworkScene({
       })}
 
       {/* Devices - render after connections */}
-      {topology.devices.map((device) => {
+      {visibleLayers?.devices !== false && topology.devices.map((device) => {
         const position = devicePositions.get(device.id);
         if (!position) return null;
 

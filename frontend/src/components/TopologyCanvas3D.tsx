@@ -8,6 +8,7 @@ import NetworkScene from './NetworkScene';
 import FlyControls, { FLY_CONTROLS_MAP } from './FlyControls';
 import AIInlinePopup from './AIInlinePopup';
 import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
+import type { LayerVisibility } from './TopologyToolbar';
 import './TopologyCanvas3D.css';
 
 /** Initial camera position type */
@@ -57,6 +58,9 @@ interface TopologyCanvas3DProps {
   animateOnMount?: boolean;
   /** Additional CSS class */
   className?: string;
+  /** Layer visibility toggles (Layers dropdown). Each layer defaults to
+   *  visible when the prop or a given key is omitted. */
+  visibleLayers?: LayerVisibility;
 }
 
 /** Coordinate space size (matches 2D: 0-1000) */
@@ -184,9 +188,11 @@ export function toWorld3D(x2d: number, y2d: number): { x: number; y: number; z: 
 }
 
 /**
- * Scene content component - contains all 3D objects
+ * Scene content component - contains all 3D objects.
+ * `showGrid` defaults to true so the grid renders unless the Layers
+ * dropdown toggles it off.
  */
-function SceneContent() {
+function SceneContent({ showGrid = true }: { showGrid?: boolean }) {
   return (
     <>
       {/* Ambient light for overall scene illumination */}
@@ -200,6 +206,7 @@ function SceneContent() {
       />
 
       {/* Grid helper on XZ plane - 500x500 units, 20 divisions */}
+      {showGrid && (
       <Grid
         position={[0, -0.1, 0]}
         args={[500, 500]}
@@ -214,6 +221,7 @@ function SceneContent() {
         followCamera={false}
         infiniteGrid={false}
       />
+      )}
 
       {/* Environment for realistic lighting - minimal preset */}
       <Environment preset="night" />
@@ -256,6 +264,7 @@ export default function TopologyCanvas3D({
   // animateOnMount disabled for now - OrbitControls needs full control
   animateOnMount: _animateOnMount = true,
   className = '',
+  visibleLayers,
 }: TopologyCanvas3DProps) {
   // State for hovered device and connection
   const [hoveredDeviceId, setHoveredDeviceId] = useState<string | null>(null);
@@ -464,7 +473,7 @@ export default function TopologyCanvas3D({
           }}
           onContextMenu={(e) => e.preventDefault()}
         >
-          <SceneContent />
+          <SceneContent showGrid={visibleLayers?.grid !== false} />
 
           {/* Track camera distance for zoom-tier rendering */}
           <CameraDistanceTracker onChange={setCameraDistance} />
@@ -472,6 +481,7 @@ export default function TopologyCanvas3D({
           {/* Network topology scene with devices and connections */}
           <NetworkScene
             topology={topology}
+            visibleLayers={visibleLayers}
             selectedDeviceId={selectedDeviceId ?? null}
             hoveredDeviceId={hoveredDeviceId}
             hoveredConnectionId={hoveredConnectionId}
