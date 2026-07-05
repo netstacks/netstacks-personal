@@ -1,12 +1,13 @@
 // NetworkScene - Renders all devices and connections from topology in 3D
 // Part of the Phase 05 3D visualization system
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type { Topology, Device, Connection } from '../types/topology';
 import type { LiveStatsMap, DeviceStatsMap } from '../hooks/useTopologyLive';
 import DeviceMesh from './DeviceMesh';
 import ConnectionLine3D from './ConnectionLine3D';
 import type { LayerVisibility } from './TopologyToolbar';
+import { applyGroupDelta } from '../lib/topologySelection';
 
 interface NetworkSceneProps {
   /** Topology data to render */
@@ -15,12 +16,14 @@ interface NetworkSceneProps {
   visibleLayers?: LayerVisibility;
   /** Currently selected device ID */
   selectedDeviceId: string | null;
+  /** Set of selected device IDs for multi-select */
+  selectedDeviceIds?: Set<string>;
   /** Currently hovered device ID */
   hoveredDeviceId: string | null;
   /** Currently hovered connection ID */
   hoveredConnectionId?: string | null;
   /** Device click callback (with screen position for overlay) */
-  onDeviceClick: (device: Device, screenPosition: { x: number; y: number }) => void;
+  onDeviceClick: (device: Device, screenPosition: { x: number; y: number }, opts?: { additive?: boolean }) => void;
   /** Device double-click callback (with screen position for overlay) */
   onDeviceDoubleClick?: (device: Device, screenPosition: { x: number; y: number }) => void;
   /** Device context menu callback (right-click) */
@@ -35,6 +38,8 @@ interface NetworkSceneProps {
   onConnectionHover?: (connection: Connection | null) => void;
   /** Callback when device position changes during drag */
   onDevicePositionChange?: (deviceId: string, x: number, y: number) => void;
+  /** Callback when group position changes (multi-device drag) */
+  onGroupPositionChange?: (moves: { deviceId: string; x: number; y: number }[]) => void;
   /** Local device positions during drag (overrides topology positions) */
   localDevicePositions?: Map<string, { x: number; y: number }>;
   /** Called during drag with intermediate positions */
@@ -45,6 +50,8 @@ interface NetworkSceneProps {
   connectionSource?: Device | null;
   /** Callback when a device is clicked during connection drawing */
   onDeviceClickForConnection?: (device: Device) => boolean;
+  /** Callback when a device receives pointer down (for marquee conflict detection) */
+  onDevicePointerDown?: () => void;
   /** Live SNMP stats from topology-live WebSocket */
   liveStats?: LiveStatsMap;
   /** Device-level live stats (host -> device stats with health score) */
@@ -70,6 +77,7 @@ export default function NetworkScene({
   topology,
   visibleLayers,
   selectedDeviceId,
+  selectedDeviceIds,
   hoveredDeviceId,
   hoveredConnectionId,
   onDeviceClick,
@@ -80,15 +88,20 @@ export default function NetworkScene({
   onConnectionContextMenu,
   onConnectionHover,
   onDevicePositionChange,
+  onGroupPositionChange,
   localDevicePositions,
   onDeviceDrag,
   drawingConnection = false,
   connectionSource,
   onDeviceClickForConnection,
+  onDevicePointerDown,
   liveStats,
   deviceStats,
   cameraDistance,
 }: NetworkSceneProps) {
+  // Track group drag start positions (deviceId -> {x, y})
+  const groupDragStartsRef = useRef<Map<string, { x: number; y: number }> | null>(null);
+
   /**
    * Get device 2D position (from local if dragging, otherwise from device)
    */
@@ -158,23 +171,91 @@ export default function NetworkScene({
         const position = devicePositions.get(device.id);
         if (!position) return null;
 
+        const isSelected = selectedDeviceIds?.has(device.id) ?? (selectedDeviceId === device.id);
+        const isInMultiSelection = selectedDeviceIds && selectedDeviceIds.has(device.id) && selectedDeviceIds.size > 1;
+
+        // Wrap onDrag to handle group drag
+        const handleDrag = onDeviceDrag ? (x: number, y: number) => {
+          if (isInMultiSelection) {
+            // Initialize group drag on first move
+            if (!groupDragStartsRef.current) {
+              groupDragStartsRef.current = new Map();
+
+              // Record start positions for all selected devices
+              topology.devices.forEach((d) => {
+                if (selectedDeviceIds.has(d.id)) {
+                  groupDragStartsRef.current!.set(d.id, { x: d.x, y: d.y });
+                }
+              });
+            }
+
+            // Compute delta from dragged device's start
+            const draggedStart = groupDragStartsRef.current.get(device.id);
+            if (draggedStart) {
+              const dx = x - draggedStart.x;
+              const dy = y - draggedStart.y;
+
+              // Apply delta to all selected devices
+              const updatedPositions = applyGroupDelta(groupDragStartsRef.current, dx, dy);
+              updatedPositions.forEach((pos, deviceId) => {
+                onDeviceDrag(deviceId, pos.x, pos.y);
+              });
+            }
+          } else {
+            // Single device drag (not in multi-selection)
+            onDeviceDrag(device.id, x, y);
+          }
+        } : undefined;
+
+        // Wrap onDragEnd to handle group drag end
+        const handleDragEnd = onDevicePositionChange || onGroupPositionChange ? (x: number, y: number) => {
+          if (isInMultiSelection && groupDragStartsRef.current) {
+            // Compute final delta
+            const draggedStart = groupDragStartsRef.current.get(device.id);
+            if (draggedStart) {
+              const dx = x - draggedStart.x;
+              const dy = y - draggedStart.y;
+
+              // Apply delta to get final positions
+              const finalPositions = applyGroupDelta(groupDragStartsRef.current, dx, dy);
+
+              // Convert to array format for onGroupPositionChange
+              const moves = Array.from(finalPositions).map(([deviceId, pos]) => ({
+                deviceId,
+                x: pos.x,
+                y: pos.y,
+              }));
+
+              // Clear group drag state
+              groupDragStartsRef.current = null;
+
+              // Call group position change handler
+              onGroupPositionChange?.(moves);
+            }
+          } else {
+            // Single device drag end
+            onDevicePositionChange?.(device.id, x, y);
+          }
+        } : undefined;
+
         return (
           <DeviceMesh
             key={device.id}
             device={device}
             position={position}
-            isSelected={selectedDeviceId === device.id}
+            isSelected={isSelected}
             isHovered={hoveredDeviceId === device.id}
-            onClick={(screenPos) => onDeviceClick(device, screenPos)}
+            onClick={(screenPos, opts) => onDeviceClick(device, screenPos, opts)}
             onDoubleClick={(screenPos) => onDeviceDoubleClick?.(device, screenPos)}
             onContextMenu={(screenPos) => onDeviceContextMenu?.(device, screenPos)}
             onPointerOver={() => onDeviceHover(device)}
             onPointerOut={() => onDeviceHover(null)}
-            onDrag={onDeviceDrag ? (x, y) => onDeviceDrag(device.id, x, y) : undefined}
-            onDragEnd={onDevicePositionChange ? (x, y) => onDevicePositionChange(device.id, x, y) : undefined}
+            onDrag={handleDrag}
+            onDragEnd={handleDragEnd}
             drawingConnection={drawingConnection}
             isConnectionSource={connectionSource?.id === device.id}
             onClickForConnection={onDeviceClickForConnection ? () => onDeviceClickForConnection(device) : undefined}
+            onDevicePointerDown={onDevicePointerDown}
             deviceStats={deviceStats?.get(device.primaryIp || '')}
           />
         );

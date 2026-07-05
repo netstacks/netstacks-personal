@@ -18,7 +18,8 @@ export type TopologyActionType =
   | 'add_annotation'
   | 'remove_annotation'
   | 'update_annotation'
-  | 'bulk'; // for grouped operations
+  | 'bulk' // for grouped operations
+  | 'bulk_remove'; // for delete-selected operations
 
 /**
  * Source of the topology modification

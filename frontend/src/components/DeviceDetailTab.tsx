@@ -1674,12 +1674,23 @@ export default function DeviceDetailTab({
                   </tr>
                 )}
                 {device?.metadata && Object.keys(device.metadata).length > 0 && (
-                  Object.entries(device.metadata).map(([key, val]) => (
-                    <tr key={key}>
-                      <td className="label">{key}</td>
-                      <td className="value">{val}</td>
-                    </tr>
-                  ))
+                  Object.entries(device.metadata)
+                    .filter(([key]) => {
+                      // Exclude traceroute provider keys (shown in detail sections)
+                      const tracerouteKeys = [
+                        'hopNumber', 'classification', 'asn', 'asnName',
+                        'whoisOrg', 'whoisCidr', 'whoisCountry',
+                        'interfaceName', 'interfaceDescription',
+                        'dnsHostnames', 'netboxUrl', 'enrichmentSources',
+                      ];
+                      return !tracerouteKeys.includes(key);
+                    })
+                    .map(([key, val]) => (
+                      <tr key={key}>
+                        <td className="label">{key}</td>
+                        <td className="value">{val}</td>
+                      </tr>
+                    ))
                 )}
               </tbody>
             </table>

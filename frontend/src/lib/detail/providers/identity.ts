@@ -2,8 +2,7 @@
  * Identity provider — Vendor, Model, CLI Flavor (managed), OS Version (unmanaged)
  */
 
-import type { Device } from '../../../types/topology';
-import type { DeviceDetailContext, DeviceDetailProvider, DetailSection } from '../types';
+import type { DeviceDetailProvider, DetailSection } from '../types';
 import { parseSysDescr } from '../../sysDescrParser';
 
 /**
@@ -34,18 +33,9 @@ function getCliFlavor(flavor: string | undefined): string | undefined {
 }
 
 /**
- * Check if device is managed
- */
-function isManaged(device: Device, ctx: DeviceDetailContext): boolean {
-  return !!ctx.profile || !!device.sessionId || !!device.profileId;
-}
-
-/**
  * Identity provider
  */
 export const identityProvider: DeviceDetailProvider = (device, ctx) => {
-  const managed = isManaged(device, ctx);
-
   // Resolve sysDescr source
   const descr = ctx.liveStats?.sysDescr ||
     (looksLikeSysDescr(device.model) ? device.model : undefined) ||
@@ -77,21 +67,19 @@ export const identityProvider: DeviceDetailProvider = (device, ctx) => {
     });
   }
 
-  // CLI Flavor (managed only, when set and not 'auto')
-  if (managed && ctx.profile?.cli_flavor) {
-    const cliFlavor = getCliFlavor(ctx.profile.cli_flavor);
-    if (cliFlavor) {
-      fields.push({
-        key: 'cli-flavor',
-        label: 'CLI Flavor',
-        value: cliFlavor,
-      });
-    }
+  // CLI Flavor (from profile or enrichment, when set and not 'auto')
+  const flavor = ctx.profile?.cli_flavor || ctx.enrichment?.cliFlavor;
+  const cliFlavor = getCliFlavor(flavor);
+  if (cliFlavor) {
+    fields.push({
+      key: 'cli-flavor',
+      label: 'CLI Flavor',
+      value: cliFlavor,
+    });
   }
 
-  // OS Version (unmanaged or managed without CLI flavor)
-  const hasCliFlavor = managed && ctx.profile?.cli_flavor && ctx.profile.cli_flavor !== 'auto';
-  if (!hasCliFlavor) {
+  // OS Version (when no CLI flavor is shown)
+  if (!cliFlavor) {
     const osVersion = ctx.enrichment?.osVersion ||
       device.version ||
       parsed.osVersion ||

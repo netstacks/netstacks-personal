@@ -40,6 +40,7 @@ export const enrichmentProvider: DeviceDetailProvider = (device, ctx) => {
     id: 'enrichment',
     title: 'Details',
     priority: 40,
+    compact: true,
     fields,
   }];
 };

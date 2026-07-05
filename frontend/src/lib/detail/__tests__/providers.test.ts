@@ -148,13 +148,14 @@ describe('enrichmentProvider', () => {
     }
   });
 
-  it('shows serial from enrichment.serialNumber', () => {
+  it('shows serial from enrichment.serialNumber and marks compact', () => {
     const device = { ...minimalDevice };
     const ctx: DeviceDetailContext = {
       ...minimalContext,
       enrichment: { serialNumber: 'SN12345' },
     };
     const sections = enrichmentProvider(device, ctx);
+    expect(sections[0].compact).toBe(true);
     const serialField = sections[0].fields.find(f => f.key === 'serial');
     expect(serialField?.value).toBe('SN12345');
   });

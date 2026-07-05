@@ -154,4 +154,31 @@ describe('identityProvider', () => {
     const osVersion = fields.find(f => f.key === 'os-version');
     expect(osVersion?.value).toBe('4.21.0F');
   });
+
+  it('shows CLI Flavor from enrichment for unmanaged device', () => {
+    const device = {
+      id: 'dev6',
+      primaryIp: '10.6.6.6',
+    } as Device;
+
+    const ctx: DeviceDetailContext = {
+      enrichment: {
+        cliFlavor: 'juniper',
+      } as any,
+      isEnterprise: false,
+      hasFeature: () => false,
+    };
+
+    const sections = identityProvider(device, ctx);
+    expect(sections).toHaveLength(1);
+    const fields = sections[0].fields;
+
+    const cliFlavor = fields.find(f => f.key === 'cli-flavor');
+    expect(cliFlavor).toBeDefined();
+    expect(cliFlavor?.value).toBe('Juniper');
+
+    // No OS Version when CLI Flavor is shown
+    const osVersion = fields.find(f => f.key === 'os-version');
+    expect(osVersion).toBeUndefined();
+  });
 });

@@ -14,6 +14,7 @@ import { renderAnnotations, hitTestAnnotation, type CanvasTransform } from './An
 import AIInlinePopup from './AIInlinePopup';
 import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
 import type { LayerVisibility } from './TopologyToolbar';
+import { selectInBox, applyGroupDelta } from '../lib/topologySelection';
 import './TopologyCanvas.css';
 
 interface TopologyCanvasProps {
@@ -21,8 +22,10 @@ interface TopologyCanvasProps {
   topology: Topology | null;
   /** Currently selected device ID (controlled) */
   selectedDeviceId?: string | null;
+  /** Set of selected device IDs for multi-selection */
+  selectedDeviceIds?: Set<string>;
   /** Callback when a device is clicked (with screen position for overlay) */
-  onDeviceClick?: (device: Device, screenPosition: { x: number; y: number }) => void;
+  onDeviceClick?: (device: Device, screenPosition: { x: number; y: number }, opts?: { additive?: boolean }) => void;
   /** Callback when a device is double-clicked (with screen position for overlay) */
   onDeviceDoubleClick?: (device: Device, screenPosition: { x: number; y: number }) => void;
   /** Callback when a device is right-clicked (context menu) */
@@ -39,6 +42,8 @@ interface TopologyCanvasProps {
   onDeviceHover?: (device: Device | null, screenPosition?: { x: number; y: number }) => void;
   /** Callback when device position changes (drag to reposition) */
   onDevicePositionChange?: (deviceId: string, x: number, y: number) => void;
+  /** Callback when multiple selected devices move together */
+  onGroupPositionChange?: (moves: { deviceId: string; x: number; y: number }[]) => void;
   /** Whether connection drawing mode is active */
   drawingConnection?: boolean;
   /** Source device for connection drawing */
@@ -82,6 +87,10 @@ interface TopologyCanvasProps {
   /** Layer visibility toggles (Layers dropdown). Each layer defaults to
    *  visible when the prop or a given key is omitted. */
   visibleLayers?: LayerVisibility;
+  /** Enable marquee selection (typically when currentTool is 'select') */
+  marqueeEnabled?: boolean;
+  /** Callback when marquee selection completes */
+  onMarqueeSelect?: (ids: Set<string>, additive?: boolean) => void;
 }
 
 /** Resize handle positions */
@@ -143,6 +152,7 @@ const INTERFACE_STATUS_COLORS: Record<string, string> = {
 export default function TopologyCanvas({
   topology,
   selectedDeviceId,
+  selectedDeviceIds,
   onDeviceClick,
   onDeviceDoubleClick,
   onDeviceContextMenu,
@@ -152,6 +162,7 @@ export default function TopologyCanvas({
   onConnectionHover,
   onDeviceHover,
   onDevicePositionChange,
+  onGroupPositionChange,
   drawingConnection = false,
   connectionSource,
   onDeviceClickForConnection,
@@ -172,6 +183,8 @@ export default function TopologyCanvas({
   tracerouteEnrichment,
   showPortStats = false,
   visibleLayers,
+  marqueeEnabled = false,
+  onMarqueeSelect,
 }: TopologyCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -211,6 +224,9 @@ export default function TopologyCanvas({
     startScreenY: number;
   } | null>(null);
 
+  // Group dragging state (start positions for all selected devices)
+  const [draggingGroupStarts, setDraggingGroupStarts] = useState<Map<string, { x: number; y: number }> | null>(null);
+
   // Local device positions for smooth dragging (overrides topology positions during drag)
   const [localDevicePositions, setLocalDevicePositions] = useState<Map<string, { x: number; y: number }>>(new Map());
 
@@ -243,6 +259,9 @@ export default function TopologyCanvas({
 
   // Cursor position for drawing temporary connection line
   const [cursorWorldPosition, setCursorWorldPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // Marquee selection state (screen coordinates)
+  const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
 
   // Determine selected device - support both controlled and uncontrolled modes
   const selectedDevice = selectedDeviceId !== undefined
@@ -1242,7 +1261,7 @@ export default function TopologyCanvas({
       const x = toCanvasX(pos.x);
       const y = toCanvasY(pos.y);
       const isHovered = hoveredDevice?.id === device.id;
-      const isSelected = selectedDevice?.id === device.id;
+      const isSelected = selectedDeviceIds?.has(device.id) ?? (selectedDevice?.id === device.id);
       const isDragging = draggingDevice?.id === device.id;
       const isConnectionSource = drawingConnection && connectionSource?.id === device.id;
 
@@ -1477,7 +1496,7 @@ export default function TopologyCanvas({
 
       ctx.restore();
     },
-    [toCanvasX, toCanvasY, getDevicePosition, hoveredDevice, selectedDevice, draggingDevice, drawingConnection, connectionSource, deviceStats, zoom]
+    [toCanvasX, toCanvasY, getDevicePosition, hoveredDevice, selectedDevice, selectedDeviceIds, draggingDevice, drawingConnection, connectionSource, deviceStats, zoom]
   );
 
   /**
@@ -1629,7 +1648,29 @@ export default function TopologyCanvas({
     }
 
     ctx.restore();
-  }, [canvasSize, viewOffset, zoom, drawGrid, drawConnections, drawDevices, drawingConnection, connectionSource, cursorWorldPosition, toCanvasX, toCanvasY, getDevicePosition, annotations, selectedAnnotationId, localAnnotationPositions, localAnnotationSizes, tracerouteEnrichment, topology, visibleLayers]);
+
+    // Draw marquee selection box (screen space, after restoring transform)
+    if (marquee) {
+      ctx.save();
+      const x1 = Math.min(marquee.x1, marquee.x2);
+      const y1 = Math.min(marquee.y1, marquee.y2);
+      const w = Math.abs(marquee.x2 - marquee.x1);
+      const h = Math.abs(marquee.y2 - marquee.y1);
+
+      // Fill
+      ctx.fillStyle = 'rgba(33, 150, 243, 0.1)';
+      ctx.fillRect(x1, y1, w, h);
+
+      // Border
+      ctx.strokeStyle = 'rgba(33, 150, 243, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x1, y1, w, h);
+      ctx.setLineDash([]);
+
+      ctx.restore();
+    }
+  }, [canvasSize, viewOffset, zoom, drawGrid, drawConnections, drawDevices, drawingConnection, connectionSource, cursorWorldPosition, toCanvasX, toCanvasY, getDevicePosition, annotations, selectedAnnotationId, localAnnotationPositions, localAnnotationSizes, tracerouteEnrichment, topology, visibleLayers, marquee]);
 
   /**
    * Handle mouse move for hover detection, panning, and device dragging
@@ -1643,6 +1684,12 @@ export default function TopologyCanvas({
       const screenX = event.clientX - rect.left;
       const screenY = event.clientY - rect.top;
 
+      // Handle marquee drag
+      if (marquee) {
+        setMarquee({ ...marquee, x2: screenX, y2: screenY });
+        return;
+      }
+
       // Handle device dragging
       if (draggingDevice) {
         const screenDeltaX = screenX - draggingDevice.startScreenX;
@@ -1654,15 +1701,24 @@ export default function TopologyCanvas({
 
         // Apply world delta in the correct scale (canvas to world)
         const scaleFactor = WORLD_SIZE / canvasSize.width;
-        const newX = Math.max(0, Math.min(WORLD_SIZE, draggingDevice.startWorldX + worldDeltaX * scaleFactor));
-        const newY = Math.max(0, Math.min(WORLD_SIZE, draggingDevice.startWorldY + worldDeltaY * scaleFactor));
+        const dx = worldDeltaX * scaleFactor;
+        const dy = worldDeltaY * scaleFactor;
 
-        // Update local position for smooth dragging
-        setLocalDevicePositions(prev => {
-          const next = new Map(prev);
-          next.set(draggingDevice.id, { x: newX, y: newY });
-          return next;
-        });
+        if (draggingGroupStarts) {
+          // Group drag: apply delta to all selected devices
+          const updated = applyGroupDelta(draggingGroupStarts, dx, dy);
+          setLocalDevicePositions(updated);
+        } else {
+          // Single device drag
+          const newX = Math.max(0, Math.min(WORLD_SIZE, draggingDevice.startWorldX + dx));
+          const newY = Math.max(0, Math.min(WORLD_SIZE, draggingDevice.startWorldY + dy));
+
+          setLocalDevicePositions(prev => {
+            const next = new Map(prev);
+            next.set(draggingDevice.id, { x: newX, y: newY });
+            return next;
+          });
+        }
 
         canvas.style.cursor = 'grabbing';
         return;
@@ -1872,7 +1928,7 @@ export default function TopologyCanvas({
         canvas.style.cursor = 'default';
       }
     },
-    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findConnectionAtPosition, hoveredDevice, hoveredConnection, isPanning, draggingDevice, draggingAnnotation, resizingAnnotation, zoom, canvasSize.width, drawingConnection, connectionSource, onConnectionHover, onDeviceHover]
+    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findConnectionAtPosition, hoveredDevice, hoveredConnection, isPanning, draggingDevice, draggingGroupStarts, draggingAnnotation, resizingAnnotation, zoom, canvasSize.width, drawingConnection, connectionSource, onConnectionHover, onDeviceHover, marquee]
   );
 
   /**
@@ -1906,17 +1962,26 @@ export default function TopologyCanvas({
     // If dragging, save position on leave (same as mouse up)
     if (draggingDevice) {
       const finalPos = localDevicePositions.get(draggingDevice.id);
-      if (finalPos && onDevicePositionChange) {
+      if (draggingGroupStarts && onGroupPositionChange) {
+        // Group drag
+        const moves: { deviceId: string; x: number; y: number }[] = [];
+        for (const [id, pos] of localDevicePositions) {
+          moves.push({ deviceId: id, x: pos.x, y: pos.y });
+        }
+        onGroupPositionChange(moves);
+      } else if (finalPos && onDevicePositionChange) {
+        // Single device drag
         onDevicePositionChange(draggingDevice.id, finalPos.x, finalPos.y);
       }
       setDraggingDevice(null);
+      setDraggingGroupStarts(null);
       setLocalDevicePositions(new Map());
     }
     const canvas = canvasRef.current;
     if (canvas) {
       canvas.style.cursor = 'default';
     }
-  }, [draggingDevice, localDevicePositions, onDevicePositionChange, onConnectionHover, onDeviceHover]);
+  }, [draggingDevice, draggingGroupStarts, localDevicePositions, onDevicePositionChange, onGroupPositionChange, onConnectionHover, onDeviceHover]);
 
   /**
    * Handle mouse down for device selection, dragging, and pan start
@@ -1955,6 +2020,10 @@ export default function TopologyCanvas({
           if (handled) return;
         }
 
+        // Determine if this is a group drag
+        const isInSelection = selectedDeviceIds && selectedDeviceIds.has(device.id);
+        const isGroupDrag = isInSelection && selectedDeviceIds.size > 1;
+
         // Start dragging the device (left click starts drag)
         const devicePos = getDevicePosition(device);
         setDraggingDevice({
@@ -1964,12 +2033,30 @@ export default function TopologyCanvas({
           startScreenX: screenX,
           startScreenY: screenY,
         });
-        // Initialize local position
-        setLocalDevicePositions(prev => {
-          const next = new Map(prev);
-          next.set(device.id, { x: devicePos.x, y: devicePos.y });
-          return next;
-        });
+
+        if (isGroupDrag && topology) {
+          // Capture start positions for ALL selected devices
+          const groupStarts = new Map<string, { x: number; y: number }>();
+          for (const id of selectedDeviceIds) {
+            const d = topology.devices.find(dev => dev.id === id);
+            if (d) {
+              const pos = getDevicePosition(d);
+              groupStarts.set(id, { x: pos.x, y: pos.y });
+            }
+          }
+          setDraggingGroupStarts(groupStarts);
+          // Initialize local positions for all
+          setLocalDevicePositions(groupStarts);
+        } else {
+          // Single device drag
+          setDraggingGroupStarts(null);
+          setLocalDevicePositions(prev => {
+            const next = new Map(prev);
+            next.set(device.id, { x: devicePos.x, y: devicePos.y });
+            return next;
+          });
+        }
+
         canvas.style.cursor = 'grabbing';
 
         // Select the device
@@ -2047,7 +2134,11 @@ export default function TopologyCanvas({
         onAnnotationSelect?.(null);
       } else {
         // Clicking on empty space
-        if (onEmptySpaceClick) {
+        if (marqueeEnabled && !drawingConnection) {
+          // Start marquee selection
+          setMarquee({ x1: screenX, y1: screenY, x2: screenX, y2: screenY });
+          canvas.style.cursor = 'crosshair';
+        } else if (onEmptySpaceClick) {
           // Call the empty space click handler (for placing devices, shapes, etc.)
           onEmptySpaceClick(
             { x: worldX, y: worldY },
@@ -2072,7 +2163,7 @@ export default function TopologyCanvas({
         onAnnotationSelect?.(null);
       }
     },
-    [screenToWorldX, screenToWorldY, findDeviceAtPosition, findResizeHandleAtPosition, findAnnotationAtPosition, findConnectionAtPosition, getDevicePosition, getAnnotationPosition, onConnectionClick, viewOffset, selectedDeviceId, drawingConnection, onDeviceClickForConnection, onCanvasMouseDown, onEmptySpaceClick, onAnnotationSelect]
+    [screenToWorldX, screenToWorldY, findDeviceAtPosition, findResizeHandleAtPosition, findAnnotationAtPosition, findConnectionAtPosition, getDevicePosition, getAnnotationPosition, onConnectionClick, viewOffset, selectedDeviceId, selectedDeviceIds, topology, drawingConnection, onDeviceClickForConnection, onCanvasMouseDown, onEmptySpaceClick, onAnnotationSelect, marqueeEnabled]
   );
 
   /**
@@ -2082,6 +2173,45 @@ export default function TopologyCanvas({
     (event: React.MouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
 
+      // Handle marquee selection end
+      if (marquee) {
+        // Check if the marquee moved (more than a few pixels)
+        const dx = Math.abs(marquee.x2 - marquee.x1);
+        const dy = Math.abs(marquee.y2 - marquee.y1);
+        const THRESHOLD = 3;
+
+        if (dx > THRESHOLD || dy > THRESHOLD) {
+          // Convert marquee corners to world coordinates
+          const worldX1 = screenToWorldX(marquee.x1);
+          const worldY1 = screenToWorldY(marquee.y1);
+          const worldX2 = screenToWorldX(marquee.x2);
+          const worldY2 = screenToWorldY(marquee.y2);
+
+          // Build box in world space
+          const box = { x1: worldX1, y1: worldY1, x2: worldX2, y2: worldY2 };
+
+          // Determine if additive (modifier held)
+          const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+
+          // Select devices in box (pure matches, editor handles union)
+          if (topology && onMarqueeSelect) {
+            const matches = selectInBox(topology.devices, box, new Set(), false);
+            onMarqueeSelect(matches, additive);
+          }
+        } else {
+          // Tiny marquee = empty-space click → clear selection if not additive
+          if (onMarqueeSelect && !(event.ctrlKey || event.metaKey || event.shiftKey)) {
+            onMarqueeSelect(new Set());
+          }
+        }
+
+        setMarquee(null);
+        if (canvas) {
+          canvas.style.cursor = 'default';
+        }
+        return;
+      }
+
       // Handle device drag end
       if (draggingDevice) {
         const finalPos = localDevicePositions.get(draggingDevice.id);
@@ -2090,18 +2220,29 @@ export default function TopologyCanvas({
           Math.abs(finalPos.y - draggingDevice.startWorldY) > 1
         );
 
-        if (hasMoved && finalPos && onDevicePositionChange) {
-          // Save position to backend
-          onDevicePositionChange(draggingDevice.id, finalPos.x, finalPos.y);
+        if (hasMoved) {
+          if (draggingGroupStarts && onGroupPositionChange) {
+            // Group drag: build moves array from final positions
+            const moves: { deviceId: string; x: number; y: number }[] = [];
+            for (const [id, pos] of localDevicePositions) {
+              moves.push({ deviceId: id, x: pos.x, y: pos.y });
+            }
+            onGroupPositionChange(moves);
+          } else if (finalPos && onDevicePositionChange) {
+            // Single device drag
+            onDevicePositionChange(draggingDevice.id, finalPos.x, finalPos.y);
+          }
         } else if (!hasMoved) {
           // It was a click, not a drag - trigger click callback
           const device = topology?.devices.find(d => d.id === draggingDevice.id);
           if (device && onDeviceClick) {
-            onDeviceClick(device, { x: event.clientX, y: event.clientY });
+            const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+            onDeviceClick(device, { x: event.clientX, y: event.clientY }, { additive });
           }
         }
 
         setDraggingDevice(null);
+        setDraggingGroupStarts(null);
         setLocalDevicePositions(new Map());
 
         if (canvas) {
@@ -2183,7 +2324,7 @@ export default function TopologyCanvas({
         }
       }
     },
-    [isPanning, draggingDevice, localDevicePositions, draggingAnnotation, localAnnotationPositions, resizingAnnotation, localAnnotationSizes, topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, onDevicePositionChange, onDeviceClick, onAnnotationPositionChange, onAnnotationSizeChange]
+    [isPanning, draggingDevice, draggingGroupStarts, localDevicePositions, draggingAnnotation, localAnnotationPositions, resizingAnnotation, localAnnotationSizes, topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, onDevicePositionChange, onGroupPositionChange, onDeviceClick, onAnnotationPositionChange, onAnnotationSizeChange, marquee, selectedDeviceIds, onMarqueeSelect]
   );
 
   /**
@@ -2490,7 +2631,7 @@ export default function TopologyCanvas({
         }
       };
     }
-  }, [draw, topology, hoveredDevice, selectedDevice, hoveredConnection, viewOffset, zoom, localDevicePositions, draggingDevice, cursorWorldPosition, drawingConnection, connectionSource, annotations, selectedAnnotationId, localAnnotationPositions, draggingAnnotation]);
+  }, [draw, topology, hoveredDevice, selectedDevice, selectedDeviceIds, hoveredConnection, viewOffset, zoom, localDevicePositions, draggingDevice, cursorWorldPosition, drawingConnection, connectionSource, annotations, selectedAnnotationId, localAnnotationPositions, draggingAnnotation, marquee]);
 
   // Render empty state if no topology
   if (!topology) {

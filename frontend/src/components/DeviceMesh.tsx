@@ -19,7 +19,7 @@ interface DeviceMeshProps {
   /** Whether this device is hovered */
   isHovered: boolean;
   /** Click handler (with screen position for overlay) */
-  onClick: (screenPosition: { x: number; y: number }) => void;
+  onClick: (screenPosition: { x: number; y: number }, opts?: { additive?: boolean }) => void;
   /** Double-click handler (with screen position for overlay) */
   onDoubleClick?: (screenPosition: { x: number; y: number }) => void;
   /** Right-click handler for context menu */
@@ -38,6 +38,8 @@ interface DeviceMeshProps {
   isConnectionSource?: boolean;
   /** Callback when clicked during connection drawing */
   onClickForConnection?: () => boolean;
+  /** Callback when pointer down occurs (for marquee conflict detection) */
+  onDevicePointerDown?: () => void;
   /** Device-level live stats for health ring */
   deviceStats?: DeviceLiveStats;
 }
@@ -147,6 +149,7 @@ export default function DeviceMesh({
   drawingConnection = false,
   isConnectionSource = false,
   onClickForConnection,
+  onDevicePointerDown,
   deviceStats,
 }: DeviceMeshProps) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -199,6 +202,9 @@ export default function DeviceMesh({
    * Handle pointer down to start drag
    */
   const handlePointerDown = useCallback((e: ThreeEvent<PointerEvent>) => {
+    // Flag device pointer down immediately
+    onDevicePointerDown?.();
+
     if (e.button !== 0) return; // Only left click starts drag
 
     // Check if we're in connection drawing mode first
@@ -222,7 +228,7 @@ export default function DeviceMesh({
 
     // Capture pointer for drag events outside the mesh
     (e.target as HTMLElement).setPointerCapture?.(e.nativeEvent.pointerId);
-  }, [onDrag, onDragEnd, position, drawingConnection, onClickForConnection]);
+  }, [onDrag, onDragEnd, position, drawingConnection, onClickForConnection, onDevicePointerDown]);
 
   /**
    * Handle pointer move during drag
@@ -263,8 +269,9 @@ export default function DeviceMesh({
         onDragEnd(coords2D.x, coords2D.y);
       }
     } else {
-      // It was a click - trigger click handler
-      onClick({ x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
+      // It was a click - trigger click handler with modifier state
+      const additive = e.nativeEvent.ctrlKey || e.nativeEvent.metaKey || e.nativeEvent.shiftKey;
+      onClick({ x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }, { additive });
     }
 
     setIsDragging(false);

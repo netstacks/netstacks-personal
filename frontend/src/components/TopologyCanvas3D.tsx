@@ -9,6 +9,7 @@ import FlyControls, { FLY_CONTROLS_MAP } from './FlyControls';
 import AIInlinePopup from './AIInlinePopup';
 import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
 import type { LayerVisibility } from './TopologyToolbar';
+import { isInsideBox } from '../lib/topologySelection';
 import './TopologyCanvas3D.css';
 
 /** Initial camera position type */
@@ -28,8 +29,10 @@ interface TopologyCanvas3DProps {
   topology: Topology | null;
   /** Currently selected device ID (controlled) */
   selectedDeviceId?: string | null;
+  /** Set of selected device IDs for multi-select */
+  selectedDeviceIds?: Set<string>;
   /** Callback when a device is clicked (with screen position for overlay) */
-  onDeviceClick?: (device: Device, screenPosition: { x: number; y: number }) => void;
+  onDeviceClick?: (device: Device, screenPosition: { x: number; y: number }, opts?: { additive?: boolean }) => void;
   /** Callback when a device is double-clicked (with screen position for overlay) */
   onDeviceDoubleClick?: (device: Device, screenPosition: { x: number; y: number }) => void;
   /** Callback when a device is right-clicked (context menu) */
@@ -42,6 +45,8 @@ interface TopologyCanvas3DProps {
   onCanvasContextMenu?: (screenPosition: { x: number; y: number }) => void;
   /** Callback when device position changes (drag to reposition) */
   onDevicePositionChange?: (deviceId: string, x: number, y: number) => void;
+  /** Callback when group position changes (multi-device drag) */
+  onGroupPositionChange?: (moves: { deviceId: string; x: number; y: number }[]) => void;
   /** Whether connection drawing mode is active */
   drawingConnection?: boolean;
   /** Source device for connection drawing */
@@ -61,6 +66,10 @@ interface TopologyCanvas3DProps {
   /** Layer visibility toggles (Layers dropdown). Each layer defaults to
    *  visible when the prop or a given key is omitted. */
   visibleLayers?: LayerVisibility;
+  /** Whether marquee selection is enabled (current tool is 'select') */
+  marqueeEnabled?: boolean;
+  /** Callback when marquee selection completes */
+  onMarqueeSelect?: (ids: Set<string>, additive?: boolean) => void;
 }
 
 /** Coordinate space size (matches 2D: 0-1000) */
@@ -103,6 +112,24 @@ function CameraDistanceTracker({ onChange }: { onChange: (distance: number) => v
       lastReported.current = distance;
       onChange(distance);
     }
+  });
+
+  return null;
+}
+
+/**
+ * CameraProjector - Exposes camera and canvas size for screen-space projection.
+ * Must be used inside Canvas context.
+ */
+function CameraProjector({
+  onCameraUpdate,
+}: {
+  onCameraUpdate: (camera: THREE.Camera, width: number, height: number) => void;
+}) {
+  const { camera, size } = useThree();
+
+  useFrame(() => {
+    onCameraUpdate(camera, size.width, size.height);
   });
 
   return null;
@@ -248,6 +275,7 @@ function SceneContent({ showGrid = true }: { showGrid?: boolean }) {
 export default function TopologyCanvas3D({
   topology,
   selectedDeviceId,
+  selectedDeviceIds,
   onDeviceClick,
   onDeviceDoubleClick,
   onDeviceContextMenu,
@@ -255,6 +283,7 @@ export default function TopologyCanvas3D({
   onConnectionClick,
   onConnectionContextMenu,
   onDevicePositionChange,
+  onGroupPositionChange,
   drawingConnection = false,
   connectionSource,
   onDeviceClickForConnection,
@@ -265,6 +294,8 @@ export default function TopologyCanvas3D({
   animateOnMount: _animateOnMount = true,
   className = '',
   visibleLayers,
+  marqueeEnabled = false,
+  onMarqueeSelect,
 }: TopologyCanvas3DProps) {
   // State for hovered device and connection
   const [hoveredDeviceId, setHoveredDeviceId] = useState<string | null>(null);
@@ -281,6 +312,15 @@ export default function TopologyCanvas3D({
 
   // Control mode state: orbit (default) or fly
   const [controlMode, setControlMode] = useState<ControlMode>('orbit');
+
+  // Marquee selection state
+  const [marqueeBox, setMarqueeBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [marqueePending, setMarqueePending] = useState(false);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeModifierRef = useRef<boolean>(false);
+  const pointerDownOnDeviceRef = useRef<boolean>(false);
+  const cameraRef = useRef<THREE.Camera | null>(null);
+  const canvasSizeRef = useRef<{ width: number; height: number }>({ width: 1, height: 1 });
 
   // Camera animation state - temporarily disabled for debugging
   const [isAnimating, setIsAnimating] = useState(false); // Was: useState(animateOnMount)
@@ -330,6 +370,14 @@ export default function TopologyCanvas3D({
       setShowFlyInstructions(false);
       setShowEscapeHint(false);
     };
+  }, []);
+
+  /**
+   * Camera update callback for marquee projection
+   */
+  const handleCameraUpdate = useCallback((camera: THREE.Camera, width: number, height: number) => {
+    cameraRef.current = camera;
+    canvasSizeRef.current = { width, height };
   }, []);
 
   /**
@@ -409,6 +457,95 @@ export default function TopologyCanvas3D({
     setAiPopupState(null);
   }, []);
 
+  /**
+   * Handle marquee pointer down
+   */
+  const handleMarqueePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!marqueeEnabled || e.button !== 0) return;
+    // Only start marquee when a modifier is held (Ctrl/Cmd/Shift)
+    const hasModifier = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!hasModifier) return;
+
+    marqueeStartRef.current = { x: e.clientX, y: e.clientY };
+    marqueeModifierRef.current = hasModifier;
+    setMarqueePending(true);
+    // Don't set marqueeBox yet - wait for drag
+  }, [marqueeEnabled]);
+
+  /**
+   * Handle marquee pointer move
+   */
+  const handleMarqueePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!marqueeStartRef.current) return;
+
+    // If this was a device gesture, abort
+    if (pointerDownOnDeviceRef.current) {
+      marqueeStartRef.current = null;
+      setMarqueePending(false);
+      return;
+    }
+
+    // Only activate marquee once a real drag is detected
+    const dx = e.clientX - marqueeStartRef.current.x;
+    const dy = e.clientY - marqueeStartRef.current.y;
+    if (Math.hypot(dx, dy) > 4) {
+      // Activate marquee
+      setMarqueeBox({
+        x1: marqueeStartRef.current.x,
+        y1: marqueeStartRef.current.y,
+        x2: e.clientX,
+        y2: e.clientY,
+      });
+    } else if (marqueeBox) {
+      // Already activated, keep updating
+      setMarqueeBox({
+        x1: marqueeStartRef.current.x,
+        y1: marqueeStartRef.current.y,
+        x2: e.clientX,
+        y2: e.clientY,
+      });
+    }
+  }, [marqueeBox]);
+
+  /**
+   * Handle marquee pointer up (complete selection)
+   */
+  const handleMarqueePointerUp = useCallback(() => {
+    // Only run selection if marquee was activated (box is set)
+    if (marqueeBox && topology && cameraRef.current && onMarqueeSelect) {
+      const camera = cameraRef.current;
+      const { width, height } = canvasSizeRef.current;
+
+      // Project each device to screen space and test against box
+      const matches = new Set<string>();
+      topology.devices.forEach((device) => {
+        const world3D = toWorld3D(device.x, device.y);
+        const vec = new THREE.Vector3(world3D.x, world3D.y, world3D.z);
+
+        // Project to NDC [-1,1]
+        const projected = vec.project(camera);
+
+        // Convert NDC to pixel coordinates
+        const screenX = (projected.x * 0.5 + 0.5) * width;
+        const screenY = (-projected.y * 0.5 + 0.5) * height;
+
+        if (isInsideBox({ x: screenX, y: screenY }, marqueeBox)) {
+          matches.add(device.id);
+        }
+      });
+
+      // Pass pure matches and additive flag (editor handles union)
+      onMarqueeSelect(matches, marqueeModifierRef.current);
+    }
+
+    // Always clear state
+    marqueeStartRef.current = null;
+    marqueeModifierRef.current = false;
+    pointerDownOnDeviceRef.current = false;
+    setMarqueeBox(null);
+    setMarqueePending(false);
+  }, [marqueeBox, topology, onMarqueeSelect]);
+
   // Render empty state if no topology
   if (!topology) {
     return (
@@ -448,7 +585,13 @@ export default function TopologyCanvas3D({
   }
 
   return (
-    <div className={`topology-canvas3d-container ${className}`}>
+    <div
+      className={`topology-canvas3d-container ${className}`}
+      onPointerDown={handleMarqueePointerDown}
+      onPointerMove={handleMarqueePointerMove}
+      onPointerUp={handleMarqueePointerUp}
+      style={{ position: 'relative' }}
+    >
       <KeyboardControls map={FLY_CONTROLS_MAP}>
         <Canvas
           camera={{
@@ -478,14 +621,18 @@ export default function TopologyCanvas3D({
           {/* Track camera distance for zoom-tier rendering */}
           <CameraDistanceTracker onChange={setCameraDistance} />
 
+          {/* Expose camera for marquee projection */}
+          <CameraProjector onCameraUpdate={handleCameraUpdate} />
+
           {/* Network topology scene with devices and connections */}
           <NetworkScene
             topology={topology}
             visibleLayers={visibleLayers}
             selectedDeviceId={selectedDeviceId ?? null}
+            selectedDeviceIds={selectedDeviceIds}
             hoveredDeviceId={hoveredDeviceId}
             hoveredConnectionId={hoveredConnectionId}
-            onDeviceClick={(device, screenPos) => onDeviceClick?.(device, screenPos)}
+            onDeviceClick={(device, screenPos, opts) => onDeviceClick?.(device, screenPos, opts)}
             onDeviceDoubleClick={(device, screenPos) => onDeviceDoubleClick?.(device, screenPos)}
             onDeviceContextMenu={handleDeviceContextMenu}
             onDeviceHover={(device) => setHoveredDeviceId(device?.id ?? null)}
@@ -506,9 +653,15 @@ export default function TopologyCanvas3D({
               setLocalDevicePositions(new Map());
               onDevicePositionChange?.(deviceId, x, y);
             }}
+            onGroupPositionChange={(moves) => {
+              // Clear local positions and save group move to backend
+              setLocalDevicePositions(new Map());
+              onGroupPositionChange?.(moves);
+            }}
             drawingConnection={drawingConnection}
             connectionSource={connectionSource}
             onDeviceClickForConnection={onDeviceClickForConnection}
+            onDevicePointerDown={() => { pointerDownOnDeviceRef.current = true; }}
             liveStats={liveStats}
             deviceStats={deviceStats}
             cameraDistance={cameraDistance}
@@ -523,6 +676,7 @@ export default function TopologyCanvas3D({
               minDistance={10}
               maxDistance={2000}
               maxPolarAngle={Math.PI / 2 - 0.1}
+              enabled={!marqueePending}
             />
           ) : (
             <FlyControls
@@ -605,6 +759,23 @@ export default function TopologyCanvas3D({
           selectedText={aiPopupState.selectedText}
           context={aiPopupState.context}
           onClose={handleAiPopupClose}
+        />
+      )}
+
+      {/* Marquee selection rectangle overlay */}
+      {marqueeBox && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(marqueeBox.x1, marqueeBox.x2),
+            top: Math.min(marqueeBox.y1, marqueeBox.y2),
+            width: Math.abs(marqueeBox.x2 - marqueeBox.x1),
+            height: Math.abs(marqueeBox.y2 - marqueeBox.y1),
+            border: '1px solid #4a9eff',
+            backgroundColor: 'rgba(74, 158, 255, 0.1)',
+            pointerEvents: 'none',
+            zIndex: 1000,
+          }}
         />
       )}
     </div>

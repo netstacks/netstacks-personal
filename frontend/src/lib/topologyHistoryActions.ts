@@ -171,6 +171,60 @@ async function applyBulkMove(
 }
 
 /**
+ * Apply bulk device/connection addition (for undo bulk_remove).
+ */
+function applyBulkAdd(
+  payload: { devices: Device[]; connections: Connection[] },
+  deps: ActionExecutorDeps
+): void {
+  deps.setTopology(prev => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      devices: [...prev.devices, ...payload.devices],
+      connections: [...prev.connections, ...payload.connections],
+    };
+  });
+  // Note: Backend re-creation with original IDs not supported.
+  // Devices/connections will only be restored in UI until page refresh.
+}
+
+/**
+ * Apply bulk device/connection removal (for redo bulk_remove).
+ */
+async function applyBulkRemove(
+  payload: { devices: Device[]; connections: Connection[] },
+  deps: ActionExecutorDeps
+): Promise<void> {
+  const deviceIds = new Set(payload.devices.map(d => d.id));
+  const connectionIds = new Set(payload.connections.map(c => c.id));
+
+  deps.setTopology(prev => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      devices: prev.devices.filter(d => !deviceIds.has(d.id)),
+      connections: prev.connections.filter(c =>
+        !connectionIds.has(c.id) &&
+        !deviceIds.has(c.sourceDeviceId) &&
+        !deviceIds.has(c.targetDeviceId)
+      ),
+    };
+  });
+
+  if (!deps.isTemporary && deps.topologyId) {
+    for (const device of payload.devices) {
+      try {
+        await deleteDevice(deps.topologyId, device.id);
+      } catch (error) {
+        console.error(`Failed to delete device ${device.id}:`, error);
+        // Continue with remaining deletions
+      }
+    }
+  }
+}
+
+/**
  * Execute a topology action in the specified direction (undo or redo).
  *
  * This unified function handles both undo and redo by selecting the appropriate
@@ -263,6 +317,20 @@ export async function executeHistoryAction(
       const positions = (isUndo ? action.data.before : action.data.after) as BulkMovePosition[] | null;
       if (positions && Array.isArray(positions)) {
         await applyBulkMove(positions, deps);
+      }
+      break;
+    }
+
+    case 'bulk_remove': {
+      const payload = action.data.before as { devices: Device[]; connections: Connection[] } | null;
+      if (!payload) break;
+
+      if (isUndo) {
+        // Undo bulk_remove = re-add the devices and connections
+        applyBulkAdd(payload, deps);
+      } else {
+        // Redo bulk_remove = remove the devices and connections again
+        await applyBulkRemove(payload, deps);
       }
       break;
     }

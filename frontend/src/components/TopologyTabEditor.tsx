@@ -18,8 +18,9 @@ import { useTopologyLiveHttp, type TopologyLiveHttpTarget } from '../hooks/useTo
 import { useTopologyHistory, createActionDescription } from '../hooks/useTopologyHistory';
 import { useActiveTopologyStore } from '../stores/activeTopologyStore';
 import type { TopologyAction, ActionSource } from '../types/topologyHistory';
+import { toggleSelection } from '../lib/topologySelection';
 import type { LinkEnrichment, InterfaceEnrichment } from '../types/enrichment';
-import { getTopology, updateDevicePosition, createConnection, deleteConnection, saveTemporaryTopology, createDevice, saveTopologyToDocs, addNeighborDevice, updateDevice } from '../api/topology';
+import { getTopology, updateDevicePosition, createConnection, deleteConnection, saveTemporaryTopology, createDevice, saveTopologyToDocs, addNeighborDevice, updateDevice, deleteDevice } from '../api/topology';
 import { runBatchDiscovery } from '../api/discovery';
 import { resolveTracerouteHops } from '../api/discovery';
 import type { TracerouteHop } from '../types/discovery';
@@ -166,6 +167,7 @@ export default function TopologyTabEditor({
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
 
   // Connection drawing mode state
   const [drawingConnection, setDrawingConnection] = useState(false);
@@ -232,6 +234,8 @@ export default function TopologyTabEditor({
     position: { x: number; y: number };
   } | null>(null);
 
+  // Group context menu → shown when right-clicking a device within a multi-selection
+  const [groupContextMenu, setGroupContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
   // Free-space (empty canvas) context menu → "Discuss this topology with AI"
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(null);
   // Link (connection) context menu → Ask AI / Delete
@@ -917,6 +921,51 @@ export default function TopologyTabEditor({
     }
   }, [topologyId, isTemporary, topology, pushAction, showAIActionToast]);
 
+  // Handle group position change (multi-device drag) with history tracking
+  const handleGroupPositionChange = useCallback(async (
+    moves: { deviceId: string; x: number; y: number }[]
+  ) => {
+    if (moves.length === 0) return;
+
+    // Capture before/after for bulk history entry
+    const before = moves.map(m => {
+      const device = topology?.devices.find(d => d.id === m.deviceId);
+      return { deviceId: m.deviceId, x: device?.x ?? 0, y: device?.y ?? 0 };
+    });
+    const after = moves.map(m => ({ deviceId: m.deviceId, x: m.x, y: m.y }));
+
+    // Update local topology state
+    setTopology(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        devices: prev.devices.map(d => {
+          const move = moves.find(m => m.deviceId === d.id);
+          return move ? { ...d, x: move.x, y: move.y } : d;
+        }),
+      };
+    });
+
+    // Record in history as a single bulk action
+    pushAction({
+      type: 'bulk',
+      source: 'user',
+      description: `Move ${moves.length} selected device${moves.length > 1 ? 's' : ''}`,
+      data: { before, after, context: { topologyId: topologyId || topology?.id } },
+    });
+
+    // Persist positions for saved topologies
+    if (!isTemporary && topologyId) {
+      for (const move of moves) {
+        try {
+          await updateDevicePosition(topologyId, move.deviceId, move.x, move.y);
+        } catch (err) {
+          console.error('Failed to persist group move position:', err);
+        }
+      }
+    }
+  }, [topologyId, isTemporary, topology, pushAction]);
+
   // Handle device hover (from TopologyCanvas with 200ms delay)
   const handleDeviceHover = useCallback((device: Device | null, position?: { x: number; y: number }) => {
     if (device && position) {
@@ -935,13 +984,30 @@ export default function TopologyTabEditor({
     }
   }, []);
 
-  // Handle device context menu (right-click) - wraps callback to include topologyId
+  // Handle device context menu (right-click) - wraps callback to include topologyId.
+  // When right-clicking a device that is part of a multi-selection, show a
+  // group menu (Delete N / Clear) instead of the single-device menu.
   const handleDeviceContextMenuWrapper = useCallback((device: Device, screenPosition: { x: number; y: number }) => {
+    if (selectedDeviceIds.size > 1 && selectedDeviceIds.has(device.id)) {
+      setGroupContextMenu({ position: screenPosition })
+      return
+    }
     onDeviceContextMenu?.(device, screenPosition, topologyId || undefined)
-  }, [onDeviceContextMenu, topologyId])
+  }, [onDeviceContextMenu, topologyId, selectedDeviceIds])
 
   // Handle device click (selection and detail card)
-  const handleDeviceClick = useCallback((device: Device, screenPosition: { x: number; y: number }) => {
+  const handleDeviceClick = useCallback((device: Device, screenPosition: { x: number; y: number }, opts?: { additive?: boolean }) => {
+    if (opts?.additive) {
+      // Modifier-click: toggle in multi-selection, do NOT open detail card
+      setSelectedDeviceIds(s => toggleSelection(s, device.id, true));
+      setSelectedDeviceId(device.id); // Keep primary in sync
+      return;
+    }
+
+    // Plain click: select single device and open detail card
+    setSelectedDeviceIds(new Set([device.id]));
+    setSelectedDeviceId(device.id);
+
     // If detail card already showing for same device, close it
     if (detailCard?.device.id === device.id) {
       setDetailCard(null);
@@ -951,7 +1017,6 @@ export default function TopologyTabEditor({
       setHoveredDevice(null);
       setLinkDetailCard(null);
     }
-    setSelectedDeviceId(device.id);
     onDeviceSelect?.(device);
   }, [onDeviceSelect, detailCard]);
 
@@ -1648,6 +1713,24 @@ export default function TopologyTabEditor({
   }, [currentTool, linePoints, topology, isTemporary, annotations.length]);
 
   /**
+   * Wrapper for empty space click that clears selection and delegates to tool-specific handler
+   */
+  const handleEmptySpaceClickWithClear = useCallback((
+    worldPosition: { x: number; y: number },
+    screenPosition: { x: number; y: number }
+  ) => {
+    // Clear multi-selection on empty-space click
+    setSelectedDeviceIds(new Set());
+    setDetailCard(null);
+    setLinkDetailCard(null);
+
+    // Delegate to tool-specific handler if applicable
+    if (['device', 'text', 'shape', 'line'].includes(currentTool)) {
+      handleEmptySpaceClick(worldPosition, screenPosition);
+    }
+  }, [currentTool, handleEmptySpaceClick]);
+
+  /**
    * Handle annotation selection
    */
   const handleAnnotationSelect = useCallback((annotationId: string | null) => {
@@ -1763,6 +1846,63 @@ export default function TopologyTabEditor({
       setAnnotations(prev => [...prev, annotationToDelete]);
     }
   }, [selectedAnnotationId, topology, annotations]);
+
+  /**
+   * Handle deleting selected devices (multi-select delete)
+   */
+  const handleDeleteSelectedDevices = useCallback(async () => {
+    if (selectedDeviceIds.size === 0 || !topology) return;
+
+    // Gather devices and connections to delete
+    const devices = topology.devices.filter(d => selectedDeviceIds.has(d.id));
+    const connections = topology.connections.filter(
+      c => selectedDeviceIds.has(c.sourceDeviceId) || selectedDeviceIds.has(c.targetDeviceId)
+    );
+
+    // Confirm deletion
+    if (!window.confirm(`Delete ${devices.length} device(s) and ${connections.length} connection(s)?`)) {
+      return;
+    }
+
+    // Update local state
+    setTopology(prev => prev ? {
+      ...prev,
+      devices: prev.devices.filter(d => !selectedDeviceIds.has(d.id)),
+      connections: prev.connections.filter(
+        c => !selectedDeviceIds.has(c.sourceDeviceId) && !selectedDeviceIds.has(c.targetDeviceId)
+      ),
+    } : prev);
+
+    // Record history action
+    pushAction({
+      type: 'bulk_remove',
+      source: 'user',
+      description: `Deleted ${devices.length} devices`,
+      data: {
+        before: { devices, connections },
+        after: null,
+        context: { topologyId: topologyId || topology.id },
+      },
+    });
+
+    // Persist to backend if not temporary
+    if (!isTemporary && topologyId) {
+      for (const device of devices) {
+        try {
+          await deleteDevice(topologyId, device.id);
+        } catch (err) {
+          console.error(`[TopologyTabEditor] Failed to delete device ${device.id}:`, err);
+        }
+      }
+    }
+
+    // Clear selection and detail card if a deleted device was selected
+    setSelectedDeviceIds(new Set());
+    if (selectedDeviceId && selectedDeviceIds.has(selectedDeviceId)) {
+      setSelectedDeviceId(null);
+      setDetailCard(null);
+    }
+  }, [selectedDeviceIds, topology, topologyId, isTemporary, pushAction, selectedDeviceId]);
 
   /**
    * Handle annotation double-click to start editing
@@ -2212,6 +2352,9 @@ export default function TopologyTabEditor({
 
   // Get toolbar hint text based on current tool
   const getToolbarHint = useCallback((): string | undefined => {
+    if (selectedDeviceIds.size > 1) {
+      return `${selectedDeviceIds.size} devices selected — drag to move, Del to delete, Esc to clear`;
+    }
     if (drawingConnection) {
       return connectionSource
         ? 'Click target device (ESC to cancel)'
@@ -2231,7 +2374,7 @@ export default function TopologyTabEditor({
       default:
         return undefined;
     }
-  }, [currentTool, deviceTypeToPlace, shapeTypeToPlace, linePoints, drawingConnection, connectionSource]);
+  }, [currentTool, deviceTypeToPlace, shapeTypeToPlace, linePoints, drawingConnection, connectionSource, selectedDeviceIds]);
 
   // Keyboard shortcuts for tools
   useEffect(() => {
@@ -2253,6 +2396,10 @@ export default function TopologyTabEditor({
         if (currentTool !== 'select') {
           setCurrentTool('select');
         }
+        // Clear multi-selection
+        if (selectedDeviceIds.size > 0) {
+          setSelectedDeviceIds(new Set());
+        }
         return;
       }
 
@@ -2270,11 +2417,16 @@ export default function TopologyTabEditor({
         return;
       }
 
-      // Delete/Backspace to delete selected annotation
+      // Delete/Backspace to delete selected annotation or devices
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedAnnotationId) {
           e.preventDefault();
           handleDeleteSelectedAnnotation();
+          return;
+        }
+        if (selectedDeviceIds.size > 0) {
+          e.preventDefault();
+          handleDeleteSelectedDevices();
           return;
         }
       }
@@ -2308,7 +2460,7 @@ export default function TopologyTabEditor({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [drawingConnection, linePoints, currentTool, handleUndo, handleRedo, handleToolChange, selectedAnnotationId, handleDeleteSelectedAnnotation]);
+  }, [drawingConnection, linePoints, currentTool, handleUndo, handleRedo, handleToolChange, selectedAnnotationId, handleDeleteSelectedAnnotation, selectedDeviceIds, handleDeleteSelectedDevices]);
 
   const filteredTopology = useMemo(
     () => topology ? filterTopology(topology, deviceFilters) : topology,
@@ -2389,12 +2541,14 @@ export default function TopologyTabEditor({
           <TopologyCanvas
             topology={filteredTopology!}
             selectedDeviceId={selectedDeviceId}
+            selectedDeviceIds={selectedDeviceIds}
             onDeviceClick={handleDeviceClick}
             onDeviceDoubleClick={onDeviceDoubleClick}
             onDeviceContextMenu={handleDeviceContextMenuWrapper}
             onConnectionClick={handleConnectionClick}
             onConnectionHover={handleConnectionHover}
             onDevicePositionChange={handleDevicePositionChange}
+            onGroupPositionChange={handleGroupPositionChange}
             onDeviceHover={handleDeviceHover}
             drawingConnection={drawingConnection}
             connectionSource={connectionSource}
@@ -2412,7 +2566,7 @@ export default function TopologyTabEditor({
               setDetailCard(null);
               setLinkDetailCard(null);
             }}
-            onEmptySpaceClick={['device', 'text', 'shape', 'line'].includes(currentTool) ? handleEmptySpaceClick : undefined}
+            onEmptySpaceClick={handleEmptySpaceClickWithClear}
             onEmptySpaceDoubleClick={currentTool === 'line' ? handleEmptySpaceDoubleClick : undefined}
             annotations={visibleLayers.annotations ? annotations : []}
             selectedAnnotationId={selectedAnnotationId ?? undefined}
@@ -2421,23 +2575,29 @@ export default function TopologyTabEditor({
             onAnnotationSizeChange={handleAnnotationSizeChange}
             onAnnotationDoubleClick={handleAnnotationDoubleClick}
             onAnnotationContextMenu={handleAnnotationContextMenu}
+            marqueeEnabled={currentTool === 'select'}
+            onMarqueeSelect={(ids, additive) => setSelectedDeviceIds(prev => additive ? new Set([...prev, ...ids]) : ids)}
           />
         ) : (
           <TopologyCanvas3D
             topology={filteredTopology!}
             visibleLayers={visibleLayers}
             selectedDeviceId={selectedDeviceId}
+            selectedDeviceIds={selectedDeviceIds}
             onDeviceClick={handleDeviceClick}
             onDeviceDoubleClick={onDeviceDoubleClick}
             onDeviceContextMenu={handleDeviceContextMenuWrapper}
             onConnectionClick={handleConnectionClick}
             onDevicePositionChange={handleDevicePositionChange}
+            onGroupPositionChange={handleGroupPositionChange}
             drawingConnection={drawingConnection}
             connectionSource={connectionSource}
             onDeviceClickForConnection={handleDeviceClickForConnection}
             onCanvasContextMenu={handleCanvasContextMenu}
             liveStats={isLiveActive ? activeLiveStats : undefined}
             deviceStats={isLiveActive ? activeDeviceStats : undefined}
+            marqueeEnabled={currentTool === 'select'}
+            onMarqueeSelect={(ids, additive) => setSelectedDeviceIds(prev => additive ? new Set([...prev, ...ids]) : ids)}
           />
         )}
 
@@ -2675,6 +2835,32 @@ export default function TopologyTabEditor({
           handleSendToBack
         ) : []}
         onClose={handleAnnotationContextMenuClose}
+      />
+
+      {/* Group context menu — multi-selected devices (Delete N / Clear) */}
+      <ContextMenu
+        position={groupContextMenu?.position ?? null}
+        items={groupContextMenu ? [
+          {
+            id: 'group-delete',
+            label: `Delete ${selectedDeviceIds.size} devices`,
+            shortcut: 'Del',
+            action: () => {
+              setGroupContextMenu(null);
+              handleDeleteSelectedDevices();
+            },
+          },
+          { id: 'group-divider', label: '', divider: true, action: () => {} },
+          {
+            id: 'group-clear',
+            label: 'Clear selection',
+            action: () => {
+              setSelectedDeviceIds(new Set());
+              setGroupContextMenu(null);
+            },
+          },
+        ] : []}
+        onClose={() => setGroupContextMenu(null)}
       />
 
       {/* Free-space context menu — discuss the whole topology with the AI */}
