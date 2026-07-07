@@ -102,7 +102,7 @@ const AIInlineChat = ({
     clearMessages,
   } = useAIAgent({
     permissionMode: 'auto',
-    provider: selectedProvider,
+    provider: selectedProvider ?? undefined,
     model: selectedModel,
     // Session/terminal tools
     sessions: availableSessions?.map(s => ({

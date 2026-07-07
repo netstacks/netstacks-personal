@@ -47,7 +47,7 @@ export default function MenuBar() {
         </button>
       )
     }
-    const c = commands[entry.commandId]
+    const c = commands.get(entry.commandId)
     if (!c) return null
     const enabled = c.when ? c.when(getActiveContext()) : true
     return (

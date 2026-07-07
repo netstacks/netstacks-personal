@@ -138,7 +138,7 @@ const AIFloatingChat = ({
     clearMessages,
   } = useAIAgent({
     permissionMode: 'auto',
-    provider: selectedProvider,
+    provider: selectedProvider ?? undefined,
     model: selectedModel,
     sessions: availableSessions?.map(s => ({
       id: s.id,

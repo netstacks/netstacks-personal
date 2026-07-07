@@ -127,7 +127,7 @@ const AIInlinePopup = ({
     clearMessages,
   } = useAIAgent({
     permissionMode: 'auto',
-    provider: selectedProvider,
+    provider: selectedProvider ?? undefined,
     model: selectedModel,
     // Session/terminal tools (map availableSessions to sessions for hook)
     sessions: availableSessions?.map(s => ({
