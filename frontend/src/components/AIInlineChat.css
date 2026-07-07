@@ -9,7 +9,7 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: 15vh;
-  z-index: 2000;
+  z-index: var(--z-modal);
   animation: overlayFadeIn 0.15s ease-out;
 }
 

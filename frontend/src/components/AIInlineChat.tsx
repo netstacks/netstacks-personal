@@ -53,7 +53,7 @@ const AIInlineChat = ({
   const messagesRef = useRef<HTMLDivElement>(null)
 
   // Provider/Model state (initialized from settings)
-  const [selectedProvider, setSelectedProvider] = useState<AiProviderType>('ollama')
+  const [selectedProvider, setSelectedProvider] = useState<AiProviderType | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [providerInitialized, setProviderInitialized] = useState(false)
 
@@ -295,7 +295,7 @@ const AIInlineChat = ({
             placeholder="Ask AI anything... (explain, fix, suggest)"
             value={input}
             onChange={e => setInput(e.target.value)}
-            disabled={agentState === 'thinking' || agentState === 'executing'}
+            disabled={!selectedProvider || agentState === 'thinking' || agentState === 'executing'}
           />
           {agentState === 'thinking' || agentState === 'executing' ? (
             <button type="button" className="ai-inline-chat-submit ai-stop-btn" onClick={stopAgent} title="Stop generating">
@@ -304,7 +304,7 @@ const AIInlineChat = ({
               </svg>
             </button>
           ) : (
-            <button type="submit" className="ai-inline-chat-submit" disabled={!input.trim()}>
+            <button type="submit" className="ai-inline-chat-submit" disabled={!selectedProvider || !input.trim()}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="22" y1="2" x2="11" y2="13" />
                 <polygon points="22 2 15 22 11 13 2 9 22 2" />

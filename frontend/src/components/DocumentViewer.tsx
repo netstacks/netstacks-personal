@@ -124,7 +124,7 @@ function formatRelativeTime(dateStr: string): string {
 function DocumentViewer({ document, onClose, onDocumentUpdate }: DocumentViewerProps) {
   // Edit mode state (reserved for future inline editing)
   const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(document.content);
+  const [editContent, setEditContent] = useState(document.content ?? '');
   const [isSaving, setIsSaving] = useState(false);
 
   // History panel state

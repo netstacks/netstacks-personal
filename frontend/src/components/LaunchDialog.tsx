@@ -75,8 +75,9 @@ export default function LaunchDialog({
           </button>
         </div>
         <div className="launch-dialog-foot">
-          <label className="launch-dialog-remember">
+          <label htmlFor="launch-dialog-remember" className="launch-dialog-remember">
             <input
+              id="launch-dialog-remember"
               type="checkbox"
               checked={dontAskAgain}
               onChange={(e) => setDontAskAgain(e.target.checked)}

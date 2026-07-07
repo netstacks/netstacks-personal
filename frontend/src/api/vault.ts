@@ -155,6 +155,18 @@ export async function wipeVault(confirmPassword: string): Promise<void> {
   });
 }
 
+/**
+ * Forgot-password reset: wipe every vault-encrypted value and drop the master
+ * password WITHOUT the old password (the user is locked out). Everything
+ * non-secret in the DB is kept, and a timestamped DB backup is written first.
+ * Callable from the locked vault gate. Returns the backup path when available.
+ */
+export async function resetVault(): Promise<{ backup?: string }> {
+  ensureStandaloneVault();
+  const { data } = await getClient().http.post('/vault/reset');
+  return { backup: data?.backup };
+}
+
 // === Biometric (Touch ID) unlock ===
 
 export interface BiometricStatus {

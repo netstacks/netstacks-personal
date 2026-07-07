@@ -553,6 +553,43 @@ pub async fn wipe_vault(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Forgot-password reset: back up the DB, then wipe the vault WITHOUT the old
+/// password and clear biometric enrollment. Everything non-secret is kept.
+/// Callable while the vault is locked; still gated by the agent bearer token.
+pub async fn reset_vault(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Back up the current DB (including vault) first so a mistaken reset is
+    // recoverable manually.
+    let db_path = crate::db::resolve_db_path();
+    let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let backup = {
+        let mut p = db_path.as_os_str().to_owned();
+        p.push(format!(".bak-vault-reset-{ts}"));
+        std::path::PathBuf::from(p)
+    };
+    let backup_str = backup.to_string_lossy().to_string();
+    crate::db_backup::export_db(&state.pool, &backup_str, true)
+        .await
+        .map_err(|e| ApiError {
+            error: format!("Failed to back up database before reset: {e}"),
+            code: "INTERNAL_ERROR".to_string(),
+        })?;
+
+    // Wipe the vault (no password verification).
+    state.provider.reset_vault().await?;
+
+    // Clear biometric enrollment — the keychain entry holds the now-defunct old
+    // password, so Touch ID must not auto-unlock with a stale secret. Best-effort.
+    let _ = crate::biometric::BiometricVaultStore::delete().await;
+    let _ = state
+        .provider
+        .set_setting("vault.biometric_enabled", serde_json::json!(false))
+        .await;
+
+    Ok(Json(serde_json::json!({ "ok": true, "backup": backup_str })))
+}
+
 // === Vault Biometric (Touch ID) Endpoints — macOS-only meaningful ===
 
 /// Status of biometric vault unlock for the current device.

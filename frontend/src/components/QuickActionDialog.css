@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
 }
 
 .quick-action-dialog-wrapper .qad-content {
@@ -329,7 +329,7 @@
 }
 
 .quick-action-dialog-wrapper .qad-field .qad-json-textarea::placeholder {
-  color: #555;
+  color: var(--color-text-tertiary);
 }
 
 /* Postman-style JSON syntax colors */
@@ -408,7 +408,7 @@
 }
 
 .quick-action-dialog-wrapper .qad-field .qad-path-input::placeholder {
-  color: #555;
+  color: var(--color-text-tertiary);
 }
 
 /* Test Variables */

@@ -918,7 +918,12 @@ const AISidePanel = ({
   // Scroll to bottom on new messages
   useEffect(() => {
     if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight
+      // Defer scroll until after paint so scrollHeight reflects the new message
+      requestAnimationFrame(() => {
+        if (messagesRef.current) {
+          messagesRef.current.scrollTop = messagesRef.current.scrollHeight
+        }
+      })
     }
   }, [displayMessages])
 

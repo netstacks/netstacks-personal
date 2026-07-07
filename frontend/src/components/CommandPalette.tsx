@@ -8,6 +8,7 @@ import {
 } from '../commands'
 import './CommandPalette.css'
 import { isMac, displayShortcut } from '../hooks/useKeyboard'
+import { searchEntities, type SearchHit } from '../api/search'
 
 /**
  * Legacy prop shape for ad-hoc commands. The palette now also reads
@@ -27,6 +28,7 @@ interface CommandPaletteProps {
   isOpen: boolean
   onClose: () => void
   commands: Command[]
+  onNavigate?: (hit: SearchHit) => void
 }
 
 /** Internal row shape unifying legacy and registry-sourced commands. */
@@ -87,9 +89,10 @@ function fmtShortcut(acc: string | undefined): string | undefined {
     .replace(/\+/g, '')
 }
 
-export default function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProps) {
+export default function CommandPalette({ isOpen, onClose, commands, onNavigate }: CommandPaletteProps) {
   const [search, setSearch] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [hits, setHits] = useState<SearchHit[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -128,10 +131,28 @@ export default function CommandPalette({ isOpen, onClose, commands }: CommandPal
     })
   }, [allRows, search])
 
+  // Debounced entity search
+  useEffect(() => {
+    const q = search.trim()
+    if (!q) {
+      setHits([])
+      return
+    }
+    const ctrl = new AbortController()
+    const t = setTimeout(() => {
+      void searchEntities(q, ctrl.signal).then(setHits).catch(() => setHits([]))
+    }, 150)
+    return () => {
+      clearTimeout(t)
+      ctrl.abort()
+    }
+  }, [search])
+
   // Reset state when opened
   useEffect(() => {
     if (isOpen) {
       setSearch('')
+      setHits([])
       setSelectedIndex(0)
       setTimeout(() => inputRef.current?.focus(), 0)
     }
@@ -156,16 +177,31 @@ export default function CommandPalette({ isOpen, onClose, commands }: CommandPal
       case 'Tab': {
         if (e.key === 'Tab' && e.shiftKey) {
           e.preventDefault()
-          setSelectedIndex(i => Math.max(i - 1, 0))
+          // Move up, skipping disabled items
+          setSelectedIndex(i => {
+            let next = i - 1
+            while (next >= 0 && !filteredCommands[next]?.enabled) next--
+            return Math.max(next, 0)
+          })
           return
         }
         e.preventDefault()
-        setSelectedIndex(i => Math.min(i + 1, filteredCommands.length - 1))
+        // Move down, skipping disabled items
+        setSelectedIndex(i => {
+          let next = i + 1
+          while (next < filteredCommands.length && !filteredCommands[next]?.enabled) next++
+          return Math.min(next, filteredCommands.length - 1)
+        })
         break
       }
       case 'ArrowUp':
         e.preventDefault()
-        setSelectedIndex(i => Math.max(i - 1, 0))
+        // Move up, skipping disabled items
+        setSelectedIndex(i => {
+          let next = i - 1
+          while (next >= 0 && !filteredCommands[next]?.enabled) next--
+          return Math.max(next, 0)
+        })
         break
       case 'Enter': {
         e.preventDefault()
@@ -202,7 +238,28 @@ export default function CommandPalette({ isOpen, onClose, commands }: CommandPal
           />
         </div>
         <div className="command-palette-list" ref={listRef}>
-          {filteredCommands.length === 0 ? (
+          {hits.length > 0 && (
+            <div className="command-palette-section">
+              <div className="command-palette-section-title">Results</div>
+              {hits.map((hit) => (
+                <div
+                  key={`${hit.type}:${hit.id}`}
+                  className="command-palette-item"
+                  onClick={() => {
+                    onNavigate?.(hit)
+                    onClose()
+                  }}
+                >
+                  <span className="command-palette-category">{hit.type}</span>
+                  <span className="command-label">{hit.title}</span>
+                  {hit.subtitle && (
+                    <span className="command-shortcut">{hit.subtitle}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {filteredCommands.length === 0 && hits.length === 0 ? (
             <div className="command-palette-empty">No commands found</div>
           ) : (
             filteredCommands.map((cmd, index) => (

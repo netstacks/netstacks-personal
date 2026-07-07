@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: center;
   background: var(--bg-primary, #1e1e1e);
-  z-index: 10000;
+  z-index: var(--z-gate);
 }
 
 .app-gate-spinner {

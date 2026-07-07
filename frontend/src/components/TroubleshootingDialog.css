@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
 }
 
 .troubleshooting-dialog {
@@ -215,7 +215,7 @@
   top: 5px;
   width: 8px;
   height: 2px;
-  background: white;
+  background: var(--color-text-on-accent);
   border-radius: 1px;
 }
 

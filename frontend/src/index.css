@@ -92,6 +92,7 @@
   --z-popover: 1000;
   --z-modal: 2000;
   --z-palette: 2500;
+  --z-gate: 4000;
 
   /* ── Missing canonical tokens ──────────────────────────────────
    * Referenced across components but never defined — they were
@@ -541,7 +542,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
 }
 .lsp-dialog {
   background: var(--color-bg-primary);

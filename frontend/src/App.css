@@ -1003,7 +1003,7 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   flex: 1;
   display: flex;
   overflow: hidden;
-  background-color: #1e1e1e;
+  background-color: var(--color-bg-primary);
 }
 
 /* 2D/3D View Toggle */
@@ -1013,7 +1013,7 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   right: 12px;
   display: flex;
   gap: 0;
-  background-color: rgba(37, 37, 38, 0.95);
+  background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 4px;
   overflow: hidden;
@@ -1162,7 +1162,7 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   animation: ns-overlay-in 0.16s ease both;
 }
 /* The dialog inside any .modal-overlay pops in (macOS-style). */

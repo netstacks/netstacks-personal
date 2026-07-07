@@ -75,7 +75,7 @@ const AIFloatingChat = ({
   const [input, setInput] = useState('')
 
   // Provider/Model state (initialized from settings)
-  const [selectedProvider, setSelectedProvider] = useState<AiProviderType>('ollama')
+  const [selectedProvider, setSelectedProvider] = useState<AiProviderType | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [providerInitialized, setProviderInitialized] = useState(false)
 
@@ -442,7 +442,7 @@ const AIFloatingChat = ({
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={sessionName ? `Ask about ${sessionName}...` : 'Ask AI...'}
-            disabled={isLoading}
+            disabled={!selectedProvider || isLoading}
           />
           {isLoading ? (
             <button
@@ -459,7 +459,7 @@ const AIFloatingChat = ({
             <button
               type="submit"
               className="ai-floating-chat-send"
-              disabled={!input.trim()}
+              disabled={!selectedProvider || !input.trim()}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                 <line x1="22" y1="2" x2="11" y2="13" />

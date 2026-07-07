@@ -4,7 +4,7 @@
 
 .device-tooltip {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-popover);
   background: var(--bg-secondary, #1e1e1e);
   border: 1px solid var(--border-color, #333);
   border-radius: 4px;

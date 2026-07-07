@@ -227,6 +227,7 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
                     key={index}
                     className="ai-example-btn"
                     onClick={() => handleExampleClick(example)}
+                    disabled={generating}
                   >
                     {example}
                   </button>

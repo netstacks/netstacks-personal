@@ -1,0 +1,9 @@
+/* frontend/src/components/WindowControls.css */
+.window-controls { display: flex; height: 35px; }
+.wc-btn {
+  width: 46px; height: 35px; border: none; background: transparent;
+  color: var(--text-muted, #9aa0a6); display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.wc-btn:hover { background: var(--hover-bg, rgba(255,255,255,0.08)); }
+.wc-close:hover { background: #e81123; color: #fff; }

@@ -63,7 +63,7 @@ export default function AboutModal({ isOpen, onClose }: AboutModalProps) {
       <div className="about-modal" data-testid="about-modal" onClick={(e) => e.stopPropagation()}>
         <div className="about-modal-header">
           <h2>About NetStacks</h2>
-          <button className="about-modal-close" onClick={onClose} title="Close">
+          <button className="about-modal-close" onClick={onClose} title="Close" autoFocus>
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path
                 d="M5 5L15 15M5 15L15 5"

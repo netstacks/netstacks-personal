@@ -95,7 +95,7 @@
 
 .status-bar-settings-toggle input:checked + .toggle-slider:before {
   transform: translateX(16px);
-  background-color: white;
+  background-color: var(--color-text-on-accent);
 }
 
 .status-bar-settings-toggle input:disabled + .toggle-slider {

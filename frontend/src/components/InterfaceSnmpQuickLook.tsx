@@ -253,16 +253,16 @@ export default function InterfaceSnmpQuickLook({
   const padding = 20
 
   let left = position.x
-  let top = position.y + 10
+  let top = position.y + window.scrollY + 10
 
   if (left + overlayWidth > window.innerWidth - padding) {
     left = window.innerWidth - overlayWidth - padding
   }
   if (left < padding) left = padding
-  if (top + overlayHeight > window.innerHeight - padding) {
-    top = position.y - overlayHeight - 10
+  if (top + overlayHeight > window.innerHeight + window.scrollY - padding) {
+    top = Math.max(padding + window.scrollY, position.y + window.scrollY - overlayHeight - 10)
   }
-  if (top < padding) top = padding
+  if (top < padding + window.scrollY) top = padding + window.scrollY
 
   // Get the latest stats to display (second sample preferred, fallback to first)
   const displayStats = secondSample?.stats || firstSample?.stats

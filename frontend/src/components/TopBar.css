@@ -1,0 +1,50 @@
+/* frontend/src/components/TopBar.css */
+.topbar {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  flex: 0 0 35px;
+  background: var(--titlebar-bg, var(--panel-bg, #1e1e1e));
+  border-bottom: 1px solid var(--border-color, #2a2a2a);
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Clear the inset macOS traffic lights. */
+.topbar.is-macos .topbar-left { padding-left: 78px; }
+
+.topbar-left { display: flex; align-items: center; min-width: 0; }
+.topbar-center {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 8px;
+}
+.topbar-right { display: flex; align-items: center; gap: 2px; }
+
+.command-center {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  max-width: 560px;
+  width: 40vw;
+  padding: 0 10px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  background: var(--input-bg, #2a2a2a);
+  color: var(--text-muted, #9aa0a6);
+  font-size: 12px;
+  cursor: pointer;
+}
+.command-center:hover { background: var(--input-bg-hover, #333); }
+.command-center-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.topbar-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 35px;
+  background: transparent; border: none; color: var(--text-muted, #9aa0a6);
+  cursor: pointer;
+}
+.topbar-icon-btn:hover { background: var(--hover-bg, rgba(255,255,255,0.06)); }
+.topbar-icon-btn[aria-pressed='true'] { color: var(--text-primary, #fff); }

@@ -27,7 +27,7 @@
   align-items: center;
   justify-content: center;
   background: var(--vg-bg);
-  z-index: 10000;
+  z-index: var(--z-gate);
   overflow: hidden;
 }
 
@@ -360,4 +360,47 @@
 .vault-mode-switch-btn svg {
   flex: 0 0 auto;
   opacity: 0.85;
+}
+
+/* Forgot-password reset flow */
+.vault-forgot-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-decoration: underline;
+}
+.vault-forgot-btn:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+.vault-forgot-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vault-reset {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.vault-reset-warning {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+.vault-reset-btn {
+  background: var(--color-error, #dc3545);
+  border-color: var(--color-error, #dc3545);
+  color: #fff;
+}
+.vault-reset-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.vault-forgot-row {
+  text-align: center;
+  margin-top: 4px;
 }

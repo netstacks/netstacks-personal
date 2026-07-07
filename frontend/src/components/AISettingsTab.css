@@ -793,31 +793,7 @@
   flex: 1;
 }
 
-.btn-refresh-models {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  color: var(--color-text-secondary);
-  font-size: 16px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.btn-refresh-models:hover:not(:disabled) {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover, var(--color-text-secondary));
-  color: var(--color-text-primary);
-}
-
-.btn-refresh-models:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+/* .btn-refresh-models styling is consolidated with the live model picker rules below. */
 
 .ollama-status {
   display: block;
@@ -1373,7 +1349,7 @@
   left: 2px;
   width: 14px;
   height: 14px;
-  background: white;
+  background: var(--color-text-on-accent);
   border-radius: 50%;
   transition: transform var(--transition-fast);
 }
@@ -2098,17 +2074,75 @@
   opacity: 0.6;
 }
 
-/* Task 5: Live model picker UI */
+/* Live model picker UI */
 .btn-refresh-models {
-  padding: 6px 12px;
-  border: 1px solid var(--border-color, #3a3a3a);
-  background: transparent;
-  color: var(--text-secondary, #aaa);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+.btn-refresh-models:hover:not(:disabled) {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+.btn-refresh-models:disabled { opacity: 0.5; cursor: not-allowed; }
+.model-fetch-error { color: var(--color-warning, #ffa726); }
+
+/* Searchable model combobox (replaces native <datalist>) */
+.model-combobox {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.model-combobox .form-input {
+  width: 100%;
+}
+.model-combobox-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.model-combobox-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 4px;
   cursor: pointer;
 }
-.btn-refresh-models:disabled { opacity: 0.5; cursor: default; }
-.model-fetch-error { color: var(--warning, #ffa726); }
+.model-combobox-option:hover {
+  background: var(--color-bg-tertiary);
+}
+.mco-id {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.mco-name {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
 
 .provider-requirements-hint {
   margin: 8px 0;

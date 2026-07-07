@@ -191,7 +191,7 @@
 
 .setting-toggle input:checked + .toggle-slider::before {
   transform: translateX(20px);
-  background: white;
+  background: var(--color-text-on-accent);
 }
 
 /* Text/number inputs */

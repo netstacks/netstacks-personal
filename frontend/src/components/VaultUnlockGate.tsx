@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { getVaultStatus, setMasterPassword, unlockVault } from '../api/sessions';
-import { getBiometricStatus, unlockVaultWithBiometric, type BiometricStatus } from '../api/vault';
+import { getBiometricStatus, unlockVaultWithBiometric, resetVault, type BiometricStatus } from '../api/vault';
 import { useMode } from '../hooks/useMode';
 import { PasswordInput } from './PasswordInput';
 import './VaultUnlockGate.css';
@@ -38,6 +38,12 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
   // via the prominent "Sign in to a Controller instead" / "Back to
   // local vault" buttons at the bottom of each view.
   const [gateView, setGateView] = useState<'vault' | 'controller'>('vault');
+  // Forgot-password reset flow: 0 = hidden, 1 = explain/confirm, 2 = final confirm.
+  const [resetStep, setResetStep] = useState<0 | 1 | 2>(0);
+  const [resetLoading, setResetLoading] = useState(false);
+  // Reveal "Forgot password?" only after a couple of failed unlock attempts,
+  // so the destructive reset stays out of the way during normal use.
+  const [unlockFailures, setUnlockFailures] = useState(0);
   const [enterpriseUrl, setEnterpriseUrl] = useState('');
   const [enterpriseSwitching, setEnterpriseSwitching] = useState(false);
   const [enterpriseSwitchError, setEnterpriseSwitchError] = useState<string | null>(null);
@@ -213,10 +219,29 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
       } catch {
         // Ignore re-check errors
       }
+      setUnlockFailures(n => n + 1);
       setError('Invalid password');
       setPassword('');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setError(null);
+    setResetLoading(true);
+    try {
+      await resetVault();
+      // The vault marker is gone — re-check status. has_master_password is now
+      // false, so the gate drops into the setup state to create a new password.
+      setResetStep(0);
+      setPassword('');
+      setBiometric(null);
+      await checkVaultStatus();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to reset vault'));
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -290,7 +315,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
               </div>
             )}
 
-            {state === 'unlock' && biometric?.enabled && biometric.supported && biometric.enrolled && (
+            {state === 'unlock' && resetStep === 0 && biometric?.enabled && biometric.supported && biometric.enrolled && (
               <>
                 <button
                   type="button"
@@ -317,6 +342,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
               </>
             )}
 
+            {resetStep === 0 && (
             <form onSubmit={state === 'setup' ? handleSetup : handleUnlock} className="vault-form">
               <div className="vault-field">
                 <label htmlFor="vault-password">
@@ -367,6 +393,53 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                 )}
               </button>
             </form>
+            )}
+
+            {state === 'unlock' && resetStep > 0 && (
+              <div className="vault-reset">
+                <p className="vault-reset-warning">
+                  Resetting permanently deletes everything stored in the vault — SSH and
+                  session credentials, AI API keys, integration tokens, secure-note
+                  contents, and secret mapped-key commands. Everything else (sessions,
+                  profiles, topology, documents, settings) is kept. A backup of the
+                  current database is saved first. <strong>This cannot be undone.</strong>
+                </p>
+                {resetStep === 1 ? (
+                  <button
+                    type="button"
+                    className="vault-submit vault-reset-btn"
+                    onClick={() => setResetStep(2)}
+                    disabled={resetLoading}
+                  >
+                    Reset vault
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="vault-submit vault-reset-btn"
+                    onClick={handleReset}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? (
+                      <>
+                        <div className="vault-spinner small" />
+                        <span>Resetting…</span>
+                      </>
+                    ) : (
+                      <span>Yes, permanently reset — this can&apos;t be undone</span>
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="vault-mode-switch-btn"
+                  onClick={() => { setResetStep(0); setError(null); }}
+                  disabled={resetLoading}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
 
             {state === 'setup' && (
               <p className="vault-hint">
@@ -374,12 +447,26 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
               </p>
             )}
 
-            {state === 'unlock' && (
+            {state === 'unlock' && resetStep === 0 && (
               <p className="vault-hint">
                 Enter your master password to access stored credentials.
               </p>
             )}
 
+            {state === 'unlock' && resetStep === 0 && unlockFailures >= 2 && (
+              <div className="vault-forgot-row">
+                <button
+                  type="button"
+                  className="vault-forgot-btn"
+                  onClick={() => { setError(null); setResetStep(1); }}
+                  disabled={loading || biometricLoading}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
+            {resetStep === 0 && (
             <div className="vault-mode-switch">
               <button
                 type="button"
@@ -399,6 +486,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                 <span>Sign in to a Controller instead</span>
               </button>
             </div>
+            )}
           </>
         ) : (
           <>

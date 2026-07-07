@@ -16,10 +16,6 @@ export interface AppSettings {
   'terminal.fontWeight': string;
   // Liquid-glass (translucent/blurred) chrome, modals, popovers & AI panels.
   'ui.glassEffects': boolean;
-  // Show the native window title bar + controls. Off = borderless (no title
-  // bar, no traffic-light controls) so content fills the top; the window stays
-  // movable via the tab bar / activity bar.
-  'ui.showTitleBar': boolean;
   'terminal.lineNumbers': boolean;
   // Show a small popup with vendor info on hovered MAC addresses and
   // reverse-DNS results on hovered IP addresses. Same lookups the right-
@@ -128,7 +124,6 @@ const defaultSettings: AppSettings = {
   'terminal.middleClickPaste': true,
   'terminal.fontWeight': 'normal',
   'ui.glassEffects': true,
-  'ui.showTitleBar': true,
   'terminal.lineNumbers': false,
   'terminal.hoverLookups': true,
   'terminal.enrichment.hoverEnabled': true,

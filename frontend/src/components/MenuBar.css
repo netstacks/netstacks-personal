@@ -1,0 +1,21 @@
+.menu-bar { display: flex; align-items: center; height: 35px; -webkit-app-region: no-drag; }
+.menu-section { position: relative; height: 100%; }
+.menu-top {
+  height: 35px; padding: 0 8px; border: none; background: transparent;
+  color: var(--text-primary, #ddd); font-size: 12px; cursor: pointer;
+}
+.menu-top:hover, .menu-top.active { background: var(--hover-bg, rgba(255,255,255,0.08)); }
+.menu-dropdown {
+  position: absolute; top: 35px; left: 0; min-width: 220px; z-index: 1000;
+  background: var(--menu-bg, #252526); border: 1px solid var(--border-color, #333);
+  border-radius: 0 0 6px 6px; padding: 4px 0; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+.menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  width: 100%; padding: 5px 12px; border: none; background: transparent;
+  color: var(--text-primary, #ddd); font-size: 12px; text-align: left; cursor: pointer;
+}
+.menu-item:hover:not(:disabled) { background: var(--accent, #094771); color: #fff; }
+.menu-item:disabled { opacity: 0.4; cursor: default; }
+.menu-item-accel { color: var(--text-muted, #888); font-size: 11px; }
+.menu-sep { height: 1px; margin: 4px 8px; background: var(--border-color, #3a3a3a); }

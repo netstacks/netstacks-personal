@@ -1638,7 +1638,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       const total = countMatches(term, options)
       setSearchMatchCount(total)
       // First match is the one xterm just highlighted.
-      setCurrentSearchMatch(total > 0 ? 1 : 0)
+      setCurrentSearchMatch(1)
     } else {
       setSearchMatchCount(0)
       setCurrentSearchMatch(0)
@@ -3687,7 +3687,10 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       )}
       {/* Capture mode indicator (>> docs/path) */}
       {captureMode && (
-        <div className="terminal-capture-indicator">
+        <div
+          className="terminal-capture-indicator"
+          style={showFindBar ? { top: '48px' } : undefined}
+        >
           <div className="terminal-capture-indicator-pulse" />
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
             <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />

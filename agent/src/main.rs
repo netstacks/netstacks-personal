@@ -52,6 +52,7 @@ mod providers;
 mod quick_actions;
 mod remote_agents;
 mod scripts;
+mod search;
 mod secret;
 mod db_backup;
 mod sftp;
@@ -892,6 +893,8 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/docs-kb", get(api::docs_kb_index))
         .route("/docs-kb/search", get(api::docs_kb_search))
         .route("/docs-kb/:slug", get(api::docs_kb_get))
+        // Search
+        .route("/search", get(search::search))
         // Sessions
         .route("/sessions", get(api::list_sessions).post(api::create_session))
         .route("/sessions/bulk-delete", post(api::bulk_delete_sessions))
@@ -921,6 +924,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/vault/unlock", post(api::unlock_vault))
         .route("/vault/lock", post(api::lock_vault))
         .route("/vault/wipe", post(api::wipe_vault))
+        .route("/vault/reset", post(api::reset_vault))
         // Touch ID / biometric vault unlock (macOS only meaningful)
         .route("/vault/biometric/status", get(api::biometric_status))
         .route("/vault/biometric/enable", post(api::enable_biometric))

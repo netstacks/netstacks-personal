@@ -31,6 +31,7 @@ import {
   type ConfigModeStatus,
   listProviderModels,
   type ProviderModel,
+  getAiApiKey,
 } from '../api/ai';
 import { useSettings, type AiProviderType as SettingsProviderType } from '../hooks/useSettings';
 import { useMode } from '../hooks/useMode';
@@ -363,6 +364,8 @@ export default function AISettingsTab() {
   const [liveModels, setLiveModels] = useState<Record<string, ProviderModel[]>>({});
   const [modelsLoading, setModelsLoading] = useState<Record<string, boolean>>({});
   const [modelsError, setModelsError] = useState<Record<string, string>>({});
+  // Which provider's model combobox suggestion list is currently open.
+  const [openModelCombo, setOpenModelCombo] = useState<string | null>(null);
 
   // Ollama-specific state
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; models: string[] }>({ running: false, models: [] });
@@ -1266,6 +1269,15 @@ export default function AISettingsTab() {
                             value={apiKeys[p.type]}
                             onChange={(e) => setApiKeys(prev => ({ ...prev, [p.type]: e.target.value }))}
                             placeholder={status.hasKey ? '********** (key saved)' : 'Enter your API key'}
+                            onReveal={() => {
+                              // Lazily load the stored key from the vault so the
+                              // reveal button can actually show a saved key (the
+                              // field is otherwise empty behind the placeholder).
+                              if (apiKeys[p.type] || !status.hasKey) return;
+                              getAiApiKey(p.type)
+                                .then(key => { if (key) setApiKeys(prev => ({ ...prev, [p.type]: key })); })
+                                .catch(() => { /* vault locked or fetch failed — leave empty */ });
+                            }}
                           />
                           {status.hasKey && (
                             <button
@@ -1476,29 +1488,59 @@ export default function AISettingsTab() {
                           )}
                         </div>
                         <div className="add-model-row">
-                          <input
-                            type="text"
-                            className="form-input"
-                            list={`models-${p.type}`}
-                            value={newModelInputs[p.type]}
-                            onChange={(e) => setNewModelInputs(prev => ({ ...prev, [p.type]: e.target.value }))}
-                            placeholder={
-                              modelsLoading[p.type]
-                                ? 'Loading models…'
-                                : (liveModels[p.type]?.length ? 'Select or type a model' : getModelPlaceholder(p.type))
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                addProviderModel(p.type, newModelInputs[p.type]);
+                          <div className="model-combobox">
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={newModelInputs[p.type]}
+                              onChange={(e) => setNewModelInputs(prev => ({ ...prev, [p.type]: e.target.value }))}
+                              onFocus={() => setOpenModelCombo(p.type)}
+                              onBlur={() => window.setTimeout(() => setOpenModelCombo(cur => (cur === p.type ? null : cur)), 150)}
+                              placeholder={
+                                modelsLoading[p.type]
+                                  ? 'Loading models…'
+                                  : (liveModels[p.type]?.length ? 'Select or type a model' : getModelPlaceholder(p.type))
                               }
-                            }}
-                          />
-                          <datalist id={`models-${p.type}`}>
-                            {(liveModels[p.type] || []).map(m => (
-                              <option key={m.id} value={m.id}>{m.display_name}</option>
-                            ))}
-                          </datalist>
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  addProviderModel(p.type, newModelInputs[p.type]);
+                                  setOpenModelCombo(null);
+                                } else if (e.key === 'Escape') {
+                                  setOpenModelCombo(null);
+                                }
+                              }}
+                            />
+                            {openModelCombo === p.type && (() => {
+                              const q = newModelInputs[p.type].trim().toLowerCase();
+                              const already = new Set(getProviderModels(p.type));
+                              const suggestions = (liveModels[p.type] || [])
+                                .filter(m => !already.has(m.id))
+                                .filter(m => !q || m.id.toLowerCase().includes(q) || m.display_name.toLowerCase().includes(q))
+                                .slice(0, 100);
+                              if (suggestions.length === 0) return null;
+                              return (
+                                <ul className="model-combobox-list">
+                                  {suggestions.map(m => (
+                                    <li
+                                      key={m.id}
+                                      className="model-combobox-option"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        addProviderModel(p.type, m.id);
+                                        setOpenModelCombo(null);
+                                      }}
+                                    >
+                                      <span className="mco-id">{m.id}</span>
+                                      {m.display_name && m.display_name !== m.id && (
+                                        <span className="mco-name">{m.display_name}</span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              );
+                            })()}
+                          </div>
                           <button
                             className="btn-add-model"
                             onClick={() => addProviderModel(p.type, newModelInputs[p.type])}

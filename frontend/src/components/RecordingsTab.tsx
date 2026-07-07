@@ -234,6 +234,7 @@ export default function RecordingsTab() {
                           }}
                           autoFocus
                           disabled={submitting}
+                          aria-label="Recording name"
                         />
                       ) : (
                         <div className="recordings-item-name">{rec.name}</div>

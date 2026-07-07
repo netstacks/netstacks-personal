@@ -195,14 +195,6 @@ const defaultSettings: Setting[] = [
     value: true,
   },
   {
-    id: 'ui.showTitleBar',
-    category: 'Appearance',
-    label: 'Show Title Bar',
-    description: 'Show the native window title bar and controls. Turn off for a borderless window that reclaims the top space — drag the tab bar / activity bar to move it, double-click to zoom (close/minimize via the menu or keyboard).',
-    type: 'boolean',
-    value: true,
-  },
-  {
     id: 'terminal.lineNumbers',
     category: 'Terminal',
     label: 'Line Numbers',

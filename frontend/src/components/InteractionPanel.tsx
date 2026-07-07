@@ -52,9 +52,10 @@ export default function InteractionPanel() {
   const resolve = async (body: ResolveBody) => {
     if (busy) return;
     setBusy(true);
+    // Clear answer text immediately, independent of API result
+    setAnswer('');
     try {
       await resolveInteraction(current.id, body);
-      setAnswer('');
       // Optimistic dequeue; the next poll reconciles.
       setQueue((q) => q.filter((i) => i.id !== current.id));
     } catch {
@@ -70,7 +71,7 @@ export default function InteractionPanel() {
         <div className="interaction-header">
           <span className={`interaction-kind-badge kind-${current.kind}`}>{current.kind}</span>
           <span className="interaction-queue-count">
-            {queue.length > 1 ? `${queue.length} pending` : '1 pending'}
+            {queue.length === 1 ? '1 pending' : `${queue.length} pending`}
           </span>
         </div>
 

@@ -2,7 +2,7 @@
 
 .ai-inline-popup {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--z-popover);
   background: var(--glass-bg-strong);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);

@@ -4,7 +4,7 @@
 
 .device-detail-card {
   position: fixed;
-  z-index: 9999;
+  z-index: var(--z-popover);
   min-width: 300px;
   max-width: 400px;
   background: var(--bg-primary, #1a1a1a);

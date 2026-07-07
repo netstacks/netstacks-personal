@@ -100,7 +100,9 @@ import {
 } from './api/groups'
 import { useLiveGroupAutoClear } from './hooks/useLiveGroup'
 import type { Script } from './api/scripts'
+import { getScript } from './api/scripts'
 import { updateDocument, listDocuments, getDocument, createDocument, type Document, type DocumentCategory, type ContentType } from './api/docs'
+import type { SearchHit } from './api/search'
 import { createChange } from './api/changes'
 import { createMopStep, type MopStep } from './types/change'
 import type { AiContext } from './api/ai'
@@ -136,6 +138,10 @@ import WorkspaceNewDialog from './components/workspace/WorkspaceNewDialog'
 import WorkspacesPanel, { addSavedWorkspace } from './components/workspace/WorkspacesPanel'
 import { MenuBridge } from './commands/menuBridge'
 import { useActiveContextStore, useCommand, dispatchCommand, getActiveContext, type ActiveContext } from './commands'
+import { getPlatform } from './utils/platform'
+import TopBar from './components/TopBar'
+import WindowControls from './components/WindowControls'
+import MenuBar from './components/MenuBar'
 import type { WorkspaceConfig } from './types/workspace'
 import { useTroubleshootingSession, type OnTimeoutCallback } from './hooks/useTroubleshootingSession'
 import type { TroubleshootingSession } from './types/troubleshooting'
@@ -618,24 +624,19 @@ function AppContent() {
     document.documentElement.setAttribute('data-glass', appSettings['ui.glassEffects'] === false ? 'off' : 'on')
   }, [appSettings['ui.glassEffects']])
 
-  // Show/hide the native window title bar + controls (traffic lights) at
-  // runtime. Hidden = borderless, content fills the top. Needs the
-  // core:window:allow-set-decorations capability.
-  const showTitleBar = appSettings['ui.showTitleBar'] !== false
+  // The custom TopBar is always present. macOS keeps native decorations
+  // (inset traffic lights via titleBarStyle: Overlay in tauri.conf).
+  // Windows/Linux drop native decorations so the TopBar owns the chrome.
+  const platform = getPlatform()
   useEffect(() => {
+    if (platform === 'macos') return
     import('@tauri-apps/api/window')
-      .then(({ getCurrentWindow }) => getCurrentWindow().setDecorations(showTitleBar))
+      .then(({ getCurrentWindow }) => getCurrentWindow().setDecorations(false))
       .catch(() => { /* not running under Tauri */ })
-  }, [showTitleBar])
+  }, [platform])
 
-  // When the title bar is hidden the window has no native drag handle, so the
-  // top chrome (tab bar + activity bar) becomes a drag region — move on drag,
-  // zoom on double-click, both handled natively by Tauri's data-tauri-drag-region
-  // (no JS handler; that double-toggles). When the bar is shown, the native
-  // title bar handles everything, so these stay off.
-  const titleBarDragProps: React.HTMLAttributes<HTMLDivElement> = showTitleBar
-    ? {}
-    : { ['data-tauri-drag-region' as string]: true }
+  // The TopBar is the drag handle on all platforms now.
+  const titleBarDragProps: React.HTMLAttributes<HTMLDivElement> = {}
 
 
   // Suppress native context menu globally — React onContextMenu handlers
@@ -2761,6 +2762,40 @@ def main(command: str = "show version"):
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newTab.id)
   }, [tabs])
+
+  // Route Command Center search selections to entity openers
+  const handleNavigateHit = useCallback(async (hit: SearchHit) => {
+    switch (hit.type) {
+      case 'session':
+      case 'device':
+        window.dispatchEvent(new CustomEvent('netstacks:open-session', { detail: { sessionId: hit.id } }))
+        return
+      case 'topology':
+        handleOpenTopology(hit.id, hit.title)
+        return
+      case 'mop':
+        // /search returns MOP templates; planId opens a template for editing
+        handleOpenMopTab(hit.id, hit.title, undefined)
+        return
+      case 'doc':
+        try {
+          handleOpenDocument(await getDocument(hit.id))
+        } catch {
+          // fetch error; toast handled upstream
+        }
+        return
+      case 'script':
+        try {
+          handleOpenScript(await getScript(hit.id))
+        } catch {
+          // fetch error; ignore
+        }
+        return
+      // quick-action / snippet / workspace: no first-class tab opener yet — deferred.
+      default:
+        return
+    }
+  }, [handleOpenTopology, handleOpenMopTab, handleOpenDocument, handleOpenScript])
 
   // Handle opening a traceroute topology as a new tab (in-memory, not saved)
   const handleOpenTracerouteTopology = useCallback((topology: Topology) => {
@@ -6719,6 +6754,16 @@ def main(command: str = "show version"):
         {/* CommandRegistry ↔ native menu bridge. Mounted at the root so
             it stays alive for the whole session. Doesn't render anything. */}
         <MenuBridge />
+        <TopBar
+          platform={platform}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(o => !o)}
+          aiPanelOpen={!aiPanelCollapsed && aiChatOpen}
+          onToggleAiPanel={() => { if (!aiPanelCollapsed && aiChatOpen) { setAiChatOpen(false) } else { setAiChatOpen(true); setAiPanelCollapsed(false) } }}
+          onOpenCommandCenter={() => setCommandPaletteOpen(true)}
+          menuSlot={platform === 'macos' ? undefined : <MenuBar />}
+          windowControlsSlot={platform === 'macos' ? undefined : <WindowControls />}
+        />
         <div className="app-body" data-testid="app-body">
         {/* Activity Bar */}
         <div className="activity-bar" data-testid="activity-bar">
@@ -7747,6 +7792,7 @@ def main(command: str = "show version"):
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         commands={commands}
+        onNavigate={handleNavigateHit}
       />
 
 

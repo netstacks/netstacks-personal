@@ -1,8 +1,8 @@
 .scratchpad-panel {
   position: fixed;
-  /* Stays below AIInlinePopup (z-index 10000) so the Ask AI popup
+  /* Stays below AIInlinePopup so the Ask AI popup
    * surfaces above the panel when invoked from the right-click menu. */
-  z-index: 9999;
+  z-index: var(--z-popover);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: 8px;

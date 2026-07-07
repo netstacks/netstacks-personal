@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   animation: profileFadeIn 0.15s ease;
 }
 
@@ -313,7 +313,7 @@
 
 .toggle input:checked + .toggle-slider::before {
   transform: translateX(18px);
-  background-color: white;
+  background-color: var(--color-text-on-accent);
 }
 
 /* Environment Variables */

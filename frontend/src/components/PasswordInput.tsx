@@ -22,10 +22,18 @@ import { forwardRef, useState } from 'react'
 import type { InputHTMLAttributes } from 'react'
 import './PasswordInput.css'
 
-type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>
+type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+  /**
+   * Called when the user toggles the field from hidden to visible. Adoption
+   * sites can use this to lazily populate the value being revealed — e.g. an
+   * API-key field whose stored secret lives in the vault and isn't held in
+   * the input until the user asks to see it.
+   */
+  onReveal?: () => void
+}
 
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
-  function PasswordInput({ className, disabled, ...rest }, ref) {
+  function PasswordInput({ className, disabled, onReveal, ...rest }, ref) {
     const [visible, setVisible] = useState(false)
     return (
       <div className={`password-input-wrapper ${className || ''}`}>
@@ -39,7 +47,10 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         <button
           type="button"
           className="password-input-toggle"
-          onClick={() => setVisible(v => !v)}
+          onClick={() => setVisible(v => {
+            if (!v) onReveal?.()
+            return !v
+          })}
           tabIndex={-1}
           aria-label={visible ? 'Hide password' : 'Show password'}
           title={visible ? 'Hide password' : 'Show password'}
