@@ -15,6 +15,7 @@ import QuickActionsPanel from './QuickActionsPanel'
 import SettingsHighlighting from './SettingsHighlighting'
 import SettingsEnrichment from './SettingsEnrichment'
 import SettingsDocuments from './SettingsDocuments'
+import SettingsHostnames from './SettingsHostnames'
 import StatusBarSettingsPanel from './StatusBarSettings'
 import SettingsMappedKeys from './SettingsMappedKeys'
 import PanelSettingsPanel from './PanelSettings'
@@ -520,6 +521,11 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
               <div className="settings-category">
                 <h3 className="settings-category-title">Panels</h3>
                 <PanelSettingsPanel />
+              </div>
+
+              {/* Hostname Display */}
+              <div className="settings-category">
+                <SettingsHostnames />
               </div>
 
               {/* Onboarding — re-open the first-run setup wizard on demand */}

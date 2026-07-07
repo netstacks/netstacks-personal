@@ -360,7 +360,7 @@ export default function ApiResourceDialog({
   }
 
   return (
-    <div className="api-resource-dialog-overlay" onClick={onClose}>
+    <div className="api-resource-dialog-overlay">
       <div className="api-resource-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="api-resource-dialog-header">
           <h2>{isEdit ? 'Edit API Resource' : 'Add API Resource'}</h2>

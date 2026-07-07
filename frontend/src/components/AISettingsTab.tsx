@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { getClient, isClientInitialized } from '../api/client';
+import { providerRequirements } from './aiProviderValidation';
 import {
   getAiConfig,
   setAiConfig,
@@ -28,6 +29,8 @@ import {
   disableAiConfigMode,
   getAiConfigModeStatus,
   type ConfigModeStatus,
+  listProviderModels,
+  type ProviderModel,
 } from '../api/ai';
 import { useSettings, type AiProviderType as SettingsProviderType } from '../hooks/useSettings';
 import { useMode } from '../hooks/useMode';
@@ -355,6 +358,11 @@ export default function AISettingsTab() {
     litellm: '',
     custom: '',
   });
+
+  // Live model fetching state (Task 5)
+  const [liveModels, setLiveModels] = useState<Record<string, ProviderModel[]>>({});
+  const [modelsLoading, setModelsLoading] = useState<Record<string, boolean>>({});
+  const [modelsError, setModelsError] = useState<Record<string, string>>({});
 
   // Ollama-specific state
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; models: string[] }>({ running: false, models: [] });
@@ -771,6 +779,36 @@ export default function AISettingsTab() {
     setNewModelInputs(prev => ({ ...prev, [providerType]: '' }));
   };
 
+  // Fetch live models from provider API (Task 5)
+  const fetchLiveModels = useCallback(async (providerType: AiProviderType, refresh = false) => {
+    setModelsLoading(prev => ({ ...prev, [providerType]: true }));
+    setModelsError(prev => ({ ...prev, [providerType]: '' }));
+    const res = await listProviderModels(providerType, {
+      baseUrl: baseUrls[providerType] || undefined,
+      verifySsl: verifySSL[providerType],
+      apiFormat: providerType === 'custom' ? apiFormat : undefined,
+      refresh,
+    });
+    setLiveModels(prev => ({ ...prev, [providerType]: res.models }));
+    if (res.source === 'error') {
+      setModelsError(prev => ({ ...prev, [providerType]: res.error || 'Could not load models' }));
+    }
+    setModelsLoading(prev => ({ ...prev, [providerType]: false }));
+  }, [baseUrls, verifySSL, apiFormat]);
+
+  // Auto-fetch models when a provider card expands (Task 5)
+  useEffect(() => {
+    for (const type of expandedProviders) {
+      const p = type as AiProviderType;
+      if (p === 'custom') continue; // custom uses a single freeform model field, no live picker
+      // Only auto-fetch once per expand and skip when we already have a list.
+      if (liveModels[p] === undefined && !modelsLoading[p]) {
+        fetchLiveModels(p);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedProviders]);
+
   // Remove a model from a provider's list
   const removeProviderModel = (providerType: AiProviderType, model: string) => {
     const key = `ai.models.${providerType}` as keyof typeof settings;
@@ -875,6 +913,9 @@ export default function AISettingsTab() {
 
       // Clear key input
       setApiKeys(prev => ({ ...prev, [providerType]: '' }));
+
+      // Re-fetch models after saving key (Task 5 — cloud APIs now have auth)
+      fetchLiveModels(providerType, true);
 
       setSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} configured successfully`);
       setTimeout(() => setSuccess(null), 3000);
@@ -1158,6 +1199,23 @@ export default function AISettingsTab() {
             const isExpanded = providerEnabled && expandedProviders.has(p.type);
             const isDefault = defaultProvider === p.type;
 
+            const needsBaseUrl = p.type === 'ollama' || p.type === 'litellm' || p.type === 'custom';
+            const reqs = providerRequirements({
+              requiresKey: !!p.requiresKey,
+              hasKey: status.hasKey,
+              modelCount: (p.type === 'custom' ? (customModel ? 1 : 0) : getProviderModels(p.type).length),
+              needsBaseUrl,
+              hasBaseUrl: !!baseUrls[p.type],
+            });
+
+            // Save may proceed as soon as a key is typed (or for keyless
+            // providers), even before it's persisted — otherwise the first
+            // key could never be saved. Set-as-Default still requires the
+            // key to be persisted (reqs uses status.hasKey).
+            const canSaveKey =
+              (!p.requiresKey || status.hasKey || !!apiKeys[p.type]) &&
+              (!needsBaseUrl || !!baseUrls[p.type]);
+
             return (
               <div
                 key={p.type}
@@ -1421,9 +1479,14 @@ export default function AISettingsTab() {
                           <input
                             type="text"
                             className="form-input"
+                            list={`models-${p.type}`}
                             value={newModelInputs[p.type]}
                             onChange={(e) => setNewModelInputs(prev => ({ ...prev, [p.type]: e.target.value }))}
-                            placeholder={getModelPlaceholder(p.type)}
+                            placeholder={
+                              modelsLoading[p.type]
+                                ? 'Loading models…'
+                                : (liveModels[p.type]?.length ? 'Select or type a model' : getModelPlaceholder(p.type))
+                            }
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
@@ -1431,6 +1494,11 @@ export default function AISettingsTab() {
                               }
                             }}
                           />
+                          <datalist id={`models-${p.type}`}>
+                            {(liveModels[p.type] || []).map(m => (
+                              <option key={m.id} value={m.id}>{m.display_name}</option>
+                            ))}
+                          </datalist>
                           <button
                             className="btn-add-model"
                             onClick={() => addProviderModel(p.type, newModelInputs[p.type])}
@@ -1438,7 +1506,20 @@ export default function AISettingsTab() {
                           >
                             Add
                           </button>
+                          <button
+                            className="btn-refresh-models"
+                            onClick={() => fetchLiveModels(p.type, true)}
+                            disabled={!!modelsLoading[p.type]}
+                            title="Refresh model list from provider"
+                          >
+                            {modelsLoading[p.type] ? 'Refreshing…' : 'Refresh'}
+                          </button>
                         </div>
+                        {modelsError[p.type] && (
+                          <span className="form-hint model-fetch-error">
+                            {modelsError[p.type]} — you can still add a model manually above.
+                          </span>
+                        )}
                         <span className="form-hint">{getModelHint(p.type)}</span>
 
                         {/* Max Tokens */}
@@ -1483,12 +1564,19 @@ export default function AISettingsTab() {
                       </div>
                     )}
 
+                    {reqs.missing.length > 0 && (
+                      <div className="provider-requirements-hint">
+                        To use this provider, add: {reqs.missing.join(', ')}.
+                      </div>
+                    )}
+
                     {/* Actions */}
                     <div className="ai-provider-actions">
                       <button
                         className="btn-set-default"
                         onClick={() => handleSetDefault(p.type)}
-                        disabled={isDefault || (!status.hasKey && p.type !== 'ollama' && p.type !== 'litellm')}
+                        disabled={isDefault || !reqs.canSetDefault}
+                        title={reqs.canSetDefault ? '' : `Needs ${reqs.missing.join(', ')}`}
                       >
                         {isDefault ? 'Default Provider' : 'Set as Default'}
                       </button>
@@ -1497,7 +1585,7 @@ export default function AISettingsTab() {
                         <button
                           className="btn-save-key"
                           onClick={() => handleSaveKey(p.type)}
-                          disabled={!apiKeys[p.type] || saving === p.type}
+                          disabled={saving === p.type || !canSaveKey}
                         >
                           {Icons.save}
                           {saving === p.type ? 'Saving...' : 'Save Key'}

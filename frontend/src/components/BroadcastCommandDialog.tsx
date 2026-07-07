@@ -219,7 +219,7 @@ function BroadcastCommandDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="broadcast-dialog-overlay" onClick={onClose}>
+    <div className="broadcast-dialog-overlay">
       <div className="broadcast-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="broadcast-dialog-header">
           <h2>Broadcast Command to {selectedSessionIds.length} Session{selectedSessionIds.length === 1 ? '' : 's'}</h2>

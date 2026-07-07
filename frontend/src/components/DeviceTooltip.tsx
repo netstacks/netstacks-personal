@@ -11,6 +11,7 @@ import type { DeviceEnrichment } from '../types/enrichment';
 import type { TracerouteEnrichmentState } from '../types/tracerouteEnrichment';
 import type { DeviceLiveStats } from '../hooks/useTopologyLive';
 import { formatUptime, getResourceLevel, getResourceLevelColor } from '../lib/enrichmentHelpers';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import './DeviceTooltip.css';
 
 interface DeviceTooltipProps {
@@ -56,6 +57,8 @@ export default function DeviceTooltip({
   tracerouteEnrichment,
   deviceLiveStats,
 }: DeviceTooltipProps) {
+  const formatName = useHostnameFormatter();
+
   if (!visible) return null;
 
   // Check if this is a traceroute hop
@@ -155,7 +158,7 @@ export default function DeviceTooltip({
       }}
     >
       {/* Device name */}
-      <div className="device-tooltip-name">{device.name}</div>
+      <div className="device-tooltip-name">{formatName(device.name)}</div>
 
       {/* Classification badge for traceroute hops */}
       {classification && (

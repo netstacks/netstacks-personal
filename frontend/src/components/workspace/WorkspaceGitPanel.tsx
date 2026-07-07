@@ -222,7 +222,7 @@ export default function WorkspaceGitPanel({
       )}
 
       {showPushRejected && (
-        <div className="workspace-git-dialog-overlay" onClick={() => setShowPushRejected(false)}>
+        <div className="workspace-git-dialog-overlay">
           <div className="workspace-git-dialog" onClick={e => e.stopPropagation()}>
             <h3>Changes on the Server</h3>
             <p>

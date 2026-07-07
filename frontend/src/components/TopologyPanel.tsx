@@ -24,6 +24,7 @@ import type { Topology, Device, DeviceStatus } from '../types/topology';
 import './TopologyPanel.css';
 import { confirmDialog } from './ConfirmDialog';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
 const isSortOrder = (v: unknown): v is 'default' | 'reverse' =>
@@ -182,6 +183,7 @@ function TopologyPanelContent({
   onStartDiscovery,
   connectedSessionIds = [],
 }: TopologyPanelProps) {
+  const formatName = useHostnameFormatter();
   const currentTopology = activeTopology ?? null;
   const isEnterprise = getCurrentMode() === 'enterprise';
 
@@ -1333,7 +1335,7 @@ function TopologyPanelContent({
                   className="status-indicator"
                   style={{ backgroundColor: STATUS_COLORS[device.status] }}
                 />
-                <span className="device-name">{device.name}</span>
+                <span className="device-name">{formatName(device.name)}</span>
                 <span className="device-status">
                   {device.sessionId ? '(connected)' : '(no session)'}
                 </span>

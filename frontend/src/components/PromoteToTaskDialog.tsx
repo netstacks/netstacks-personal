@@ -80,7 +80,7 @@ export function PromoteToTaskDialog({
     }
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose });
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, clickOutside: false });
 
   return (
     <div className="promote-dialog-overlay" {...backdropProps}>

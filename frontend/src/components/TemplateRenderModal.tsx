@@ -148,7 +148,7 @@ export function TemplateRenderModal({
     onClose();
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: handleClose, enabled: isOpen });
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: handleClose, clickOutside: false, enabled: isOpen });
 
   if (!isOpen) return null;
 

@@ -6,6 +6,7 @@ import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
 import DeviceMemoryEditor from './DeviceMemoryEditor';
 import SessionContextEditor from './SessionContextEditor';
 import { useAuthStore } from '../stores/authStore';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 // Icons
 import { getErrorMessage } from '../api/errors'
@@ -61,6 +62,7 @@ export default function EnterpriseDevicePanel({
   onOpenBackupHistory,
   headerTarget,
 }: EnterpriseDevicePanelProps) {
+  const formatName = useHostnameFormatter()
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -359,7 +361,7 @@ export default function EnterpriseDevicePanel({
                         >
                           {isFavorite(device.id) ? Icons.starFilled : Icons.star}
                         </button>
-                        <span className="device-item-name">{device.name}</span>
+                        <span className="device-item-name">{formatName(device.name)}</span>
                         <button
                           className="device-connect-btn"
                           onClick={(e) => { e.stopPropagation(); (onDeviceQuickConnect || onDeviceConnect)(device); }}
@@ -371,7 +373,7 @@ export default function EnterpriseDevicePanel({
                       <div className="device-item-details">
                         <div className="device-item-details-inner">
                           <div className="device-item-host">
-                            {device.host}:{device.port}
+                            {formatName(device.host)}:{device.port}
                             <span className="device-source-badge">{device.source}</span>
                             <span className="device-type-badge">{device.device_type}</span>
                           </div>
@@ -410,7 +412,7 @@ export default function EnterpriseDevicePanel({
                   >
                     {isFavorite(device.id) ? Icons.starFilled : Icons.star}
                   </button>
-                  <span className="device-item-name">{device.name}</span>
+                  <span className="device-item-name">{formatName(device.name)}</span>
                   <button
                     className="device-connect-btn"
                     onClick={(e) => { e.stopPropagation(); (onDeviceQuickConnect || onDeviceConnect)(device); }}
@@ -422,7 +424,7 @@ export default function EnterpriseDevicePanel({
                 <div className="device-item-details">
                   <div className="device-item-details-inner">
                     <div className="device-item-host">
-                      {device.host}:{device.port}
+                      {formatName(device.host)}:{device.port}
                       <span className="device-source-badge">{device.source}</span>
                       <span className="device-type-badge">{device.device_type}</span>
                     </div>
@@ -511,7 +513,7 @@ export default function EnterpriseDevicePanel({
 
       {/* Edit Device Dialog */}
       {editDevice && (
-        <div className="device-edit-overlay" onClick={() => !editSaving && setEditDevice(null)}>
+        <div className="device-edit-overlay">
           <div className="device-edit-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="device-edit-header">
               <h3>Edit Device</h3>

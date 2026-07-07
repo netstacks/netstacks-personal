@@ -158,7 +158,7 @@ export default function WorkspaceHistoryEditor({ gitOps, onClose, onRefresh }: W
   }
 
   return (
-    <div className="workspace-git-dialog-overlay" onClick={onClose}>
+    <div className="workspace-git-dialog-overlay">
       <div className="workspace-git-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <h3>Clean Up Your Commits</h3>
         <p>These commits exist only on your machine. You can reorganize them before pushing.</p>

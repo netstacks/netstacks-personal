@@ -309,7 +309,7 @@ export default function WorkspaceNewDialog({
     ? (remotePath.trim().length > 0 && remoteSessionId)
     : (cloneUrl.trim().length > 0 && clonePath.trim().length > 0)
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onCancel })
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onCancel, clickOutside: false })
 
   return (
     <div className="workspace-new-dialog-overlay" {...backdropProps}>

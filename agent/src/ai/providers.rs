@@ -2604,7 +2604,30 @@ fn parse_openai_compatible_stream(
         // ToolUseEnd before starting a new one or before ending the stream).
         let mut active_tool_index: Option<usize> = None;
 
-        while let Some(chunk_result) = byte_stream.next().await {
+        loop {
+            // Once a terminal `finish_reason` has been seen, well-behaved
+            // providers send the trailing usage chunk + the `[DONE]` sentinel and
+            // close within milliseconds. Some OpenAI-compatible proxies (e.g.
+            // Google Gemini via Apigee) instead emit `finish_reason` and then
+            // hold the connection open WITHOUT ever sending `[DONE]`, which would
+            // block `byte_stream.next()` forever and hang the client on
+            // "thinking…". Bound the post-finish wait so the fallback `Done`
+            // below always fires; the pre-finish read stays unbounded (the model
+            // may legitimately take a long time to start responding).
+            let next_chunk = if stop_reason.is_some() {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    byte_stream.next(),
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(_) => None,
+                }
+            } else {
+                byte_stream.next().await
+            };
+            let Some(chunk_result) = next_chunk else { break };
             let chunk = match chunk_result {
                 Ok(bytes) => bytes,
                 Err(e) => {

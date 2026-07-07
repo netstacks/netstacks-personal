@@ -7,6 +7,7 @@ import { useMultiSend } from '../hooks/useMultiSend'
 import { useSftpStore } from '../stores/sftpStore'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { listSessions } from '../api/sessions'
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter'
 import './TerminalPanel.css'
 
 import { logger } from '../lib/logger'
@@ -28,6 +29,7 @@ interface TerminalPanelProps {
 }
 
 export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
+  const formatName = useHostnameFormatter()
   const [tabs, setTabs] = useState<TerminalTab[]>([
     { id: 'terminal-1', title: 'Terminal 1', groupId: null, status: 'local' }
   ])
@@ -538,7 +540,7 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
             </svg>
           </span>
         )}
-        <span className="terminal-panel-tab-title" title={tab.title}>{tab.title}</span>
+        <span className="terminal-panel-tab-title" title={tab.title}>{formatName(tab.title)}</span>
         <button
           className="terminal-panel-tab-close"
           onClick={(e) => {

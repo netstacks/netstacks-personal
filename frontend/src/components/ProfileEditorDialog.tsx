@@ -301,6 +301,7 @@ export default function ProfileEditorDialog({
 
   const { backdropProps, contentProps } = useOverlayDismiss({
     onDismiss: guardedClose,
+    clickOutside: false,
     enabled: isOpen && !saving,
   });
 

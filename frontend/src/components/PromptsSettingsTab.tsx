@@ -562,7 +562,7 @@ function PromptEditor({
   };
 
   return (
-    <div className="prompt-editor-overlay" onClick={onClose}>
+    <div className="prompt-editor-overlay">
       <div className="prompt-editor" onClick={e => e.stopPropagation()}>
         <div className="prompt-editor-header">{title}</div>
         <div className="prompt-editor-body">

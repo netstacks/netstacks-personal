@@ -38,6 +38,7 @@ import { fetchDeviceByName, type NetBoxDevice } from '../api/netbox';
 import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
 import DetailSections from './detail/DetailSections';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import './DeviceDetailTab.css';
 
 /** SNMP-polled resource data */
@@ -357,6 +358,7 @@ export default function DeviceDetailTab({
   deviceId,
   onOpenTerminal,
 }: DeviceDetailTabProps) {
+  const formatName = useHostnameFormatter();
   const isEnterprise = getCurrentMode() === 'enterprise';
   // Interface table state
   const [interfaceFilter, setInterfaceFilter] = useState('');
@@ -945,7 +947,8 @@ export default function DeviceDetailTab({
   const model = enrichment?.model || device?.model || device?.platform || parsedDescr.model || 'Unknown';
   const osVersion = enrichment?.osVersion || device?.version || parsedDescr.osVersion || 'Unknown';
   const serial = enrichment?.serialNumber || device?.serial || 'N/A';
-  const hostname = enrichment?.hostname || device?.name || deviceName;
+  const fullHostname = enrichment?.hostname || device?.name || deviceName;
+  const hostname = formatName(fullHostname); // DISPLAY ONLY
   const deviceType = device?.type || 'unknown';
 
   // Uptime — fall back to the SNMP sysUpTime string the poll already
@@ -1314,7 +1317,7 @@ export default function DeviceDetailTab({
   /** Generate comprehensive markdown from all component state */
   const generateTabMarkdown = useCallback((): string => {
     const timestamp = new Date().toLocaleString();
-    let md = `# Device: ${hostname}\n\n**Generated:** ${timestamp}\n\n`;
+    let md = `# Device: ${fullHostname}\n\n**Generated:** ${timestamp}\n\n`;
 
     // System Information
     md += `## System Information\n\n`;
@@ -1323,7 +1326,7 @@ export default function DeviceDetailTab({
     md += `| Model | ${model} |\n`;
     md += `| OS Version | ${osVersion} |\n`;
     md += `| Serial Number | ${serial} |\n`;
-    md += `| Hostname | ${hostname} |\n`;
+    md += `| Hostname | ${fullHostname} |\n`;
     md += `| Uptime | ${getUptimeDisplay()} |\n`;
     if (enrichment?.cliFlavor) md += `| CLI Flavor | ${enrichment.cliFlavor} |\n`;
     if (device?.primaryIp) md += `| Management IP | ${device.primaryIp} |\n`;
@@ -1427,7 +1430,7 @@ export default function DeviceDetailTab({
     }
 
     return md;
-  }, [hostname, vendor, model, osVersion, serial, enrichment, device, interfaces, snmpSystemInfo, snmpInterfaceData, liveRates, sessionHistory, changeHistory]);
+  }, [fullHostname, vendor, model, osVersion, serial, enrichment, device, interfaces, snmpSystemInfo, snmpInterfaceData, liveRates, sessionHistory, changeHistory]);
 
   /** Save basic markdown doc from current state */
   const handleBasicSave = useCallback(async () => {
@@ -1436,7 +1439,7 @@ export default function DeviceDetailTab({
     setSaveDialogOpen(false);
     try {
       const markdown = generateTabMarkdown();
-      const result = await saveEnrichmentToDoc(markdown, `device_${hostname}`);
+      const result = await saveEnrichmentToDoc(markdown, `device_${fullHostname}`);
       if (result.success) {
         setSaveMessage({ type: 'success', text: 'Saved to Docs' });
       } else {
@@ -1447,7 +1450,7 @@ export default function DeviceDetailTab({
     } finally {
       setSavingState('idle');
     }
-  }, [generateTabMarkdown, hostname]);
+  }, [generateTabMarkdown, fullHostname]);
 
   /** Send to AI for enriched documentation, then save */
   const handleAiEnhancedSave = useCallback(async () => {
@@ -1491,7 +1494,7 @@ export default function DeviceDetailTab({
         model,
       });
 
-      const result = await saveEnrichmentToDoc(aiResponse, `device_${hostname}_ai_enhanced`);
+      const result = await saveEnrichmentToDoc(aiResponse, `device_${fullHostname}_ai_enhanced`);
       if (result.success) {
         setSaveMessage({ type: 'success', text: 'AI-enhanced doc saved' });
       } else {
@@ -1506,7 +1509,7 @@ export default function DeviceDetailTab({
     } finally {
       setSavingState('idle');
     }
-  }, [generateTabMarkdown, hostname, device]);
+  }, [generateTabMarkdown, fullHostname, device]);
 
   return (
     <div className="device-detail-tab">

@@ -20,6 +20,7 @@ import {
 import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
 import DetailSections from './detail/DetailSections';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import './DeviceDetailCard.css';
 
 interface DeviceDetailCardProps {
@@ -66,6 +67,8 @@ export default function DeviceDetailCard({
   profile,
   connected,
 }: DeviceDetailCardProps) {
+  const formatName = useHostnameFormatter();
+
   // Dragging state
   const [position, setPosition] = useState(initialPosition);
   const [isDragging, setIsDragging] = useState(false);
@@ -169,7 +172,7 @@ export default function DeviceDetailCard({
   }, [onClose]);
 
   // Get display values
-  const hostname = enrichment?.hostname || device.name;
+  const hostname = formatName(enrichment?.hostname || device.name);
 
   // Resources (enrichment takes precedence, then live stats)
   const liveCpu = enrichment?.cpuPercent ?? deviceLiveStats?.cpuPercent ?? undefined;

@@ -830,7 +830,7 @@ export const SftpFileBrowser: React.FC<SftpFileBrowserProps> = ({
 
       {/* New folder dialog */}
       {showNewFolderDialog && (
-        <div className="sftp-dialog-overlay" onClick={() => setShowNewFolderDialog(false)}>
+        <div className="sftp-dialog-overlay">
           <div className="sftp-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>New Folder</h3>
             <input

@@ -6,6 +6,7 @@
 pub mod chat;
 pub mod highlight;
 pub mod knowledge_packs;
+pub mod models;
 pub mod oauth2;
 pub mod onboarding;
 pub mod profile;

@@ -16,6 +16,7 @@ import './BackupHistoryTab.css'
 import { useMonacoOverlord } from '../hooks/useMonacoOverlord'
 import { useEditorFontSettings } from '../hooks/useEditorFontSettings'
 import MonacoOverlordWidget from './MonacoOverlordWidget'
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter'
 
 import { getErrorMessage } from '../api/errors'
 interface BackupHistoryTabProps {
@@ -102,6 +103,7 @@ function toBackupEntryFull(dc: DeviceConfigFull): BackupEntry {
 }
 
 export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: BackupHistoryTabProps) {
+  const formatName = useHostnameFormatter()
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -694,7 +696,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
           <>
             <div className="backup-content-header">
               <div className="backup-content-title">
-                {deviceName} — {formatDate(selectedConfig.created_at)}
+                {formatName(deviceName)} — {formatDate(selectedConfig.created_at)}
                 {draftDirty && <span className="backup-draft-badge" title="Local edits are not saved — config-text changes are a future change-control feature">Local draft — not saved</span>}
               </div>
               <div className="backup-content-meta">

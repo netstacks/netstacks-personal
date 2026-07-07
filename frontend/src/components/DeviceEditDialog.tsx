@@ -87,7 +87,7 @@ export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEdit
 
   // Hooks must run unconditionally (before any early return). Gate dismissal so
   // it's inactive when there's no device or while submitting.
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: guardedClose, enabled: !submitting && !!device })
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: guardedClose, clickOutside: false, enabled: !submitting && !!device })
 
   if (!device) return null
 

@@ -373,7 +373,7 @@ export default function QuickActionDialog({
 
   const showBody = method === 'POST' || method === 'PUT' || method === 'PATCH'
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose })
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, clickOutside: false })
 
   return (
     <div className="quick-action-dialog-wrapper">

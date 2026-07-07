@@ -231,7 +231,7 @@ export default function ProfilesTab() {
 
       {/* Delete Confirmation Dialog */}
       {deleteConfirm && (
-        <div className="delete-confirm-overlay" onClick={handleDeleteCancel}>
+        <div className="delete-confirm-overlay">
           <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>Delete Profile</h3>
             <p>

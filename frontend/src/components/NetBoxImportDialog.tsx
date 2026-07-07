@@ -557,7 +557,7 @@ function NetBoxImportDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="netbox-dialog-overlay" onClick={onClose}>
+    <div className="netbox-dialog-overlay">
       <div className="netbox-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="netbox-dialog-header">
           <h2>

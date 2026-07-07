@@ -2097,3 +2097,21 @@
   color: var(--color-text-secondary);
   opacity: 0.6;
 }
+
+/* Task 5: Live model picker UI */
+.btn-refresh-models {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color, #3a3a3a);
+  background: transparent;
+  color: var(--text-secondary, #aaa);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-refresh-models:disabled { opacity: 0.5; cursor: default; }
+.model-fetch-error { color: var(--warning, #ffa726); }
+
+.provider-requirements-hint {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--warning, #ffa726);
+}

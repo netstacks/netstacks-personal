@@ -87,7 +87,7 @@ export default function TracerouteDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="traceroute-dialog-overlay" onClick={handleClose}>
+    <div className="traceroute-dialog-overlay">
       <div className="traceroute-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="traceroute-dialog-header">
           <h2>Visualize Traceroute / MTR</h2>

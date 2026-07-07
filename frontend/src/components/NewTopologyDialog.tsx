@@ -126,7 +126,7 @@ export default function NewTopologyDialog({
       )
     : enterpriseDevices;
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: !submitting });
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, clickOutside: false, enabled: !submitting });
 
   if (!isOpen) return null;
 

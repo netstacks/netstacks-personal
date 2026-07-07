@@ -286,7 +286,7 @@ export default function ApiResourcesTab() {
 
       {/* Delete confirmation */}
       {deleteResourceConfirm && (
-        <div className="dialog-overlay" onClick={() => setDeleteResourceConfirm(null)}>
+        <div className="dialog-overlay">
           <div className="dialog-content dialog-small" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-header">
               <h3>Delete API Resource</h3>

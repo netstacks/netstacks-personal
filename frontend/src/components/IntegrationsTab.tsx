@@ -1006,7 +1006,7 @@ export default function IntegrationsTab() {
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="delete-confirm-overlay" onClick={handleDeleteCancel}>
+        <div className="delete-confirm-overlay">
           <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>Delete NetBox Source</h3>
             <p>Are you sure you want to delete "{deleteConfirm.name}"?</p>

@@ -1117,7 +1117,7 @@ export default function InstanceDetailTab({
 
       {/* Deploy Dialog */}
       {deployDialogOpen && stack && (
-        <div className="instance-deploy-overlay" onClick={() => setDeployDialogOpen(false)}>
+        <div className="instance-deploy-overlay">
           <div className="instance-deploy-dialog" onClick={e => e.stopPropagation()}>
             <div className="instance-deploy-dialog-header">
               <h3>Deploy Instance: {instance?.name}</h3>

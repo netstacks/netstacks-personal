@@ -446,6 +446,7 @@ function SessionSettingsDialog({
 
   const { backdropProps, contentProps } = useOverlayDismiss({
     onDismiss: handleClose,
+    clickOutside: false,
     enabled: isOpen && !saving,
   });
 

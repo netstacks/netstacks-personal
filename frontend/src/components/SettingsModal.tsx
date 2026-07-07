@@ -30,7 +30,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [isResizing, setIsResizing] = useState<string | null>(null)
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 })
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 })
-  const justFinishedInteraction = useRef(false)
 
   // Center the modal when first opened
   useEffect(() => {
@@ -101,11 +100,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleMouseUp = useCallback(() => {
     setIsDragging(false)
     setIsResizing(null)
-    // Prevent overlay click from closing modal right after drag/resize
-    justFinishedInteraction.current = true
-    setTimeout(() => {
-      justFinishedInteraction.current = false
-    }, 100)
   }, [])
 
   useEffect(() => {
@@ -158,14 +152,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     height: size.height,
   }
 
-  const handleOverlayClick = () => {
-    if (!justFinishedInteraction.current) {
-      onClose()
-    }
-  }
-
   return (
-    <div className="settings-modal-overlay" data-testid="settings-modal" onClick={handleOverlayClick}>
+    <div className="settings-modal-overlay" data-testid="settings-modal">
       <div
         className={`settings-modal ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
         style={modalStyle}

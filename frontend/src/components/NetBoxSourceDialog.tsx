@@ -675,7 +675,7 @@ export default function NetBoxSourceDialog({
   const dialogTitle = isEditing ? `Edit NetBox Source: ${source?.name}` : 'Add NetBox Source';
 
   return (
-    <div className="netbox-dialog-overlay" onClick={handleCloseGuarded}>
+    <div className="netbox-dialog-overlay">
       <div className="netbox-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="netbox-dialog-header">
           <h2>{dialogTitle}</h2>

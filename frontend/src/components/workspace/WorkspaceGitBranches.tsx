@@ -299,7 +299,7 @@ export default function WorkspaceGitBranches({
       />
 
       {switchDialog && (
-        <div className="workspace-git-dialog-overlay" onClick={() => setSwitchDialog(null)}>
+        <div className="workspace-git-dialog-overlay">
           <div className="workspace-git-dialog" onClick={e => e.stopPropagation()}>
             <h3>Unsaved Changes</h3>
             <p>

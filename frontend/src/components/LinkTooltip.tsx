@@ -10,6 +10,7 @@ import type { LinkEnrichment } from '../types/enrichment';
 import type { LinkPortStats } from '../types/tracerouteEnrichment';
 import { getStatusColor } from '../lib/enrichmentHelpers';
 import { formatPortStatsTooltip } from '../utils/portStatsEdge';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import './LinkTooltip.css';
 
 interface LinkTooltipProps {
@@ -51,6 +52,8 @@ export default function LinkTooltip({
   position,
   visible,
 }: LinkTooltipProps) {
+  const formatName = useHostnameFormatter();
+
   if (!visible) return null;
 
   // Adjust position to keep tooltip in viewport
@@ -136,9 +139,9 @@ export default function LinkTooltip({
       }}
     >
       <div className="link-tooltip-devices">
-        <span className="link-tooltip-device">{sourceDevice.name}</span>
+        <span className="link-tooltip-device">{formatName(sourceDevice.name)}</span>
         <span className="link-tooltip-arrow">&#8596;</span>
-        <span className="link-tooltip-device">{targetDevice.name}</span>
+        <span className="link-tooltip-device">{formatName(targetDevice.name)}</span>
       </div>
       {connection.sourceInterface && connection.targetInterface ? (
         <div className="link-tooltip-interfaces-simple">

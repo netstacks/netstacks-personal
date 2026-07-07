@@ -38,7 +38,7 @@ export default function QuickCallVariablesDialog({ call, variables, onSubmit, on
   }
 
   return (
-    <div className="qcv-dialog-overlay" onClick={onCancel} onKeyDown={handleKeyDown}>
+    <div className="qcv-dialog-overlay" onKeyDown={handleKeyDown}>
       <div className="qcv-dialog" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
         <div className="qcv-dialog-header">
           <h2>Run &ldquo;{call.name}&rdquo;</h2>

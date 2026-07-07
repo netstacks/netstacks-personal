@@ -12600,6 +12600,10 @@ pub struct EnrichmentSourceTestResult {
     pub unwrapped: Option<serde_json::Value>,
     pub flattened_keys: Vec<String>,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
 }
 
 pub async fn test_enrichment_source(
@@ -12613,6 +12617,8 @@ pub async fn test_enrichment_source(
             url: req.path_template,
             raw_response: None, unwrapped: None, flattened_keys: vec![],
             error: Some("No API resource selected".into()),
+            raw_text: None,
+            content_type: None,
         }));
     };
 
@@ -12651,6 +12657,8 @@ pub async fn test_enrichment_source(
         None,
         &std::collections::HashMap::new(),
     ).await;
+    let raw_text = exec.raw_text.clone();
+    let content_type = exec.content_type.clone();
     let result: Result<(u16, serde_json::Value), String> = if exec.status_code == 0 {
         Err(exec.error.unwrap_or_else(|| "request failed".into()))
     } else {
@@ -12687,6 +12695,8 @@ pub async fn test_enrichment_source(
                 unwrapped: Some(unwrapped),
                 flattened_keys: keys,
                 error: None,
+                raw_text,
+                content_type,
             }))
         }
         Err(e) => Ok(Json(EnrichmentSourceTestResult {
@@ -12694,6 +12704,8 @@ pub async fn test_enrichment_source(
             url: full_url,
             raw_response: None, unwrapped: None, flattened_keys: vec![],
             error: Some(e),
+            raw_text,
+            content_type,
         })),
     }
 }

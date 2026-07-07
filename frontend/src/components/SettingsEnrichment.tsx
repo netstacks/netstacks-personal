@@ -683,7 +683,14 @@ function SourceForm({
               placeholder="sample session host (optional)"
               onChange={(e) => setSampleHost(e.target.value)}
             />
-            <button className="se-btn" disabled={testing || !sampleToken.trim()} onClick={() => void runTest()}>
+            <button
+              className="se-btn"
+              /* Only require a sample token when the path actually uses one.
+                 Session-host-based sources ({session_host}) can run without a
+                 token — otherwise the tester is stuck for those sources. */
+              disabled={testing || (/\{token(_url)?\}/.test(pathTemplate) && !sampleToken.trim())}
+              onClick={() => void runTest()}
+            >
               {testing ? 'Testing…' : 'Run Test'}
             </button>
           </div>

@@ -35,6 +35,7 @@ import { downloadFile } from '../lib/formatters';
 import { showToast } from './Toast';
 import { confirmDialog } from './ConfirmDialog';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
 const isSortOrder = (v: unknown): v is 'default' | 'reverse' =>
@@ -286,6 +287,7 @@ function SessionPanelContent({
   getTabTitle,
   onOpenRemoteWindow,
 }: SessionPanelProps) {
+  const formatName = useHostnameFormatter()
   const [sessions, setSessions] = useState<Session[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [recentConnections, setRecentConnections] = useState<ConnectionHistory[]>([]);
@@ -1310,7 +1312,7 @@ function SessionPanelContent({
           >
             {isFavorite(session.id) ? Icons.starFilled : Icons.star}
           </button>
-          <span className="session-item-name">{session.name}</span>
+          <span className="session-item-name">{formatName(session.name)}</span>
           <button
             className="session-connect-btn"
             onClick={(e) => {
@@ -1324,7 +1326,7 @@ function SessionPanelContent({
         </div>
         <div className="session-item-details">
           <div className="session-item-details-inner">
-            <div className="session-item-host">{session.host}:{session.port}</div>
+            <div className="session-item-host">{formatName(session.host)}:{session.port}</div>
           </div>
         </div>
       </div>
@@ -1581,7 +1583,7 @@ function SessionPanelContent({
                             >
                               {Icons.starFilled}
                             </button>
-                            <span className="session-item-name">{session.name}</span>
+                            <span className="session-item-name">{formatName(session.name)}</span>
                             <button
                               className="session-connect-btn"
                               onClick={(e) => {
@@ -1595,7 +1597,7 @@ function SessionPanelContent({
                           </div>
                           <div className="session-item-details">
                             <div className="session-item-details-inner">
-                              <div className="session-item-host">{session.host}:{session.port}</div>
+                              <div className="session-item-host">{formatName(session.host)}:{session.port}</div>
                             </div>
                           </div>
                         </div>

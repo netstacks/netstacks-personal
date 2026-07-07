@@ -141,6 +141,8 @@ export interface EnrichmentSourceTestResult {
   unwrapped: unknown | null;
   flattened_keys: string[];
   error: string | null;
+  raw_text?: string | null;
+  content_type?: string | null;
 }
 
 // =============================================================================

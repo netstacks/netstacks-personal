@@ -1490,6 +1490,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
     // AI routes (with state for settings access)
     let ai_routes = TrackedRouter::new()
         .route("/chat", post(ai::chat::chat_completion))
+        .route("/providers/:provider/models", get(ai::chat::list_provider_models))
         .route("/generate-script", post(ai::chat::generate_script))
         .route("/agent-chat", post(ai::chat::agent_chat))
         .route("/agent-chat-stream", post(ai::chat::agent_chat_stream_handler))

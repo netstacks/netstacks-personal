@@ -67,7 +67,16 @@ export function EnrichmentSourceExplorer({
       {view === 'json' ? (
         <pre className="se-tree">{JSON.stringify(root, null, 2)}</pre>
       ) : root === null || root === undefined ? (
-        <div className="se-tree-empty">No response — try Run Test</div>
+        result.raw_text ? (
+          <div className="se-tree-nonjson">
+            <div className="se-nonjson-note">
+              Response was not JSON{result.content_type ? ` (${result.content_type})` : ''} — showing raw body:
+            </div>
+            <pre className="se-tree">{result.raw_text.slice(0, 4000)}{result.raw_text.length > 4000 ? '\n…(truncated)' : ''}</pre>
+          </div>
+        ) : (
+          <div className="se-tree-empty">No response — try Run Test</div>
+        )
       ) : (
         <div className="se-tree">
           <JsonNode

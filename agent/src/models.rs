@@ -2525,6 +2525,13 @@ pub struct QuickActionResult {
     /// (amber) rather than success (green).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// Raw response body as TEXT when it was NOT valid JSON (e.g. an HTML
+    /// login page). None when the body parsed as JSON or was empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_text: Option<String>,
+    /// Response Content-Type, surfaced with raw_text for diagnosing non-JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
 }
 
 /// Request to execute a quick action inline (without saving)

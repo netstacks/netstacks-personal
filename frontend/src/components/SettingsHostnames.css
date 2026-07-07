@@ -1,0 +1,238 @@
+.settings-hostnames {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 800px;
+}
+
+.sh-header h2 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.sh-description {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.7;
+  line-height: 1.5;
+}
+
+.sh-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sh-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.sh-toggle span {
+  font-size: 14px;
+}
+
+.sh-patterns {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sh-patterns-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sh-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--button-background, #444);
+  color: var(--button-text, #fff);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sh-btn:hover {
+  background: var(--button-background-hover, #555);
+}
+
+.sh-btn:active {
+  background: var(--button-background-active, #333);
+}
+
+.sh-btn-sm {
+  padding: 2px 6px;
+  font-size: 12px;
+  background: var(--button-background, #444);
+  color: var(--button-text, #fff);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 3px;
+  cursor: pointer;
+  min-width: 24px;
+}
+
+.sh-btn-sm:hover:not(:disabled) {
+  background: var(--button-background-hover, #555);
+}
+
+.sh-btn-sm:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.sh-btn-danger {
+  padding: 4px 10px;
+  font-size: 14px;
+  background: var(--danger-background, #d32f2f);
+  color: var(--danger-text, #fff);
+  border: 1px solid var(--danger-border, #b71c1c);
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.sh-btn-danger:hover {
+  background: var(--danger-background-hover, #c62828);
+}
+
+.sh-empty {
+  padding: 12px;
+  font-size: 13px;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.sh-pattern-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sh-pattern-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  position: relative;
+}
+
+.sh-pattern-controls {
+  display: flex;
+  gap: 2px;
+}
+
+.sh-pattern-input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  background: var(--input-background, #2a2a2a);
+  color: var(--input-text, #fff);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 4px;
+}
+
+.sh-pattern-input.sh-pattern-error {
+  border-color: var(--danger-background, #d32f2f);
+  background: rgba(211, 47, 47, 0.1);
+}
+
+.sh-error-msg {
+  position: absolute;
+  top: 100%;
+  left: 56px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--danger-background, #d32f2f);
+  background: var(--tooltip-background, #1a1a1a);
+  padding: 4px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.sh-test {
+  padding: 16px;
+  background: var(--panel-background, #1e1e1e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sh-test-header {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sh-test-note {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+  line-height: 1.4;
+}
+
+.sh-test-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sh-test-label {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sh-test-input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  background: var(--input-background, #2a2a2a);
+  color: var(--input-text, #fff);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 4px;
+}
+
+.sh-test-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--code-background, #0d1117);
+  border: 1px solid var(--border-color, #30363d);
+  border-radius: 4px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.sh-result-arrow {
+  color: var(--accent-color, #58a6ff);
+  font-weight: bold;
+}
+
+.sh-result-value {
+  color: var(--success-color, #3fb950);
+  font-weight: 500;
+}
+
+.sh-test-example {
+  font-size: 12px;
+  opacity: 0.6;
+  line-height: 1.5;
+}
+
+.sh-test-example code {
+  background: var(--code-background, #0d1117);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+}

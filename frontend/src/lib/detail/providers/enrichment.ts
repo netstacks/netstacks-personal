@@ -3,6 +3,7 @@
  */
 
 import type { DeviceDetailProvider } from '../types';
+import { formatHostname } from '../../../hooks/useHostnameFormatter';
 
 /**
  * Enrichment provider
@@ -28,7 +29,7 @@ export const enrichmentProvider: DeviceDetailProvider = (device, ctx) => {
     fields.push({
       key: 'hostname',
       label: 'Hostname',
-      value: ctx.enrichment.hostname,
+      value: formatHostname(ctx.enrichment.hostname),
     });
   }
 

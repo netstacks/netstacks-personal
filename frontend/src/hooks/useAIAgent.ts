@@ -24,6 +24,7 @@ import { validateReadOnlyCommand, type ValidationResult } from '../lib/readOnlyF
 import { parseAiCommandArray } from '../lib/aiJson';
 import { getClient } from '../api/client';
 import { lookupOui, lookupDns, lookupWhois, lookupAsn } from '../api/lookup';
+import { friendlyAiError } from '../api/aiErrors';
 import { getTopologyTools, executeTopologyTool, isTopologyTool, type TopologyAICallbacks } from '../lib/topologyAITools';
 import type { SessionContextEntry } from '../api/ai';
 import type { NetBoxNeighbor } from '../api/netbox';
@@ -3350,7 +3351,7 @@ Guidelines:
           break;
         }
         const errorMsg = getErrorMessage(err);
-        addMessage(createErrorMessage(`Agent error: ${errorMsg}`));
+        addMessage(createErrorMessage(`Agent error: ${friendlyAiError(String(errorMsg))}`));
         setAgentState('error');
         break;
       }
@@ -3658,7 +3659,7 @@ Guidelines:
           break;
         }
         const errorMsg = getErrorMessage(err);
-        addMessage(createErrorMessage(`Agent error: ${errorMsg}`));
+        addMessage(createErrorMessage(`Agent error: ${friendlyAiError(String(errorMsg))}`));
         setAgentState('error');
         break;
       }

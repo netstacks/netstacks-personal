@@ -7,6 +7,7 @@ import type { AgentType } from '../lib/aiModes';
 import axios from 'axios';
 import { getClient, getCurrentMode } from './client';
 import { getErrorMessage } from './errors';
+import { friendlyAiError } from './aiErrors';
 import {
   hasVaultApiKey,
   storeVaultApiKey,
@@ -300,6 +301,50 @@ export async function deleteAiApiKey(provider?: AiProviderType): Promise<void> {
   await deleteVaultApiKey(keyType);
 }
 
+// ============================================
+// Provider Models Listing
+// ============================================
+
+export interface ProviderModel {
+  id: string;
+  display_name: string;
+}
+
+export interface ProviderModelsResult {
+  models: ProviderModel[];
+  source: 'live' | 'error';
+  error?: string;
+}
+
+/**
+ * List a provider's available models from the agent (which fetches the
+ * provider's models API using the vaulted key). base_url/verify_ssl/api_format
+ * are sent so listing works before the full provider config is saved.
+ */
+export async function listProviderModels(
+  provider: AiProviderType,
+  opts?: { baseUrl?: string; verifySsl?: boolean; apiFormat?: string; refresh?: boolean },
+): Promise<ProviderModelsResult> {
+  const params = new URLSearchParams();
+  if (opts?.refresh) params.set('refresh', 'true');
+  if (opts?.baseUrl) params.set('base_url', opts.baseUrl);
+  if (opts?.apiFormat) params.set('api_format', opts.apiFormat);
+  if (opts?.verifySsl === false) params.set('verify_ssl', 'false');
+  const qs = params.toString();
+  try {
+    const { data } = await getClient().http.get(
+      `/ai/providers/${encodeURIComponent(provider)}/models${qs ? `?${qs}` : ''}`,
+    );
+    return {
+      models: Array.isArray(data?.models) ? data.models : [],
+      source: data?.source === 'error' ? 'error' : 'live',
+      error: data?.error,
+    };
+  } catch (err) {
+    return { models: [], source: 'error', error: getErrorMessage(err, 'Failed to load models') };
+  }
+}
+
 // Test AI connection
 export async function testAiConnection(provider?: string, model?: string): Promise<{ success: boolean; message?: string }> {
   try {
@@ -313,7 +358,7 @@ export async function testAiConnection(provider?: string, model?: string): Promi
   } catch (err) {
     if (axios.isAxiosError(err)) {
       const data = err.response?.data || {};
-      return { success: false, message: data.error || 'Connection failed' };
+      return { success: false, message: friendlyAiError(data.error || 'Connection failed') };
     }
     return { success: false, message: 'Connection failed' };
   }

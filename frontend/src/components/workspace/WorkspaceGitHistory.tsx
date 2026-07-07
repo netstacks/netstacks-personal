@@ -154,7 +154,7 @@ export default function WorkspaceGitHistory({ gitOps, onRefresh }: WorkspaceGitH
         onClose={() => setContextMenu(null)}
       />
       {newBranchFrom && (
-        <div className="workspace-git-dialog-overlay" onClick={() => { setNewBranchFrom(null); setNewBranchName('') }}>
+        <div className="workspace-git-dialog-overlay">
           <div className="workspace-git-dialog" onClick={e => e.stopPropagation()}>
             <h3>New Branch from Commit</h3>
             <p>

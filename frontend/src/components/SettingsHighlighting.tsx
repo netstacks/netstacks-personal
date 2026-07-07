@@ -1182,7 +1182,7 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
 
       {/* Delete confirmation */}
       {deleteConfirm && (
-        <div className="delete-confirm-overlay" onClick={() => setDeleteConfirm(null)}>
+        <div className="delete-confirm-overlay">
           <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>Delete Rule</h3>
             <p>

@@ -383,6 +383,8 @@ pub async fn execute_action(
                 sent_url: None,
                 sent_headers: None,
                 warning: None,
+                raw_text: None,
+                content_type: None,
             };
         }
     };

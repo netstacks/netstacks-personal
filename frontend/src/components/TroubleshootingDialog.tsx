@@ -101,7 +101,7 @@ export default function TroubleshootingDialog({
   const someSelected = selectedIds.length > 0 && selectedIds.length < connectedSessions.length;
 
   return (
-    <div className="troubleshooting-dialog-overlay" onClick={handleClose}>
+    <div className="troubleshooting-dialog-overlay">
       <div className="troubleshooting-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="troubleshooting-dialog-header">
           <h2>Start Troubleshooting Session</h2>

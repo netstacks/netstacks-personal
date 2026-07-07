@@ -499,7 +499,7 @@ export default function CollectionDialog({
 
   // Hooks must run unconditionally (before any early return). Gate the overlay
   // dismiss with `enabled: isOpen` so behavior matches "only active when open".
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: isOpen });
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, clickOutside: false, enabled: isOpen });
 
   if (!isOpen) return null;
 

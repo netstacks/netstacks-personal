@@ -3632,7 +3632,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       )}
       {/* Save to Docs dialog */}
       {showSaveDialog && (
-        <div className="terminal-save-dialog-overlay" onClick={closeSaveDialog}>
+        <div className="terminal-save-dialog-overlay">
           <div className="terminal-save-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="terminal-save-dialog-header">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">

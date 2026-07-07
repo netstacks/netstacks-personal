@@ -222,18 +222,6 @@ export default function SecureCRTImportDialog({
     onClose();
   }, [resetState, onClose]);
 
-  const handleOverlayClick = useCallback(
-    (e: React.MouseEvent) => {
-      // Suppress backdrop click during import to avoid losing a long
-      // import to a stray click. The X button still works.
-      if (stage === 'importing') return;
-      if (e.target === e.currentTarget) {
-        handleClose();
-      }
-    },
-    [handleClose, stage],
-  );
-
   // Wrap a per-row API call in a timeout so a single hung create won't
   // pin the import indefinitely. 60s is generous for SSH-backed creates;
   // anything slower is a real backend problem worth surfacing.
@@ -496,7 +484,7 @@ export default function SecureCRTImportDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="scrt-import-overlay" onClick={handleOverlayClick}>
+    <div className="scrt-import-overlay">
       <div className="scrt-import-dialog">
         {/* Header */}
         <div className="scrt-import-header">

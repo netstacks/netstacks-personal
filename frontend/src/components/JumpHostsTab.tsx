@@ -384,7 +384,7 @@ export default function JumpHostsTab() {
       {/* Delete confirmation dialog */}
       {deleteConfirm && (
         <div className="jump-hosts-dialog-overlay">
-          <div className="jump-hosts-dialog">
+          <div className="jump-hosts-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>Delete Jump Host</h3>
             <p>
               Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?

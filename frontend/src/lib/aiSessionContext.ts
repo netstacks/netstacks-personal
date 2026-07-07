@@ -26,6 +26,7 @@
 import { logger } from './logger';
 import { getDeviceMemory } from '../api/deviceMemory';
 import { listSessionContext } from '../api/sessionContext';
+import { getSettings } from '../hooks/useSettings';
 import type { DeviceMemoryWithEntries } from '../types/deviceMemory';
 import type { SessionContext } from '../types/sessionContext';
 
@@ -105,6 +106,36 @@ function formatActiveSession(sessionName: string, sessionId: string): string {
 }
 
 /**
+ * Format the hostname stripping note for the AI system prompt. Returns an empty
+ * string when stripping is disabled or no patterns are configured. Otherwise
+ * informs the AI that the user sees hostnames with certain patterns removed,
+ * and instructs the AI to always use FULL hostnames for connections/commands.
+ */
+function formatHostnameStripNote(): string {
+  try {
+    const settings = getSettings();
+    const enabled = settings['hostname.stripEnabled'];
+    const patterns = settings['hostname.stripPatterns'];
+
+    if (!enabled || !patterns || patterns.length === 0) {
+      return '';
+    }
+
+    const patternList = patterns.join(', ');
+    return (
+      `\n\nHOSTNAME DISPLAY:\n` +
+      `The user sees device hostnames with these patterns removed (display-only): ${patternList}. ` +
+      `When the user refers to a device by its shortened/stripped name, resolve it to the FULL hostname. ` +
+      `ALWAYS use the full hostname for connections, tool calls, and commands. ` +
+      `You may echo the stripped form back to match what the user sees.`
+    );
+  } catch (err) {
+    logger.warn('[aiSessionContext] failed to read hostname strip settings', err);
+    return '';
+  }
+}
+
+/**
  * Build the full per-session knowledge block (active session + device memory +
  * device/tribal context) for the given active session. Returns the active
  * session block at minimum; appends memory/context when present. Never throws —
@@ -133,6 +164,7 @@ export async function buildSessionKnowledge(
   return (
     formatActiveSession(sessionName, sessionId) +
     formatDeviceMemory(memory) +
-    formatTribalContext(contexts)
+    formatTribalContext(contexts) +
+    formatHostnameStripNote()
   );
 }

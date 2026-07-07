@@ -15,6 +15,8 @@ import AIInlinePopup from './AIInlinePopup';
 import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
 import type { LayerVisibility } from './TopologyToolbar';
 import { selectInBox, applyGroupDelta } from '../lib/topologySelection';
+import { formatHostname } from '../hooks/useHostnameFormatter';
+import { useSettings } from '../hooks/useSettings';
 import './TopologyCanvas.css';
 
 interface TopologyCanvasProps {
@@ -186,6 +188,10 @@ export default function TopologyCanvas({
   marqueeEnabled = false,
   onMarqueeSelect,
 }: TopologyCanvasProps) {
+  const { settings } = useSettings();
+  // Hostname strip settings key for canvas repaint reactivity
+  const hostnameStripKey = (settings['hostname.stripEnabled'] ?? false) + '|' + ((settings['hostname.stripPatterns'] as string[] | undefined) ?? []).join('\n');
+
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -1379,12 +1385,13 @@ export default function TopologyCanvas({
       }
 
       // Text shadow for readability
+      const formattedName = formatHostname(device.name);
       ctx.fillStyle = '#000000';
-      ctx.fillText(device.name, x + 1, y + DEVICE_SIZE / 2 + 6);
+      ctx.fillText(formattedName, x + 1, y + DEVICE_SIZE / 2 + 6);
 
       // White text (slightly transparent when dragging)
       ctx.fillStyle = isDragging ? 'rgba(255, 255, 255, 0.8)' : '#ffffff';
-      ctx.fillText(device.name, x, y + DEVICE_SIZE / 2 + 5);
+      ctx.fillText(formattedName, x, y + DEVICE_SIZE / 2 + 5);
 
       // Restore alpha after neighbor label
       if (device.isNeighbor) {
@@ -1496,7 +1503,7 @@ export default function TopologyCanvas({
 
       ctx.restore();
     },
-    [toCanvasX, toCanvasY, getDevicePosition, hoveredDevice, selectedDevice, selectedDeviceIds, draggingDevice, drawingConnection, connectionSource, deviceStats, zoom]
+    [toCanvasX, toCanvasY, getDevicePosition, hoveredDevice, selectedDevice, selectedDeviceIds, draggingDevice, drawingConnection, connectionSource, deviceStats, zoom, hostnameStripKey]
   );
 
   /**

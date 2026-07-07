@@ -8,6 +8,7 @@ import type { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Device, DeviceType } from '../types/topology';
 import type { DeviceLiveStats } from '../hooks/useTopologyLive';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 interface DeviceMeshProps {
   /** Device data */
@@ -163,6 +164,8 @@ export default function DeviceMesh({
 
   // Plane for raycasting during drag (Y=0 horizontal plane)
   const dragPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+
+  const formatName = useHostnameFormatter();
 
   const isNeighbor = device.isNeighbor ?? false;
   const baseColor = DEVICE_COLORS[device.type] || DEVICE_COLORS.unknown;
@@ -382,7 +385,7 @@ export default function DeviceMesh({
                 : 'rgba(0,0,0,0.4)'),
           }}
         >
-          {device.name}
+          {formatName(device.name)}
         </div>
       </Html>
 

@@ -90,6 +90,10 @@ export interface AppSettings {
   // Resources, enrichment, token matchers, integrations). Default on.
   'ai.contextualHelp.enabled': boolean;
 
+  // Hostname display: strip domain suffixes for cleaner device labels
+  'hostname.stripEnabled': boolean;
+  'hostname.stripPatterns': string[];
+
   // App: first-run onboarding wizard completed/skipped. Default false.
   'app.setupComplete': boolean;
 
@@ -187,6 +191,10 @@ const defaultSettings: AppSettings = {
 
   // Command Safety (Phase 24)
   'commandSafety.enabled': true,
+
+  // Hostname display
+  'hostname.stripEnabled': false,
+  'hostname.stripPatterns': [],
 
   // (AUDIT FIX REMOTE-002) ssh.hostKeyChecking removed — see above.
 };

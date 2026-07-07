@@ -207,7 +207,7 @@ function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: Ad
   );
 
   return (
-    <div className="mcp-dialog-overlay" onClick={onClose}>
+    <div className="mcp-dialog-overlay">
       <div className="mcp-dialog" onClick={e => e.stopPropagation()}>
         <h3>{isEditing ? `Edit MCP Server: ${editingServer?.name}` : 'Add MCP Server'}</h3>
         <form className="mcp-dialog-form" onSubmit={handleSubmit}>

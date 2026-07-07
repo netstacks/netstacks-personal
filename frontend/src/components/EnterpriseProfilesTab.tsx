@@ -332,7 +332,7 @@ export default function EnterpriseProfilesTab() {
 
       {/* Add auth method */}
       {showAddSecret && (
-        <div className="cred-modal-overlay" onClick={() => setShowAddSecret(false)}>
+        <div className="cred-modal-overlay">
           <div className="cred-modal" onClick={(e) => e.stopPropagation()}>
             <h4>Add auth method</h4>
             <form onSubmit={handleAddSecret}>

@@ -164,7 +164,7 @@ export default function ShareSessionDialog({
   const hasShares = existingShares.length > 0;
 
   return (
-    <div className="share-dialog-overlay" onClick={handleClose}>
+    <div className="share-dialog-overlay">
       <div className="share-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="share-dialog-header">
           <h2>Share Session: {sessionName}</h2>

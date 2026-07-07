@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './QuickConnectDialog.css';
 import { listHistory, createHistory, type ConnectionHistory, type Session, createSession, type NewSession } from '../api/sessions';
 import { listProfiles, type CredentialProfile } from '../api/profiles';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
 interface QuickConnectDialogProps {
@@ -32,6 +33,7 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialProfileId }: QuickConnectDialogProps) {
+  const formatName = useHostnameFormatter()
   const [host, setHost] = useState('');
   const [port, setPort] = useState(22);
   const [profileId, setProfileId] = useState('');
@@ -214,7 +216,7 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
   if (!isOpen) return null;
 
   return (
-    <div className="dialog-overlay" onClick={onClose}>
+    <div className="dialog-overlay">
       <div className="dialog quick-connect-dialog" data-testid="quick-connect-dialog" onClick={e => e.stopPropagation()}>
         <div className="dialog-header">
           <h2>Quick Connect</h2>
@@ -352,7 +354,7 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
                       onClick={() => handleHistoryClick(entry)}
                     >
                       <span className="recent-connection">
-                        {entry.username}@{entry.host}:{entry.port}
+                        {entry.username}@{formatName(entry.host)}:{entry.port}
                       </span>
                       <span className="recent-time">
                         {formatRelativeTime(entry.connected_at)}

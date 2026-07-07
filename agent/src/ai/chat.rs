@@ -3,13 +3,14 @@
 //! Provides HTTP endpoints for AI chat and script generation.
 
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
     response::sse::{Event, Sse},
     response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -547,8 +548,8 @@ pub async fn load_ai_config(
     let key_type = format!("ai.{}", provider_name);
     let api_key = match dp.get_api_key(&key_type).await {
         Ok(Some(key)) if !key.is_empty() => key,
-        Ok(Some(_)) => return (Err(format!("API key for {} is empty. Update it in Settings > AI.", provider_name)), custom_prompt),
-        Ok(None) => return (Err(format!("No API key found for {}. Add your API key in Settings > AI.", provider_name)), custom_prompt),
+        Ok(Some(_)) => return (Err(format!("API key for {} is empty. Re-enter it in Settings → AI → {}.", provider_name, provider_name)), custom_prompt),
+        Ok(None) => return (Err(format!("No API key saved for {}. Add one in Settings → AI → {}.", provider_name, provider_name)), custom_prompt),
         Err(e) => return (Err(format!("Failed to read API key for {}: {}", provider_name, e)), custom_prompt),
     };
 
@@ -1326,4 +1327,92 @@ pub async fn get_knowledge_pack_sizes() -> impl IntoResponse {
         "available_budget": total_budget.saturating_sub(core_size),
         "packs": packs,
     }))
+}
+
+/// Response for GET /api/ai/providers/:provider/models
+#[derive(Debug, Serialize)]
+pub struct ProviderModelsResponse {
+    pub models: Vec<crate::ai::models::ModelInfo>,
+    /// "live" when fetched/cached from the provider; "error" when the fetch failed.
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Map a fetch result into the wire response. Errors degrade to an empty list
+/// with `source: "error"` so the UI can fall back to manual entry.
+fn shape_models_response(result: Result<Vec<crate::ai::models::ModelInfo>, String>) -> ProviderModelsResponse {
+    match result {
+        Ok(models) => ProviderModelsResponse { models, source: "live".into(), error: None },
+        Err(e) => ProviderModelsResponse { models: Vec::new(), source: "error".into(), error: Some(e) },
+    }
+}
+
+/// GET /api/ai/providers/:provider/models — list a provider's models.
+/// Reads the API key from the vault; takes base_url/verify_ssl/api_format from
+/// the query so it works before a provider's full config is saved.
+pub async fn list_provider_models(
+    State(state): State<Arc<AppState>>,
+    Path(provider): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Json<ProviderModelsResponse> {
+    let refresh = params.get("refresh").map(|v| v == "true").unwrap_or(false);
+    let base_url = params.get("base_url").filter(|s| !s.is_empty()).cloned();
+    let api_format = params.get("api_format").filter(|s| !s.is_empty()).cloned();
+    let verify_ssl = params.get("verify_ssl").map(|v| v != "false").unwrap_or(true);
+
+    let cache = crate::ai::models::global_cache();
+    if !refresh {
+        if let Some(models) = cache.get(&provider) {
+            return Json(ProviderModelsResponse { models, source: "live".into(), error: None });
+        }
+    }
+
+    // Key from the vault (None for providers that don't need one).
+    let api_key = state
+        .provider
+        .get_api_key(&format!("ai.{provider}"))
+        .await
+        .ok()
+        .flatten();
+
+    let result = crate::ai::models::fetch_models(
+        &provider,
+        api_key.as_deref(),
+        base_url.as_deref(),
+        verify_ssl,
+        api_format.as_deref(),
+    )
+    .await;
+
+    if let Ok(ref models) = result {
+        if !models.is_empty() {
+            cache.put(&provider, models.clone());
+        }
+    }
+    Json(shape_models_response(result))
+}
+
+#[cfg(test)]
+mod model_listing_tests {
+    use super::*;
+    use crate::ai::models::ModelInfo;
+
+    #[test]
+    fn shapes_success_as_live() {
+        let out = shape_models_response(Ok(vec![
+            ModelInfo { id: "gpt-4o".into(), display_name: "GPT-4o".into() }
+        ]));
+        assert_eq!(out.source, "live");
+        assert_eq!(out.models.len(), 1);
+        assert!(out.error.is_none());
+    }
+
+    #[test]
+    fn shapes_error_as_error_with_empty_models() {
+        let out = shape_models_response(Err("boom".into()));
+        assert_eq!(out.source, "error");
+        assert!(out.models.is_empty());
+        assert_eq!(out.error.as_deref(), Some("boom"));
+    }
 }

@@ -88,7 +88,7 @@ export function AddCustomPluginDialog({ existing, onClose, onSaved }: Props) {
   };
 
   return (
-    <div className="lsp-dialog-overlay" onClick={onClose}>
+    <div className="lsp-dialog-overlay">
       <div className="lsp-dialog" onClick={(e) => e.stopPropagation()}>
         <h3>{isEdit ? `Edit ${existing!.displayName}` : 'Add Language Server'}</h3>
         <div className="lsp-dialog__field">
