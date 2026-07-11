@@ -49,6 +49,13 @@ export interface AppSettings {
   // AI Context Management - limit conversation history to prevent context overflow
   'ai.maxConversationMessages': number;
 
+  // AI Live Workspace Context — proactively seed the AI with current terminal +
+  // editor state each turn. Redaction is always applied by SanitizingProvider and
+  // is intentionally NOT a toggle here.
+  'ai.liveContext.enabled': boolean;
+  'ai.liveContext.scrollbackLines': number;
+  'ai.liveContext.includeEditor': boolean;
+
   // Per-provider model lists - user-configured models for each provider
   'ai.models.anthropic': string[];
   'ai.models.openai': string[];
@@ -148,6 +155,11 @@ const defaultSettings: AppSettings = {
 
   // AI Context Management - 0 means unlimited
   'ai.maxConversationMessages': 20,
+
+  // AI Live Workspace Context
+  'ai.liveContext.enabled': true,
+  'ai.liveContext.scrollbackLines': 200,
+  'ai.liveContext.includeEditor': true,
 
   // Per-provider model lists - start empty, user adds their own
   'ai.models.anthropic': [],

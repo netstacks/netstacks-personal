@@ -28,6 +28,7 @@ import { friendlyAiError } from '../api/aiErrors';
 import { getTopologyTools, executeTopologyTool, isTopologyTool, type TopologyAICallbacks } from '../lib/topologyAITools';
 import type { SessionContextEntry } from '../api/ai';
 import type { NetBoxNeighbor } from '../api/netbox';
+import { buildLiveContext, stripLiveContext, computeStateSummary, shouldGuardCommand, type LiveContextDeps } from '../lib/aiLiveContext';
 import { listNetBoxSources } from '../api/netboxSources';
 import {
   listLibreNmsSources,
@@ -272,6 +273,7 @@ export interface UseAIAgentOptions {
   onExecuteCommand?: (sessionId: string, command: string) => Promise<string>;
   getTerminalContext?: (sessionId: string, lines?: number, sinceOffset?: number) => Promise<string>;
   onOpenSession?: (sessionId: string) => Promise<void>;
+  liveContextDeps?: LiveContextDeps;
 
   // Permission mode (ask/auto/yolo) - defaults to 'auto'
   permissionMode?: PermissionMode;
@@ -517,6 +519,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onExecuteCommand,
     getTerminalContext,
     onOpenSession,
+    liveContextDeps,
     permissionMode = 'auto' as PermissionMode,
     provider,
     model,
@@ -1092,6 +1095,24 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
           commands = [singleCommand];
         } else {
           return { content: 'Either `command` or `commands` is required.', is_error: true };
+        }
+
+        // Pre-flight collision guard: fail OPEN (log + continue) since the
+        // read-only filter below already fails closed. Blocks mode-exit/commit
+        // in dirty config sessions and refuses to auto-answer interactive prompts.
+        if (getTerminalContext) {
+          try {
+            const buf = await getTerminalContext(sessionId, 120);
+            const flavorForGuard: CliFlavor =
+              sessionFlavorOverridesRef.current.get(sessionId) ?? session.cliFlavor ?? 'auto';
+            const summary = computeStateSummary(buf, flavorForGuard);
+            for (const c of commands) {
+              const reason = shouldGuardCommand(summary, c, flavorForGuard);
+              if (reason) return { content: reason, is_error: true };
+            }
+          } catch (err) {
+            logger.warn('[run_command] live-context guard skipped', err);
+          }
         }
 
         // Read-only enforcement for the PTY path. `run_command` writes straight
@@ -3683,13 +3704,30 @@ Guidelines:
     }
 
     logger.log('[AI Agent] Proceeding with message');
-    // Add user message to UI
+    // Add user message to UI (plain — the envelope is model-only)
     addMessage(createUserMessage(content));
 
-    // Add to conversation
+    // Build the fresh live-workspace-state envelope for THIS turn and prepend it
+    // to the model-visible content. The envelope is sanitized server-side by
+    // SanitizingProvider like all message content. Never throws (returns '').
+    // Strip envelopes from prior user turns to keep only the newest envelope.
+    for (const m of conversationRef.current) {
+      if (m.role === 'user' && typeof m.content === 'string') {
+        m.content = stripLiveContext(m.content);
+      }
+    }
+
+    let modelContent = content;
+    const deps = liveContextDepsRef.current;
+    if (deps) {
+      const envelope = await buildLiveContext(activeSessionIdRef.current ?? null, deps);
+      if (envelope) modelContent = `${envelope}\n\n${content}`;
+    }
+
+    // Add to conversation (model-visible)
     conversationRef.current.push({
       role: 'user',
-      content: content,
+      content: modelContent,
     });
 
     // Start the agent loop
@@ -3703,6 +3741,10 @@ Guidelines:
   // Ref for auto-send to access sendMessage
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
+
+  // Ref for live-context deps so sendMessage deps stay stable
+  const liveContextDepsRef = useRef(liveContextDeps);
+  liveContextDepsRef.current = liveContextDeps;
 
   // Approve pending commands
   const approveCommands = useCallback(() => {

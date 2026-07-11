@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getSystemPrompt, AGENT_TYPES, AGENT_PROMPT, type AgentType } from '../aiModes'
+import { getSystemPrompt, AGENT_TYPES, AGENT_PROMPT, LIVE_CONTEXT_RULES, type AgentType } from '../aiModes'
 
 const AGENT_TYPE_KEYS: AgentType[] = ['autopilot', 'overlord']
 const SENTINEL = '## Mode: SENTINEL\n\nThis is a test override.'
@@ -74,5 +74,14 @@ describe('AGENT_PROMPT', () => {
   it('is a non-empty string', () => {
     expect(typeof AGENT_PROMPT).toBe('string')
     expect(AGENT_PROMPT.length).toBeGreaterThan(0)
+  })
+})
+
+describe('LIVE_CONTEXT_RULES', () => {
+  it('includes live-context safe-action rules', () => {
+    const out = getSystemPrompt('autopilot', false)
+    expect(out).toContain('LIVE WORKSPACE STATE')
+    expect(out).toContain('uncommitted changes')
+    expect(out).toMatch(/do not (run|answer)/i)
   })
 })

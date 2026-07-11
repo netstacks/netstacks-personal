@@ -7,6 +7,7 @@ import { fetchOllamaModels, type AiProviderType, getAiConfig } from '../api/ai'
 import { resolveProvider } from '../lib/aiProviderResolver'
 import type { AiContext } from '../api/ai'
 import type { Document, DocumentCategory } from '../api/docs'
+import type { LiveContextDeps } from '../lib/aiLiveContext'
 import MarkdownViewer from './MarkdownViewer'
 import './AIFloatingChat.css'
 
@@ -36,6 +37,7 @@ interface AIFloatingChatProps {
   availableSessions?: AvailableSession[]
   onExecuteCommand?: (sessionId: string, command: string) => Promise<string>
   getTerminalContext?: (sessionId: string, lines?: number) => Promise<string>
+  liveContextDeps?: LiveContextDeps
   // Document access callbacks
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>
   onReadDocument?: (documentId: string, byName?: boolean) => Promise<Document | null>
@@ -62,6 +64,7 @@ const AIFloatingChat = ({
   availableSessions,
   onExecuteCommand,
   getTerminalContext,
+  liveContextDeps,
   onListDocuments,
   onReadDocument,
   onSearchDocuments,
@@ -148,6 +151,7 @@ const AIFloatingChat = ({
     })),
     onExecuteCommand,
     getTerminalContext,
+    liveContextDeps,
     // Active session — injects device memory + device/tribal context for the
     // terminal this chat was opened from.
     activeSessionId: sessionId,

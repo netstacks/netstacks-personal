@@ -7,6 +7,7 @@ import { useContextMenu } from '../hooks/useContextMenu'
 import { PromoteToTaskDialog } from './PromoteToTaskDialog'
 import { useAIAgent, type AgentSession, type AgentMessage, type AddSessionContextParams, type NeighborParseResult, type AddNeighborParams, type AddNeighborResult, type NetBoxImportParams, type NetBoxImportResult, type CreateMopParams, type CreateMopResult } from '../hooks/useAIAgent'
 import type { TopologyAICallbacks } from '../lib/topologyAITools'
+import type { LiveContextDeps } from '../lib/aiLiveContext'
 import { useAgentTasks } from '../hooks/useAgentTasks'
 import { listAiConversations, getAiConversation, createAiConversation, updateAiConversation, deleteAiConversation, type AiConversationSummary } from '../api/aiConversations'
 import type { PermissionMode } from '../api/agent'
@@ -64,6 +65,8 @@ interface AISidePanelProps {
   onExecuteCommand?: (sessionId: string, command: string) => Promise<string>
   /** Callback to get terminal output context */
   getTerminalContext?: (sessionId: string, lines?: number) => Promise<string>
+  /** Live context dependencies for workspace state injection */
+  liveContextDeps?: LiveContextDeps
   /** Callback to open a saved session (opens terminal tab and connects) */
   onOpenSession?: (sessionId: string) => Promise<void>
   /** Callback to list documents by category */
@@ -178,6 +181,7 @@ const AISidePanel = ({
   availableSessions = [],
   onExecuteCommand,
   getTerminalContext,
+  liveContextDeps,
   onOpenSession,
   onListDocuments,
   onReadDocument,
@@ -498,6 +502,7 @@ const AISidePanel = ({
     sessions: agentSessions,
     onExecuteCommand,
     getTerminalContext,
+    liveContextDeps,
     onOpenSession,
     permissionMode,
     // Pass selected provider/model to the hook

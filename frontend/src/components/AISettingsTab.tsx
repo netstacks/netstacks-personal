@@ -1868,6 +1868,72 @@ export default function AISettingsTab() {
             </div>
           </div>
         </div>
+
+        {/* Live Workspace Context */}
+        <div className="ai-automation-feature" style={{ marginTop: '16px' }}>
+          <label className="ai-automation-item" style={{ marginBottom: '12px' }}>
+            <div className="ai-automation-info">
+              <span className="ai-automation-label">Live Workspace Context</span>
+              <span className="ai-automation-description">
+                Automatically include current terminal scrollback and editor content with each AI request
+              </span>
+            </div>
+            <div className="toggle-wrapper">
+              <input
+                type="checkbox"
+                checked={settings['ai.liveContext.enabled']}
+                onChange={(e) => updateSetting('ai.liveContext.enabled', e.target.checked)}
+              />
+              <span className="toggle-slider" />
+            </div>
+          </label>
+
+          {settings['ai.liveContext.enabled'] && (
+            <>
+              <label className="ai-automation-item" style={{ marginBottom: '12px', paddingLeft: '20px' }}>
+                <div className="ai-automation-info">
+                  <span className="ai-automation-label">Include Editor Content</span>
+                  <span className="ai-automation-description">
+                    Send the active editor file (redacted) with each AI request
+                  </span>
+                </div>
+                <div className="toggle-wrapper">
+                  <input
+                    type="checkbox"
+                    checked={settings['ai.liveContext.includeEditor']}
+                    onChange={(e) => updateSetting('ai.liveContext.includeEditor', e.target.checked)}
+                  />
+                  <span className="toggle-slider" />
+                </div>
+              </label>
+
+              <div className="ai-automation-item" style={{ paddingLeft: '20px' }}>
+                <div className="ai-automation-info">
+                  <span className="ai-automation-label">Terminal Scrollback Lines</span>
+                  <span className="ai-automation-description">
+                    Number of terminal lines to include (20-1000)
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="number"
+                    min="20"
+                    max="1000"
+                    value={settings['ai.liveContext.scrollbackLines']}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || settings['ai.liveContext.scrollbackLines'];
+                      const clamped = Math.max(20, Math.min(1000, val));
+                      updateSetting('ai.liveContext.scrollbackLines', clamped);
+                    }}
+                    style={{ width: '70px', textAlign: 'center' }}
+                    className="form-input"
+                  />
+                  <span style={{ fontSize: '11px', opacity: 0.7 }}>lines</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </section>
 
       {/* AI Agents Section */}

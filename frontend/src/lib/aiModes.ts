@@ -238,9 +238,18 @@ const STANDALONE_ADDENDUM = `
 ### Note
 Config backup history, incidents, alerts, and stacks are enterprise-only features. If the user asks about these, let them know these require the Enterprise tier with a NetStacks Controller.`
 
+export const LIVE_CONTEXT_RULES = `
+## Live Workspace Awareness
+Each user message may be preceded by a fenced "LIVE WORKSPACE STATE" block describing the user's current terminal + editor state (device, CLI mode, uncommitted changes, blocked prompt, last command, recent commands, scrollback). Use it to pick up exactly where the user is. Do NOT re-derive this state by running discovery commands (top / show config / exit) — it is already given to you.
+
+Safe action rules:
+- If state shows CONFIGURATION mode with uncommitted changes, do NOT run exit, commit, rollback, or discard, and do NOT answer any interactive [yes/no] prompt on the user's behalf, unless the user explicitly asked for that action this turn.
+- If "Blocked on interactive prompt" is YES, tell the user what the session is waiting on and ask how to proceed — do not guess an answer.
+- Prefer read-only investigation using the state you already have before issuing any command.`
+
 /**
  * Get the system prompt for a given agent type.
- * Composes: NETSTACKS_IDENTITY + agent prompt + tier addendum.
+ * Composes: NETSTACKS_IDENTITY + agent prompt + tier addendum + mode block + live context rules.
  * User AI Engineer Profiles are appended on top by the caller.
  */
 export function getSystemPrompt(
@@ -252,7 +261,7 @@ export function getSystemPrompt(
   const agentPrompt = (override && override.trim()) ? override : AGENT_PROMPT
   const addendum = isEnterprise ? ENTERPRISE_ADDENDUM : STANDALONE_ADDENDUM
 
-  return `${NETSTACKS_IDENTITY}\n\n${agentPrompt}${addendum}${getModeBlock(agentType)}`
+  return `${NETSTACKS_IDENTITY}\n\n${agentPrompt}${addendum}${getModeBlock(agentType)}${LIVE_CONTEXT_RULES}`
 }
 
 /**

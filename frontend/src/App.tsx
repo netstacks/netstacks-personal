@@ -5409,6 +5409,31 @@ def main(command: str = "show version"):
     return handle.getBuffer(lines, sinceOffset)
   }, [tabs])
 
+  // AI live-context deps: provide terminal buffer + session metadata for live workspace envelope
+  const liveContextDeps = useMemo(() => ({
+    getBuffer: (sessionId: string, lines: number): string | null => {
+      const tab = tabs.find(t => t.id === sessionId) ||
+        tabs.find(t => t.type === 'terminal' && (t.sessionId === sessionId || t.enterpriseSessionDefinitionId === sessionId))
+      if (!tab) return null
+      const handle = terminalRefs.current.get(tab.id)
+      return handle ? handle.getBuffer(lines) : null
+    },
+    getSession: (sessionId: string) => {
+      const tab = tabs.find(t => t.id === sessionId) ||
+        tabs.find(t => t.type === 'terminal' && (t.sessionId === sessionId || t.enterpriseSessionDefinitionId === sessionId))
+      if (!tab) return null
+      return { name: tab.title, cliFlavor: tab.cliFlavor }
+    },
+    getEditorState: (): { path: string; dirty: boolean } | null => {
+      const activeTab = tabs.find(t => t.id === activeTabId)
+      if (!activeTab || !isDocumentTab(activeTab)) return null
+      return {
+        path: activeTab.title,
+        dirty: activeTab.status === 'modified',
+      }
+    },
+  }), [tabs, activeTabId])
+
   // AI Agent: Open a saved session (create terminal tab and connect)
   const handleAgentOpenSession = useCallback(async (sessionId: string): Promise<void> => {
     // Check if session is already open
@@ -6409,6 +6434,7 @@ def main(command: str = "show version"):
           availableSessions={availableSessions}
           onExecuteCommand={handleAgentExecuteCommand}
           getTerminalContext={handleAgentGetTerminalContext}
+          liveContextDeps={liveContextDeps}
           onOpenSession={handleAgentOpenSession}
           onListDocuments={handleAgentListDocuments}
           onReadDocument={handleAgentReadDocument}
@@ -7523,6 +7549,7 @@ def main(command: str = "show version"):
           availableSessions={availableSessions}
           onExecuteCommand={handleAgentExecuteCommand}
           getTerminalContext={handleAgentGetTerminalContext}
+          liveContextDeps={liveContextDeps}
           onOpenSession={handleAgentOpenSession}
           onListDocuments={handleAgentListDocuments}
           onReadDocument={handleAgentReadDocument}
@@ -7622,6 +7649,7 @@ def main(command: str = "show version"):
           availableSessions={availableSessions}
           onExecuteCommand={handleAgentExecuteCommand}
           getTerminalContext={handleAgentGetTerminalContext}
+          liveContextDeps={liveContextDeps}
           onOpenSession={handleAgentOpenSession}
           onListDocuments={handleAgentListDocuments}
           onReadDocument={handleAgentReadDocument}
@@ -7817,6 +7845,7 @@ def main(command: str = "show version"):
         availableSessions={availableSessions}
         onExecuteCommand={handleAgentExecuteCommand}
         getTerminalContext={handleAgentGetTerminalContext}
+        liveContextDeps={liveContextDeps}
         onListDocuments={handleAgentListDocuments}
         onReadDocument={handleAgentReadDocument}
         onSearchDocuments={handleAgentSearchDocuments}
@@ -7841,6 +7870,7 @@ def main(command: str = "show version"):
         availableSessions={availableSessions}
         onExecuteCommand={handleAgentExecuteCommand}
         getTerminalContext={handleAgentGetTerminalContext}
+        liveContextDeps={liveContextDeps}
         onListDocuments={handleAgentListDocuments}
         onReadDocument={handleAgentReadDocument}
         onSearchDocuments={handleAgentSearchDocuments}

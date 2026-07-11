@@ -7,6 +7,7 @@ import { resolveProvider } from '../lib/aiProviderResolver'
 import type { AiContext } from '../api/ai'
 import type { Document, DocumentCategory } from '../api/docs'
 import type { AgentMessage } from '../hooks/useAIAgent'
+import type { LiveContextDeps } from '../lib/aiLiveContext'
 import AIContextSummary from './AIContextSummary'
 import MarkdownViewer from './MarkdownViewer'
 import './AIInlinePopup.css'
@@ -33,6 +34,7 @@ interface AIInlinePopupProps {
   availableSessions?: AvailableSession[]
   onExecuteCommand?: (sessionId: string, command: string) => Promise<string>
   getTerminalContext?: (sessionId: string, lines?: number) => Promise<string>
+  liveContextDeps?: LiveContextDeps
   // Document access callbacks
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>
   onReadDocument?: (documentId: string, byName?: boolean) => Promise<Document | null>
@@ -54,6 +56,7 @@ const AIInlinePopup = ({
   availableSessions,
   onExecuteCommand,
   getTerminalContext,
+  liveContextDeps,
   onListDocuments,
   onReadDocument,
   onSearchDocuments,
@@ -138,6 +141,7 @@ const AIInlinePopup = ({
     })),
     onExecuteCommand,
     getTerminalContext,
+    liveContextDeps,
     // Active session — injects device memory + device/tribal context for the
     // terminal this popup was opened from.
     activeSessionId: sessionId,
