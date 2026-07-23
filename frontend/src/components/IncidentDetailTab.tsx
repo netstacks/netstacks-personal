@@ -184,7 +184,7 @@ export default function IncidentDetailTab({
                     value={createDescription}
                     onChange={(e) => setCreateDescription(e.target.value)}
                     placeholder="Optional description..."
-                    aiField="incident_description"
+                    aiField="description"
                     aiPlaceholder="Incident description"
                     aiContext={{ title: createTitle, severity: createSeverity }}
                     onAIValue={(v) => setCreateDescription(v)}

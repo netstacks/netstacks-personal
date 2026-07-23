@@ -59,6 +59,12 @@ export default function AITabInput({
   onAIValue,
   rows,
   className,
+  // Pull these out of `rest` so `{...rest}` can't override the internal
+  // handlers below (a caller-supplied onKeyDown used to clobber Tab-to-generate).
+  // We compose them instead.
+  onKeyDown: onKeyDownProp,
+  onFocus: onFocusProp,
+  onBlur: onBlurProp,
   ...rest
 }: AITabInputProps) {
   const [focused, setFocused] = useState(false);
@@ -70,7 +76,7 @@ export default function AITabInput({
   const isEmpty = !value.trim();
   const showHint = focused && isEmpty && !loading && aiConfigured;
 
-  const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback(async (e: React.KeyboardEvent<HTMLInputElement & HTMLTextAreaElement>) => {
     if (e.key === 'Tab' && !e.shiftKey && isEmpty && aiConfigured) {
       e.preventDefault();
 
@@ -114,8 +120,12 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
           setLoading(false);
         }
       }
+    } else {
+      // Not a Tab-to-generate keystroke — delegate to the caller's handler
+      // (e.g. Cmd+Enter to submit, Escape to close) so composing works.
+      onKeyDownProp?.(e);
     }
-  }, [isEmpty, aiField, aiPlaceholder, aiContext, onAIValue, rest.placeholder, aiConfigured]);
+  }, [isEmpty, aiField, aiPlaceholder, aiContext, onAIValue, rest.placeholder, aiConfigured, onKeyDownProp]);
 
   // Clean up abort on unmount
   useEffect(() => {
@@ -140,8 +150,8 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
         value={value}
         onChange={onChange as React.ChangeEventHandler<HTMLInputElement & HTMLTextAreaElement>}
         onKeyDown={handleKeyDown}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        onFocus={(e: React.FocusEvent<HTMLInputElement & HTMLTextAreaElement>) => { setFocused(true); onFocusProp?.(e); }}
+        onBlur={(e: React.FocusEvent<HTMLInputElement & HTMLTextAreaElement>) => { setFocused(false); onBlurProp?.(e); }}
         className={`ai-tab-input ${className || ''}`}
         rows={as === 'textarea' ? rows : undefined}
         {...(rest as React.HTMLAttributes<HTMLInputElement & HTMLTextAreaElement>)}

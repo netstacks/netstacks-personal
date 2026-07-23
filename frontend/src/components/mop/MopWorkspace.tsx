@@ -2104,6 +2104,8 @@ RULES:
       dirty={dirty}
       reviewComment={reviewComment}
       handleSubmitForReview={handleSubmitForReview}
+      // Plan name (AI context for description)
+      nameValue={nameValue}
       // Description
       descriptionValue={descriptionValue}
       setDescriptionValue={setDescriptionValue}

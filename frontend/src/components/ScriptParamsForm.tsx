@@ -137,8 +137,15 @@ export default function ScriptParamsForm({ params, values, onChange }: ScriptPar
         );
       }
 
-      default:
-        // str and fallback
+      default: {
+        // str and fallback. Give the AI the other params' current values (and
+        // this param's default) so a generated value is coherent with the form.
+        const siblingContext: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(values)) {
+          if (k === param.name || v === undefined || v === null || v === '') continue;
+          siblingContext[k] = typeof v === 'object' ? JSON.stringify(v) : v;
+        }
+        if (param.default_value != null) siblingContext.default_value = String(param.default_value);
         return (
           <div key={param.name} className="script-param-field">
             <label className="script-param-label">
@@ -154,11 +161,12 @@ export default function ScriptParamsForm({ params, values, onChange }: ScriptPar
               }
               aiField={param.name}
               aiPlaceholder={`Value for script parameter "${label}"`}
-              aiContext={{}}
+              aiContext={siblingContext}
               onAIValue={(v) => handleChange(param.name, v)}
             />
           </div>
         );
+      }
     }
   };
 

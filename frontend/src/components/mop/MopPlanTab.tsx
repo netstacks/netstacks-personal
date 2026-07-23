@@ -36,6 +36,9 @@ export interface MopPlanTabProps {
   reviewComment: string | null;
   handleSubmitForReview: () => void;
 
+  // Plan name (for AI context on the description field)
+  nameValue: string;
+
   // Description
   descriptionValue: string;
   setDescriptionValue: (v: string) => void;
@@ -168,6 +171,7 @@ export default function MopPlanTab(props: MopPlanTabProps) {
     dirty,
     reviewComment,
     handleSubmitForReview,
+    nameValue,
     descriptionValue,
     setDescriptionValue,
     markDirty,
@@ -330,7 +334,7 @@ export default function MopPlanTab(props: MopPlanTabProps) {
             rows={2}
             aiField="description"
             aiPlaceholder="Description of this MOP plan"
-            aiContext={{}}
+            aiContext={{ name: nameValue, changeSteps: steps.filter((s) => s.step_type === 'change').length }}
             onAIValue={(v) => { setDescriptionValue(v); markDirty(); }}
           />
         </div>

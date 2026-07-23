@@ -265,7 +265,12 @@ function BroadcastCommandDialog({
               disabled={isExecuting}
               aiField="broadcast_command"
               aiPlaceholder="CLI command to broadcast to all sessions"
-              aiContext={{ sessionCount: selectedSessionIds.length }}
+              aiContext={{
+                sessionCount: selectedSessionIds.length,
+                targetCliFlavors: Array.from(new Set(
+                  sessions.filter((s) => selectedSessionIds.includes(s.id)).map((s) => s.cli_flavor),
+                )).join(', '),
+              }}
               onAIValue={(v) => setCommand(v)}
             />
             <span className="broadcast-hint">Press Cmd+Enter to execute</span>

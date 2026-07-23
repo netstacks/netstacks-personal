@@ -177,7 +177,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser 
               className="mono"
               aiField="helpful_commands"
               aiPlaceholder="CLI commands useful for this issue"
-              aiContext={{ issue: formData.issue, root_cause: formData.root_cause }}
+              aiContext={{ issue: formData.issue, root_cause: formData.root_cause, resolution: formData.resolution }}
               onAIValue={(v) => updateField('commands', v)}
             />
           </div>

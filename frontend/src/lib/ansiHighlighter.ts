@@ -22,8 +22,19 @@ const RESET = '\x1b[0m'
 // thousands of overlapping matches.
 const MAX_MATCHES_PER_LINE = 64
 
+/**
+ * Escape-sequence parser state. We only need enough of the VT500 state machine
+ * to tell "inside a control/escape sequence" from "printable text" so we never
+ * splice color codes into a sequence. OSC/DCS/APC/PM/SOS all collapse to `osc`
+ * (a string swallowed until BEL or ST) since we treat them identically.
+ */
+type EscMode = 'ground' | 'esc' | 'csi' | 'osc' | 'oscEsc'
+
 export class AnsiHighlighter {
   private compiled: CompiledRule[] = []
+  // Parser state, carried across process() calls so a sequence split across two
+  // PTY chunks is still recognized (and left untouched) on both sides.
+  private mode: EscMode = 'ground'
 
   setRules(rules: HighlightRule[]): void {
     this.compiled = []
@@ -47,21 +58,122 @@ export class AnsiHighlighter {
 
   /**
    * Push a chunk through the highlighter. Returns the chunk with ANSI codes
-   * spliced around matches.
+   * spliced around matches in the *printable text* only.
    *
-   * NO buffering — every chunk is emitted immediately so interactive prompts
-   * (which never end with \n) and typed-character echo work correctly.
+   * Escape sequences (CSI, OSC/window-title, DCS, etc.) are passed through
+   * verbatim and never highlighted. This is essential: splicing an ESC into the
+   * middle of, say, an OSC title sequence aborts xterm's parser and dumps the
+   * title text onto the screen (the classic "doubled prompt / doubled IP" bug).
+   * Parser state is carried across calls so a sequence split across two chunks
+   * is still recognized on both sides.
    *
-   * Trade-off: a match that spans a chunk boundary won't highlight. In practice
-   * remote output arrives in line-sized chunks, so this is rare; latency-free
-   * terminal behavior is non-negotiable.
+   * NO buffering of printable text — every chunk is emitted immediately so
+   * interactive prompts (which never end with \n) and typed-character echo work
+   * correctly. Trade-off: a match that spans a chunk boundary, or one broken by
+   * an interior escape sequence, won't highlight; latency-free terminal
+   * behavior is non-negotiable.
    */
   process(chunk: string): string {
     if (this.compiled.length === 0 || !chunk) return chunk
-    // Split on \n so per-line regex matching can't cross lines. The trailing
-    // partial (after the last \n) is highlighted in place and reaches xterm
-    // immediately so the cursor lands where the user expects.
-    const parts = chunk.split('\n')
+
+    let out = ''
+    let text = '' // printable run pending highlight
+    let esc = '' // in-flight escape sequence, emitted verbatim
+
+    const flushText = () => {
+      if (text) {
+        out += this.highlightText(text)
+        text = ''
+      }
+    }
+    const flushEsc = () => {
+      if (esc) {
+        out += esc
+        esc = ''
+      }
+    }
+
+    for (let i = 0; i < chunk.length; i++) {
+      const c = chunk[i]
+      const code = chunk.charCodeAt(i)
+
+      switch (this.mode) {
+        case 'ground':
+          if (code === 0x1b) {
+            // ESC begins a sequence: close the text run so we don't highlight
+            // into it, then start collecting the sequence verbatim.
+            flushText()
+            esc += c
+            this.mode = 'esc'
+          } else {
+            text += c
+          }
+          break
+
+        case 'esc':
+          esc += c
+          if (code === 0x5b) {
+            this.mode = 'csi' // '['
+          } else if (
+            code === 0x5d || // ']' OSC
+            code === 0x50 || // 'P' DCS
+            code === 0x58 || // 'X' SOS
+            code === 0x5e || // '^' PM
+            code === 0x5f //   '_' APC
+          ) {
+            this.mode = 'osc'
+          } else if (code >= 0x20 && code <= 0x2f) {
+            // intermediate byte (e.g. ESC ( B) — stay, await final
+          } else {
+            // final byte of a short escape (e.g. ESC c, ESC 7) — done
+            flushEsc()
+            this.mode = 'ground'
+          }
+          break
+
+        case 'csi':
+          esc += c
+          // params 0x30–0x3f, intermediates 0x20–0x2f, final 0x40–0x7e
+          if (code >= 0x40 && code <= 0x7e) {
+            flushEsc()
+            this.mode = 'ground'
+          }
+          break
+
+        case 'osc':
+          esc += c
+          if (code === 0x07) {
+            flushEsc() // BEL terminates
+            this.mode = 'ground'
+          } else if (code === 0x1b) {
+            this.mode = 'oscEsc' // maybe ST (ESC \)
+          }
+          break
+
+        case 'oscEsc':
+          esc += c
+          if (code === 0x5c) {
+            flushEsc() // ESC \ = ST terminator
+            this.mode = 'ground'
+          } else {
+            // ESC not followed by backslash; keep swallowing the string.
+            this.mode = 'osc'
+          }
+          break
+      }
+    }
+
+    // End of chunk: emit the pending text (highlighted) and any partial escape
+    // sequence (verbatim). `mode` persists so the next chunk resumes correctly.
+    flushText()
+    flushEsc()
+    return out
+  }
+
+  /** Highlight a run of printable text, keeping per-line regex semantics. */
+  private highlightText(text: string): string {
+    // Split on \n so per-line regex matching can't cross lines.
+    const parts = text.split('\n')
     for (let i = 0; i < parts.length; i++) {
       if (parts[i]) parts[i] = this.highlightLine(parts[i])
     }
