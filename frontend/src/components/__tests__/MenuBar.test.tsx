@@ -7,10 +7,12 @@ vi.mock('../../commands', async () => {
     ...actual,
     dispatchCommand: vi.fn(),
     getActiveContext: () => ({ isEnterprise: false }),
+    // The store keeps commands in a Map<string, Command> (registry.ts), so the
+    // mock must be a Map too — MenuBar calls commands.get(...).
     useCommandStore: (sel: any) => sel({
-      commands: {
-        'file.new-session': { id: 'file.new-session', label: 'New Session', category: 'file', accelerator: 'CmdOrCtrl+N', run: () => {} },
-      },
+      commands: new Map([
+        ['file.new-session', { id: 'file.new-session', label: 'New Session', category: 'file', accelerator: 'CmdOrCtrl+N', run: () => {} }],
+      ]),
     }),
   }
 })

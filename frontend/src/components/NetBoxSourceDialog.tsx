@@ -14,6 +14,7 @@ import { getApiResource } from '../api/quickActions';
 import type { ApiResource } from '../types/quickAction';
 import { listProfiles, type CredentialProfile } from '../api/profiles';
 import AskAiHelp from './AskAiHelp';
+import AITabInput from './AITabInput';
 import { CLI_FLAVOR_OPTIONS, type CliFlavor } from '../api/sessions';
 import {
   fetchSites,
@@ -694,12 +695,16 @@ export default function NetBoxSourceDialog({
 
             <div className="form-group">
               <label htmlFor="source-name">Name</label>
-              <input
+              <AITabInput
                 ref={nameInputRef}
                 id="source-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onAIValue={(v) => setName(v)}
+                aiField="netbox_source_name"
+                aiPlaceholder="Name for this NetBox source"
+                aiContext={{ apiResource: selectedResource?.name }}
                 placeholder="e.g., Production NetBox"
               />
             </div>

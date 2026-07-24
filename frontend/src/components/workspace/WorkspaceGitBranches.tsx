@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { GitOps, GitBranchInfo, BranchEntry, StashEntry } from '../../types/workspace'
 import { showToast } from '../Toast'
 import ContextMenu from '../ContextMenu'
 import type { MenuItem } from '../ContextMenu'
+import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
 interface WorkspaceGitBranchesProps {
@@ -23,7 +24,6 @@ export default function WorkspaceGitBranches({
   const [loading, setLoading] = useState(true)
   const [showNewBranch, setShowNewBranch] = useState(false)
   const [newBranchName, setNewBranchName] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
   const [contextMenu, setContextMenu] = useState<{ position: { x: number; y: number }; items: MenuItem[] } | null>(null)
   const [switchDialog, setSwitchDialog] = useState<{ branchName: string } | null>(null)
 
@@ -47,12 +47,6 @@ export default function WorkspaceGitBranches({
   useEffect(() => {
     fetchBranches()
   }, [fetchBranches])
-
-  useEffect(() => {
-    if (showNewBranch && inputRef.current) {
-      inputRef.current.focus()
-    }
-  }, [showNewBranch])
 
   const handleSwitch = useCallback(async (name: string) => {
     if (name === currentBranch?.name) return
@@ -209,8 +203,7 @@ export default function WorkspaceGitBranches({
 
       {showNewBranch && (
         <div className="workspace-git-new-branch-form">
-          <input
-            ref={inputRef}
+          <AITabInput
             className="workspace-git-new-branch-input"
             placeholder="branch-name"
             value={newBranchName}
@@ -219,6 +212,11 @@ export default function WorkspaceGitBranches({
               if (e.key === 'Enter') handleCreateBranch()
               if (e.key === 'Escape') { setShowNewBranch(false); setNewBranchName('') }
             }}
+            autoFocus
+            aiField="branch_name"
+            aiPlaceholder="git branch name (kebab-case, e.g. fix/bgp-flap)"
+            aiContext={{ currentBranch: currentBranch?.name }}
+            onAIValue={v => setNewBranchName(v)}
           />
           <button
             className="workspace-git-new-branch-submit"

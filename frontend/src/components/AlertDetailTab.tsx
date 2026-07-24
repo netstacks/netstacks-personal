@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import AITabInput from './AITabInput'
 import './AlertDetailTab.css'
 import {
   getAlert,
@@ -360,11 +361,15 @@ export default function AlertDetailTab({
               </p>
               <div className="alert-detail-form-group">
                 <label className="alert-detail-form-label">Comment (optional)</label>
-                <input
+                <AITabInput
                   className="alert-detail-input"
                   value={acknowledgeComment}
                   onChange={(e) => setAcknowledgeComment(e.target.value)}
                   placeholder="Add a comment..."
+                  aiField="ack_comment"
+                  aiPlaceholder="Acknowledgement note for this alert"
+                  aiContext={{ title: alert.title, severity: alert.severity }}
+                  onAIValue={(v) => setAcknowledgeComment(v)}
                 />
               </div>
               {actionError && <div className="alert-detail-error-text">{actionError}</div>}
@@ -398,11 +403,20 @@ export default function AlertDetailTab({
               </p>
               <div className="alert-detail-form-group">
                 <label className="alert-detail-form-label">Resolution (optional)</label>
-                <input
+                <AITabInput
                   className="alert-detail-input"
                   value={resolveResolution}
                   onChange={(e) => setResolveResolution(e.target.value)}
                   placeholder="Describe how the issue was resolved..."
+                  aiField="resolution"
+                  aiPlaceholder="How this alert was resolved"
+                  aiContext={{
+                    title: alert.title,
+                    severity: alert.severity,
+                    root_cause: alert.root_cause,
+                    impact: alert.impact_summary,
+                  }}
+                  onAIValue={(v) => setResolveResolution(v)}
                 />
               </div>
               {actionError && <div className="alert-detail-error-text">{actionError}</div>}
@@ -452,11 +466,15 @@ export default function AlertDetailTab({
               </div>
               <div className="alert-detail-form-group">
                 <label className="alert-detail-form-label">Reason *</label>
-                <input
+                <AITabInput
                   className="alert-detail-input"
                   value={suppressReason}
                   onChange={(e) => setSuppressReason(e.target.value)}
                   placeholder="Why is this alert being suppressed?"
+                  aiField="suppress_reason"
+                  aiPlaceholder="Reason for suppressing this alert"
+                  aiContext={{ title: alert.title, severity: alert.severity }}
+                  onAIValue={(v) => setSuppressReason(v)}
                 />
               </div>
               {actionError && <div className="alert-detail-error-text">{actionError}</div>}

@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import AITabInput from '../AITabInput';
 import type { MopStep } from '../../types/change';
 
 interface MockStepConfigurationProps {
@@ -120,11 +121,19 @@ export default function MockStepConfiguration({ steps, onStepMockChange }: MockS
               </div>
               {state.enabled && state.expanded && (
                 <div className="mock-output-editor">
-                  <textarea
+                  <AITabInput
+                    as="textarea"
                     value={state.output}
                     onChange={e => updateMockOutput(index, e.target.value)}
                     placeholder="Enter mock output..."
                     rows={2}
+                    aiField="mock_output"
+                    aiPlaceholder="Realistic mock CLI output for this command"
+                    aiContext={{
+                      command: step.command,
+                      stepType: step.step_type,
+                    }}
+                    onAIValue={v => updateMockOutput(index, v)}
                   />
                 </div>
               )}

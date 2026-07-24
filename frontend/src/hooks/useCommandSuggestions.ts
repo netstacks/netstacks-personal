@@ -36,8 +36,6 @@ export function useCommandSuggestions(options: UseCommandSuggestionsOptions = {}
     timeoutRef.current = setTimeout(async () => {
       setIsLoading(true);
       try {
-        const recentOutput = context.terminal?.recentOutput || '';
-        const lines = recentOutput.split('\n').slice(-30);
         const cliFlavor = context.cliFlavor || 'auto';
 
         // Build CLI type instruction based on configured flavor
@@ -59,10 +57,9 @@ export function useCommandSuggestions(options: UseCommandSuggestionsOptions = {}
           cliInstruction = `This is a ${flavorNames[cliFlavor] || cliFlavor} network device. Suggest appropriate CLI commands for this platform.`;
         }
 
+        // Recent terminal output is supplied once via the AiContext (backend
+        // system prompt); don't embed it here too.
         const prompt = `Complete this command: "${partial}"
-
-Recent terminal session:
-${lines.join('\n')}
 
 ${cliInstruction}
 Return JSON: [{"command": "...", "description": "..."}]

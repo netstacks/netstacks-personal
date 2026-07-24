@@ -4,6 +4,7 @@ import { getErrorMessage } from '../api/errors'
  */
 
 import { useState, useEffect } from 'react'
+import AITabInput from './AITabInput'
 import type { Device, DeviceType, DeviceStatus } from '../types/topology'
 import { useSubmitting } from '../hooks/useSubmitting'
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
@@ -183,12 +184,16 @@ export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEdit
 
           <div className="device-edit-field">
             <label htmlFor="device-role">Role</label>
-            <input
+            <AITabInput
               id="device-role"
               type="text"
               value={role}
               onChange={e => setRole(e.target.value)}
               placeholder="Optional"
+              aiField="role"
+              aiPlaceholder="Device role (e.g. core router, ToR switch)"
+              aiContext={{ name, type }}
+              onAIValue={v => setRole(v)}
             />
           </div>
 

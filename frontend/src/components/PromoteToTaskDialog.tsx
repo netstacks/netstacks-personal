@@ -7,6 +7,7 @@ import { useState, useMemo } from 'react';
 import './PromoteToTaskDialog.css';
 import type { AgentMessage } from '../hooks/useAIAgent';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
+import AITabInput from './AITabInput';
 
 interface PromoteToTaskDialogProps {
   /** Current chat messages to extract context from */
@@ -143,9 +144,14 @@ export function PromoteToTaskDialog({
           <div className="promote-dialog-prompt">
             <label>Task Prompt</label>
             {mode === 'custom' ? (
-              <textarea
+              <AITabInput
+                as="textarea"
                 value={customPrompt}
                 onChange={e => setCustomPrompt(e.target.value)}
+                onAIValue={v => setCustomPrompt(v)}
+                aiField="task_prompt"
+                aiPlaceholder="Background agent task instructions"
+                aiContext={{ latest: latestPrompt }}
                 placeholder="Describe what the agent should do..."
                 rows={6}
                 autoFocus

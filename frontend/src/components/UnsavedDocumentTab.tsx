@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { DocumentCategory, ContentType } from '../api/docs'
 import JsonViewer from './JsonViewer'
+import AITabInput from './AITabInput'
 import './UnsavedDocumentTab.css'
 
 interface UnsavedDoc {
@@ -42,13 +43,17 @@ export default function UnsavedDocumentTab({ tabId, unsavedDoc, onSave }: Unsave
     <div className="unsaved-doc-tab">
       <div className="unsaved-doc-save-bar">
         <div className="unsaved-doc-badge">Unsaved</div>
-        <input
+        <AITabInput
           className="unsaved-doc-name-input"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Document name"
           onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
+          aiField="document_name"
+          aiPlaceholder="Document name"
+          aiContext={{ category, contentType: unsavedDoc.contentType, preview: unsavedDoc.content.slice(0, 300) }}
+          onAIValue={(v) => setName(v)}
         />
         <select
           className="unsaved-doc-category-select"

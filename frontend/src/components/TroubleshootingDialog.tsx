@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { getTroubleshootingSettings } from '../api/troubleshootingSettings';
+import AITabInput from './AITabInput';
 import './TroubleshootingDialog.css';
 
 interface ConnectedSession {
@@ -120,7 +121,7 @@ export default function TroubleshootingDialog({
 
           <div className="troubleshooting-form-field">
             <label htmlFor="session-name">Session Name</label>
-            <input
+            <AITabInput
               id="session-name"
               type="text"
               value={sessionName}
@@ -130,6 +131,10 @@ export default function TroubleshootingDialog({
               }}
               placeholder="e.g., Router BGP Issue, Switch Loop Investigation"
               autoFocus
+              aiField="session_name"
+              aiPlaceholder="Troubleshooting session name"
+              aiContext={{ terminals: connectedSessions.map(s => s.name).join(', ') }}
+              onAIValue={(v) => setSessionName(v)}
             />
           </div>
 

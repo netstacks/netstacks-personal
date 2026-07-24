@@ -787,7 +787,7 @@ export default function AISettingsTab() {
     setModelsLoading(prev => ({ ...prev, [providerType]: true }));
     setModelsError(prev => ({ ...prev, [providerType]: '' }));
     const res = await listProviderModels(providerType, {
-      baseUrl: baseUrls[providerType] || undefined,
+      baseUrl: baseUrls[providerType]?.trim() || undefined,
       verifySsl: verifySSL[providerType],
       apiFormat: providerType === 'custom' ? apiFormat : undefined,
       refresh,
@@ -859,7 +859,7 @@ export default function AISettingsTab() {
       const config: AiConfig = {
         provider: providerType,
         model: providerType === 'custom' ? customModel : configuredModels[0] || '',
-        base_url: baseUrls[providerType] || undefined,
+        base_url: baseUrls[providerType]?.trim() || undefined,
         verify_ssl: verifySSL[providerType],
       };
       // Include OAuth2 config and API format for custom provider
@@ -995,7 +995,7 @@ export default function AISettingsTab() {
         const testConfig: AiConfig = {
           provider: providerType,
           model: testModel,
-          base_url: baseUrls[providerType] || undefined,
+          base_url: baseUrls[providerType]?.trim() || undefined,
           verify_ssl: verifySSL[providerType],
         };
         if (providerType === 'custom') {
@@ -1056,7 +1056,7 @@ export default function AISettingsTab() {
       const config: AiConfig = {
         provider: providerType,
         model,
-        base_url: baseUrls[providerType] || undefined,
+        base_url: baseUrls[providerType]?.trim() || undefined,
         verify_ssl: verifySSL[providerType],
       };
       if (providerType === 'custom') {
@@ -1316,24 +1316,24 @@ export default function AISettingsTab() {
                       </span>
                     </div>
 
-                    {/* TLS verification — shown for all providers that may use custom/self-signed endpoints */}
-                    {p.type !== 'openrouter' && (
-                      <div className="form-group">
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={verifySSL[p.type]}
-                            onChange={(e) => setVerifySSL(prev => ({ ...prev, [p.type]: e.target.checked }))}
-                          />
-                          Verify TLS Certificates
-                        </label>
-                        <span className="form-hint">
-                          {verifySSL[p.type]
-                            ? 'TLS certificates are verified. Uncheck to accept self-signed certificates.'
-                            : 'Self-signed certificates accepted. Only disable if you trust this endpoint.'}
-                        </span>
-                      </div>
-                    )}
+                    {/* TLS verification — shown for all providers, since any can be
+                        pointed at a custom/self-signed endpoint via Base URL (incl.
+                        OpenRouter, which now honors a custom base_url). */}
+                    <div className="form-group">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={verifySSL[p.type]}
+                          onChange={(e) => setVerifySSL(prev => ({ ...prev, [p.type]: e.target.checked }))}
+                        />
+                        Verify TLS Certificates
+                      </label>
+                      <span className="form-hint">
+                        {verifySSL[p.type]
+                          ? 'TLS certificates are verified. Uncheck to accept self-signed certificates.'
+                          : 'Self-signed certificates accepted. Only disable if you trust this endpoint.'}
+                      </span>
+                    </div>
 
                     {/* API Format (for Custom provider) */}
                     {p.type === 'custom' && (

@@ -16,6 +16,7 @@ import type {
 } from '../types/quickAction'
 import { PasswordInput } from './PasswordInput'
 import AskAiHelp from './AskAiHelp'
+import AITabInput from './AITabInput'
 import './ApiResourceDialog.css'
 
 // Icons
@@ -375,7 +376,16 @@ export default function ApiResourceDialog({
             <h3>Basic Info</h3>
             <div className="form-group">
               <label>Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., SolarWinds Production" />
+              <AITabInput
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onAIValue={(v) => setName(v)}
+                aiField="api_resource_name"
+                aiPlaceholder="Friendly name for this API resource"
+                aiContext={{ baseUrl }}
+                placeholder="e.g., SolarWinds Production"
+              />
             </div>
 
             <div className="form-group">

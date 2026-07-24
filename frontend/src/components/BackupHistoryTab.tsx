@@ -16,6 +16,7 @@ import './BackupHistoryTab.css'
 import { useMonacoOverlord } from '../hooks/useMonacoOverlord'
 import { useEditorFontSettings } from '../hooks/useEditorFontSettings'
 import MonacoOverlordWidget from './MonacoOverlordWidget'
+import AITabInput from './AITabInput'
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter'
 
 import { getErrorMessage } from '../api/errors'
@@ -738,10 +739,15 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
                     </button>
                   </div>
                 </div>
-                <textarea
+                <AITabInput
+                  as="textarea"
                   className="backup-notes-textarea"
                   value={notesDraft}
                   onChange={(e) => setNotesDraft(e.target.value)}
+                  onAIValue={(v) => setNotesDraft(v)}
+                  aiField="backup_notes"
+                  aiPlaceholder="Operator notes / tribal knowledge for this config backup"
+                  aiContext={{ device: deviceName, version: selectedConfig.version }}
                   placeholder="e.g. Pre-maintenance baseline before BGP change (CHG-1234). Known-good config."
                   rows={4}
                 />

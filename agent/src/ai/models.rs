@@ -132,7 +132,10 @@ pub async fn fetch_models(
     api_format: Option<&str>,
 ) -> Result<Vec<ModelInfo>, String> {
     let client = build_client(verify_ssl)?;
-    let trim = |u: &str| u.trim_end_matches('/').to_string();
+    // Normalize once: strip surrounding whitespace and treat whitespace-only as
+    // absent, so a stray space in the Base URL can't produce an unparseable URL.
+    let base_url = base_url.map(str::trim).filter(|u| !u.is_empty());
+    let trim = |u: &str| u.trim().trim_end_matches('/').to_string();
 
     match provider {
         "anthropic" => {

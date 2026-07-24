@@ -168,12 +168,16 @@ export default function IncidentDetailTab({
               <div className="incident-detail-create-form">
                 <div className="incident-detail-form-group">
                   <label className="incident-detail-form-label">Title *</label>
-                  <input
+                  <AITabInput
                     className="incident-detail-input"
                     value={createTitle}
                     onChange={(e) => setCreateTitle(e.target.value)}
                     placeholder="Incident title..."
                     autoFocus
+                    aiField="title"
+                    aiPlaceholder="Incident title"
+                    aiContext={{ severity: createSeverity, description: createDescription }}
+                    onAIValue={(v) => setCreateTitle(v)}
                   />
                 </div>
                 <div className="incident-detail-form-group">
@@ -359,7 +363,7 @@ export default function IncidentDetailTab({
       <div className="incident-detail-header">
         <div className="incident-detail-header-info">
           {editingTitle ? (
-            <input
+            <AITabInput
               className="incident-detail-title-input"
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
@@ -376,6 +380,10 @@ export default function IncidentDetailTab({
               }}
               autoFocus
               disabled={saving}
+              aiField="title"
+              aiPlaceholder="Incident title"
+              aiContext={{ severity: incident.severity, description: incident.description }}
+              onAIValue={(v) => setEditTitle(v)}
             />
           ) : (
             <h2

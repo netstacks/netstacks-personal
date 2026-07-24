@@ -8,6 +8,7 @@ import {
 } from '../api/aiEngineerProfile'
 import { useAssistantNameStore } from '../stores/assistantName'
 import { confirmDialog } from './ConfirmDialog'
+import AITabInput from './AITabInput'
 
 const BEHAVIOR_MODES = [
   { value: 'assistant', label: 'Assistant — answers questions, follows instructions' },
@@ -479,12 +480,17 @@ export default function AIEngineerSettingsTab() {
           <div className="setting-label">Communication Style</div>
           <div className="setting-description">Free-text personality notes (e.g. &quot;Be direct and technical, skip pleasantries&quot;)</div>
           <div className="setting-control-block">
-            <textarea
+            <AITabInput
+              as="textarea"
               className="setting-input"
               rows={3}
               value={profile.communication_style || ''}
               onChange={(e) => setProfile({ ...profile, communication_style: e.target.value })}
+              onAIValue={(v) => setProfile({ ...profile, communication_style: v })}
               onBlur={() => saveField({ communication_style: profile.communication_style })}
+              aiField="communication_style"
+              aiPlaceholder="Free-text personality/communication notes for the AI engineer"
+              aiContext={{ behavior_mode: profile.behavior_mode, verbosity: profile.verbosity, experience_level: profile.user_experience_level }}
               placeholder="e.g. Be direct and technical, skip pleasantries"
             />
           </div>

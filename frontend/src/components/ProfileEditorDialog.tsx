@@ -14,6 +14,7 @@ import { TERMINAL_THEMES } from '../lib/terminalThemes';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import { useMode } from '../hooks/useMode';
+import AITabInput from './AITabInput';
 import './ProfileEditorDialog.css';
 
 import { getErrorMessage } from '../api/errors'
@@ -444,12 +445,16 @@ export default function ProfileEditorDialog({
                 <h3>Profile Identity</h3>
                 <div className="form-group">
                   <label htmlFor="profile-name">Profile Name</label>
-                  <input
+                  <AITabInput
                     ref={nameInputRef}
                     id="profile-name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    onAIValue={(v) => setName(v)}
+                    aiField="profile_name"
+                    aiPlaceholder="Name for this connection profile"
+                    aiContext={{ cliFlavor }}
                     placeholder="e.g., Cisco Production"
                   />
                 </div>
@@ -800,10 +805,14 @@ export default function ProfileEditorDialog({
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <div className="input-group">
-                    <input
+                    <AITabInput
                       type="text"
                       value={newAutoCommand}
                       onChange={(e) => setNewAutoCommand(e.target.value)}
+                      onAIValue={(v) => setNewAutoCommand(v)}
+                      aiField="auto_command"
+                      aiPlaceholder="Command to run automatically on connect"
+                      aiContext={{ cliFlavor }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && newAutoCommand.trim()) {
                           e.preventDefault();

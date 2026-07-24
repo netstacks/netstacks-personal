@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AITabInput from '../AITabInput'
 import './ProcedureStepEditor.css'
 
 export interface ProcedureStep {
@@ -87,11 +88,19 @@ export default function ProcedureStepEditor({
 
         {/* CLI: text input */}
         {step.execution_source === 'cli' && (
-          <input
+          <AITabInput
             className="proc-step-command"
             value={step.command}
             onChange={e => update('command', e.target.value)}
             placeholder="Command (e.g., show ip bgp summary)"
+            aiField="command"
+            aiPlaceholder="Network CLI command for this procedure step"
+            aiContext={{
+              description: step.description,
+              expected_output: step.expected_output,
+              execution_source: step.execution_source,
+            }}
+            onAIValue={v => update('command', v)}
           />
         )}
 
@@ -171,10 +180,17 @@ export default function ProcedureStepEditor({
         <div className="proc-step-details">
           <div className="proc-step-field">
             <label>Description</label>
-            <input
+            <AITabInput
               value={step.description}
               onChange={e => update('description', e.target.value)}
               placeholder="What this check verifies"
+              aiField="description"
+              aiPlaceholder="What this procedure step/check does"
+              aiContext={{
+                command: step.command,
+                expected_output: step.expected_output,
+              }}
+              onAIValue={v => update('description', v)}
             />
           </div>
           <div className="proc-step-field">
@@ -198,10 +214,18 @@ export default function ProcedureStepEditor({
           {step.ai_evaluation && (
             <div className="proc-step-field">
               <label>AI Hint</label>
-              <input
+              <AITabInput
                 value={step.ai_hint || ''}
                 onChange={e => update('ai_hint', e.target.value || null)}
                 placeholder="Guidance for AI interpretation"
+                aiField="ai_hint"
+                aiPlaceholder="Guidance for the AI when interpreting this step's output"
+                aiContext={{
+                  command: step.command,
+                  description: step.description,
+                  expected_output: step.expected_output,
+                }}
+                onAIValue={v => update('ai_hint', v || null)}
               />
             </div>
           )}

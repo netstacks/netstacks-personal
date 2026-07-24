@@ -27,7 +27,7 @@ interface UseNextStepSuggestionsOptions {
 interface UseNextStepSuggestionsReturn {
   suggestions: NextStepSuggestion[];
   loading: boolean;
-  generateSuggestions: (lastCommand: string, output: string, context?: AiContext) => void;
+  generateSuggestions: (lastCommand: string, context?: AiContext) => void;
   clearSuggestions: () => void;
   useSuggestion: (command: string) => void;
   setSuggestionCallback: (callback: (command: string) => void) => void;
@@ -58,7 +58,6 @@ export function useNextStepSuggestions({
 
   const generateSuggestions = useCallback((
     lastCommand: string,
-    output: string,
     context?: AiContext
   ) => {
     if (!enabled) return;
@@ -77,25 +76,12 @@ export function useNextStepSuggestions({
       setLoading(true);
 
       try {
-        // Build context string for device info
-        let deviceInfo = '';
-        if (context?.terminal) {
-          const t = context.terminal;
-          if (t.hostname) deviceInfo += `Hostname: ${t.hostname}, `;
-          if (t.detectedVendor) deviceInfo += `Vendor: ${t.detectedVendor}, `;
-          if (t.detectedPlatform) deviceInfo += `Platform: ${t.detectedPlatform}`;
-        }
-        if (context?.cliFlavor && context.cliFlavor !== 'auto') {
-          deviceInfo += `CLI: ${context.cliFlavor}`;
-        }
-
-        const prompt = `Based on this network command and its output, suggest ${maxSuggestions} logical next commands.
+        // Device identity (hostname/vendor/platform/CLI flavor) and the recent
+        // terminal output are supplied via the AiContext (backend system
+        // prompt), so the prompt only needs to name the command that just ran.
+        const prompt = `Based on the last network command and the current terminal output, suggest ${maxSuggestions} logical next commands.
 
 Command: ${lastCommand}
-Output (last 20 lines):
-${output.split('\n').slice(-20).join('\n')}
-
-${deviceInfo ? `Device info: ${deviceInfo}` : ''}
 
 Return ONLY a JSON array with this structure (no markdown, no explanation):
 [

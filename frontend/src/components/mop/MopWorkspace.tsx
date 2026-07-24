@@ -2484,7 +2484,7 @@ RULES:
       <div className="mop-workspace-header">
         <div className="mop-workspace-header-info">
           {editingName ? (
-            <input
+            <AITabInput
               className="mop-workspace-title-input"
               value={nameValue}
               onChange={(e) => setNameValue(e.target.value)}
@@ -2494,6 +2494,10 @@ RULES:
                 if (e.key === 'Escape') { setNameValue(plan?.name || ''); setEditingName(false); }
               }}
               autoFocus
+              aiField="name"
+              aiPlaceholder="MOP plan name"
+              aiContext={{ description: descriptionValue, risk: riskLevel, steps: stepCount }}
+              onAIValue={(v) => setNameValue(v)}
             />
           ) : (
             <span

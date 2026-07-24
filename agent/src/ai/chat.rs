@@ -484,7 +484,14 @@ pub async fn load_ai_config(
         }
     };
 
-    let base_url = settings.base_url.clone();
+    // Trim surrounding whitespace and drop whitespace-only values. A stray
+    // leading/trailing space makes the URL unparseable downstream (reqwest
+    // "builder error"), so normalize it here for every provider.
+    let base_url = settings
+        .base_url
+        .clone()
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty());
     let verify_ssl = settings.verify_ssl;
 
     // --- Providers that don't require a vault API key ---
@@ -564,7 +571,7 @@ pub async fn load_ai_config(
             } else {
                 model
             };
-            Ok(AiProviderConfig::OpenRouter { api_key, model })
+            Ok(AiProviderConfig::OpenRouter { api_key, model, base_url, verify_ssl })
         }
         other => Err(format!("Unknown AI provider: {}", other)),
     };

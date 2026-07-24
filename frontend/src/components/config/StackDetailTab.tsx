@@ -341,12 +341,16 @@ export default function StackDetailTab({
       <div className="stack-detail-header">
         <div className="stack-detail-header-info">
           {isCreate && !stack ? (
-            <input
+            <AITabInput
               className="instance-detail-name-input"
               value={editName}
               onChange={e => setEditName(e.target.value)}
               placeholder="Stack name..."
               autoFocus
+              aiField="stack_name"
+              aiPlaceholder="Config stack name"
+              aiContext={{ description: editDescription, serviceCount: editServices.length }}
+              onAIValue={v => setEditName(v)}
             />
           ) : (
             <h2 className="stack-detail-title">{stack!.name}</h2>

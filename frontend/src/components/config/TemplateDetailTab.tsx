@@ -17,6 +17,7 @@ import {
 } from '../../api/configManagement'
 import type { ConfigPlatform } from '../../api/configManagement'
 import type { ConfigTemplate, TemplateVersion } from '../../api/configManagement'
+import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
 interface TemplateDetailTabProps {
@@ -309,12 +310,16 @@ export default function TemplateDetailTab({
         <div className="tdt-header-info">
           {!readOnly || isCreate ? (
             <>
-              <input
+              <AITabInput
                 className="tdt-create-name-input"
                 value={editName}
                 onChange={e => { setEditName(e.target.value); setDirty(true) }}
                 placeholder="Template name..."
                 autoFocus={isCreate}
+                aiField="template_name"
+                aiPlaceholder="Config template name"
+                aiContext={{ platform: editPlatform, format: editFormat, operation: editOperation }}
+                onAIValue={v => { setEditName(v); setDirty(true) }}
               />
               <select className="tdt-create-select" value={editPlatform} onChange={e => { setEditPlatform(e.target.value); setDirty(true) }}>
                 {platforms.length > 0 ? platforms.map(p => (

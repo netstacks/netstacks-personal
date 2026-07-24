@@ -13,6 +13,7 @@ import type { JumpHost, Session } from '../api/sessions'
 import { showToast } from './Toast'
 import { confirmDialog } from './ConfirmDialog'
 import { useMode } from '../hooks/useMode'
+import AITabInput from './AITabInput'
 import './SettingsTunnels.css'
 
 import { getErrorMessage } from '../api/errors'
@@ -239,12 +240,22 @@ export default function SettingsTunnels() {
             <div className="tunnel-form-row">
               <div className="tunnel-form-field">
                 <label className="setting-label">Name</label>
-                <input
+                <AITabInput
                   type="text"
                   className="setting-input"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="My Tunnel"
+                  aiField="tunnel_name"
+                  aiPlaceholder="Name for this SSH tunnel"
+                  aiContext={{
+                    host,
+                    forward_type: forwardType,
+                    local_port: localPort,
+                    remote_host: remoteHost,
+                    remote_port: remotePort,
+                  }}
+                  onAIValue={v => setName(v)}
                 />
               </div>
             </div>

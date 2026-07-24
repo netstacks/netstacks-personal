@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AITabInput from './AITabInput';
 import { useDeviceMemory } from '../hooks/useDeviceMemory';
 import { useModeNames } from '../hooks/useModeNames';
 import type { DeviceMemoryEntry } from '../types/deviceMemory';
@@ -110,21 +111,31 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
 
         <label>
           Standing Instructions
-          <textarea
+          <AITabInput
+            as="textarea"
             value={memory.standing_instructions || ''}
             onChange={e => handleMetadataChange('standing_instructions', e.target.value)}
             placeholder="e.g., Never reload without CAB approval. OSPF area 0 ABR — changes cascade."
             rows={3}
+            aiField="standing_instructions"
+            aiPlaceholder="Standing operational instructions for this device"
+            aiContext={{ role: memory.role, criticality: memory.criticality }}
+            onAIValue={v => handleMetadataChange('standing_instructions', v)}
           />
         </label>
 
         <label>
           Notes
-          <textarea
+          <AITabInput
+            as="textarea"
             value={memory.notes || ''}
             onChange={e => handleMetadataChange('notes', e.target.value)}
             placeholder="e.g., Runs JunOS 21.4R3, known memory leak on 22.x"
             rows={2}
+            aiField="notes"
+            aiPlaceholder="Freeform notes about this device"
+            aiContext={{ role: memory.role, criticality: memory.criticality }}
+            onAIValue={v => handleMetadataChange('notes', v)}
           />
         </label>
       </div>
@@ -141,12 +152,17 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
 
         {showAddForm && (
           <div className="entry-form">
-            <textarea
+            <AITabInput
+              as="textarea"
               value={entryContent}
               onChange={e => setEntryContent(e.target.value)}
               placeholder="What should the AI remember about this device?"
               rows={3}
               autoFocus
+              aiField="memory"
+              aiPlaceholder="A fact the AI should remember about this device"
+              aiContext={{ role: memory.role, criticality: memory.criticality }}
+              onAIValue={v => setEntryContent(v)}
             />
             <div className="form-actions">
               <button className="btn-save" onClick={handleAddEntry} disabled={!entryContent.trim()}>

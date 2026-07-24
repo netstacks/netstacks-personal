@@ -16,7 +16,7 @@ import { useDetection } from '../hooks/useDetection'
 import { useCommandSafety } from '../hooks/useCommandSafety'
 import type { Detection } from '../types/detection'
 import type { CliFlavor } from '../types/enrichment'
-import type { TerminalContext } from '../api/ai'
+import type { AiContext, TerminalContext } from '../api/ai'
 import InlineSuggestion from './InlineSuggestion'
 import { useCommandSuggestions } from '../hooks/useCommandSuggestions'
 import { useSettings } from '../hooks/useSettings'
@@ -60,6 +60,8 @@ import { useJumpboxTerminal } from '../hooks/useJumpboxTerminal'
 
 import { getErrorMessage } from '../api/errors'
 import { logger } from '../lib/logger'
+import { CLI_FLAVOR_META } from '../lib/cliFlavorMeta'
+
 interface TerminalMessage {
   type: 'Input' | 'Output' | 'Resize' | 'Close' | 'Error' | 'Connected' | 'Disconnected'
   data?: string | { cols: number; rows: number }
@@ -522,11 +524,28 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const terminalWatcherRef = useRef(terminalWatcher)
   terminalWatcherRef.current = terminalWatcher
 
-  // Get terminal context for AI features (use ref to avoid dependency issues)
-  const _getTerminalContext = useCallback((): TerminalContext => {
-    return terminalWatcherRef.current.getContext()
+  // Single source of AI context for the terminal's inline-suggestion features
+  // (command ghost text + next-step suggestions). Carries recent output plus the
+  // connected session's identity (hostname, vendor/platform, session name). The
+  // backend expands this into the system prompt, so recent output lives ONLY
+  // here — the suggestion prompts must not embed it again (avoids double-send).
+  const buildSuggestionContext = useCallback((): AiContext => {
+    const flavor = cliFlavorRef.current
+    const meta = flavor && flavor !== 'auto' ? CLI_FLAVOR_META[flavor] : undefined
+    const terminal: TerminalContext = {
+      recentOutput: terminalWatcherRef.current.getContext().recentOutput,
+      hostname: sessionHostRef.current || sessionNameRef.current || undefined,
+      detectedVendor: meta?.vendor,
+      detectedPlatform: meta?.platform,
+    }
+    return {
+      terminal,
+      cliFlavor: flavor,
+      sessionName: sessionNameRef.current || undefined,
+    }
   }, [])
-  void _getTerminalContext // Exported via imperative handle
+  const buildSuggestionContextRef = useRef(buildSuggestionContext)
+  buildSuggestionContextRef.current = buildSuggestionContext
 
   // Detection engine for network identifiers (IPs, MACs, hostnames, etc.)
   // This hook is a pure metadata provider — decorations are handled by the HighlightEngine
@@ -1304,15 +1323,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
               // If prompt detected and we have a last command, generate suggestions
               if (hasPrompt && lastCommandRef.current && settingsRef.current['ai.nextStepSuggestions'] !== false) {
-                // Build context for suggestions
-                const context = {
-                  terminal: terminalWatcherRef.current.getContext(),
-                  cliFlavor: cliFlavorRef.current,
-                }
                 generateNextStepSuggestionsRef.current(
                   lastCommandRef.current,
-                  recentOutputRef.current,
-                  context
+                  buildSuggestionContextRef.current(),
                 )
                 setShowNextStepSuggestions(true)
                 // Clear last command so we don't re-trigger
@@ -1481,10 +1494,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
           setCurrentInput(prev => {
             const newInput = prev.slice(0, -1)
             if (newInput.length >= 2) {
-              fetchSuggestionsRef.current(newInput, {
-                terminal: terminalWatcherRef.current.getContext(),
-                cliFlavor: cliFlavorRef.current
-              })
+              fetchSuggestionsRef.current(newInput, buildSuggestionContextRef.current())
             } else {
               clearSuggestionsRef.current()
             }
@@ -2525,36 +2535,31 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     const terminal = terminalRef.current
     if (!terminal || !settingsRef.current['ai.inlineSuggestions']) return
 
-    // Calculate cursor pixel position from terminal buffer
+    // Calculate cursor pixel position from the actual rendered grid. This is
+    // renderer-agnostic: the WebGL/canvas renderer draws the cursor onto a
+    // canvas (there is NO .xterm-cursor DOM node to measure), so we derive the
+    // position from the real cell size and the .xterm-screen origin rather than
+    // guessing with hardcoded char metrics. Measuring against a stale/absent
+    // .xterm-cursor was what pushed the suggestion rows away from the prompt.
     const updateCursorPosition = () => {
-      // Get the wrapper element (parent of containerRef) for accurate positioning
-      const wrapper = containerRef.current?.parentElement
-      if (!wrapper) return
+      // The suggestion overlay's offset parent is .terminal-content-wrapper
+      // (position: relative): containerRef -> row -> wrapper.
+      const wrapper = containerRef.current?.parentElement?.parentElement
+      const screen = containerRef.current?.querySelector('.xterm-screen') as HTMLElement | null
+      if (!wrapper || !screen) return
 
-      // Try to get position from actual cursor element in DOM
-      const cursorElement = containerRef.current?.querySelector('.xterm-cursor')
-      if (cursorElement) {
-        const wrapperRect = wrapper.getBoundingClientRect()
-        const cursorRect = cursorElement.getBoundingClientRect()
-        setCursorPosition({
-          x: cursorRect.right - wrapperRect.left,
-          y: cursorRect.top - wrapperRect.top
-        })
-        return
-      }
+      const cols = terminal.cols || 1
+      const rows = terminal.rows || 1
+      const wrapperRect = wrapper.getBoundingClientRect()
+      const screenRect = screen.getBoundingClientRect()
+      // .xterm-screen spans exactly cols×rows cells, so this is the true cell size.
+      const cellW = screenRect.width / cols
+      const cellH = screenRect.height / rows
 
-      // Fallback: calculate from buffer position
       const buffer = terminal.buffer.active
-      const cursorX = buffer.cursorX
-      const cursorY = buffer.cursorY
-
-      // Get terminal dimensions (font size is 14px, line height ~1.2)
-      const charWidth = 8.4 // Approximate character width for Menlo 14px
-      const lineHeight = 17 // Line height for 14px font
-
-      // Calculate pixel position relative to terminal content
-      const x = cursorX * charWidth
-      const y = cursorY * lineHeight
+      // cursorX/cursorY are viewport-relative (0 = top-left visible cell).
+      const x = (screenRect.left - wrapperRect.left) + buffer.cursorX * cellW
+      const y = (screenRect.top - wrapperRect.top) + buffer.cursorY * cellH
 
       setCursorPosition({ x, y })
     }

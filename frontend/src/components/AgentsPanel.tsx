@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import AITabInput from './AITabInput';
 import { useAgentTasks, useAgentTasksStore } from '../hooks/useAgentTasks';
 import { rerunTask, getTaskMessages } from '../api/tasks';
 import { getCurrentMode } from '../api/client';
@@ -807,13 +808,18 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                     if (!activeDef) return null;
                     return (
                       <div className="agent-run-prompt">
-                        <textarea
+                        <AITabInput
+                          as="textarea"
                           value={runPrompt}
                           onChange={(e) => setRunPrompt(e.target.value)}
                           placeholder={`Prompt for ${activeDef.name}...`}
                           rows={2}
                           disabled={isRunningAgent}
                           autoFocus
+                          aiField="agent_run_prompt"
+                          aiPlaceholder="Task prompt to run this agent with"
+                          aiContext={{ agent: activeDef.name, description: activeDef.description }}
+                          onAIValue={(v) => setRunPrompt(v)}
                         />
                         <div className="agent-run-actions">
                           <button

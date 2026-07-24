@@ -17,6 +17,7 @@ import {
   type RuleImportResult,
 } from '../lib/ruleExport';
 import ColorPicker from './ColorPicker';
+import AITabInput from './AITabInput';
 import { useSettings } from '../hooks/useSettings';
 import './SettingsHighlighting.css';
 
@@ -955,12 +956,16 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                 {/* Name */}
                 <div className="rule-form-group">
                   <label className="rule-form-label">Name</label>
-                  <input
+                  <AITabInput
                     type="text"
                     className="rule-form-input"
                     value={editedRule.name || ''}
                     onChange={(e) => handleFieldChange('name', e.target.value)}
                     placeholder="Rule name"
+                    aiField="highlight_rule_name"
+                    aiPlaceholder="Name for this highlight rule"
+                    aiContext={{ pattern: editedRule.pattern, category: editedRule.category }}
+                    onAIValue={(v) => handleFieldChange('name', v)}
                   />
                 </div>
 

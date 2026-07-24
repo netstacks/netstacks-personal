@@ -179,6 +179,10 @@ pub enum AiProviderConfig {
         api_key: String,
         #[serde(default = "default_openrouter_model")]
         model: String,
+        #[serde(default)]
+        base_url: Option<String>,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
     },
     #[serde(rename = "litellm")]
     LiteLLM {
@@ -3509,23 +3513,35 @@ struct OpenRouterAgentRequest {
     stream_options: Option<OpenAIStreamOptions>,
 }
 
-/// OpenRouter API provider (OpenAI-compatible at openrouter.ai)
+/// OpenRouter API provider (OpenAI-compatible; defaults to openrouter.ai but
+/// honors a custom `base_url` for proxies/gateways).
 pub struct OpenRouterProvider {
     api_key: String,
     model: String,
+    base_url: String,
     client: reqwest::Client,
 }
 
 impl OpenRouterProvider {
-    pub fn new(api_key: String, model: Option<String>) -> Result<Self, AiError> {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
+            .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
 
         Ok(Self {
             api_key,
             model: model.unwrap_or_else(default_openrouter_model),
+            base_url: base_url
+                .map(|u| u.trim().trim_end_matches('/').to_string())
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
             client,
         })
     }
@@ -3567,7 +3583,7 @@ impl AiProvider for OpenRouterProvider {
 
         let response = self
             .client
-            .post("https://openrouter.ai/api/v1/chat/completions")
+            .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .header("HTTP-Referer", "https://netstacks.net")
@@ -3712,7 +3728,7 @@ impl AiProvider for OpenRouterProvider {
 
         let response = self
             .client
-            .post("https://openrouter.ai/api/v1/chat/completions")
+            .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .header("HTTP-Referer", "https://netstacks.net")
@@ -3820,10 +3836,11 @@ impl AiProvider for OpenRouterProvider {
 
         let api_key = self.api_key.clone();
         let client = self.client.clone();
+        let base_url = self.base_url.clone();
 
         Box::pin(async_stream::stream! {
             let response = match client
-                .post("https://openrouter.ai/api/v1/chat/completions")
+                .post(format!("{}/chat/completions", base_url))
                 .header("Authorization", format!("Bearer {}", api_key))
                 .header("Content-Type", "application/json")
                 .header("HTTP-Referer", "https://netstacks.net")
@@ -4324,11 +4341,11 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                 }
             }
         }
-        Some(AiProviderConfig::OpenRouter { api_key, model }) => {
+        Some(AiProviderConfig::OpenRouter { api_key, model, base_url, verify_ssl }) => {
             if api_key.is_empty() {
                 Box::new(MockProvider::new())
             } else {
-                match OpenRouterProvider::new(api_key, Some(model)) {
+                match OpenRouterProvider::new(api_key, Some(model), base_url, verify_ssl) {
                     Ok(provider) => Box::new(provider),
                     Err(e) => {
                         tracing::error!("Failed to create OpenRouter provider: {}", e);
@@ -4427,5 +4444,46 @@ mod tests {
     fn test_mock_provider() {
         let provider = MockProvider::new();
         assert_eq!(provider.provider_name(), "Mock (Not Configured)");
+    }
+
+    #[test]
+    fn test_openrouter_config_deserializes_base_url_and_verify_ssl() {
+        // Custom base_url + verify_ssl carried through.
+        let json = r#"{"provider":"openrouter","api_key":"k","model":"qwen/qwen3-coder","base_url":"https://localhost:8444/","verify_ssl":false}"#;
+        match serde_json::from_str::<AiProviderConfig>(json).unwrap() {
+            AiProviderConfig::OpenRouter { base_url, verify_ssl, .. } => {
+                assert_eq!(base_url.as_deref(), Some("https://localhost:8444/"));
+                assert!(!verify_ssl);
+            }
+            _ => panic!("expected OpenRouter config"),
+        }
+        // Absent fields fall back to None base_url + verify_ssl=true (defaults).
+        let json = r#"{"provider":"openrouter","api_key":"k","model":"m"}"#;
+        match serde_json::from_str::<AiProviderConfig>(json).unwrap() {
+            AiProviderConfig::OpenRouter { base_url, verify_ssl, .. } => {
+                assert_eq!(base_url, None);
+                assert!(verify_ssl);
+            }
+            _ => panic!("expected OpenRouter config"),
+        }
+    }
+
+    #[test]
+    fn test_openrouter_provider_uses_custom_base_url() {
+        // Custom URL is stored with its trailing slash trimmed.
+        let p = OpenRouterProvider::new("k".into(), None, Some("https://localhost:8444/".into()), true).unwrap();
+        assert_eq!(p.base_url, "https://localhost:8444");
+        // Surrounding whitespace is stripped (a leading space otherwise makes the
+        // URL unparseable -> reqwest "builder error").
+        let p = OpenRouterProvider::new("k".into(), None, Some("  https://192.168.50.127:8444/  ".into()), true).unwrap();
+        assert_eq!(p.base_url, "https://192.168.50.127:8444");
+        // Whitespace-only falls back to the default endpoint.
+        let p = OpenRouterProvider::new("k".into(), None, Some("   ".into()), true).unwrap();
+        assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
+        // Empty/None falls back to the public endpoint (no hardcoded request URL).
+        let p = OpenRouterProvider::new("k".into(), None, Some(String::new()), true).unwrap();
+        assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
+        let p = OpenRouterProvider::new("k".into(), None, None, true).unwrap();
+        assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
     }
 }

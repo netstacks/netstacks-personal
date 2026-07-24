@@ -26,6 +26,7 @@ import {
 } from '../api/sessions';
 import { listProfiles, type CredentialProfile } from '../api/profiles';
 import { TERMINAL_THEMES } from '../lib/terminalThemes';
+import AITabInput from './AITabInput';
 import SessionContextEditor from './SessionContextEditor';
 import DeviceMemoryEditor from './DeviceMemoryEditor';
 import ProfileEditorDialog from './ProfileEditorDialog';
@@ -588,13 +589,17 @@ function SessionSettingsDialog({
             <div className="settings-tab-content">
               <div className="form-group">
                 <label htmlFor="session-name">Session Name</label>
-                <input
+                <AITabInput
                   ref={nameInputRef}
                   id="session-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="My Server"
+                  aiField="session_name"
+                  aiPlaceholder="Display name for this saved SSH/telnet session"
+                  aiContext={{ host, protocol }}
+                  onAIValue={(v) => setName(v)}
                 />
               </div>
 

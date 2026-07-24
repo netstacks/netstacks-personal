@@ -24,6 +24,7 @@ import type {
   DeploymentLog,
 } from '../../api/configManagement'
 import { listEnterpriseDevices } from '../../api/enterpriseDevices'
+import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
 interface InstanceDetailTabProps {
@@ -690,12 +691,16 @@ export default function InstanceDetailTab({
       <div className="instance-detail-header">
         <div className="instance-detail-header-info">
           {isCreate ? (
-            <input
+            <AITabInput
               className="instance-detail-name-input"
               value={name}
               onChange={e => { setName(e.target.value); setDirty(true) }}
               placeholder="Instance name..."
               autoFocus
+              aiField="instance_name"
+              aiPlaceholder="Config stack instance name"
+              aiContext={{ stack: stack?.name }}
+              onAIValue={v => { setName(v); setDirty(true) }}
             />
           ) : (
             <h2 className="instance-detail-title">{instance?.name || name}</h2>

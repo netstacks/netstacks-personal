@@ -29,6 +29,7 @@ import { EnrichmentSourceExplorer } from './EnrichmentSourceExplorer'
 import { walkJsonPath, substituteTemplateVars, formatPreviewValue } from '../lib/enrichmentFieldUtils'
 import { downloadFile } from '../lib/formatters'
 import AskAiHelp from './AskAiHelp'
+import AITabInput from './AITabInput'
 import './SettingsEnrichment.css'
 
 const FORMAT_OPTIONS = ['string', 'datetime', 'uptime', 'bytes', 'status_pill']
@@ -451,7 +452,15 @@ function MatcherForm({
       </div>
       <label className="se-field">
         <span>Description</span>
-        <input value={description} disabled={readOnly} onChange={(e) => setDescription(e.target.value)} />
+        <AITabInput
+          value={description}
+          disabled={readOnly}
+          onChange={(e) => setDescription(e.target.value)}
+          onAIValue={(v) => setDescription(v)}
+          aiField="matcher_description"
+          aiPlaceholder="Description of this token matcher"
+          aiContext={{ name, patterns, cli_flavors: flavors }}
+        />
       </label>
       <label className="se-field">
         <span>Patterns (one regex per line)</span>
@@ -628,7 +637,14 @@ function SourceForm({
       </div>
       <label className="se-field">
         <span>Description</span>
-        <input value={description} onChange={(e) => setDescription(e.target.value)} />
+        <AITabInput
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onAIValue={(v) => setDescription(v)}
+          aiField="source_description"
+          aiPlaceholder="Description of this enrichment source"
+          aiContext={{ name, api_resource: apiResourceId, path_template: pathTemplate }}
+        />
       </label>
 
       {isApi && (

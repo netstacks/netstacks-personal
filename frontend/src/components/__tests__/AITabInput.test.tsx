@@ -10,6 +10,7 @@ vi.mock('../../api/ai', () => ({
 vi.mock('../../lib/aiModes', () => ({ NETSTACKS_CONCEPTS_PRIMER: 'PRIMER' }))
 
 import AITabInput from '../AITabInput'
+import { registerFormAiContext } from '../../lib/aiFormContext'
 
 describe('AITabInput — Tab-to-generate + handler composition', () => {
   beforeEach(() => {
@@ -26,6 +27,20 @@ describe('AITabInput — Tab-to-generate + handler composition', () => {
     fireEvent.keyDown(input, { key: 'Tab' })
     await waitFor(() => expect(onAIValue).toHaveBeenCalledWith('show version'))
     expect(sendChatMessage).toHaveBeenCalledOnce()
+  })
+
+  it('sends the registered workspace context to the AI', async () => {
+    sendChatMessage.mockResolvedValue('x')
+    const ctx = { sessionName: 'peter', terminal: { detectedVendor: 'Cisco', detectedPlatform: 'IOS/IOS-XE' } }
+    registerFormAiContext(() => ctx)
+    try {
+      render(<AITabInput value="" onChange={() => {}} aiField="command" onAIValue={() => {}} />)
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Tab' })
+      await waitFor(() => expect(sendChatMessage).toHaveBeenCalled())
+      expect(sendChatMessage.mock.calls[0][1].context).toEqual(ctx)
+    } finally {
+      registerFormAiContext(null)
+    }
   })
 
   it('still generates on Tab even when the caller passes its own onKeyDown (regression)', async () => {

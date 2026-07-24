@@ -107,6 +107,8 @@ import { createChange } from './api/changes'
 import { createMopStep, type MopStep } from './types/change'
 import type { AiContext } from './api/ai'
 import { getDiscoveryPrompt, getWorkspaceInitPrompt, DEFAULT_WORKSPACE_INIT_PROMPT, DEFAULT_AI_DISCOVERY_PROMPT } from './api/ai'
+import { registerFormAiContext } from './lib/aiFormContext'
+import { CLI_FLAVOR_META } from './lib/cliFlavorMeta'
 import { aiToolInitFilename } from './lib/aiToolInitFile'
 import { LocalFileOps } from './lib/fileOps'
 import { createTopology, addNeighborDevice, createConnection as createTopologyConnection, getTopology, deleteDevice, updateDevice } from './api/topology'
@@ -5433,6 +5435,25 @@ def main(command: str = "show version"):
       }
     },
   }), [tabs, activeTabId])
+
+  // Register the compact workspace AiContext used by form-field Tab-autofill
+  // (AITabInput). Gives leaf inputs "where you are" context — active tab/session
+  // name plus device vendor/platform — without prop-drilling to every call site.
+  useEffect(() => {
+    registerFormAiContext(() => {
+      const tab = tabs.find(t => t.id === activeTabId)
+      if (!tab) return undefined
+      const ctx: AiContext = { sessionName: tab.title }
+      const flavor = tab.type === 'terminal' ? tab.cliFlavor : undefined
+      if (flavor && flavor !== 'auto') {
+        const meta = CLI_FLAVOR_META[flavor]
+        ctx.cliFlavor = flavor
+        if (meta) ctx.terminal = { detectedVendor: meta.vendor, detectedPlatform: meta.platform }
+      }
+      return ctx
+    })
+    return () => registerFormAiContext(null)
+  }, [tabs, activeTabId])
 
   // AI Agent: Open a saved session (create terminal tab and connect)
   const handleAgentOpenSession = useCallback(async (sessionId: string): Promise<void> => {

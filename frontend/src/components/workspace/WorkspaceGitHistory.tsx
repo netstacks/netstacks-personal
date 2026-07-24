@@ -3,6 +3,7 @@ import type { GitOps, CommitInfo } from '../../types/workspace'
 import ContextMenu from '../ContextMenu'
 import type { MenuItem } from '../ContextMenu'
 import { showToast } from '../Toast'
+import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
 interface WorkspaceGitHistoryProps {
@@ -160,7 +161,7 @@ export default function WorkspaceGitHistory({ gitOps, onRefresh }: WorkspaceGitH
             <p>
               Create a new branch starting from: <strong>{newBranchFrom.hash.slice(0, 7)}</strong> {newBranchFrom.message}
             </p>
-            <input
+            <AITabInput
               className="workspace-git-new-branch-input"
               placeholder="branch-name"
               value={newBranchName}
@@ -170,6 +171,10 @@ export default function WorkspaceGitHistory({ gitOps, onRefresh }: WorkspaceGitH
                 if (e.key === 'Escape') { setNewBranchFrom(null); setNewBranchName('') }
               }}
               autoFocus
+              aiField="branch_name"
+              aiPlaceholder="git branch name for this commit"
+              aiContext={{ fromCommit: newBranchFrom.message }}
+              onAIValue={v => setNewBranchName(v)}
             />
             <div className="workspace-git-dialog-actions" style={{ marginTop: 12 }}>
               <button className="workspace-git-dialog-btn" onClick={() => { setNewBranchFrom(null); setNewBranchName('') }}>

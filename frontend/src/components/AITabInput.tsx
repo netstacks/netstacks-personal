@@ -2,7 +2,9 @@
  * AITabInput — Drop-in replacement for <input> and <textarea> with Tab-to-autocomplete.
  *
  * Shows a "TAB ✨" badge when the field is empty and focused.
- * Pressing Tab generates AI content based on the field context.
+ * Pressing Tab generates AI content from: the field's name/purpose, sibling form
+ * values (aiContext), NetStacks concept facts, and the current workspace context
+ * (active session/device via getFormAiContext) so the AI knows where the field lives.
  *
  * Usage:
  *   <AITabInput
@@ -28,9 +30,10 @@
  *   />
  */
 
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { forwardRef, useRef, useState, useCallback, useEffect } from 'react';
 import { sendChatMessage, AiNotConfiguredError } from '../api/ai';
 import { NETSTACKS_CONCEPTS_PRIMER } from '../lib/aiModes';
+import { getFormAiContext } from '../lib/aiFormContext';
 import './AITabInput.css';
 
 interface AITabInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
@@ -49,7 +52,7 @@ interface AITabInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElemen
   rows?: number;
 }
 
-export default function AITabInput({
+const AITabInput = forwardRef<HTMLInputElement, AITabInputProps>(function AITabInput({
   as = 'input',
   value,
   onChange,
@@ -66,11 +69,10 @@ export default function AITabInput({
   onFocus: onFocusProp,
   onBlur: onBlurProp,
   ...rest
-}: AITabInputProps) {
+}: AITabInputProps, ref) {
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(true);
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const isEmpty = !value.trim();
@@ -102,9 +104,13 @@ ${contextEntries ? `\nOther fields:\n${contextEntries}` : ''}
 
 Generate a smart, concise value for this field that is correct for NetStacks. Respond with ONLY the value — no quotes, no explanation. Just the raw text.`;
 
+        // Include the current workspace context (active session/device, i.e.
+        // "where this field lives") so the backend enriches the system prompt.
+        // The prompt above already carries "what the field is for" + NetStacks
+        // facts + sibling values.
         const response = await sendChatMessage(
           [{ role: 'user', content: prompt }],
-          { signal: abort.signal },
+          { context: getFormAiContext(), signal: abort.signal },
         );
 
         if (!abort.signal.aborted) {
@@ -146,7 +152,7 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
         type-safe alternative — there isn't a clean one in current React.
       */}
       <Tag
-        ref={inputRef as React.Ref<HTMLInputElement & HTMLTextAreaElement>}
+        ref={ref as React.Ref<HTMLInputElement & HTMLTextAreaElement>}
         value={value}
         onChange={onChange as React.ChangeEventHandler<HTMLInputElement & HTMLTextAreaElement>}
         onKeyDown={handleKeyDown}
@@ -167,4 +173,8 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
       )}
     </div>
   );
-}
+});
+
+AITabInput.displayName = 'AITabInput';
+
+export default AITabInput;
