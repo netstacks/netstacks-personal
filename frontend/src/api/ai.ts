@@ -218,6 +218,38 @@ export async function setAiConfig(config: AiConfig): Promise<void> {
   }
 }
 
+// Per-provider endpoint overrides. `ai.provider_config` only holds the ACTIVE
+// provider's config, so base_url/verify_ssl are remembered here for EVERY
+// provider — otherwise configuring one provider's endpoint would drop the
+// others' the next time settings load.
+export interface AiProviderOverrides {
+  base_urls?: Record<string, string>;
+  verify_ssl?: Record<string, boolean>;
+}
+
+export async function getAiProviderOverrides(): Promise<AiProviderOverrides | null> {
+  try {
+    const res = await getClient().http.get(`${settingsPrefix()}/ai.provider_overrides`);
+    const data = res.data;
+    if (data === null) return null;
+    if (getCurrentMode() === 'enterprise') {
+      return typeof data === 'string' ? JSON.parse(data) : data;
+    }
+    return data.value ? JSON.parse(data.value) : null;
+  } catch {
+    // Non-fatal: absent/unreadable overrides just mean "use defaults".
+    return null;
+  }
+}
+
+export async function setAiProviderOverrides(overrides: AiProviderOverrides): Promise<void> {
+  if (getCurrentMode() === 'enterprise') {
+    await getClient().http.put(`${settingsPrefix()}/ai.provider_overrides`, overrides);
+  } else {
+    await getClient().http.put(`${settingsPrefix()}/ai.provider_overrides`, { value: JSON.stringify(overrides) });
+  }
+}
+
 // ============================================
 // AI Agent Configuration
 // ============================================

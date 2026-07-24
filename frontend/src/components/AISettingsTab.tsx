@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { getClient, isClientInitialized } from '../api/client';
 import { providerRequirements } from './aiProviderValidation';
 import {
   getAiConfig,
   setAiConfig,
+  getAiProviderOverrides,
+  setAiProviderOverrides,
   setAiAgentConfig,
   hasAiApiKey,
   storeAiApiKey,
@@ -349,6 +351,9 @@ export default function AISettingsTab() {
   const [oauth2ClientId, setOauth2ClientId] = useState('');
   const [customHeaders, setCustomHeaders] = useState('');
   const [apiFormat, setApiFormat] = useState<'openai' | 'gemini' | 'vertex-anthropic'>('openai');
+  // Guards the debounced persistence of per-provider overrides so the initial
+  // hydration doesn't immediately write back to settings.
+  const overridesHydratedRef = useRef(false);
 
   // New model input per provider (for adding models to the list)
   const [newModelInputs, setNewModelInputs] = useState<Record<AiProviderType, string>>({
@@ -623,6 +628,16 @@ export default function AISettingsTab() {
         }
       }
 
+      // Per-provider base_url / verify_ssl (source of truth going forward).
+      // Merged AFTER the single active-config load so it wins for every provider.
+      const overrides = await getAiProviderOverrides();
+      if (overrides?.base_urls) {
+        setBaseUrls(prev => ({ ...prev, ...overrides.base_urls }));
+      }
+      if (overrides?.verify_ssl) {
+        setVerifySSL(prev => ({ ...prev, ...overrides.verify_ssl }));
+      }
+
       setProviderStatus({
         anthropic: {
           hasKey: hasAnthropic,
@@ -667,8 +682,20 @@ export default function AISettingsTab() {
       setError(getErrorMessage(err, 'Failed to load configuration'));
     } finally {
       setLoading(false);
+      overridesHydratedRef.current = true;
     }
   };
+
+  // Persist per-provider base_url / verify_ssl whenever they change, so each
+  // provider keeps its OWN endpoint settings (ai.provider_config only tracks the
+  // active provider). Skipped during initial hydration.
+  useEffect(() => {
+    if (!overridesHydratedRef.current) return;
+    const t = setTimeout(() => {
+      void setAiProviderOverrides({ base_urls: baseUrls, verify_ssl: verifySSL });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [baseUrls, verifySSL]);
 
   const toggleProvider = (type: AiProviderType) => {
     setExpandedProviders(prev => {

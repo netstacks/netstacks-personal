@@ -238,6 +238,27 @@ fn build_model_action_url(base_url: &str, model: &str, default_action: &str) -> 
     }
 }
 
+/// Like `build_model_action_url`, but for STREAMING requests. If the user pinned
+/// a non-streaming action in the Model field (`:rawPredict` / `:generateContent`),
+/// map it to its streaming counterpart so streaming actually streams. Otherwise a
+/// pinned `:rawPredict` would send a streaming request to the unary endpoint,
+/// which returns a single JSON blob the SSE parser can't read (chat hangs on
+/// "thinking" while the non-streaming Test still passes).
+fn build_model_stream_url(base_url: &str, model: &str, default_stream_action: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    match model.split_once(':') {
+        Some((name, action)) => {
+            let streamed = match action {
+                "rawPredict" => "streamRawPredict",
+                "generateContent" => "streamGenerateContent",
+                other => other, // already a streaming or custom action — respect it
+            };
+            format!("{}/{}:{}", base, name, streamed)
+        }
+        None => format!("{}/{}:{}", base, model, default_stream_action),
+    }
+}
+
 fn default_verify_ssl() -> bool { true }
 
 fn default_anthropic_model() -> String {
@@ -2089,7 +2110,7 @@ impl OpenAIProvider {
             stream: Some(true),
         };
 
-        let url = build_model_action_url(&self.base_url, &self.model, "streamRawPredict");
+        let url = build_model_stream_url(&self.base_url, &self.model, "streamRawPredict");
 
         Box::pin(async_stream::stream! {
             let response = match self.send_request(self.client.post(&url).json(&request)).await {
@@ -2308,9 +2329,9 @@ impl OpenAIProvider {
 
         // Vertex requires `?alt=sse` on streamGenerateContent for SSE framing;
         // without it the response is a streamed JSON array which is harder to
-        // parse incrementally. The action also belongs in the URL (model can
-        // already include a `:streamGenerateContent` suffix via build_model_action_url).
-        let base_action_url = build_model_action_url(&self.base_url, &self.model, "streamGenerateContent");
+        // parse incrementally. The action belongs in the URL; build_model_stream_url
+        // also maps a pinned `:generateContent` to `:streamGenerateContent`.
+        let base_action_url = build_model_stream_url(&self.base_url, &self.model, "streamGenerateContent");
         let url = if base_action_url.contains('?') {
             format!("{}&alt=sse", base_action_url)
         } else {
@@ -4485,5 +4506,31 @@ mod tests {
         assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
         let p = OpenRouterProvider::new("k".into(), None, None, true).unwrap();
         assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
+    }
+
+    #[test]
+    fn test_stream_url_maps_pinned_nonstreaming_action() {
+        let base = "https://x/models";
+        // A pinned non-streaming action is mapped to its streaming counterpart so
+        // streaming requests don't hit the unary endpoint (chat "thinking" hang).
+        assert_eq!(
+            build_model_stream_url(base, "claude-sonnet-4-6:rawPredict", "streamRawPredict"),
+            "https://x/models/claude-sonnet-4-6:streamRawPredict"
+        );
+        assert_eq!(
+            build_model_stream_url(base, "gemini-2.5-pro:generateContent", "streamGenerateContent"),
+            "https://x/models/gemini-2.5-pro:streamGenerateContent"
+        );
+        // An already-streaming or custom action is respected.
+        assert_eq!(
+            build_model_stream_url(base, "m:streamRawPredict", "streamRawPredict"),
+            "https://x/models/m:streamRawPredict"
+        );
+        // No action → default streaming action appended; trailing slash trimmed.
+        assert_eq!(build_model_stream_url(base, "m", "streamRawPredict"), "https://x/models/m:streamRawPredict");
+        assert_eq!(
+            build_model_stream_url("https://x/models/", "m:rawPredict", "streamRawPredict"),
+            "https://x/models/m:streamRawPredict"
+        );
     }
 }
