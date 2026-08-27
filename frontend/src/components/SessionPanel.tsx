@@ -18,6 +18,8 @@ import {
   deleteHistory,
   moveSession,
   moveFolder,
+  getSessionJumpDependents,
+  planSortOrder,
   type Session,
   type Folder,
   type ConnectionHistory,
@@ -425,6 +427,14 @@ function SessionPanelContent({
     fetchData();
   }, [fetchData]);
 
+  // Importers elsewhere (Integrations tab) create sessions behind our back;
+  // they announce completion so the tree doesn't go stale until reopen.
+  useEffect(() => {
+    const handler = () => { fetchData(); };
+    window.addEventListener('sessions-changed', handler);
+    return () => window.removeEventListener('sessions-changed', handler);
+  }, [fetchData]);
+
   // Toggle favorite status for a session
   const toggleFavorite = useCallback((sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -511,6 +521,20 @@ function SessionPanelContent({
     setSessionContextMenu(null);
   };
 
+  // onConnect reuses a disconnected tab for the session when one exists;
+  // onBulkConnect always opens fresh tabs, which is what "New Tab" promises.
+  const handleConnectInNewTab = (sessionId: string) => {
+    if (onBulkConnect) {
+      onBulkConnect([sessionId]).catch((err: unknown) => {
+        showToast(getErrorMessage(err, 'Failed to connect'), 'error');
+      });
+    } else {
+      const session = sessions.find(s => s.id === sessionId);
+      if (session) onConnect(session);
+    }
+    setSessionContextMenu(null);
+  };
+
   const handleDisconnectSession = (sessionId: string) => {
     onDisconnect?.([sessionId]);
     setSessionContextMenu(null);
@@ -533,10 +557,27 @@ function SessionPanelContent({
         port: session.port,
         profile_id: session.profile_id,
         color: session.color,
+        icon: session.icon,
+        protocol: session.protocol,
+        legacy_ssh: session.legacy_ssh,
+        jump_host_id: session.jump_host_id,
+        jump_session_id: session.jump_session_id,
+        // Fresh ids so the copy's forwards are independent of the original's.
+        port_forwards: session.port_forwards.map(f => ({ ...f, id: crypto.randomUUID() })),
+        auto_commands: [...session.auto_commands],
+        cli_flavor: session.cli_flavor,
+        auto_reconnect: session.auto_reconnect,
+        reconnect_delay: session.reconnect_delay,
+        scrollback_lines: session.scrollback_lines,
+        local_echo: session.local_echo,
+        font_size_override: session.font_size_override,
+        font_family: session.font_family,
+        terminal_theme: session.terminal_theme,
+        sftp_start_path: session.sftp_start_path,
       });
       setSessions(prev => [...prev, newSession]);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to duplicate session'));
+      showToast(getErrorMessage(err, 'Failed to duplicate session'), 'error');
     }
     setSessionContextMenu(null);
   };
@@ -547,7 +588,7 @@ function SessionPanelContent({
       const session = sessions.find(s => s.id === sessionId);
       downloadJson(data, `${session?.name || 'session'}.json`);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to export session'));
+      showToast(getErrorMessage(err, 'Failed to export session'), 'error');
     }
     setSessionContextMenu(null);
   };
@@ -555,9 +596,31 @@ function SessionPanelContent({
   const handleDeleteSession = async (sessionId: string) => {
     const session = sessions.find(s => s.id === sessionId);
     setSessionContextMenu(null);
+    // Other sessions/tunnels/profiles may use this one as their jump host;
+    // the agent refuses the delete in that case, so say so up front.
+    const dependents = await getSessionJumpDependents(sessionId).catch(() => null);
+    const dependentLines = dependents
+      ? [
+          ...dependents.sessions.map(d => `Session: ${d.name}`),
+          ...dependents.tunnels.map(d => `Tunnel: ${d.name}`),
+          ...dependents.profiles.map(d => `Profile: ${d.name}`),
+        ]
+      : [];
     const ok = await confirmDialog({
       title: 'Delete session?',
-      body: session ? <>Delete saved session <strong>{session.name}</strong>?</> : 'Delete this session?',
+      body: (
+        <>
+          {session ? <>Delete saved session <strong>{session.name}</strong>?</> : 'Delete this session?'}
+          {dependentLines.length > 0 && (
+            <>
+              <br /><br />
+              It is used as a jump host by:
+              <ul>{dependentLines.map(line => <li key={line}>{line}</li>)}</ul>
+              Remove those references first or the delete will be rejected.
+            </>
+          )}
+        </>
+      ),
       confirmLabel: 'Delete',
       destructive: true,
     });
@@ -566,7 +629,7 @@ function SessionPanelContent({
       await deleteSession(sessionId);
       setSessions(prev => prev.filter(s => s.id !== sessionId));
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to delete session'));
+      showToast(getErrorMessage(err, 'Failed to delete session'), 'error');
     }
   };
 
@@ -603,7 +666,7 @@ function SessionPanelContent({
       setRenamingFolderId(newFolder.id);
       setRenameFolderValue(newFolder.name);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create folder'));
+      showToast(getErrorMessage(err, 'Failed to create folder'), 'error');
     }
     setFolderContextMenu(null);
   };
@@ -627,7 +690,7 @@ function SessionPanelContent({
       const updated = await updateFolder(renamingFolderId, { name: renameFolderValue.trim() });
       setFolders(prev => prev.map(f => f.id === updated.id ? updated : f));
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to rename folder'));
+      showToast(getErrorMessage(err, 'Failed to rename folder'), 'error');
     }
     setRenamingFolderId(null);
   };
@@ -638,7 +701,7 @@ function SessionPanelContent({
       const folder = folders.find(f => f.id === folderId);
       downloadJson(data, `${folder?.name || 'folder'}.json`);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to export folder'));
+      showToast(getErrorMessage(err, 'Failed to export folder'), 'error');
     }
     setFolderContextMenu(null);
   };
@@ -682,7 +745,7 @@ function SessionPanelContent({
         showToast(message, 'success');
       }
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to import sessions'));
+      showToast(getErrorMessage(err, 'Failed to import sessions'), 'error');
     }
 
     // Reset file input
@@ -697,7 +760,7 @@ function SessionPanelContent({
       const csv = sessionsToCSV(sessions, folders, profiles);
       downloadTextFile(csv, 'netstacks-sessions.csv', 'text/csv');
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to export CSV'));
+      showToast(getErrorMessage(err, 'Failed to export CSV'), 'error');
     }
   };
 
@@ -723,7 +786,7 @@ function SessionPanelContent({
       // Sessions in the folder will have folder_id set to null by the backend
       await fetchData();
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to delete folder'));
+      showToast(getErrorMessage(err, 'Failed to delete folder'), 'error');
     }
   };
 
@@ -733,15 +796,16 @@ function SessionPanelContent({
   const getDescendantFolderIds = useCallback((folderId: string): Set<string> => {
     const descendants = new Set<string>();
     const collectDescendants = (parentId: string) => {
-      const children = childFoldersByParent.get(parentId) || [];
-      children.forEach(child => {
-        descendants.add(child.id);
-        collectDescendants(child.id);
+      folders.forEach(child => {
+        if (child.parent_id === parentId && !descendants.has(child.id)) {
+          descendants.add(child.id);
+          collectDescendants(child.id);
+        }
       });
     };
     collectDescendants(folderId);
     return descendants;
-  }, []);
+  }, [folders]);
 
   // Pointer-based drag start (Tauri compatible)
   const handlePointerDown = useCallback((e: React.PointerEvent, item: DragItem) => {
@@ -873,35 +937,16 @@ function SessionPanelContent({
     }
   }, [draggedItem, dragStartPos, isDragging, findDropTarget, folders, expandedFolders]);
 
-  // Calculate new sort order for dropped item
+  // Calculate new sort order for dropped item(s). Rows created by the agent
+  // all start at the same sort_order and the column is an INTEGER, so the
+  // planner renumbers the siblings (steps of 1000) whenever no integer fits
+  // between the neighbours; those renumbers are sent as moves too.
   const calculateNewSortOrder = useCallback((
-    siblings: { sort_order: number }[],
+    siblings: { id: string; sort_order: number }[],
     targetIndex: number,
-    position: 'before' | 'after' | 'inside'
-  ): number => {
-    if (siblings.length === 0) return 1000;
-
-    if (position === 'inside') {
-      // Adding to end of folder
-      const maxOrder = Math.max(...siblings.map(s => s.sort_order));
-      return maxOrder + 1000;
-    }
-
-    const actualIndex = position === 'after' ? targetIndex + 1 : targetIndex;
-
-    if (actualIndex === 0) {
-      // Insert at beginning
-      return siblings[0].sort_order / 2;
-    } else if (actualIndex >= siblings.length) {
-      // Insert at end
-      return siblings[siblings.length - 1].sort_order + 1000;
-    } else {
-      // Insert between two items
-      const before = siblings[actualIndex - 1].sort_order;
-      const after = siblings[actualIndex].sort_order;
-      return (before + after) / 2;
-    }
-  }, []);
+    position: 'before' | 'after' | 'inside',
+    movingIds: string[],
+  ) => planSortOrder(siblings, targetIndex, position, new Set(movingIds)), []);
 
   // Execute the actual drop operation
   const executeDrop = useCallback(async () => {
@@ -915,7 +960,7 @@ function SessionPanelContent({
           : [draggedItem.id];
 
         let newFolderId: string | null = null;
-        let baseSortOrder: number;
+        let placement: ReturnType<typeof calculateNewSortOrder>;
 
         if (dropTarget.type === 'folder') {
           if (dropTarget.position === 'inside') {
@@ -923,15 +968,16 @@ function SessionPanelContent({
             const folderSessions = sessions
               .filter(s => s.folder_id === dropTarget.id)
               .sort((a, b) => a.sort_order - b.sort_order);
-            baseSortOrder = calculateNewSortOrder(folderSessions, 0, 'inside');
+            placement = calculateNewSortOrder(folderSessions, 0, 'inside', sessionsToMove);
           } else {
+            // Dropped beside a folder header: sessions sort among the sessions
+            // of that folder's parent (sessions and folders are separate lists).
             const targetFolder = folders.find(f => f.id === dropTarget.id);
             newFolderId = targetFolder?.parent_id || null;
-            const siblingFolders = folders
-              .filter(f => f.parent_id === newFolderId)
+            const siblingSessions = sessions
+              .filter(s => s.folder_id === newFolderId)
               .sort((a, b) => a.sort_order - b.sort_order);
-            const targetIndex = siblingFolders.findIndex(f => f.id === dropTarget.id);
-            baseSortOrder = calculateNewSortOrder(siblingFolders, targetIndex, dropTarget.position);
+            placement = calculateNewSortOrder(siblingSessions, 0, 'inside', sessionsToMove);
           }
         } else if (dropTarget.type === 'session') {
           const targetSession = sessions.find(s => s.id === dropTarget.id);
@@ -940,19 +986,25 @@ function SessionPanelContent({
             .filter(s => s.folder_id === newFolderId)
             .sort((a, b) => a.sort_order - b.sort_order);
           const targetIndex = siblingsSessions.findIndex(s => s.id === dropTarget.id);
-          baseSortOrder = calculateNewSortOrder(siblingsSessions, targetIndex, dropTarget.position);
+          placement = calculateNewSortOrder(siblingsSessions, targetIndex, dropTarget.position, sessionsToMove);
         } else {
           newFolderId = null;
           const rootSessions = sessions
             .filter(s => s.folder_id === null)
             .sort((a, b) => a.sort_order - b.sort_order);
-          baseSortOrder = calculateNewSortOrder(rootSessions, 0, 'inside');
+          placement = calculateNewSortOrder(rootSessions, 0, 'inside', sessionsToMove);
+        }
+
+        // Renumber crowded siblings first so the moved rows land in a real gap
+        for (const { id, sort_order } of placement.renumbered) {
+          setSessions(prev => prev.map(s => (s.id === id ? { ...s, sort_order } : s)));
+          await moveSession(id, { folder_id: newFolderId, sort_order });
         }
 
         // Move all selected sessions
         for (let i = 0; i < sessionsToMove.length; i++) {
           const sessionId = sessionsToMove[i];
-          const newSortOrder = baseSortOrder + (i * 10); // Increment sort order for each
+          const newSortOrder = placement.sortOrder + (i * 10); // Increment sort order for each
 
           setSessions(prev => prev.map(s =>
             s.id === sessionId
@@ -969,7 +1021,7 @@ function SessionPanelContent({
           : [draggedItem.id];
 
         let newParentId: string | null = null;
-        let baseSortOrder: number;
+        let placement: ReturnType<typeof calculateNewSortOrder>;
 
         if (dropTarget.type === 'folder') {
           if (dropTarget.position === 'inside') {
@@ -977,22 +1029,22 @@ function SessionPanelContent({
             const childFolders = folders
               .filter(f => f.parent_id === dropTarget.id)
               .sort((a, b) => a.sort_order - b.sort_order);
-            baseSortOrder = calculateNewSortOrder(childFolders, 0, 'inside');
+            placement = calculateNewSortOrder(childFolders, 0, 'inside', foldersToMove);
           } else {
             const targetFolder = folders.find(f => f.id === dropTarget.id);
             newParentId = targetFolder?.parent_id || null;
             const siblingFolders = folders
-              .filter(f => f.parent_id === newParentId && !foldersToMove.includes(f.id))
+              .filter(f => f.parent_id === newParentId)
               .sort((a, b) => a.sort_order - b.sort_order);
             const targetIndex = siblingFolders.findIndex(f => f.id === dropTarget.id);
-            baseSortOrder = calculateNewSortOrder(siblingFolders, targetIndex, dropTarget.position);
+            placement = calculateNewSortOrder(siblingFolders, targetIndex, dropTarget.position, foldersToMove);
           }
         } else {
           newParentId = null;
           const rootFolders = folders
-            .filter(f => f.parent_id === null && !foldersToMove.includes(f.id))
+            .filter(f => f.parent_id === null)
             .sort((a, b) => a.sort_order - b.sort_order);
-          baseSortOrder = calculateNewSortOrder(rootFolders, 0, 'inside');
+          placement = calculateNewSortOrder(rootFolders, 0, 'inside', foldersToMove);
         }
 
         // Filter out any folders that would create circular references
@@ -1003,10 +1055,16 @@ function SessionPanelContent({
           return true;
         });
 
+        // Renumber crowded siblings first so the moved rows land in a real gap
+        for (const { id, sort_order } of placement.renumbered) {
+          setFolders(prev => prev.map(f => (f.id === id ? { ...f, sort_order } : f)));
+          await moveFolder(id, { parent_id: newParentId, sort_order });
+        }
+
         // Move all valid selected folders
         for (let i = 0; i < validFoldersToMove.length; i++) {
           const folderId = validFoldersToMove[i];
-          const newSortOrder = baseSortOrder + (i * 10); // Increment sort order for each
+          const newSortOrder = placement.sortOrder + (i * 10); // Increment sort order for each
 
           setFolders(prev => prev.map(f =>
             f.id === folderId
@@ -1017,7 +1075,7 @@ function SessionPanelContent({
         }
       }
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to move item'));
+      showToast(getErrorMessage(err, 'Failed to move item'), 'error');
       await fetchData();
     }
   }, [draggedItem, dropTarget, sessions, folders, selectedSessionIds, selectedFolderIds, calculateNewSortOrder, getDescendantFolderIds, fetchData]);
@@ -1074,7 +1132,7 @@ function SessionPanelContent({
       setRenamingFolderId(newFolder.id);
       setRenameFolderValue(newFolder.name);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create folder'));
+      showToast(getErrorMessage(err, 'Failed to create folder'), 'error');
     }
   };
 
@@ -1823,7 +1881,11 @@ function SessionPanelContent({
                       return empty;
                     };
 
-                    const emptyFolders = findEmptyFolders(folders, remainingSessions);
+                    // Only folders that this delete emptied — folders the user
+                    // left empty on purpose (already empty before) are theirs to keep.
+                    const emptyBefore = new Set(findEmptyFolders(folders, sessions).map(f => f.id));
+                    const emptyFolders = findEmptyFolders(folders, remainingSessions)
+                      .filter(f => !emptyBefore.has(f.id));
 
                     if (emptyFolders.length > 0) {
                       // Auto-delete empty folders
@@ -1839,10 +1901,10 @@ function SessionPanelContent({
                     }
 
                     if (result.failed > 0) {
-                      setError(`Deleted ${result.deleted} sessions, ${result.failed} failed`);
+                      showToast(`Deleted ${result.deleted} sessions, ${result.failed} failed`, 'warning');
                     }
                   } catch (err) {
-                    setError(getErrorMessage(err, 'Failed to delete sessions'));
+                    showToast(getErrorMessage(err, 'Failed to delete sessions'), 'error');
                   }
                 }}
               >
@@ -1861,7 +1923,7 @@ function SessionPanelContent({
           </button>
           <button
             className="context-menu-item"
-            onClick={() => handleConnectSession(sessionContextMenu.sessionId)}
+            onClick={() => handleConnectInNewTab(sessionContextMenu.sessionId)}
           >
             {Icons.newTab}
             <span>Connect in New Tab</span>

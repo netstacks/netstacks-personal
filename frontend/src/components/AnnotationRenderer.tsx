@@ -344,7 +344,11 @@ function renderLineAnnotation(
   transform: CanvasTransform,
   isSelected: boolean
 ): void {
-  if (annotation.points.length < 2) return;
+  // Guard against a corrupted row (partial element_data) — never throw from render
+  if (!Array.isArray(annotation.points) || annotation.points.length < 2) {
+    console.warn('[AnnotationRenderer] Line annotation missing points:', annotation.id);
+    return;
+  }
 
   const screenPoints = annotation.points.map(p => worldToScreen(p.x, p.y, transform));
   const lineWidth = annotation.lineWidth * transform.scale;

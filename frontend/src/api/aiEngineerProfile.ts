@@ -1,6 +1,7 @@
 // API client for AI Engineer Profile (standalone + enterprise modes)
 
 import { getClient, getCurrentMode } from './client';
+import { getErrorMessage } from './errors';
 
 export interface AiEngineerProfile {
   id: number;
@@ -90,17 +91,23 @@ function enterpriseToAiEngineerProfile(p: EnterpriseAiProfile): AiEngineerProfil
   };
 }
 
+/** Fetch the profile; `null` means "no profile stored". Throws on transport
+ *  or server errors so callers can tell "absent" from "couldn't read". */
+async function fetchAiProfile(): Promise<AiEngineerProfile | null> {
+  // Enterprise: there is no /ai/profile — the controller exposes the user's
+  // active AI profile at /ai-profiles/active. Adapt its shape for callers.
+  if (getCurrentMode() === 'enterprise') {
+    const { data } = await getClient().http.get('/ai-profiles/active');
+    const active = (data as ActiveProfileResponse).profile;
+    return active ? enterpriseToAiEngineerProfile(active) : null;
+  }
+  const { data } = await getClient().http.get('/ai/profile');
+  return data.profile ?? null;
+}
+
 export async function getAiProfile(): Promise<AiEngineerProfile | null> {
   try {
-    // Enterprise: there is no /ai/profile — the controller exposes the user's
-    // active AI profile at /ai-profiles/active. Adapt its shape for callers.
-    if (getCurrentMode() === 'enterprise') {
-      const { data } = await getClient().http.get('/ai-profiles/active');
-      const active = (data as ActiveProfileResponse).profile;
-      return active ? enterpriseToAiEngineerProfile(active) : null;
-    }
-    const { data } = await getClient().http.get('/ai/profile');
-    return data.profile ?? null;
+    return await fetchAiProfile();
   } catch {
     return null;
   }
@@ -134,7 +141,16 @@ export async function updateAiProfile(update: UpdateAiEngineerProfile): Promise<
     throw new Error('AI engineer profile editing is not available in enterprise mode');
   }
   // Backend expects full AiEngineerProfile, so merge with existing or defaults.
-  const existing = await getAiProfile();
+  // The pre-read must NOT be swallowed: falling back to DEFAULT_PROFILE when
+  // the read merely failed would PUT a wiped profile over the real one.
+  let existing: AiEngineerProfile | null;
+  try {
+    existing = await fetchAiProfile();
+  } catch (err) {
+    throw new Error(
+      `Could not read the current AI profile; not saving to avoid overwriting it (${getErrorMessage(err)})`,
+    );
+  }
   const merged = { ...(existing ?? DEFAULT_PROFILE), ...update };
   // Once onboarding is complete, never accidentally revert it.
   // Only an explicit resetAiProfile() should clear onboarding state.

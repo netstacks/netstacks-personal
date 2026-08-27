@@ -19,6 +19,18 @@ import './SettingsTunnels.css'
 import { getErrorMessage } from '../api/errors'
 type ForwardType = 'local' | 'remote' | 'dynamic'
 
+// The agent refuses to start a Remote (-R) forward ("not yet implemented",
+// tunnels/mod.rs), so the form no longer offers it (NS-FEAT-8). Existing
+// rows that were saved with it are flagged instead of silently failing.
+const REMOTE_UNSUPPORTED = 'Remote (-R) forwarding is not supported by the agent yet. Choose Local or Dynamic.'
+
+/** Parse a numeric form field; `null` when empty/non-numeric/out of range. */
+function parseIntInRange(raw: string, min: number, max: number): number | null {
+  if (!/^\s*-?\d+\s*$/.test(raw)) return null
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) && n >= min && n <= max ? n : null
+}
+
 /** Mirrors the backend's `validate_tunnel_bind_address` (api.rs).
  *  AUDIT FIX (REMOTE-010). */
 function isLoopbackAddress(value: string): boolean {
@@ -45,7 +57,9 @@ export default function SettingsTunnels() {
   // Form state
   const [name, setName] = useState('')
   const [host, setHost] = useState('')
-  const [port, setPort] = useState(22)
+  // Numeric fields are kept as raw text so the user can clear them while
+  // typing (NS-SET-8); they're parsed + range-checked in handleSave.
+  const [port, setPort] = useState('22')
   const [profileId, setProfileId] = useState('')
   // Unified jump selection (mutually exclusive at the data layer):
   //   ''             — inherit from profile
@@ -56,13 +70,13 @@ export default function SettingsTunnels() {
   // is the egress/jump, so the jump selector is hidden entirely.
   const { isEnterprise } = useMode()
   const [forwardType, setForwardType] = useState<ForwardType>('local')
-  const [localPort, setLocalPort] = useState(8080)
+  const [localPort, setLocalPort] = useState('8080')
   const [bindAddress, setBindAddress] = useState('127.0.0.1')
   const [remoteHost, setRemoteHost] = useState('localhost')
-  const [remotePort, setRemotePort] = useState(80)
+  const [remotePort, setRemotePort] = useState('80')
   const [autoStart, setAutoStart] = useState(false)
   const [autoReconnect, setAutoReconnect] = useState(true)
-  const [maxRetries, setMaxRetries] = useState(5)
+  const [maxRetries, setMaxRetries] = useState('5')
 
   // Refresh dropdown sources. Called on mount AND on form-open so a
   // newly-created credential profile / jump host / session shows up
@@ -78,20 +92,23 @@ export default function SettingsTunnels() {
     refreshDropdownSources()
   }, [fetchTunnels, refreshDropdownSources])
 
+  const isActive = (t: TunnelWithState) =>
+    t.status === 'connected' || t.status === 'connecting' || t.status === 'reconnecting'
+
   function resetForm() {
     setName('')
     setHost('')
-    setPort(22)
+    setPort('22')
     setProfileId('')
     setJumpSelection('')
     setForwardType('local')
-    setLocalPort(8080)
+    setLocalPort('8080')
     setBindAddress('127.0.0.1')
     setRemoteHost('localhost')
-    setRemotePort(80)
+    setRemotePort('80')
     setAutoStart(false)
     setAutoReconnect(true)
-    setMaxRetries(5)
+    setMaxRetries('5')
     setEditingId(null)
     setShowForm(false)
   }
@@ -101,7 +118,7 @@ export default function SettingsTunnels() {
     setEditingId(tunnel.id)
     setName(tunnel.name)
     setHost(tunnel.host)
-    setPort(tunnel.port)
+    setPort(String(tunnel.port))
     setProfileId(tunnel.profile_id)
     if (tunnel.jump_host_id) {
       setJumpSelection(`host:${tunnel.jump_host_id}`)
@@ -111,13 +128,13 @@ export default function SettingsTunnels() {
       setJumpSelection('')
     }
     setForwardType(tunnel.forward_type)
-    setLocalPort(tunnel.local_port)
+    setLocalPort(String(tunnel.local_port))
     setBindAddress(tunnel.bind_address)
     setRemoteHost(tunnel.remote_host || 'localhost')
-    setRemotePort(tunnel.remote_port || 80)
+    setRemotePort(String(tunnel.remote_port || 80))
     setAutoStart(tunnel.auto_start)
     setAutoReconnect(tunnel.auto_reconnect)
-    setMaxRetries(tunnel.max_retries)
+    setMaxRetries(String(tunnel.max_retries))
     setShowForm(true)
   }
 
@@ -134,8 +151,32 @@ export default function SettingsTunnels() {
       showToast('Credential profile is required', 'error')
       return
     }
+    if (forwardType === 'remote') {
+      showToast(REMOTE_UNSUPPORTED, 'error')
+      return
+    }
     if (forwardType !== 'dynamic' && !remoteHost.trim()) {
-      showToast('Remote host is required for local/remote forwards', 'error')
+      showToast('Remote host is required for local forwards', 'error')
+      return
+    }
+    const portNum = parseIntInRange(port, 1, 65535)
+    if (portNum === null) {
+      showToast('SSH port must be a number between 1 and 65535', 'error')
+      return
+    }
+    const localPortNum = parseIntInRange(localPort, 1, 65535)
+    if (localPortNum === null) {
+      showToast('Local port must be a number between 1 and 65535', 'error')
+      return
+    }
+    const remotePortNum = forwardType === 'dynamic' ? null : parseIntInRange(remotePort, 1, 65535)
+    if (forwardType !== 'dynamic' && remotePortNum === null) {
+      showToast('Remote port must be a number between 1 and 65535', 'error')
+      return
+    }
+    const maxRetriesNum = parseIntInRange(maxRetries, 0, 100)
+    if (maxRetriesNum === null) {
+      showToast('Max retries must be a number between 0 and 100', 'error')
       return
     }
 
@@ -155,24 +196,36 @@ export default function SettingsTunnels() {
     const payload: NewTunnel = {
       name: name.trim(),
       host: host.trim(),
-      port,
+      port: portNum,
       profile_id: profileId,
       jump_host_id: jumpSelection.startsWith('host:') ? jumpSelection.slice(5) : null,
       jump_session_id: jumpSelection.startsWith('session:') ? jumpSelection.slice(8) : null,
       forward_type: forwardType,
-      local_port: localPort,
+      local_port: localPortNum,
       bind_address: bindAddress,
       remote_host: forwardType === 'dynamic' ? null : remoteHost.trim(),
-      remote_port: forwardType === 'dynamic' ? null : remotePort,
+      remote_port: remotePortNum,
       auto_start: autoStart,
       auto_reconnect: autoReconnect,
-      max_retries: maxRetries,
+      max_retries: maxRetriesNum,
     }
 
     try {
       if (editingId) {
+        // The agent stops a tunnel before applying an update; bring it back
+        // up so an edit doesn't silently leave it down (NS-FEAT-12).
+        const wasRunning = tunnels.some(t => t.id === editingId && isActive(t))
         await updateTunnel(editingId, payload)
-        showToast('Tunnel updated', 'success')
+        if (wasRunning) {
+          try {
+            await startTunnel(editingId)
+            showToast('Tunnel restarted', 'success')
+          } catch (err) {
+            showToast(getErrorMessage(err, 'Tunnel updated but failed to restart'), 'error')
+          }
+        } else {
+          showToast('Tunnel updated', 'success')
+        }
       } else {
         await createTunnel(payload)
         showToast('Tunnel created', 'success')
@@ -216,9 +269,6 @@ export default function SettingsTunnels() {
       showToast('Failed to toggle tunnel', 'error')
     }
   }
-
-  const isActive = (t: TunnelWithState) =>
-    t.status === 'connected' || t.status === 'connecting' || t.status === 'reconnecting'
 
   return (
     <div className="settings-content">
@@ -277,7 +327,9 @@ export default function SettingsTunnels() {
                   type="number"
                   className="setting-input"
                   value={port}
-                  onChange={e => setPort(parseInt(e.target.value, 10) || 22)}
+                  min={1}
+                  max={65535}
+                  onChange={e => setPort(e.target.value)}
                 />
               </div>
             </div>
@@ -337,9 +389,14 @@ export default function SettingsTunnels() {
                   onChange={e => setForwardType(e.target.value as ForwardType)}
                 >
                   <option value="local">Local (-L)</option>
-                  <option value="remote">Remote (-R)</option>
+                  {forwardType === 'remote' && (
+                    <option value="remote" disabled>Remote (-R) — unsupported</option>
+                  )}
                   <option value="dynamic">Dynamic (-D) SOCKS5</option>
                 </select>
+                {forwardType === 'remote' && (
+                  <div className="setting-description tunnel-error">{REMOTE_UNSUPPORTED}</div>
+                )}
               </div>
               <div className="tunnel-form-field tunnel-form-field-small">
                 <label className="setting-label">Local Port</label>
@@ -347,7 +404,9 @@ export default function SettingsTunnels() {
                   type="number"
                   className="setting-input"
                   value={localPort}
-                  onChange={e => setLocalPort(parseInt(e.target.value, 10) || 0)}
+                  min={1}
+                  max={65535}
+                  onChange={e => setLocalPort(e.target.value)}
                 />
               </div>
               {forwardType !== 'dynamic' && (
@@ -368,7 +427,9 @@ export default function SettingsTunnels() {
                       type="number"
                       className="setting-input"
                       value={remotePort}
-                      onChange={e => setRemotePort(parseInt(e.target.value, 10) || 0)}
+                      min={1}
+                      max={65535}
+                      onChange={e => setRemotePort(e.target.value)}
                     />
                   </div>
                 </>
@@ -398,7 +459,7 @@ export default function SettingsTunnels() {
                   type="number"
                   className="setting-input tunnel-retries-input"
                   value={maxRetries}
-                  onChange={e => setMaxRetries(parseInt(e.target.value, 10) || 0)}
+                  onChange={e => setMaxRetries(e.target.value)}
                   min={0}
                   max={100}
                 />
@@ -450,6 +511,11 @@ export default function SettingsTunnels() {
                     <span className="tunnel-badge">auto-start</span>
                   )}
                 </div>
+                {tunnel.forward_type === 'remote' && (
+                  <div className="tunnel-error" title={REMOTE_UNSUPPORTED}>
+                    {REMOTE_UNSUPPORTED}
+                  </div>
+                )}
                 {tunnel.last_error && tunnel.status === 'failed' && (
                   <div className="tunnel-error" title={tunnel.last_error}>
                     {tunnel.last_error}

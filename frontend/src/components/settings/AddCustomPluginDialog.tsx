@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createUserPlugin, updatePlugin, testPluginCommand, type LspPluginListItem } from '../../lsp/installationApi';
+import { useOverlayDismiss } from '../../hooks/useOverlayDismiss';
 
 interface Props {
   /** If provided, this is an EDIT operation; otherwise CREATE. */
@@ -87,9 +88,11 @@ export function AddCustomPluginDialog({ existing, onClose, onSaved }: Props) {
     }
   };
 
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: !saving });
+
   return (
-    <div className="lsp-dialog-overlay">
-      <div className="lsp-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="lsp-dialog-overlay" {...backdropProps}>
+      <div className="lsp-dialog" {...contentProps}>
         <h3>{isEdit ? `Edit ${existing!.displayName}` : 'Add Language Server'}</h3>
         <div className="lsp-dialog__field">
           <label>Plugin ID</label>

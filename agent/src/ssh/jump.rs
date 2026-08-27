@@ -9,9 +9,10 @@
 //! This replaces the broken PTY-based `ssh -J` path that incorrectly
 //! shared the target's credentials across both hops.
 
-use crate::ssh::{SshConfig, SshError, approvals::HostKeyApprovalService};
+use crate::ssh::{ConnectOptions, SshConfig, SshError, approvals::HostKeyApprovalService};
 use russh::client::Handle;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::ClientHandler;
 
@@ -28,11 +29,27 @@ pub async fn connect_via_jump(
     jump: &SshConfig,
     approvals: Option<Arc<HostKeyApprovalService>>,
 ) -> Result<Handle<ClientHandler>, SshError> {
-    // Step 1: Connect and authenticate to jump host.
-    let jump_handle = super::connect_and_authenticate_with_approvals(
+    connect_via_jump_with_keepalive(target, jump, approvals, None).await
+}
+
+/// `connect_via_jump` with an SSH keepalive on the jump hop. Terminal
+/// sessions pass the profile's `keepalive_interval` so an idle tunnel
+/// behind NAT is not torn down silently (NS-TERM-16); `None` disables it.
+pub async fn connect_via_jump_with_keepalive(
+    target: &SshConfig,
+    jump: &SshConfig,
+    approvals: Option<Arc<HostKeyApprovalService>>,
+    keepalive_interval: Option<Duration>,
+) -> Result<Handle<ClientHandler>, SshError> {
+    // Step 1: Connect and authenticate to jump host. The keepalive lives on
+    // this hop: it is the TCP connection that NAT/firewalls would expire.
+    let jump_handle = super::connect_and_authenticate_with_options(
         jump,
-        false,
-        approvals.clone(),
+        ConnectOptions {
+            auto_accept_changed_keys: false,
+            approvals: approvals.clone(),
+            keepalive_interval,
+        },
     )
     .await?;
 
@@ -85,6 +102,7 @@ mod tests {
             allow_direct_tcpip: true,
             exec_responder: None,
             eof_before_exit_status: false,
+            shell: None,
             host_key: jump_host_key,
         })
         .await;
@@ -96,6 +114,7 @@ mod tests {
             allow_direct_tcpip: false,
             exec_responder: None,
             eof_before_exit_status: false,
+            shell: None,
             host_key: target_host_key,
         })
         .await;
@@ -159,6 +178,7 @@ mod tests {
             allow_direct_tcpip: true,
             exec_responder: None,
             eof_before_exit_status: false,
+            shell: None,
             host_key: jump_host_key,
         })
         .await;
@@ -204,6 +224,7 @@ mod tests {
             allow_direct_tcpip: true,
             exec_responder: None,
             eof_before_exit_status: false,
+            shell: None,
             host_key: jump_host_key,
         })
         .await;
@@ -213,6 +234,7 @@ mod tests {
             allow_direct_tcpip: false,
             exec_responder: None,
             eof_before_exit_status: false,
+            shell: None,
             host_key: target_host_key,
         })
         .await;
@@ -255,6 +277,7 @@ mod tests {
             allow_direct_tcpip: false, // KEY: refuse forwarding
             exec_responder: None,
             eof_before_exit_status: false,
+            shell: None,
             host_key: jump_host_key,
         })
         .await;
@@ -308,7 +331,7 @@ mod tests {
             skip_keyboard_interactive: false,
         };
 
-        let session = crate::ssh::SshSession::connect_via_jump(target, jump, 80, 24)
+        let session = crate::ssh::SshSession::connect_via_jump(target, jump, crate::ssh::ShellOptions { cols: 80, rows: 24, ..Default::default() })
             .await
             .expect("should connect via jump");
 

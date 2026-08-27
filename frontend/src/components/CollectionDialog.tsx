@@ -66,10 +66,10 @@ interface DiscoveredConnection {
 }
 
 /** Tab types */
-type CollectionTab = 'integrations' | 'mcp' | 'cli';
+type CollectionTab = 'integrations' | 'cli';
 
 /** Parse method for CLI output */
-type ParseMethod = 'ai' | 'cdp' | 'lldp' | 'regex';
+type ParseMethod = 'cdp' | 'lldp' | 'regex';
 
 /** Common command templates */
 const COMMAND_TEMPLATES = [
@@ -215,8 +215,6 @@ export default function CollectionDialog({
       setParseMethod('cdp');
     } else if (templateCommand.toLowerCase().includes('lldp')) {
       setParseMethod('lldp');
-    } else {
-      setParseMethod('ai');
     }
   };
 
@@ -315,25 +313,6 @@ export default function CollectionDialog({
           } catch (err) {
             console.error('Invalid regex pattern:', err);
           }
-        } else if (parseMethod === 'ai') {
-          // AI parsing would send to backend AI endpoint
-          // For now, fall back to CDP/LLDP detection
-          const result = NeighborParser.parse(output);
-          if (result.neighbors.length > 0) {
-            for (const neighbor of result.neighbors) {
-              const device: DiscoveredDevice = {
-                name: neighbor.neighborName,
-                ip: neighbor.neighborIp,
-                type: NeighborParser.inferDeviceType(neighbor.neighborPlatform),
-                platform: neighbor.neighborPlatform,
-                sourceSession: session.name,
-                selected: true,
-              };
-              if (!allDevices.some(d => d.name === device.name)) {
-                allDevices.push(device);
-              }
-            }
-          }
         }
       } catch (err) {
         console.error(`Failed to run command on ${session.name}:`, err);
@@ -403,8 +382,7 @@ export default function CollectionDialog({
         deviceIdMap.set(device.name, result.id);
         devicesAdded++;
       } catch (err) {
-        const axiosErr = err as { response?: { data?: string } };
-        errors.push(`Failed to add ${device.name}: ${axiosErr.response?.data || (getErrorMessage(err))}`);
+        errors.push(`Failed to add ${device.name}: ${getErrorMessage(err)}`);
       }
     }
 
@@ -430,8 +408,7 @@ export default function CollectionDialog({
         });
         connectionsAdded++;
       } catch (err) {
-        const axiosErr = err as { response?: { data?: string } };
-        errors.push(`Failed to add connection ${conn.sourceName} -> ${conn.targetName}: ${axiosErr.response?.data || (getErrorMessage(err))}`);
+        errors.push(`Failed to add connection ${conn.sourceName} -> ${conn.targetName}: ${getErrorMessage(err)}`);
       }
     }
 
@@ -471,8 +448,10 @@ export default function CollectionDialog({
         }));
       } else if (source.type === 'netstacksCrawler') {
         const { data } = await getClient().http.get(`/netstacks-crawler-sources/${source.id}/devices`);
-        devices = data.map((d: { name: string; ip: string; model?: string }) => ({
-          name: d.name,
+        // Crawler devices may carry a null name (unresolved hostname); the
+        // agent rejects `name: null`, so fall back to the IP.
+        devices = data.map((d: { name?: string | null; ip: string; model?: string }) => ({
+          name: d.name || d.ip,
           ip: d.ip,
           type: 'unknown' as DeviceType,
           platform: d.model,
@@ -534,17 +513,6 @@ export default function CollectionDialog({
             Integrations
           </button>
           <button
-            className={`collection-tab ${activeTab === 'mcp' ? 'active' : ''}`}
-            onClick={() => setActiveTab('mcp')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <path d="M8 21h8" />
-              <path d="M12 17v4" />
-            </svg>
-            MCP Server
-          </button>
-          <button
             className={`collection-tab ${activeTab === 'cli' ? 'active' : ''}`}
             onClick={() => setActiveTab('cli')}
           >
@@ -598,25 +566,8 @@ export default function CollectionDialog({
             </div>
           )}
 
-          {/* MCP Server Tab — discovery wiring not yet implemented. The
-              discoverFromMcp handler was a placeholder that surfaced a
-              misleading "requires MCP server configuration" error even
-              when servers WERE configured. Surface the real status until
-              real discovery lands. */}
-          {activeTab === 'mcp' && (
-            <div className="mcp-tab">
-              <p className="tab-description">
-                Discover topology from MCP servers with topology tools.
-              </p>
-              <div className="empty-state">
-                <p><strong>Coming soon.</strong></p>
-                <p className="hint">
-                  MCP-driven topology discovery isn't wired up yet. Use the
-                  Integrations tab (NetBox / LibreNMS / NetStacks-Crawler) for now.
-                </p>
-              </div>
-            </div>
-          )}
+          {/* MCP Server tab intentionally absent — MCP-driven topology
+              discovery isn't wired up yet. Re-add the tab when it lands. */}
 
           {/* CLI Script Tab */}
           {activeTab === 'cli' && (
@@ -704,16 +655,6 @@ export default function CollectionDialog({
                       onChange={() => setParseMethod('lldp')}
                     />
                     <span>LLDP Parser</span>
-                  </label>
-                  <label className="parse-option">
-                    <input
-                      type="radio"
-                      name="parseMethod"
-                      value="ai"
-                      checked={parseMethod === 'ai'}
-                      onChange={() => setParseMethod('ai')}
-                    />
-                    <span>AI Powered</span>
                   </label>
                   <label className="parse-option">
                     <input

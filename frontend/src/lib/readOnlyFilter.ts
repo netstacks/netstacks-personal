@@ -223,6 +223,28 @@ export function validateReadOnlyCommand(
 }
 
 /**
+ * Validate a batch of commands (the `commands[]` tool input). Allowed only if
+ * EVERY command is read-only; the result's `reason` is the first block reason
+ * and `command` is the batch joined by newlines for display.
+ */
+export function validateReadOnlyCommands(
+  commands: string[],
+  cliFlavor: CliFlavor = 'auto'
+): ValidationResult {
+  const display = commands.map(c => c.trim()).join('\n');
+  if (commands.length === 0) {
+    return { allowed: false, reason: 'Empty command', command: display };
+  }
+  for (const c of commands) {
+    const result = validateReadOnlyCommand(c, cliFlavor);
+    if (!result.allowed) {
+      return { allowed: false, reason: result.reason, command: display };
+    }
+  }
+  return { allowed: true, command: display };
+}
+
+/**
  * Simple boolean check if a command is read-only
  * @param command The command to check
  * @param cliFlavor Optional CLI flavor for vendor-specific rules

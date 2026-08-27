@@ -24,6 +24,12 @@ import {
 } from '../lib/wsProtocol';
 
 export interface UseEnterpriseSSHOptions {
+  /**
+   * When false the hook is inert (no WebSocket is opened). Lets callers
+   * invoke the hook unconditionally instead of inside a ternary, which
+   * violated the Rules of Hooks (NS-TERM-13).
+   */
+  enabled?: boolean;
   /** Profile ID to connect with (empty → controller uses the device's default profile) */
   profileId: string;
   /** Session definition ID for tracking (optional) */
@@ -88,6 +94,7 @@ export interface UseEnterpriseSSHReturn {
  */
 export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpriseSSHReturn {
   const {
+    enabled = true,
     profileId,
     sessionDefinitionId,
     host,
@@ -503,6 +510,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
 
   // Connect on mount
   useEffect(() => {
+    if (!enabled) return;
     manualDisconnectRef.current = false;
     reconnectAttemptRef.current = 0;
     setReconnectAttempt(0);
@@ -518,7 +526,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
         wsRef.current = null;
       }
     };
-  }, [connect, clearTimers]);
+  }, [enabled, connect, clearTimers]);
 
   return {
     sendData,

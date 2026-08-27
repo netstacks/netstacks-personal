@@ -56,8 +56,8 @@ export interface UpdateApiResourceRequest {
   auth_token?: string
   auth_username?: string
   auth_password?: string
-  auth_header_name?: string
-  auth_header_prefix?: string
+  auth_header_name?: string | null
+  auth_header_prefix?: string | null
   auth_flow?: AuthFlowStep[]
   default_headers?: Record<string, string>
   custom_headers?: Array<{name: string, value: string}>
@@ -101,17 +101,17 @@ export interface CreateQuickActionRequest {
 
 export interface UpdateQuickActionRequest {
   name?: string
-  description?: string
+  description?: string | null
   api_resource_id?: string
   method?: string
   path?: string
   headers?: Record<string, string>
-  body?: string
-  json_extract_path?: string
-  icon?: string
-  color?: string
+  body?: string | null
+  json_extract_path?: string | null
+  icon?: string | null
+  color?: string | null
   sort_order?: number
-  category?: string
+  category?: string | null
 }
 
 export interface QuickActionResult {

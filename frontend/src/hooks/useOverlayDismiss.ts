@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 /**
  * Standard modal/overlay dismiss behaviour — Escape key + backdrop click.
@@ -19,7 +19,12 @@ import { useCallback, useEffect } from 'react'
  * the backdrop itself (avoids re-firing when content bubbles), so the
  * `e.stopPropagation()` on `contentProps` is belt-and-suspenders.
  *
- * Escape is bound on `window` for the lifetime of the hook when `enabled`.
+ * Escape is bound on `window` (capture phase) for the lifetime of the hook
+ * when `enabled`. Nested overlays (confirm over a dialog, profile editor
+ * over the session dialog) each register here; only the *topmost* — the
+ * most recently enabled — handles Escape, and it stops the event dead so
+ * neither the parent overlay nor any app-level shortcut sees it.
+ *
  * Set `enabled: false` to suppress (e.g. while an import is mid-flight and
  * the dialog explicitly wants to disable dismissal).
  */
@@ -33,27 +38,46 @@ export interface UseOverlayDismissOptions {
   clickOutside?: boolean
 }
 
+/**
+ * Module-level stack of the overlays currently listening for Escape, in
+ * enable order. The last entry is the topmost overlay. Ordering is fixed
+ * at enable time — a parent re-rendering with a new `onDismiss` must NOT
+ * hop back above a child that mounted after it, which is why `onDismiss`
+ * lives in a ref rather than in the effect deps.
+ */
+const escapeStack: symbol[] = []
+
 export function useOverlayDismiss({
   onDismiss,
   enabled = true,
   escape = true,
   clickOutside = true,
 }: UseOverlayDismissOptions) {
+  const onDismissRef = useRef(onDismiss)
+  useEffect(() => {
+    onDismissRef.current = onDismiss
+  })
+
   useEffect(() => {
     if (!enabled || !escape) return
+    const token = Symbol('overlay')
+    escapeStack.push(token)
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        // Stop propagation so a nested overlay doesn't also close — Escape
-        // should dismiss the topmost overlay only. Multiple overlays each
-        // call this hook; the most-recently-mounted listener fires last
-        // and wins.
-        e.stopPropagation()
-        onDismiss()
-      }
+      if (e.key !== 'Escape') return
+      // Only the topmost overlay dismisses. Every registered overlay sees
+      // the event (all are capture listeners on window, fired in
+      // registration order); the ones underneath simply yield.
+      if (escapeStack[escapeStack.length - 1] !== token) return
+      e.stopImmediatePropagation()
+      onDismissRef.current()
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [enabled, escape, onDismiss])
+    window.addEventListener('keydown', handler, true)
+    return () => {
+      window.removeEventListener('keydown', handler, true)
+      const i = escapeStack.indexOf(token)
+      if (i !== -1) escapeStack.splice(i, 1)
+    }
+  }, [enabled, escape])
 
   const backdropOnClick = useCallback(
     (e: React.MouseEvent) => {

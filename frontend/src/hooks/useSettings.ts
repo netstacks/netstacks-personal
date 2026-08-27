@@ -9,10 +9,20 @@ export interface AppSettings {
   fontFamily: string;
 
   // Terminal
+  // Terminal text size/face. Distinct from the UI `fontSize`/`fontFamily`
+  // above: the terminal wants a monospace face and a larger default than
+  // the 13 px chrome (NS-TERM-11). A per-session font still overrides these.
+  'terminal.fontSize': number;
+  'terminal.fontFamily': string;
   'terminal.defaultTheme': string;
   'terminal.copyOnSelect': boolean;
   // Middle-click pastes the clipboard (Linux/SecureCRT convention).
   'terminal.middleClickPaste': boolean;
+  // Session Guard (see gaurd work.md). Standalone SSH sessions only in v1.
+  // dry-run evaluates and writes trace records without ever holding a
+  // command; enforce holds on WARN and asks before sending.
+  'guard.enabled': boolean;
+  'guard.mode': 'dry-run' | 'enforce';
   'terminal.fontWeight': string;
   // Liquid-glass (translucent/blurred) chrome, modals, popovers & AI panels.
   'ui.glassEffects': boolean;
@@ -126,9 +136,13 @@ const defaultSettings: AppSettings = {
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif",
 
   // Terminal
+  'terminal.fontSize': 14,
+  'terminal.fontFamily': 'Menlo, Monaco, Consolas, monospace',
   'terminal.defaultTheme': 'default',
   'terminal.copyOnSelect': false,
   'terminal.middleClickPaste': true,
+  'guard.enabled': false,
+  'guard.mode': 'dry-run',
   'terminal.fontWeight': 'normal',
   'ui.glassEffects': true,
   'terminal.lineNumbers': false,
@@ -234,12 +248,28 @@ function migrateSettings(stored: Record<string, unknown>): Record<string, unknow
   return stored;
 }
 
+/**
+ * Numeric settings must never be NaN/null/Infinity — `--font-size: NaNpx`
+ * breaks xterm's metrics and JSON turns NaN into `null` on the way to disk
+ * (NS-SET-4). Any numeric key that isn't a finite number falls back to its
+ * default. Exported for the hook's tests.
+ */
+export function coerceNumericSettings(settings: Record<string, unknown>): AppSettings {
+  const out: Record<string, unknown> = { ...settings };
+  for (const [key, def] of Object.entries(defaultSettings)) {
+    if (typeof def !== 'number') continue;
+    const v = out[key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) out[key] = def;
+  }
+  return out as unknown as AppSettings;
+}
+
 function loadSettings(): AppSettings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = migrateSettings(JSON.parse(stored));
-      return { ...defaultSettings, ...parsed };
+      return coerceNumericSettings({ ...defaultSettings, ...parsed });
     }
   } catch (e) {
     console.warn('Failed to load settings:', e);
@@ -290,7 +320,7 @@ export function useSettings() {
         return;
       }
       try {
-        const merged = { ...defaultSettings, ...JSON.parse(e.newValue) };
+        const merged = coerceNumericSettings({ ...defaultSettings, ...JSON.parse(e.newValue) });
         setSettings(merged);
         // Keep the singleton in sync for non-hook callers in this window.
         globalSettings = merged;
@@ -308,7 +338,7 @@ export function useSettings() {
     value: AppSettings[K]
   ) => {
     setSettings(prev => {
-      const newSettings = { ...prev, [key]: value };
+      const newSettings = coerceNumericSettings({ ...prev, [key]: value });
       saveSettings(newSettings);
       return newSettings;
     });

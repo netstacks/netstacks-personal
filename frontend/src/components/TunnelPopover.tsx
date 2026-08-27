@@ -4,6 +4,9 @@ import { formatTunnelSpec, formatUptime, startTunnel, stopTunnel, reconnectTunne
 import type { TunnelWithState } from '../api/tunnels'
 import './TunnelPopover.css'
 import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition'
+import Switch from './Switch'
+import { showToast } from './Toast'
+import { getErrorMessage } from '../api/errors'
 
 interface TunnelPopoverProps {
   onClose: () => void
@@ -75,10 +78,13 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
 
   const totalVisible = persistentTunnels.length + sessionGroups.reduce((n, [, t]) => n + t.length, 0)
 
-  const handleToggle = async (e: React.MouseEvent, tunnel: TunnelWithState) => {
-    e.stopPropagation()
+  const isActive = (tunnel: TunnelWithState) =>
+    tunnel.status === 'connected' || tunnel.status === 'connecting' || tunnel.status === 'reconnecting'
+
+  const handleToggle = async (tunnel: TunnelWithState) => {
+    const stopping = isActive(tunnel)
     try {
-      if (tunnel.status === 'connected' || tunnel.status === 'connecting' || tunnel.status === 'reconnecting') {
+      if (stopping) {
         await stopTunnel(tunnel.id)
       } else {
         await startTunnel(tunnel.id)
@@ -86,6 +92,7 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
       useTunnelStore.getState().fetchTunnels()
     } catch (err) {
       console.error('Failed to toggle tunnel:', err)
+      showToast(getErrorMessage(err, `Failed to ${stopping ? 'stop' : 'start'} ${tunnel.name}`), 'error')
     }
   }
 
@@ -107,6 +114,8 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
       useTunnelStore.getState().fetchTunnels()
     } catch (err) {
       console.error(`Tunnel action '${action}' failed:`, err)
+      const verb = action === 'stop' ? 'pause' : action === 'reconnect' ? 'reconnect' : action === 'copy' ? 'copy address for' : 'open'
+      showToast(getErrorMessage(err, `Failed to ${verb} ${tunnel.name}`), 'error')
     }
   }
 
@@ -128,15 +137,13 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
         <span className="tunnel-popover-meta error">retry {tunnel.retry_count}</span>
       )}
       {!isSession && (
-        <button
-          className={`tunnel-popover-toggle ${tunnel.status === 'connected' || tunnel.status === 'connecting' || tunnel.status === 'reconnecting' ? 'active' : ''}`}
-          onClick={(e) => handleToggle(e, tunnel)}
-          title={tunnel.status === 'connected' || tunnel.status === 'connecting' || tunnel.status === 'reconnecting' ? 'Stop tunnel' : 'Start tunnel'}
-        >
-          <span className="tunnel-popover-toggle-track">
-            <span className="tunnel-popover-toggle-thumb" />
-          </span>
-        </button>
+        <Switch
+          size="sm"
+          checked={isActive(tunnel)}
+          onChange={() => handleToggle(tunnel)}
+          label={`${isActive(tunnel) ? 'Stop' : 'Start'} tunnel ${tunnel.name}`}
+          title={isActive(tunnel) ? 'Stop tunnel' : 'Start tunnel'}
+        />
       )}
     </div>
   )

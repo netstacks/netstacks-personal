@@ -407,6 +407,8 @@ export interface ExportSession {
   profile_name: string | null;
   // Jump host reference (name for portability)
   jump_host_name: string | null;
+  // Port forwarding (Phase 06.3)
+  port_forwards: PortForward[];
 }
 
 export interface ExportFolder {
@@ -476,6 +478,82 @@ export async function deleteFolder(id: string): Promise<void> {
 }
 
 // Move/Reorder API
+
+/** Spacing used when (re)numbering siblings so later drops have room to land between them. */
+export const SORT_ORDER_STEP = 1000;
+
+export interface OrderedItem {
+  id: string;
+  sort_order: number;
+}
+
+/** Result of planning where a dropped item lands among its siblings. */
+export interface SortPlacement {
+  /** sort_order for the first moved item; multi-moves add a small offset per item. */
+  sortOrder: number;
+  /**
+   * Siblings that must be renumbered (sent as moves alongside the drop) because
+   * no integer sort_order fits between the neighbours — e.g. every row still
+   * carries the default 0, or repeated midpoint drops have exhausted the gap.
+   * Empty when the existing spacing has room.
+   */
+  renumbered: { id: string; sort_order: number }[];
+}
+
+/**
+ * Compute the sort_order for an item dropped `position` relative to
+ * `siblings[targetIndex]` (siblings sorted ascending, same parent), or at the
+ * end for `'inside'`. `movingIds` are excluded from the neighbour calculation
+ * so a drag within the same parent doesn't collide with its own old slot.
+ *
+ * sort_order is stored as an INTEGER by the agent, so midpoints are floored;
+ * when no integer strictly fits between the neighbours the whole sibling
+ * list is renumbered in steps of `SORT_ORDER_STEP`.
+ */
+export function planSortOrder(
+  siblings: OrderedItem[],
+  targetIndex: number,
+  position: 'before' | 'after' | 'inside',
+  movingIds: ReadonlySet<string> = new Set(),
+): SortPlacement {
+  const targetId = siblings[targetIndex]?.id;
+  const rest = siblings.filter(s => !movingIds.has(s.id));
+  if (rest.length === 0) return { sortOrder: SORT_ORDER_STEP, renumbered: [] };
+
+  if (position === 'inside') {
+    const maxOrder = Math.max(...rest.map(s => s.sort_order));
+    return { sortOrder: maxOrder + SORT_ORDER_STEP, renumbered: [] };
+  }
+
+  const restTargetIndex = targetId === undefined ? -1 : rest.findIndex(s => s.id === targetId);
+  let insertIndex: number;
+  if (restTargetIndex === -1) {
+    insertIndex = rest.length;
+  } else {
+    insertIndex = position === 'after' ? restTargetIndex + 1 : restTargetIndex;
+  }
+
+  if (insertIndex === 0) {
+    return { sortOrder: rest[0].sort_order - SORT_ORDER_STEP, renumbered: [] };
+  }
+  if (insertIndex >= rest.length) {
+    return { sortOrder: rest[rest.length - 1].sort_order + SORT_ORDER_STEP, renumbered: [] };
+  }
+
+  const before = rest[insertIndex - 1].sort_order;
+  const after = rest[insertIndex].sort_order;
+  const mid = Math.floor((before + after) / 2);
+  if (mid > before && mid < after) {
+    return { sortOrder: mid, renumbered: [] };
+  }
+
+  // No room: renumber every sibling, leaving a slot for the moved item.
+  const renumbered = rest.map((s, i) => ({
+    id: s.id,
+    sort_order: (i < insertIndex ? i + 1 : i + 2) * SORT_ORDER_STEP,
+  }));
+  return { sortOrder: (insertIndex + 1) * SORT_ORDER_STEP, renumbered };
+}
 
 export interface MoveSessionData {
   folder_id: string | null;
@@ -631,6 +709,7 @@ export function csvToExportData(csvText: string): { data: ExportData; warnings: 
       mapped_keys: [],
       snippets: [],
       jump_host_name: null,
+      port_forwards: [],
     });
   }
 

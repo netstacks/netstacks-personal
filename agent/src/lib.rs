@@ -3,4 +3,5 @@
 #[cfg(any(debug_assertions, feature = "dev-routes"))]
 pub mod dev;
 pub mod tracked_router;
+pub mod guard;
 pub mod lsp;

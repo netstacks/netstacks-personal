@@ -26,6 +26,16 @@ pub(crate) struct ExecResponse {
 /// exec command string sent by the client.
 pub(crate) type ExecResponder = Arc<dyn Fn(&str) -> Option<ExecResponse> + Send + Sync>;
 
+/// Scripted PTY shell: the server prints `prompt` on shell open, echoes
+/// each input line, answers it with `responder(line)`, then prints the
+/// prompt again. Lets shell-driven code (Session Guard probes, MOP runs)
+/// be tested against canned device output.
+#[derive(Clone)]
+pub(crate) struct ShellScript {
+    pub prompt: String,
+    pub responder: Arc<dyn Fn(&str) -> String + Send + Sync>,
+}
+
 /// Configuration for the test SSH server.
 #[derive(Clone)]
 pub(crate) struct TestServerConfig {
@@ -45,6 +55,9 @@ pub(crate) struct TestServerConfig {
     pub eof_before_exit_status: bool,
     /// Host key for the server.
     pub host_key: PrivateKey,
+    /// If Some, `shell_request` gets a scripted device-style shell instead
+    /// of the bare `READY` banner.
+    pub shell: Option<ShellScript>,
 }
 
 /// Test server handler — implements both `Server` and `Handler`.
@@ -53,6 +66,14 @@ pub(crate) struct TestServerConfig {
 #[derive(Clone)]
 pub(crate) struct TestServer {
     pub cfg: Arc<TestServerConfig>,
+    /// Partial input line for the scripted shell (per client).
+    shell_line: String,
+}
+
+impl TestServer {
+    fn new(cfg: Arc<TestServerConfig>) -> Self {
+        TestServer { cfg, shell_line: String::new() }
+    }
 }
 
 impl Server for TestServer {
@@ -131,12 +152,59 @@ impl russh::server::Handler for TestServer {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Emit a "READY\n" banner that the test checks for. Spawn the
-        // write so we don't block the request handler.
+        // Emit a "READY\n" banner that the test checks for (or the scripted
+        // shell's prompt). Spawn the write so we don't block the handler.
         let handle = session.handle();
+        let banner = match &self.cfg.shell {
+            Some(script) => script.prompt.clone().into_bytes(),
+            None => b"READY\n".to_vec(),
+        };
         tokio::spawn(async move {
-            let _ = handle.data(channel, b"READY\n".to_vec().into()).await;
+            let _ = handle.data(channel, banner.into()).await;
         });
+        Ok(())
+    }
+
+    async fn pty_request(
+        &mut self,
+        _channel: ChannelId,
+        _term: &str,
+        _col_width: u32,
+        _row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _modes: &[(russh::Pty, u32)],
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let Some(script) = self.cfg.shell.clone() else {
+            return Ok(());
+        };
+        for b in data {
+            match b {
+                b'\n' | b'\r' => {
+                    let line = std::mem::take(&mut self.shell_line);
+                    let mut output = (script.responder)(line.trim());
+                    if !output.is_empty() && !output.ends_with('\n') {
+                        output.push_str("\r\n");
+                    }
+                    let reply = format!("{line}\r\n{output}{}", script.prompt);
+                    let handle = session.handle();
+                    tokio::spawn(async move {
+                        let _ = handle.data(channel, reply.into_bytes().into()).await;
+                    });
+                }
+                _ => self.shell_line.push(*b as char),
+            }
+        }
         Ok(())
     }
 
@@ -219,9 +287,7 @@ pub(crate) async fn start_test_server(cfg: TestServerConfig) -> SocketAddr {
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let server = TestServer {
-        cfg: Arc::new(cfg),
-    };
+    let server = TestServer::new(Arc::new(cfg));
 
     tokio::spawn(async move {
         loop {
@@ -275,6 +341,7 @@ pub(crate) async fn start_jump_and_target(
         allow_direct_tcpip: true,
         exec_responder: None,
         eof_before_exit_status: false,
+        shell: None,
             host_key: ephemeral_ed25519(),
     })
     .await;
@@ -285,6 +352,7 @@ pub(crate) async fn start_jump_and_target(
         allow_direct_tcpip: false,
         exec_responder: None,
         eof_before_exit_status: false,
+        shell: None,
             host_key: ephemeral_ed25519(),
     })
     .await;

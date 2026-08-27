@@ -1,0 +1,9 @@
+line vty 0 4
+ access-class 10 in
+ exec-timeout 30 0
+ logging synchronous
+ transport input ssh
+line vty 5 15
+ access-class MGMT-ACL in
+ exec-timeout 30 0
+ transport input ssh

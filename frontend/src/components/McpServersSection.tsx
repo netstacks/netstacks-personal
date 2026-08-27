@@ -15,6 +15,7 @@ import {
 } from '../api/mcp';
 import { showToast } from './Toast';
 import { PasswordInput } from './PasswordInput';
+import Switch from './Switch';
 import './McpServersSection.css';
 
 // Icons
@@ -68,11 +69,6 @@ const Icons = {
   chevronRight: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
       <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-  check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-      <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
 };
@@ -136,6 +132,19 @@ function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: Ad
     }
   }, [isOpen, editingServer]);
 
+  // Escape dismisses the dialog (unless a save is in flight).
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !saving) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, saving, onClose]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -172,20 +181,25 @@ function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: Ad
         req.args = args;
       } else {
         req.url = url.trim();
-        if (authType !== 'none') {
-          req.auth_type = authType;
-          if (authToken.trim()) {
-            req.auth_token = authToken.trim();
-          }
+        // Always send auth_type so switching back to "None" is persisted
+        // (the backend keeps the existing value when the field is absent).
+        req.auth_type = authType;
+        if (authType !== 'none' && authToken.trim()) {
+          req.auth_token = authToken.trim();
         }
       }
 
       if (isEditing && onUpdate && editingServer) {
         // For edits, only send auth_token when the user actually typed a
         // new one — otherwise the backend would clear the stored token.
+        // Exception: switching Auth → None must clear the stored token
+        // (empty string = clear), but only if one could exist.
         const updateReq: UpdateMcpServerRequest = { ...req };
         if (!authToken.trim()) {
           delete updateReq.auth_token;
+        }
+        if (transportType !== 'stdio' && authType === 'none' && editingServer.auth_type !== 'none') {
+          updateReq.auth_token = '';
         }
         await onUpdate(editingServer.id, updateReq);
       } else {
@@ -207,7 +221,7 @@ function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: Ad
   );
 
   return (
-    <div className="mcp-dialog-overlay">
+    <div className="mcp-dialog-overlay" onClick={() => { if (!saving) onClose(); }}>
       <div className="mcp-dialog" onClick={e => e.stopPropagation()}>
         <h3>{isEditing ? `Edit MCP Server: ${editingServer?.name}` : 'Add MCP Server'}</h3>
         <form className="mcp-dialog-form" onSubmit={handleSubmit}>
@@ -439,14 +453,15 @@ function ServerItem({ server, onConnect, onDisconnect, onEdit, onTest, onRestart
                 key={tool.id}
                 className={`mcp-tool-item ${tool.enabled ? 'mcp-tool-enabled' : 'mcp-tool-disabled'}`}
               >
-                <button
-                  className={`mcp-tool-toggle ${tool.enabled ? 'enabled' : ''}`}
-                  onClick={() => handleToolToggle(tool.id, tool.enabled)}
+                <Switch
+                  size="sm"
+                  className="mcp-tool-toggle"
+                  checked={tool.enabled}
+                  onChange={() => handleToolToggle(tool.id, tool.enabled)}
                   disabled={togglingToolId === tool.id}
                   title={tool.enabled ? 'Disable tool for AI agents' : 'Enable tool for AI agents'}
-                >
-                  {tool.enabled && Icons.check}
-                </button>
+                  label={`Enable ${tool.name} for AI agents`}
+                />
                 <span className="mcp-tool-icon">{Icons.tool}</span>
                 <div className="mcp-tool-info">
                   <div className="mcp-tool-name">{tool.name}</div>
@@ -652,6 +667,7 @@ export default function McpServersSection() {
 
     try {
       setDeleting(true);
+      setError(null);
       await deleteMcpServer(deleteConfirm.id);
       setDeleteConfirm(null);
       await fetchServers();
@@ -668,6 +684,8 @@ export default function McpServersSection() {
   };
 
   const handleToolToggle = async (toolId: string, enabled: boolean) => {
+    // Clear a stale banner from a previous failed toggle/delete.
+    setError(null);
     try {
       await setMcpToolEnabled(toolId, enabled);
       // Update local state to reflect the change
@@ -700,7 +718,14 @@ export default function McpServersSection() {
         <h3>MCP SERVERS</h3>
       </div>
 
-      {error && <div className="mcp-error">{error}</div>}
+      {error && (
+        <div className="mcp-error">
+          {error}
+          <button type="button" className="btn-secondary" onClick={() => setError(null)} style={{ marginLeft: 8 }}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="sources-list">
         {servers.length === 0 ? (

@@ -50,59 +50,6 @@
   color: var(--color-text-tertiary);
 }
 
-/* Toggle Switch */
-.status-bar-settings-toggle {
-  position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.status-bar-settings-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.status-bar-settings-toggle .toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--color-bg-tertiary);
-  border-radius: 10px;
-  transition: all 0.2s;
-}
-
-.status-bar-settings-toggle .toggle-slider:before {
-  position: absolute;
-  content: '';
-  height: 14px;
-  width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background-color: var(--color-text-tertiary);
-  border-radius: 50%;
-  transition: all 0.2s;
-}
-
-.status-bar-settings-toggle input:checked + .toggle-slider {
-  background-color: var(--color-accent);
-}
-
-.status-bar-settings-toggle input:checked + .toggle-slider:before {
-  transform: translateX(16px);
-  background-color: var(--color-text-on-accent);
-}
-
-.status-bar-settings-toggle input:disabled + .toggle-slider {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Theme Selection */
 .status-bar-settings-themes {
   display: flex;

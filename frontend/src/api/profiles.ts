@@ -1,6 +1,7 @@
 // API client for credential profiles
 
 import { getClient, getCurrentMode } from './client';
+import { parseApiError } from './errors';
 
 // Auth type enum matching backend
 export type AuthType = 'password' | 'key';
@@ -131,12 +132,10 @@ export async function deleteProfile(id: string): Promise<void> {
   try {
     await getClient().http.delete(`/profiles/${id}`);
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: string } };
-    const text = axiosErr.response?.data || '';
-    if (typeof text === 'string' && text.includes('sessions')) {
-      throw new Error('Cannot delete profile: sessions are using this profile');
-    }
-    throw new Error('Failed to delete profile');
+    // The agent answers with `{ error, code }` JSON (e.g. VALIDATION
+    // "Cannot delete profile: N session(s) are using it"). Surface that
+    // text verbatim instead of a generic message.
+    throw new Error(parseApiError(err).error || 'Failed to delete profile');
   }
 }
 
@@ -147,16 +146,30 @@ export interface ProfileCredentialMeta {
   snmp_community_count: number;
 }
 
+/** Thrown by credential lookups when the vault is locked (agent 403 VAULT_LOCKED). */
+export class VaultLockedError extends Error {
+  constructor() {
+    super('Vault is locked. Go to Settings → Security to unlock with your master password.');
+    this.name = 'VaultLockedError';
+  }
+}
+
 // Get credential metadata for a profile (non-secret)
 export async function getProfileCredentialMeta(id: string): Promise<ProfileCredentialMeta> {
   if (getCurrentMode() === 'enterprise') return { has_password: false, has_key_passphrase: false, snmp_community_count: 0 };
   try {
     const { data } = await getClient().http.get(`/profiles/${id}/credential`);
     return data;
-  } catch {
+  } catch (err: unknown) {
+    // A locked vault is not "no credentials" — let the caller distinguish
+    // it so it doesn't advertise "0 communities" and invite an overwrite.
+    if (parseApiError(err).code === 'VAULT_LOCKED') {
+      throw new VaultLockedError();
+    }
     return { has_password: false, has_key_passphrase: false, snmp_community_count: 0 };
   }
 }
+
 
 // Store credentials for a profile in the vault
 export async function storeProfileCredential(id: string, credential: ProfileCredential): Promise<void> {

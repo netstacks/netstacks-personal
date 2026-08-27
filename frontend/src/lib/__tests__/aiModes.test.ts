@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getSystemPrompt, AGENT_TYPES, AGENT_PROMPT, LIVE_CONTEXT_RULES, type AgentType } from '../aiModes'
+import { getSystemPrompt, AGENT_TYPES, AGENT_PROMPT, type AgentType } from '../aiModes'
 
 const AGENT_TYPE_KEYS: AgentType[] = ['autopilot', 'overlord']
 const SENTINEL = '## Mode: SENTINEL\n\nThis is a test override.'

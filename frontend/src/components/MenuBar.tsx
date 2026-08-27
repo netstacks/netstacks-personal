@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { MENU_MODEL, type MenuEntry } from '../commands/menuModel'
 import { useCommandStore, dispatchCommand, getActiveContext } from '../commands'
 import { displayShortcut } from '../hooks/useKeyboard'
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import './MenuBar.css'
 
 const PREDEFINED_LABEL: Record<string, string> = {
@@ -36,6 +37,7 @@ export default function MenuBar() {
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
+  useOverlayDismiss({ onDismiss: () => setOpen(null), enabled: open !== null, clickOutside: false })
 
   const renderEntry = (entry: MenuEntry, i: number) => {
     if (entry.kind === 'separator') return <div key={i} className="menu-sep" role="separator" />

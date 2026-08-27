@@ -19,7 +19,7 @@ import AIFloatingChat from './components/AIFloatingChat'
 import SessionPanel from './components/SessionPanel'
 import EnterpriseDevicePanel from './components/EnterpriseDevicePanel'
 import EnterpriseConnectDialog from './components/EnterpriseConnectDialog'
-import DocsPanel from './components/DocsPanel'
+import DocsPanel, { DOCS_SELECT_CATEGORY_EVENT } from './components/DocsPanel'
 import TopologyPanel from './components/TopologyPanel'
 import ChangesPanel from './components/ChangesPanel'
 import AgentsPanel from './components/AgentsPanel'
@@ -83,10 +83,6 @@ import { useKeyboard, displayShortcut } from './hooks/useKeyboard'
 import { OVERLORD_OPEN_AI_POPUP_EVENT, type OverlordOpenAIPopupDetail } from './hooks/useMonacoOverlord'
 import { TabSelectionProvider, useTabSelection } from './hooks/useTabSelection'
 import { useEnrichment } from './hooks/useEnrichment'
-// useMenuEvents is no longer mounted — every native-menu item is
-// routed through the CommandRegistry (see useCommand registrations
-// below). Hook left in tree for now; remove when no other importer
-// remains.
 import { listSessions, getSession, type Session } from './api/sessions'
 import { type EnterpriseSession, getSessionDefinition } from './api/enterpriseSessions'
 import { type DeviceSummary } from './api/enterpriseDevices'
@@ -194,7 +190,15 @@ interface Tab {
   terminalTheme?: string | null
   fontSize?: number | null
   fontFamily?: string | null
+  /** Session terminal settings (NS-SET-1): resolved at tab creation so the
+   *  Terminal honours them without a session lookup at render time. */
+  scrollbackLines?: number | null
+  autoReconnect?: boolean
+  reconnectDelay?: number
   status: ConnectionStatus | DocumentStatus | TopologyStatus | DetailStatus
+  /** Terminal tabs: set once the session has connected at least once, so a
+   *  tab closed before it ever connected doesn't land in "Reopen Closed Tab". */
+  everConnected?: boolean
   profileId?: string
   // Jumpbox (enterprise Local Terminal)
   isJumpbox?: boolean
@@ -502,7 +506,9 @@ type ViewType = 'sessions' | 'topology' | 'docs' | 'changes' | 'agents' | 'stack
 
 function AppContent() {
   const [activeView, setActiveView] = useState<ViewType>('sessions')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('netstacks-sidebar-open') !== 'false')
+  // Category the Docs panel should focus (Quick Look Notes / Templates / Outputs).
+  const [docsFocusCategory, setDocsFocusCategory] = useState<DocumentCategory | null>(null)
   const [sidebarPinned, setSidebarPinned] = useState(() => loadPanelSettings().leftSidebarPinned)
   const [aiPanelPinned, setAiPanelPinned] = useState(() => loadPanelSettings().aiPanelPinned)
   const [sidebarOverlay, setSidebarOverlay] = useState(() => loadPanelSettings().sidebarOverlay)
@@ -674,13 +680,26 @@ function AppContent() {
     prevSftpCountRef.current = sftpConnectionCount
   }, [sftpConnectionCount])
 
-  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = Number(localStorage.getItem('netstacks-sidebar-width'))
+    return stored >= 280 && stored <= 800 ? stored : 280
+  })
+  useEffect(() => { localStorage.setItem('netstacks-sidebar-open', String(sidebarOpen)) }, [sidebarOpen])
+  useEffect(() => { localStorage.setItem('netstacks-sidebar-width', String(sidebarWidth)) }, [sidebarWidth])
   const [isResizing, setIsResizing] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
   const [aiExpandTrigger, setAiExpandTrigger] = useState(0)
   const [aiOverlordActive, setAiOverlordActive] = useState(false)
+  const toggleAiPanel = useCallback(() => {
+    if (!aiPanelCollapsed && aiChatOpen) {
+      setAiChatOpen(false)
+    } else {
+      setAiChatOpen(true)
+      setAiPanelCollapsed(false)
+    }
+  }, [aiPanelCollapsed, aiChatOpen])
   const [aiPanelInitialMessages, setAiPanelInitialMessages] = useState<AgentMessage[] | undefined>(undefined)
   const [aiExternalPrompt, setAiExternalPrompt] = useState<{ prompt: string; counter: number } | undefined>(undefined)
   const [aiTopologyContext, setAiTopologyContext] = useState<{ topologyId: string; devices: Device[]; refreshCounter: number } | null>(null)
@@ -834,6 +853,10 @@ function AppContent() {
   // Layout types: horizontal (side-by-side), vertical (stacked),
   // '2-top-1-bottom' (2 on top row, 1 spanning bottom), '1-top-2-bottom' (1 spanning top, 2 on bottom)
   const [splitLayout, setSplitLayout] = useState<'horizontal' | 'vertical' | '2-top-1-bottom' | '1-top-2-bottom'>('horizontal')
+  // Pane sizes are stored per layout × pane count. A single shared entry
+  // meant a 2-pane [70,30] leaked into a freshly added third pane and pushed
+  // it off-screen.
+  const splitSizeKey = `${splitLayout}:${Math.min(splitTabs.length, 4)}`
 
   // Split pane context menu state (Phase 25)
   const [splitContextMenuPosition, setSplitContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
@@ -843,7 +866,7 @@ function AppContent() {
   // Discovery modal state
   const [discoveryModalOpen, setDiscoveryModalOpen] = useState(false)
   const [discoveryGroupName, setDiscoveryGroupName] = useState('')
-  const [discoveryDevices, setDiscoveryDevices] = useState<{ name: string; tabId: string; ip?: string; profileId?: string; snmpProfileId?: string; cliFlavor?: string; credentialId?: string; snmpCredentialId?: string }[]>([])
+  const [discoveryDevices, setDiscoveryDevices] = useState<{ name: string; tabId: string; sessionId?: string; ip?: string; profileId?: string; snmpProfileId?: string; cliFlavor?: string; credentialId?: string; snmpCredentialId?: string }[]>([])
   const [discoveryTargetTopologyId, setDiscoveryTargetTopologyId] = useState<string | null>(null)
 
   // Discovery toast state
@@ -1202,6 +1225,15 @@ function AppContent() {
     }
     return null
   }, [splitTabs, tabs])
+
+  // Stable identity per tab-set so consumers (NewTopologyDialog effect deps)
+  // don't re-run on every App render.
+  const connectedSessionIds = useMemo(
+    () => tabs
+      .filter(tab => isTerminalTab(tab) && tab.status === 'connected' && tab.sessionId)
+      .map(tab => tab.sessionId!),
+    [tabs],
+  )
 
   // Check if active tab is part of the split view (for showing split vs single view)
   const isActiveTabInSplit = useMemo(() => {
@@ -2295,7 +2327,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
     try {
       await updateDevice(topologyId, device.id, {
         name: updates.name,
-        type: updates.type,
+        device_type: updates.type,
         status: updates.status,
         site: updates.site,
         role: updates.role,
@@ -2328,12 +2360,22 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
   }, [activeTabId, tabs, profileMap])
 
   // Helper to get effective font settings from session, falling back to profile defaults
-  const getEffectiveFontSettings = useCallback((session: Session): { fontSize: number | null; fontFamily: string | null; terminalTheme: string | null } => {
+  const getEffectiveFontSettings = useCallback((session: Session): {
+    fontSize: number | null
+    fontFamily: string | null
+    terminalTheme: string | null
+    scrollbackLines: number | null
+    autoReconnect: boolean
+    reconnectDelay: number
+  } => {
     const profile = profileMap.get(session.profile_id)
     return {
       fontSize: session.font_size_override ?? profile?.default_font_size ?? null,
       fontFamily: session.font_family ?? profile?.default_font_family ?? null,
       terminalTheme: session.terminal_theme ?? profile?.terminal_theme ?? null,
+      scrollbackLines: session.scrollback_lines ?? null,
+      autoReconnect: session.auto_reconnect ?? true,
+      reconnectDelay: session.reconnect_delay ?? 5,
     }
   }, [profileMap])
 
@@ -2354,7 +2396,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
       }
       try {
         const session = await getSession(sessionId)
-        const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+        const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
         const newId = `ssh-${session.id}-${Date.now()}`
         const newTab: Tab = {
           id: newId,
@@ -2367,6 +2409,9 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
           terminalTheme,
           fontSize,
           fontFamily,
+          scrollbackLines,
+          autoReconnect,
+          reconnectDelay,
           color: session.color || undefined,
           status: 'connecting'
         }
@@ -2484,7 +2529,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
         if (session) {
           // Create terminal tab for this session
           const newId = `ssh-${session.id}-${Date.now()}`
-          const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+          const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
           const newTab: Tab = {
             id: newId,
             type: 'terminal',
@@ -2495,6 +2540,9 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
             terminalTheme,
             fontSize,
             fontFamily,
+            scrollbackLines,
+            autoReconnect,
+            reconnectDelay,
             color: session.color || undefined,
             status: 'connecting'
           }
@@ -2511,7 +2559,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
         if (sessionByIp) {
           // Create terminal tab for this session
           const newId = `ssh-${sessionByIp.id}-${Date.now()}`
-          const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(sessionByIp)
+          const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(sessionByIp)
           const newTab: Tab = {
             id: newId,
             type: 'terminal',
@@ -2522,6 +2570,9 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
             terminalTheme,
             fontSize,
             fontFamily,
+            scrollbackLines,
+            autoReconnect,
+            reconnectDelay,
             color: sessionByIp.color || undefined,
             status: 'connecting'
           }
@@ -2826,11 +2877,22 @@ def main(command: str = "show version"):
     handleOpenTracerouteTopology(topology)
   }, [handleOpenTracerouteTopology])
 
-  // Handle creating a new document
-  const handleNewDocument = useCallback((category: DocumentCategory) => {
-    // For now, log the category - can be expanded to show creation dialog
-    logger.log('New document in category:', category)
-  }, [])
+  // Handle creating a new document: persist an empty doc in the category and
+  // open it in the editor (was a logger.log no-op).
+  const handleNewDocument = useCallback(async (category: DocumentCategory) => {
+    try {
+      const doc = await createDocument({
+        name: `Untitled ${new Date().toLocaleString()}`,
+        category,
+        content_type: category === 'templates' ? 'jinja' : 'markdown',
+        content: '',
+      })
+      handleOpenDocument(doc)
+    } catch (err) {
+      console.error('Failed to create document:', err)
+      showToast(`Failed to create document: ${getErrorMessage(err, 'unknown error')}`, 'error')
+    }
+  }, [handleOpenDocument])
 
   // Update document tab status (saved/modified)
   const updateDocumentTabStatus = useCallback((tabId: string, status: 'saved' | 'modified') => {
@@ -2901,7 +2963,9 @@ def main(command: str = "show version"):
   // Update terminal connection status
   const updateTerminalStatus = useCallback((id: string, status: ConnectionStatus) => {
     setTabs(prev => prev.map(tab =>
-      tab.id === id ? { ...tab, status } : tab
+      tab.id === id
+        ? { ...tab, status, everConnected: tab.everConnected || status === 'connected' }
+        : tab
     ))
   }, [])
 
@@ -2916,25 +2980,70 @@ def main(command: str = "show version"):
     setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...fields } : t))
   }, [])
 
+  // True when closing `tab` would discard user edits. Script tabs have no
+  // dirty flag — compare the live editor buffer against the last-saved Script.
+  const isTabDirty = useCallback((tab: Tab): boolean => {
+    if (tab.type === 'sftp-editor') return !!tab.sftpDirty
+    if (tab.type === 'document') return tab.status === 'modified' || tab.status === 'new' || !!tab.unsavedDoc
+    if (tab.type === 'script' && tab.scriptData) {
+      const handle = scriptEditorRefs.current.get(tab.id)
+      if (!handle) return false
+      return handle.getContent() !== tab.scriptData.content || handle.getName() !== tab.scriptData.name
+    }
+    return false
+  }, [])
+
+  // Single unsaved-changes prompt shared by closeTab and every bulk closer
+  // (Close Others / All / Right, group "replace" launch). Resolves true when
+  // nothing is dirty or the user opts to discard.
+  const confirmCloseTabs = useCallback(async (toClose: Tab[]): Promise<boolean> => {
+    const dirty = toClose.filter(isTabDirty)
+    if (dirty.length === 0) return true
+    const body = dirty.length === 1
+      ? `${dirty[0].title} has unsaved changes. Close anyway?`
+      : <>{dirty.length} tabs have unsaved changes: <strong>{dirty.map(t => t.title).join(', ')}</strong>. Close anyway?</>
+    return confirmDialog({
+      title: 'Unsaved changes',
+      body,
+      confirmLabel: 'Close without saving',
+      destructive: true,
+    })
+  }, [isTabDirty])
+
   // Close a tab (terminal or document). `force` skips the unsaved-changes
   // prompt — set by the confirm-resolved branch below when the user opts to
   // close anyway.
+  // Ring buffer of recently-closed terminal tabs so the user can recover
+  // from an accidental Cmd+W. Capped to MAX_CLOSED_TABS — older entries
+  // drop off the back. Only terminal tabs with a sessionId are recoverable
+  // today (open via handleSSHConnect); other tab types are simply ignored.
+  const MAX_CLOSED_TABS = 10
+  const [closedTabs, setClosedTabs] = useState<Array<{ sessionId: string; title: string; closedAt: number }>>([])
+
+  const recordClosedTab = useCallback((tab: Tab | undefined) => {
+    if (!tab || tab.type !== 'terminal' || !tab.sessionId) return
+    const sid = tab.sessionId
+    setClosedTabs(prev => {
+      // Drop duplicate of the same session — keep only the latest.
+      const filtered = prev.filter(c => c.sessionId !== sid)
+      return [{ sessionId: sid, title: tab.title, closedAt: Date.now() }, ...filtered].slice(0, MAX_CLOSED_TABS)
+    })
+  }, [])
+
   const closeTab = useCallback((id: string, force = false) => {
     const tab = tabs.find(t => t.id === id)
     if (!tab) return
 
-    // Warn about unsaved SFTP editor changes
-    if (!force && tab.type === 'sftp-editor' && tab.sftpDirty) {
-      confirmDialog({
-        title: 'Unsaved changes',
-        body: `${tab.title} has unsaved changes. Close anyway?`,
-        confirmLabel: 'Close without saving',
-        destructive: true,
-      }).then((ok) => {
+    if (!force && isTabDirty(tab)) {
+      confirmCloseTabs([tab]).then((ok) => {
         if (ok) closeTab(id, true)
       })
       return
     }
+
+    // NS-APP-18: single closes are recoverable via "Reopen Closed Tab" like
+    // the bulk closers. Skip tabs that never connected — nothing to reopen.
+    if (tab.everConnected) recordClosedTab(tab)
 
     setTabs(prev => {
       const filtered = prev.filter(t => t.id !== id)
@@ -2962,10 +3071,48 @@ def main(command: str = "show version"):
         })
       }
     }
-  }, [activeTabId, tabs])
+  }, [activeTabId, tabs, isTabDirty, confirmCloseTabs, recordClosedTab])
 
   // Backwards compatibility alias
   const closeTerminal = closeTab
+
+  // NS-APP-12: closing the window kills every live session and unsaved edit —
+  // ask first. No-op outside Tauri (browser dev). preventDefault must run
+  // before the first await; Tauri destroys the window once the handler
+  // resolves unless it was called.
+  useEffect(() => {
+    if (!isTauri) return
+    let cancelled = false
+    let unlisten: (() => void) | undefined
+    import('@tauri-apps/api/window')
+      .then(async ({ getCurrentWindow }) => {
+        const win = getCurrentWindow()
+        const un = await win.onCloseRequested(async (event) => {
+          const open = tabsRef.current
+          const dirty = open.filter(isTabDirty)
+          const connected = open.filter(t => isTerminalTab(t) && t.status === 'connected')
+          if (dirty.length === 0 && connected.length === 0) return
+          event.preventDefault()
+          const parts: string[] = []
+          if (connected.length > 0) parts.push(`${connected.length} connected session${connected.length === 1 ? '' : 's'}`)
+          if (dirty.length > 0) parts.push(`${dirty.length} tab${dirty.length === 1 ? '' : 's'} with unsaved changes`)
+          const ok = await confirmDialog({
+            title: 'Quit NetStacks?',
+            body: `You have ${parts.join(' and ')}. Quit anyway?`,
+            confirmLabel: 'Quit',
+            destructive: true,
+          })
+          if (ok) await win.destroy()
+        })
+        if (cancelled) un()
+        else unlisten = un
+      })
+      .catch(() => { /* not running under Tauri */ })
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [isTabDirty])
 
   // Tab context menu handlers
   const handleTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
@@ -3034,6 +3181,7 @@ def main(command: str = "show version"):
       return {
         name: t.title,
         tabId: t.id,
+        sessionId: t.sessionId,
         ip: session?.host,
         profileId: session?.profile_id,
         snmpProfileId: session?.profile_id,
@@ -3261,7 +3409,8 @@ def main(command: str = "show version"):
     }
   }, [tabs])
 
-  const closeOtherTabs = useCallback((keepId: string) => {
+  const closeOtherTabs = useCallback(async (keepId: string) => {
+    if (!(await confirmCloseTabs(tabsRef.current.filter(t => t.id !== keepId)))) return
     setTabs(prev => {
       const kept = prev.filter(t => t.id === keepId)
       if (kept.length > 0) {
@@ -3270,33 +3419,17 @@ def main(command: str = "show version"):
       return kept
     })
     setSplitTabs(prev => prev.filter(id => id === keepId))
-  }, [])
+  }, [confirmCloseTabs])
 
-  // Ring buffer of recently-closed terminal tabs so the user can recover
-  // from an accidental Cmd+W. Capped to MAX_CLOSED_TABS — older entries
-  // drop off the back. Only terminal tabs with a sessionId are recoverable
-  // today (open via handleSSHConnect); other tab types are simply ignored.
-  const MAX_CLOSED_TABS = 10
-  const [closedTabs, setClosedTabs] = useState<Array<{ sessionId: string; title: string; closedAt: number }>>([])
-
-  const recordClosedTab = useCallback((tab: Tab | undefined) => {
-    if (!tab || tab.type !== 'terminal' || !tab.sessionId) return
-    const sid = tab.sessionId
-    setClosedTabs(prev => {
-      // Drop duplicate of the same session — keep only the latest.
-      const filtered = prev.filter(c => c.sessionId !== sid)
-      return [{ sessionId: sid, title: tab.title, closedAt: Date.now() }, ...filtered].slice(0, MAX_CLOSED_TABS)
-    })
-  }, [])
-
-  const closeAllTabs = useCallback(() => {
+  const closeAllTabs = useCallback(async () => {
+    if (!(await confirmCloseTabs(tabsRef.current))) return
     setTabs(prev => {
       prev.forEach(t => recordClosedTab(t))
       return []
     })
     setActiveTabId(null)
     setSplitTabs([])
-  }, [recordClosedTab])
+  }, [recordClosedTab, confirmCloseTabs])
 
   // Safety net: prune any split-view id whose tab no longer exists, no matter
   // how it was closed — so a split-open tab can never stay rendered with no tab.
@@ -3315,7 +3448,9 @@ def main(command: str = "show version"):
     })
   }, [assistantName])
 
-  const closeTabsToRight = useCallback((anchorId: string) => {
+  const closeTabsToRight = useCallback(async (anchorId: string) => {
+    const idx = tabsRef.current.findIndex(t => t.id === anchorId)
+    if (idx < 0 || !(await confirmCloseTabs(tabsRef.current.slice(idx + 1)))) return
     setTabs(prev => {
       const anchorIdx = prev.findIndex(t => t.id === anchorId)
       if (anchorIdx < 0) return prev
@@ -3326,7 +3461,7 @@ def main(command: str = "show version"):
       setActiveTabId(curr => (curr && remaining.some(t => t.id === curr)) ? curr : anchorId)
       return remaining
     })
-  }, [recordClosedTab])
+  }, [recordClosedTab, confirmCloseTabs])
 
   const reopenLastClosedTab = useCallback(async () => {
     let head: { sessionId: string; title: string } | undefined
@@ -3452,135 +3587,151 @@ def main(command: str = "show version"):
   }, [saveLayoutGroupId, layoutNameInput, tabGroups, tabs])
 
   // Handle "Restore Layout" from GroupsPanel (Phase 25)
-  const handleRestoreLayout = useCallback(async (layout: Layout) => {
+  const handleRestoreLayout = useCallback(async (layout: Layout, opts?: { ignoreOpenTabs?: boolean }) => {
     // Guard against multiple rapid clicks
     if (restoringLayoutRef.current) return
     restoringLayoutRef.current = true
 
     const newTabIds: string[] = []
+    // `ignoreOpenTabs`: the caller has just closed everything (group launch
+    // "replace"), so the `tabs` closure is stale — don't reuse its ids.
+    const openTabs = opts?.ignoreOpenTabs ? [] : tabs
+    try {
 
-    // Use new tabs field if present, otherwise fall back to legacy sessionIds
-    if (layout.tabs && layout.tabs.length > 0) {
-      // New: restore mixed tab types (terminal, topology, document)
-      const allSessions = await listSessions()
-      const allDocuments = await listDocuments()
+      // Use new tabs field if present, otherwise fall back to legacy sessionIds
+      if (layout.tabs && layout.tabs.length > 0) {
+        // New: restore mixed tab types (terminal, topology, document)
+        const allSessions = await listSessions()
+        const allDocuments = await listDocuments()
 
-      for (const layoutTab of layout.tabs) {
-        if (layoutTab.type === 'terminal' && layoutTab.sessionId) {
-          // Check if session is already open
-          const existingTab = tabs.find(t => t.sessionId === layoutTab.sessionId)
-          if (existingTab) {
-            newTabIds.push(existingTab.id)
-          } else {
-            // Open new terminal tab
-            const session = allSessions.find(s => s.id === layoutTab.sessionId)
-            if (session) {
-              const newId = `ssh-${session.id}-${Date.now()}`
-              const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
-              const newTab: Tab = {
-                id: newId,
-                type: 'terminal',
-                title: session.name,
-                sessionId: session.id,
-                profileId: session.profile_id,
-                cliFlavor: session.cli_flavor,
-                terminalTheme,
-                fontSize,
-                fontFamily,
-                color: session.color || undefined,
-                status: 'connecting'
+        for (const layoutTab of layout.tabs) {
+          if (layoutTab.type === 'terminal' && layoutTab.sessionId) {
+            // Check if session is already open
+            const existingTab = openTabs.find(t => t.sessionId === layoutTab.sessionId)
+            if (existingTab) {
+              newTabIds.push(existingTab.id)
+            } else {
+              // Open new terminal tab
+              const session = allSessions.find(s => s.id === layoutTab.sessionId)
+              if (session) {
+                const newId = `ssh-${session.id}-${Date.now()}`
+                const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
+                const newTab: Tab = {
+                  id: newId,
+                  type: 'terminal',
+                  title: session.name,
+                  sessionId: session.id,
+                  profileId: session.profile_id,
+                  cliFlavor: session.cli_flavor,
+                  terminalTheme,
+                  fontSize,
+                  fontFamily,
+                  scrollbackLines,
+                  autoReconnect,
+                  reconnectDelay,
+                  color: session.color || undefined,
+                  status: 'connecting'
+                }
+                setTabs(prev => [...prev, newTab])
+                newTabIds.push(newId)
               }
-              setTabs(prev => [...prev, newTab])
-              newTabIds.push(newId)
+            }
+          } else if (layoutTab.type === 'topology' && layoutTab.topologyId) {
+            // Check if topology is already open
+            const existingTab = openTabs.find(t => isTopologyTab(t) && t.topologyId === layoutTab.topologyId)
+            if (existingTab) {
+              newTabIds.push(existingTab.id)
+            } else {
+              // Open new topology tab
+              try {
+                const topology = await getTopology(layoutTab.topologyId)
+                const newId = `topology-${layoutTab.topologyId}-${Date.now()}`
+                const newTab: Tab = {
+                  id: newId,
+                  type: 'topology',
+                  title: topology.name,
+                  topologyId: layoutTab.topologyId,
+                  status: 'ready'
+                }
+                setTabs(prev => [...prev, newTab])
+                newTabIds.push(newId)
+              } catch (err) {
+                console.error('Failed to restore topology:', err)
+              }
+            }
+          } else if (layoutTab.type === 'document' && layoutTab.documentId) {
+            // Check if document is already open
+            const existingTab = openTabs.find(t => isDocumentTab(t) && t.documentId === layoutTab.documentId)
+            if (existingTab) {
+              newTabIds.push(existingTab.id)
+            } else {
+              // Open new document tab
+              const doc = allDocuments.find(d => d.id === layoutTab.documentId)
+              if (doc) {
+                const newId = `doc-${layoutTab.documentId}-${Date.now()}`
+                const newTab: Tab = {
+                  id: newId,
+                  type: 'document',
+                  title: doc.name,
+                  documentId: layoutTab.documentId,
+                  status: 'ready'
+                }
+                setTabs(prev => [...prev, newTab])
+                newTabIds.push(newId)
+                // Load document into cache
+                const fullDoc = await getDocument(layoutTab.documentId)
+                setDocumentCache(prev => ({ ...prev, [layoutTab.documentId!]: fullDoc }))
+              }
             }
           }
-        } else if (layoutTab.type === 'topology' && layoutTab.topologyId) {
-          // Check if topology is already open
-          const existingTab = tabs.find(t => isTopologyTab(t) && t.topologyId === layoutTab.topologyId)
-          if (existingTab) {
-            newTabIds.push(existingTab.id)
-          } else {
-            // Open new topology tab
-            try {
-              const topology = await getTopology(layoutTab.topologyId)
-              const newId = `topology-${layoutTab.topologyId}-${Date.now()}`
-              const newTab: Tab = {
-                id: newId,
-                type: 'topology',
-                title: topology.name,
-                topologyId: layoutTab.topologyId,
-                status: 'ready'
-              }
-              setTabs(prev => [...prev, newTab])
-              newTabIds.push(newId)
-            } catch (err) {
-              console.error('Failed to restore topology:', err)
+        }
+      } else {
+        // Legacy: restore terminal tabs only using sessionIds
+        const existingSessionIds = new Set(openTabs.filter(t => t.sessionId).map(t => t.sessionId))
+        const sessionsToOpen = layout.sessionIds.filter(id => !existingSessionIds.has(id))
+        const allSessions = await listSessions()
+
+        for (const sessionId of sessionsToOpen) {
+          const session = allSessions.find(s => s.id === sessionId)
+          if (session) {
+            const newId = `ssh-${session.id}-${Date.now()}`
+            const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
+            const newTab: Tab = {
+              id: newId,
+              type: 'terminal',
+              title: session.name,
+              sessionId: session.id,
+              profileId: session.profile_id,
+              cliFlavor: session.cli_flavor,
+              terminalTheme,
+              fontSize,
+              fontFamily,
+              scrollbackLines,
+              autoReconnect,
+              reconnectDelay,
+              color: session.color || undefined,
+              status: 'connecting'
             }
+            setTabs(prev => [...prev, newTab])
+            newTabIds.push(newId)
           }
-        } else if (layoutTab.type === 'document' && layoutTab.documentId) {
-          // Check if document is already open
-          const existingTab = tabs.find(t => isDocumentTab(t) && t.documentId === layoutTab.documentId)
-          if (existingTab) {
-            newTabIds.push(existingTab.id)
-          } else {
-            // Open new document tab
-            const doc = allDocuments.find(d => d.id === layoutTab.documentId)
-            if (doc) {
-              const newId = `doc-${layoutTab.documentId}-${Date.now()}`
-              const newTab: Tab = {
-                id: newId,
-                type: 'document',
-                title: doc.name,
-                documentId: layoutTab.documentId,
-                status: 'ready'
-              }
-              setTabs(prev => [...prev, newTab])
-              newTabIds.push(newId)
-              // Load document into cache
-              const fullDoc = await getDocument(layoutTab.documentId)
-              setDocumentCache(prev => ({ ...prev, [layoutTab.documentId!]: fullDoc }))
+        }
+
+        // Collect existing tab IDs for sessions that are already open
+        for (const sessionId of layout.sessionIds) {
+          if (existingSessionIds.has(sessionId)) {
+            const existingTab = openTabs.find(t => t.sessionId === sessionId)
+            if (existingTab) {
+              newTabIds.push(existingTab.id)
             }
           }
         }
       }
-    } else {
-      // Legacy: restore terminal tabs only using sessionIds
-      const existingSessionIds = new Set(tabs.filter(t => t.sessionId).map(t => t.sessionId))
-      const sessionsToOpen = layout.sessionIds.filter(id => !existingSessionIds.has(id))
-      const allSessions = await listSessions()
-
-      for (const sessionId of sessionsToOpen) {
-        const session = allSessions.find(s => s.id === sessionId)
-        if (session) {
-          const newId = `ssh-${session.id}-${Date.now()}`
-          const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
-          const newTab: Tab = {
-            id: newId,
-            type: 'terminal',
-            title: session.name,
-            sessionId: session.id,
-            profileId: session.profile_id,
-            cliFlavor: session.cli_flavor,
-            terminalTheme,
-            fontSize,
-            fontFamily,
-            color: session.color || undefined,
-            status: 'connecting'
-          }
-          setTabs(prev => [...prev, newTab])
-          newTabIds.push(newId)
-        }
-      }
-
-      // Collect existing tab IDs for sessions that are already open
-      for (const sessionId of layout.sessionIds) {
-        if (existingSessionIds.has(sessionId)) {
-          const existingTab = tabs.find(t => t.sessionId === sessionId)
-          if (existingTab) {
-            newTabIds.push(existingTab.id)
-          }
-        }
-      }
+    } catch (err) {
+      // Reset the guard below regardless — a stuck restoringLayoutRef
+      // made every later layout/group launch a silent no-op.
+      console.error('Failed to restore layout:', err)
+      showToast(`Failed to restore layout: ${getErrorMessage(err, 'unknown error')}`, 'error')
     }
 
     // Activate split view with restored tabs (after a small delay to let tabs render)
@@ -3660,23 +3811,44 @@ def main(command: str = "show version"):
         updatedAt: group.updatedAt,
       };
 
-      if (action === 'replace') {
-        // Close all current tabs first.
-        setTabs([]);
-      }
+      const touchLastUsed = () =>
+        apiUpdateGroup(group.id, { lastUsedAt: new Date().toISOString() }).catch(console.error);
+
       if (action === 'new_window') {
-        // For now, fall back to "alongside" until multi-window support exists.
-        // (Tracked in CONCERNS.md; revisit when window manager lands.)
-        console.warn('new_window launch not yet implemented; opening alongside.');
+        // Spawn a fresh app window; it launches the group itself at boot via
+        // the `launchGroup` URL param (see the effect below allGroups).
+        if (isTauri) {
+          try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            await invoke('open_new_window', { urlParams: `launchGroup=${encodeURIComponent(group.id)}` });
+            touchLastUsed();
+            return;
+          } catch (err) {
+            console.error('Failed to open group in new window:', err);
+            showToast('Could not open a new window — opening alongside instead', 'warning');
+          }
+        } else {
+          showToast('New windows need the desktop app — opening alongside instead', 'warning');
+        }
       }
 
-      await handleRestoreLayout(layoutShape as Parameters<typeof handleRestoreLayout>[0]);
-      setLiveGroupId(group.id);
+      if (action === 'replace') {
+        // Close all current tabs first — through the same unsaved-changes
+        // prompt as Close All.
+        if (!(await confirmCloseTabs(tabsRef.current))) return;
+        setTabs([]);
+        setSplitTabs([]);
+        setActiveTabId(null);
+      }
 
-      // Touch last_used_at on the server.
-      apiUpdateGroup(group.id, { lastUsedAt: new Date().toISOString() }).catch(console.error);
+      await handleRestoreLayout(
+        layoutShape as Parameters<typeof handleRestoreLayout>[0],
+        { ignoreOpenTabs: action === 'replace' },
+      );
+      setLiveGroupId(group.id);
+      touchLastUsed();
     },
-    [handleRestoreLayout]
+    [handleRestoreLayout, confirmCloseTabs]
   );
 
   const handleLaunchGroup = useCallback(
@@ -3779,6 +3951,7 @@ def main(command: str = "show version"):
         return {
           name: t.title,
           tabId: t.id,
+          sessionId: t.sessionId,
           ip: session?.host,
           profileId: session?.profile_id,
           snmpProfileId: session?.profile_id,
@@ -3829,25 +4002,9 @@ def main(command: str = "show version"):
 
   // === End Saved Groups Handlers ===
 
-  // Keyboard shortcut Cmd/Ctrl+G to group selected tabs (Phase 25)
-  // Cmd/Ctrl+Shift+G to save current tabs as group (Plan 1: Tab Groups Redesign)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Check Shift+G first (more specific)
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        handleSaveCurrentAsGroup()
-        return
-      }
-      // Then plain G (without shift)
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        handleGroupSelectedTabs()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleGroupSelectedTabs, handleSaveCurrentAsGroup])
+  // Group-tab shortcuts are registered with useKeyboard (groupSelectedTabs /
+  // saveTabsAsGroup) — a raw window listener here fired inside text inputs
+  // and lost Cmd+Shift+G to aiGenerateScript.
 
   // === Saved Groups Live Tracking (Plan 1: Tab Groups Redesign) ===
 
@@ -3880,6 +4037,18 @@ def main(command: str = "show version"):
     [tabs]
   );
 
+  // A window spawned by "Open in new window" carries ?launchGroup=<id> —
+  // launch that group once the saved groups have loaded.
+  const launchGroupParamRef = useRef(new URLSearchParams(window.location.search).get('launchGroup'));
+  useEffect(() => {
+    const id = launchGroupParamRef.current;
+    if (!id || allGroups.length === 0) return;
+    launchGroupParamRef.current = null;
+    const group = allGroups.find((g) => g.id === id);
+    if (group) void performLaunch(group, 'alongside');
+    else showToast('Saved group not found', 'warning');
+  }, [allGroups, performLaunch]);
+
   const clearLiveGroupId = useCallback(() => setLiveGroupId(null), []);
   useLiveGroupAutoClear(liveGroupId, allGroups, openTabRefs, clearLiveGroupId);
 
@@ -3904,7 +4073,7 @@ def main(command: str = "show version"):
       const minSize = 15 // Minimum 15% per pane
 
       // Get current sizes
-      const currentSizes = splitPaneSizes['split'] || []
+      const currentSizes = splitPaneSizes[splitSizeKey] || []
 
       // Handle different layouts
       if (tabCount === 2) {
@@ -3916,7 +4085,7 @@ def main(command: str = "show version"):
 
         setSplitPaneSizes(prev => ({
           ...prev,
-          ['split']: [percentage, 100 - percentage]
+          [splitSizeKey]: [percentage, 100 - percentage]
         }))
       } else if (tabCount === 3) {
         if (splitLayout === '2-top-1-bottom') {
@@ -3925,13 +4094,13 @@ def main(command: str = "show version"):
             const percentage = Math.max(minSize, Math.min(100 - minSize, ((e.clientX - rect.left) / rect.width) * 100))
             setSplitPaneSizes(prev => ({
               ...prev,
-              ['split']: [percentage, currentSizes[1] || 50, currentSizes[2] || 50]
+              [splitSizeKey]: [percentage, currentSizes[1] || 50, currentSizes[2] || 50]
             }))
           } else {
             const percentage = Math.max(minSize, Math.min(100 - minSize, ((e.clientY - rect.top) / rect.height) * 100))
             setSplitPaneSizes(prev => ({
               ...prev,
-              ['split']: [currentSizes[0] || 50, percentage, 100 - percentage]
+              [splitSizeKey]: [currentSizes[0] || 50, percentage, 100 - percentage]
             }))
           }
         } else if (splitLayout === '1-top-2-bottom') {
@@ -3940,20 +4109,21 @@ def main(command: str = "show version"):
             const percentage = Math.max(minSize, Math.min(100 - minSize, ((e.clientY - rect.top) / rect.height) * 100))
             setSplitPaneSizes(prev => ({
               ...prev,
-              ['split']: [currentSizes[0] || 50, percentage, 100 - percentage]
+              [splitSizeKey]: [currentSizes[0] || 50, percentage, 100 - percentage]
             }))
           } else {
             const percentage = Math.max(minSize, Math.min(100 - minSize, ((e.clientX - rect.left) / rect.width) * 100))
             setSplitPaneSizes(prev => ({
               ...prev,
-              ['split']: [percentage, currentSizes[1] || 50, currentSizes[2] || 50]
+              [splitSizeKey]: [percentage, currentSizes[1] || 50, currentSizes[2] || 50]
             }))
           }
         } else {
-          // Vertical 3-pane layout
-          const totalHeight = rect.height
-          const position = e.clientY - rect.top
-          const percentage = (position / totalHeight) * 100
+          // Linear 3-pane layout — horizontal splits along X, vertical along Y
+          const isHorizontal = splitLayout === 'horizontal'
+          const totalSize = isHorizontal ? rect.width : rect.height
+          const position = isHorizontal ? e.clientX - rect.left : e.clientY - rect.top
+          const percentage = (position / totalSize) * 100
 
           const newSizes = [...(currentSizes.length >= 3 ? currentSizes : [33.33, 33.33, 33.34])]
 
@@ -3970,7 +4140,7 @@ def main(command: str = "show version"):
             newSizes[2] = 100 - newSizes[0] - newSecond
           }
 
-          setSplitPaneSizes(prev => ({ ...prev, ['split']: newSizes }))
+          setSplitPaneSizes(prev => ({ ...prev, [splitSizeKey]: newSizes }))
         }
       } else if (tabCount === 4) {
         // 2x2 grid - index 0 is vertical center, index 1 is horizontal center
@@ -3978,13 +4148,13 @@ def main(command: str = "show version"):
           const percentage = Math.max(minSize, Math.min(100 - minSize, ((e.clientX - rect.left) / rect.width) * 100))
           setSplitPaneSizes(prev => ({
             ...prev,
-            ['split']: [percentage, currentSizes[1] || 50]
+            [splitSizeKey]: [percentage, currentSizes[1] || 50]
           }))
         } else {
           const percentage = Math.max(minSize, Math.min(100 - minSize, ((e.clientY - rect.top) / rect.height) * 100))
           setSplitPaneSizes(prev => ({
             ...prev,
-            ['split']: [currentSizes[0] || 50, percentage]
+            [splitSizeKey]: [currentSizes[0] || 50, percentage]
           }))
         }
       }
@@ -4002,7 +4172,7 @@ def main(command: str = "show version"):
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizingSplit, resizingSplitIndex, splitTabs, splitLayout, splitPaneSizes])
+  }, [isResizingSplit, resizingSplitIndex, splitTabs, splitLayout, splitPaneSizes, splitSizeKey])
 
   // Split pane drag handlers (Phase 25: drag to reorder/remove) - using pointer events for Tauri compatibility
   const handleSplitPanePointerDown = useCallback((e: React.PointerEvent, tabId: string) => {
@@ -4356,6 +4526,7 @@ def main(command: str = "show version"):
       return {
         name: t.title,
         tabId: t.id,
+        sessionId: t.sessionId,
         ip: session?.host,
         profileId: session?.profile_id,
         snmpProfileId: session?.profile_id,
@@ -4759,6 +4930,7 @@ def main(command: str = "show version"):
       return {
         name: s.name,
         tabId: tab?.id || s.id,
+        sessionId: s.id,
         ip: s.host,
         profileId: s.profileId,
         snmpProfileId: s.profileId,
@@ -4797,7 +4969,7 @@ def main(command: str = "show version"):
 
     // Create a new tab
     const newId = `ssh-${session.id}-${Date.now()}`
-    const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+    const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
     const newTab: Tab = {
       id: newId,
       type: 'terminal',
@@ -4809,6 +4981,9 @@ def main(command: str = "show version"):
       terminalTheme,
       fontSize,
       fontFamily,
+      scrollbackLines,
+      autoReconnect,
+      reconnectDelay,
       color: session.color || undefined,
       status: 'connecting'
     }
@@ -4839,7 +5014,7 @@ def main(command: str = "show version"):
       // Fetch session and create new terminal tab
       try {
         const session = await getSession(sessionId)
-        const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+        const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
         const newId = `ssh-${session.id}-${Date.now()}`
         const newTab: Tab = {
           id: newId,
@@ -4852,6 +5027,9 @@ def main(command: str = "show version"):
           terminalTheme,
           fontSize,
           fontFamily,
+          scrollbackLines,
+          autoReconnect,
+          reconnectDelay,
           color: session.color || undefined,
           status: 'connecting'
         }
@@ -4884,7 +5062,7 @@ def main(command: str = "show version"):
 
       for (let i = 0; i < sessionsToConnect.length; i++) {
         const session = sessionsToConnect[i]
-        const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+        const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
 
         // Create terminal tab for this session
         const newId = `ssh-${session.id}-${Date.now()}-${i}`
@@ -4893,11 +5071,15 @@ def main(command: str = "show version"):
           type: 'terminal',
           title: session.name,
           sessionId: session.id,
+          protocol: session.protocol || 'ssh',
           profileId: session.profile_id,
           cliFlavor: session.cli_flavor,
           terminalTheme,
           fontSize,
           fontFamily,
+          scrollbackLines,
+          autoReconnect,
+          reconnectDelay,
           color: session.color || undefined,
           status: 'connecting'
         }
@@ -5005,7 +5187,7 @@ def main(command: str = "show version"):
 
   // Handle session updates from SessionPanel (updates open tabs)
   const handleSessionUpdated = useCallback((updatedSession: Session) => {
-    const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(updatedSession)
+    const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(updatedSession)
     setTabs(prev => prev.map(tab =>
       tab.sessionId === updatedSession.id
         ? {
@@ -5014,6 +5196,9 @@ def main(command: str = "show version"):
             terminalTheme,
             fontSize,
             fontFamily,
+            scrollbackLines,
+            autoReconnect,
+            reconnectDelay,
             color: updatedSession.color || undefined,
             cliFlavor: updatedSession.cli_flavor,
           }
@@ -5358,16 +5543,52 @@ def main(command: str = "show version"):
     setScratchpadContent('')
   }, [scratchpadContent])
 
-  // Handle save for active document tab
-  const handleSaveActiveDocument = useCallback(() => {
-    if (!activeTabId) return
+  // Handle File → Save / Cmd+S for the active tab. Dispatches
+  // `netstacks:save-document` with the tab id; the tab's component
+  // (DocumentTabEditor / UnsavedDocumentTab / ScriptEditor / SftpEditorTab /
+  // MopWorkspace) listens and saves when `detail.tabId` matches. This is the
+  // single save path — the components have no Cmd+S listeners of their own.
+  // Returns false for tab types that can't be saved so the keydown passes
+  // through untouched.
+  const handleSaveActiveDocument = useCallback((): boolean => {
+    if (!activeTabId) return false
     const activeTab = tabs.find(t => t.id === activeTabId)
-    if (!activeTab || !isDocumentTab(activeTab) || !activeTab.documentId) return
+    if (!activeTab) return false
+    const savable = isDocumentTab(activeTab) || isScriptTab(activeTab) || isMopTab(activeTab) || activeTab.type === 'sftp-editor'
+    if (!savable) return false
 
-    // Trigger save in DocumentTabEditor via a custom event
     const event = new CustomEvent('netstacks:save-document', { detail: { tabId: activeTabId } })
     window.dispatchEvent(event)
+    return true
   }, [activeTabId, tabs])
+
+  // Quick Look Notes / Templates / Outputs: show the Docs panel with the
+  // category expanded. The prop covers a panel that mounts on this change;
+  // the event covers one that is already mounted.
+  const showDocsCategory = useCallback((category: DocumentCategory) => {
+    setActiveView('docs')
+    setSidebarOpen(true)
+    setDocsFocusCategory(category)
+    window.dispatchEvent(new CustomEvent(DOCS_SELECT_CATEGORY_EVENT, { detail: { category } }))
+  }, [])
+
+  // Reconnect the active terminal through its handle (the old
+  // `menu://reconnect` / `terminal-reconnect` events had no listener).
+  const reconnectActiveTerminal = useCallback(() => {
+    if (!activeTabId) return
+    terminalRefs.current.get(activeTabId)?.reconnect()
+  }, [activeTabId])
+
+  // Open the active terminal's find bar. TerminalHandle doesn't expose the
+  // find bar yet; this calls `openSearch()` once Terminal.tsx adds it and is
+  // a no-op until then (the old `terminal-find` event had no listener).
+  const openTerminalFind = useCallback(() => {
+    if (!activeTabId) return
+    const handle = terminalRefs.current.get(activeTabId)
+    if (handle && 'openSearch' in handle && typeof handle.openSearch === 'function') {
+      handle.openSearch()
+    }
+  }, [activeTabId])
 
   // AI Agent: Execute command on a terminal session
   // This finds the terminal by sessionId and sends the command
@@ -5500,7 +5721,7 @@ def main(command: str = "show version"):
       }
 
       const newId = `ssh-${session.id}-${Date.now()}`
-      const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+      const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
       const newTab: Tab = {
         id: newId,
         type: 'terminal',
@@ -5511,6 +5732,9 @@ def main(command: str = "show version"):
         terminalTheme,
         fontSize,
         fontFamily,
+        scrollbackLines,
+        autoReconnect,
+        reconnectDelay,
         color: session.color || undefined,
         status: 'connecting'
       }
@@ -5747,23 +5971,15 @@ def main(command: str = "show version"):
     keyboard.registerAction('toggleMultiSend', () => {
       if (activeTabId) toggleMultiSend(activeTabId)
     })
-    keyboard.registerAction('reconnect', () => {
-      // Emit reconnect event for the active terminal
-      window.dispatchEvent(new CustomEvent('menu://reconnect'))
-    })
+    keyboard.registerAction('reconnect', reconnectActiveTerminal)
+    keyboard.registerAction('findInTerminal', openTerminalFind)
+    keyboard.registerAction('aiOverlay', handleOpenAIChatTab)
+    keyboard.registerAction('groupSelectedTabs', handleGroupSelectedTabs)
+    keyboard.registerAction('saveTabsAsGroup', () => { void handleSaveCurrentAsGroup() })
     // Quick Look shortcuts
-    keyboard.registerAction('quickLookNotes', () => {
-      setActiveView('docs')
-      setSidebarOpen(true)
-    })
-    keyboard.registerAction('quickLookTemplates', () => {
-      setActiveView('docs')
-      setSidebarOpen(true)
-    })
-    keyboard.registerAction('quickLookOutputs', () => {
-      setActiveView('docs')
-      setSidebarOpen(true)
-    })
+    keyboard.registerAction('quickLookNotes', () => showDocsCategory('notes'))
+    keyboard.registerAction('quickLookTemplates', () => showDocsCategory('templates'))
+    keyboard.registerAction('quickLookOutputs', () => showDocsCategory('outputs'))
     keyboard.registerAction('scratchpadOpen', () => handleOpenScratchpad())
 
     return () => {
@@ -5785,9 +6001,13 @@ def main(command: str = "show version"):
       keyboard.unregisterAction('quickLookOutputs')
       keyboard.unregisterAction('toggleMultiSend')
       keyboard.unregisterAction('reconnect')
+      keyboard.unregisterAction('findInTerminal')
+      keyboard.unregisterAction('aiOverlay')
+      keyboard.unregisterAction('groupSelectedTabs')
+      keyboard.unregisterAction('saveTabsAsGroup')
       keyboard.unregisterAction('scratchpadOpen')
     }
-  }, [keyboard, createTerminal, closeTerminal, activeTabId, tabs, selectedSessionIds, handleBulkConnect, handleSaveActiveDocument, handleOpenAIChatFromTerminal, isTroubleshootingActive])
+  }, [keyboard, createTerminal, closeTerminal, activeTabId, tabs, selectedSessionIds, handleBulkConnect, handleSaveActiveDocument, handleOpenAIChatFromTerminal, isTroubleshootingActive, reconnectActiveTerminal, openTerminalFind, handleOpenAIChatTab, handleGroupSelectedTabs, handleSaveCurrentAsGroup, showDocsCategory])
 
   // ── Native menu commands ──────────────────────────────────────────
   // Every native-menu item is registered here as a Command so the
@@ -5860,7 +6080,7 @@ def main(command: str = "show version"):
       ctx.activeTabType === 'script' ||
       ctx.activeTabType === 'sftp-editor' ||
       ctx.activeTabType === 'mop',
-    run: () => handleSaveActiveDocument(),
+    run: () => { handleSaveActiveDocument() },
   })
   useCommand({
     id: 'file.close-tab', label: 'Close Tab', category: 'file',
@@ -5882,14 +6102,10 @@ def main(command: str = "show version"):
   useCommand({
     id: 'edit.find', label: 'Find…', category: 'edit',
     accelerator: 'CmdOrCtrl+F',
-    // Find dispatches a DOM event to the active terminal, so only
-    // make sense when one is focused.
+    // Find targets the active terminal's handle, so only makes sense
+    // when one is focused.
     when: (ctx) => ctx.activeTabType === 'terminal',
-    run: () => {
-      if (!activeTabId) return
-      const el = document.querySelector(`[data-terminal-id="${activeTabId}"]`)
-      el?.dispatchEvent(new CustomEvent('terminal-find', { bubbles: true }))
-    },
+    run: () => openTerminalFind(),
   })
 
   // View ----------------------------------------------------------
@@ -5906,7 +6122,7 @@ def main(command: str = "show version"):
   useCommand({
     id: 'view.toggle-ai-panel', label: 'Toggle AI Panel', category: 'view',
     accelerator: 'CmdOrCtrl+I',
-    run: () => setAiOverlordActive(prev => !prev),
+    run: () => toggleAiPanel(),
   })
   useCommand({
     id: 'view.zoom-reset', label: 'Actual Size', category: 'view',
@@ -5942,11 +6158,7 @@ def main(command: str = "show version"):
       (ctx.terminalStatus === 'connected' ||
         ctx.terminalStatus === 'disconnected' ||
         ctx.terminalStatus === 'error'),
-    run: () => {
-      if (!activeTabId) return
-      const el = document.querySelector(`[data-terminal-id="${activeTabId}"]`)
-      el?.dispatchEvent(new CustomEvent('terminal-reconnect', { bubbles: true }))
-    },
+    run: () => reconnectActiveTerminal(),
   })
   useCommand({
     id: 'session.toggle-multi-send', label: 'Toggle Multi-Send', category: 'session',
@@ -6068,7 +6280,7 @@ def main(command: str = "show version"):
     accelerator: 'CmdOrCtrl+J',
     // Same target state as view.toggle-ai-panel — having both
     // surfaces is intentional ("AI" feels right for an AI menu).
-    run: () => setAiOverlordActive(prev => !prev),
+    run: () => toggleAiPanel(),
   })
 
   // Window — Tabs submenu -----------------------------------------
@@ -6349,7 +6561,9 @@ def main(command: str = "show version"):
           terminalTheme={tab.terminalTheme}
           fontSize={tab.fontSize}
           fontFamily={tab.fontFamily}
-          onClose={() => closeTerminal(tab.id)}
+          scrollbackLines={tab.scrollbackLines}
+          autoReconnect={tab.autoReconnect}
+          reconnectDelay={tab.reconnectDelay}
           onAIAction={handleTerminalAIAction}
           onAIFloatingChat={handleTerminalAIFloatingChat}
           onForceClick={handleTerminalForceClick}
@@ -6536,7 +6750,7 @@ def main(command: str = "show version"):
                 const session = sessions.find(s => s.id === tab.deviceSessionId)
                 if (session) {
                   const newId = `ssh-${session.id}-${Date.now()}`
-                  const { fontSize, fontFamily, terminalTheme } = getEffectiveFontSettings(session)
+                  const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
                   const newTab: Tab = {
                     id: newId,
                     type: 'terminal',
@@ -6547,6 +6761,9 @@ def main(command: str = "show version"):
                     terminalTheme,
                     fontSize,
                     fontFamily,
+                    scrollbackLines,
+                    autoReconnect,
+                    reconnectDelay,
                     color: session.color || undefined,
                     status: 'connecting',
                   }
@@ -6581,6 +6798,7 @@ def main(command: str = "show version"):
     } else if (tab.type === 'sftp-editor' && tab.sftpConnectionId && tab.sftpFilePath) {
       return (
         <SftpEditorTab
+          tabId={tab.id}
           connectionId={tab.sftpConnectionId}
           filePath={tab.sftpFilePath}
           fileName={tab.sftpFileName || ''}
@@ -6603,6 +6821,7 @@ def main(command: str = "show version"):
     } else if (isMopTab(tab)) {
       return (
         <MopWorkspace
+          tabId={tab.id}
           planId={tab.mopPlanId}
           executionId={tab.mopExecutionId}
           onTitleChange={(title) => {
@@ -6622,6 +6841,7 @@ def main(command: str = "show version"):
               scriptEditorRefs.current.delete(tab.id)
             }
           }}
+          tabId={tab.id}
           script={tab.scriptData}
           onSave={(updatedScript) => {
             setTabs(prev => prev.map(t =>
@@ -6806,7 +7026,7 @@ def main(command: str = "show version"):
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(o => !o)}
           aiPanelOpen={!aiPanelCollapsed && aiChatOpen}
-          onToggleAiPanel={() => { if (!aiPanelCollapsed && aiChatOpen) { setAiChatOpen(false) } else { setAiChatOpen(true); setAiPanelCollapsed(false) } }}
+          onToggleAiPanel={toggleAiPanel}
           onOpenCommandCenter={() => setCommandPaletteOpen(true)}
           menuSlot={platform === 'macos' ? undefined : <MenuBar />}
           windowControlsSlot={platform === 'macos' ? undefined : <WindowControls />}
@@ -7005,16 +7225,14 @@ def main(command: str = "show version"):
                 onOpenTopology={handleOpenTopology}
                 onOpenTracerouteTopology={handleOpenTracerouteTopology}
                 onStartDiscovery={handleStartDiscoveryFromPanel}
-                connectedSessionIds={tabs
-                  .filter(tab => isTerminalTab(tab) && tab.status === 'connected' && tab.sessionId)
-                  .map(tab => tab.sessionId!)
-                }
+                connectedSessionIds={connectedSessionIds}
               />
             )}
             {activeView === 'docs' && (
               <DocsPanel
                 onOpenDocument={handleOpenDocument}
                 onNewDocument={handleNewDocument}
+                initialCategory={docsFocusCategory ?? undefined}
               />
             )}
             {activeView === 'changes' && (
@@ -7300,7 +7518,7 @@ def main(command: str = "show version"):
                         if (!isInSplitView || !splitViewTabs || !isActiveTabInSplit) return undefined
 
                         const tabCount = splitViewTabs.length
-                        const sizes = splitPaneSizes['split'] || []
+                        const sizes = splitPaneSizes[splitSizeKey] || []
 
                         // Base style overrides CSS defaults - must explicitly set all position properties
                         const baseStyle: React.CSSProperties = {
@@ -7447,7 +7665,7 @@ def main(command: str = "show version"):
                     {/* Resize handles between split panes */}
                     {splitViewTabs && splitViewTabs.length >= 2 && (() => {
                       const handles: React.ReactElement[] = []
-                      const sizes = splitPaneSizes['split'] || []
+                      const sizes = splitPaneSizes[splitSizeKey] || []
                       const tabCount = splitViewTabs.length
 
                       if (tabCount === 2) {
@@ -7505,22 +7723,23 @@ def main(command: str = "show version"):
                             />
                           )
                         } else {
-                          // Vertical 3-pane layout - two horizontal handles
+                          // Linear 3-pane layout - two handles on the split axis
+                          const isHorizontal = splitLayout === 'horizontal'
                           const size1 = sizes[0] || 33.33
                           const size2 = sizes[1] || 33.33
                           handles.push(
                             <div
                               key="resize-0"
-                              className="split-resize-handle vertical"
-                              style={{ top: `${size1}%` }}
+                              className={`split-resize-handle ${isHorizontal ? 'horizontal' : 'vertical'}`}
+                              style={isHorizontal ? { left: `${size1}%` } : { top: `${size1}%` }}
                               onMouseDown={(e) => handleSplitResizeStart(e, 0)}
                             />
                           )
                           handles.push(
                             <div
                               key="resize-1"
-                              className="split-resize-handle vertical"
-                              style={{ top: `${size1 + size2}%` }}
+                              className={`split-resize-handle ${isHorizontal ? 'horizontal' : 'vertical'}`}
+                              style={isHorizontal ? { left: `${size1 + size2}%` } : { top: `${size1 + size2}%` }}
                               onMouseDown={(e) => handleSplitResizeStart(e, 1)}
                             />
                           )
@@ -8568,7 +8787,7 @@ def main(command: str = "show version"):
                   title: updatedSession.name,
                   ...(() => {
                     const eff = getEffectiveFontSettings(updatedSession)
-                    return { terminalTheme: eff.terminalTheme, fontSize: eff.fontSize, fontFamily: eff.fontFamily }
+                    return { terminalTheme: eff.terminalTheme, fontSize: eff.fontSize, fontFamily: eff.fontFamily, scrollbackLines: eff.scrollbackLines, autoReconnect: eff.autoReconnect, reconnectDelay: eff.reconnectDelay }
                   })(),
                   color: updatedSession.color || undefined,
                   cliFlavor: updatedSession.cli_flavor,

@@ -1,9 +1,13 @@
 // Topology API for saved topologies with CRUD operations
 
-import type { Topology, DeviceType } from '../types/topology';
+import type { Topology, DeviceType, Device, Connection } from '../types/topology';
 import type { Annotation } from '../types/annotations';
 import { createDocument, type Document } from './docs';
 import { getClient } from './client';
+import { createAnnotation, toElementData } from './annotations';
+
+/** Type-specific annotation payload accepted by `createAnnotation`. */
+type AnnotationElementData = Parameters<typeof createAnnotation>[2];
 
 // Types for API requests/responses
 import { logger } from '../lib/logger'
@@ -247,7 +251,13 @@ export async function updateDevice(
     snmp_profile_id: string;
   }>
 ): Promise<void> {
-  await getClient().http.put(`/topologies/${topologyId}/devices/${deviceId}/details`, updates);
+  // The agent's details struct has `device_type`, not `type` — translate so
+  // a frontend-shaped `type` never gets silently dropped by serde.
+  const { type, ...rest } = updates;
+  const body = type !== undefined && rest.device_type === undefined
+    ? { ...rest, device_type: type }
+    : rest;
+  await getClient().http.put(`/topologies/${topologyId}/devices/${deviceId}/details`, body);
 }
 
 // Delete a device from a topology (Phase 27-07)
@@ -336,7 +346,7 @@ export async function importTopologyFromJson(
     throw new Error('Expected an object at the top level of the topology JSON');
   }
 
-  const topo = candidate as Partial<Topology>;
+  const topo = candidate as Partial<Topology> & { annotations?: unknown };
   if (typeof topo.name !== 'string' || !topo.name.trim()) {
     throw new Error('Topology JSON is missing a `name` string');
   }
@@ -346,6 +356,10 @@ export async function importTopologyFromJson(
   if (!Array.isArray(topo.connections)) {
     throw new Error('Topology JSON is missing a `connections` array');
   }
+  if (topo.annotations !== undefined && !Array.isArray(topo.annotations)) {
+    throw new Error('Topology JSON `annotations` must be an array');
+  }
+  const annotations = (topo.annotations ?? []) as Annotation[];
 
   const imported: Topology = {
     id: 'pending-import',
@@ -358,22 +372,89 @@ export async function importTopologyFromJson(
   };
 
   // saveTemporaryTopology already creates + adds devices + creates
-  // connections with fresh IDs — exactly what we need for import.
-  return saveTemporaryTopology(imported);
+  // connections + annotations with fresh IDs — exactly what we need for import.
+  return saveTemporaryTopology(imported, annotations);
+}
+
+/** Enrichment fields that survive a save (everything the details PUT accepts). */
+export type DeviceEnrichmentDetails = Partial<{
+  status: string;
+  site: string;
+  role: string;
+  platform: string;
+  vendor: string;
+  version: string;
+  model: string;
+  serial: string;
+  uptime: string;
+  notes: string;
+}>;
+
+/**
+ * Pick the enrichment fields off a Device that `addNeighborDevice` cannot
+ * carry, so they can be pushed via the details PUT after creation.
+ * Returns null when there is nothing to push.
+ */
+export function deviceEnrichmentDetails(device: Device): DeviceEnrichmentDetails | null {
+  const details: DeviceEnrichmentDetails = {};
+  if (device.status && device.status !== 'unknown') details.status = device.status;
+  if (device.site) details.site = device.site;
+  if (device.role) details.role = device.role;
+  if (device.platform) details.platform = device.platform;
+  if (device.vendor) details.vendor = device.vendor;
+  if (device.version) details.version = device.version;
+  if (device.model) details.model = device.model;
+  if (device.serial) details.serial = device.serial;
+  if (device.uptime) details.uptime = device.uptime;
+  const notes = device.notes ?? (device.isNeighbor ? 'discovery:neighbor' : undefined);
+  if (notes) details.notes = notes;
+  return Object.keys(details).length > 0 ? details : null;
+}
+
+/**
+ * Build the create-connection request for a saved copy of `conn`, remapping
+ * device IDs and carrying routing/styling so the round-trip is lossless.
+ * Returns null when either endpoint was not saved.
+ */
+export function connectionCreateRequest(
+  conn: Connection,
+  deviceIdMap: Map<string, string>,
+): CreateConnectionRequest | null {
+  const newSourceId = deviceIdMap.get(conn.sourceDeviceId);
+  const newTargetId = deviceIdMap.get(conn.targetDeviceId);
+  if (!newSourceId || !newTargetId) return null;
+  return {
+    source_device_id: newSourceId,
+    target_device_id: newTargetId,
+    source_interface: conn.sourceInterface,
+    target_interface: conn.targetInterface,
+    label: conn.label,
+    waypoints: conn.waypoints && conn.waypoints.length > 0 ? JSON.stringify(conn.waypoints) : undefined,
+    curve_style: conn.curveStyle,
+    bundle_id: conn.bundleId,
+    bundle_index: conn.bundleIndex,
+    color: conn.color,
+    line_style: conn.lineStyle,
+    line_width: conn.lineWidth,
+    notes: conn.notes,
+  };
 }
 
 /**
  * Save a temporary topology to the database
  * Creates the topology, adds all devices, and creates all connections
  */
-export async function saveTemporaryTopology(topology: Topology): Promise<Topology> {
+export async function saveTemporaryTopology(
+  topology: Topology,
+  annotations: Annotation[] = [],
+): Promise<Topology> {
   // Step 1: Create the topology (with empty session_ids since these are discovered devices)
   const created = await createTopology(topology.name, []);
 
   // Step 2: Map old device IDs to new device IDs
   const deviceIdMap = new Map<string, string>();
 
-  // Step 3: Add each device
+  // Step 3: Add each device, then push the enrichment the add endpoint can't carry
   for (const device of topology.devices) {
     const result = await addNeighborDevice(created.id, {
       name: device.name,
@@ -381,27 +462,31 @@ export async function saveTemporaryTopology(topology: Topology): Promise<Topolog
       device_type: device.type || 'unknown',
       x: device.x,
       y: device.y,
+      profile_id: device.profileId,
+      snmp_profile_id: device.snmpProfileId,
     });
     deviceIdMap.set(device.id, result.id);
-  }
 
-  // Step 4: Create each connection with mapped device IDs
-  for (const conn of topology.connections) {
-    const newSourceId = deviceIdMap.get(conn.sourceDeviceId);
-    const newTargetId = deviceIdMap.get(conn.targetDeviceId);
-
-    if (newSourceId && newTargetId) {
-      await createConnection(created.id, {
-        source_device_id: newSourceId,
-        target_device_id: newTargetId,
-        source_interface: conn.sourceInterface,
-        target_interface: conn.targetInterface,
-        label: conn.label,
-      });
+    const details = deviceEnrichmentDetails(device);
+    if (details) {
+      await updateDevice(created.id, result.id, details);
     }
   }
 
-  // Step 5: Fetch and return the complete saved topology
+  // Step 4: Create each connection with mapped device IDs + routing/styling
+  for (const conn of topology.connections) {
+    const req = connectionCreateRequest(conn, deviceIdMap);
+    if (req) {
+      await createConnection(created.id, req);
+    }
+  }
+
+  // Step 5: Re-create annotations (text/shape/line) on the saved topology
+  for (const annotation of annotations) {
+    await createAnnotation(created.id, annotation.type, toElementData(annotation) as AnnotationElementData, annotation.zIndex);
+  }
+
+  // Step 6: Fetch and return the complete saved topology
   return getTopology(created.id);
 }
 

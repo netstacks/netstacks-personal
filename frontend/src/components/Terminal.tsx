@@ -50,6 +50,7 @@ import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { TracerouteParser } from '../lib/tracerouteParser'
 import { displayShortcut } from '../hooks/useKeyboard'
 import { CommandWarningDialog } from './CommandWarningDialog'
+import { GuardHoldDialog, type GuardHoldData } from './GuardHoldDialog'
 import { CommandWarningIndicator } from './CommandWarningIndicator'
 import { useNextStepSuggestions } from '../hooks/useNextStepSuggestions'
 import { NextStepSuggestions } from './NextStepSuggestions'
@@ -63,8 +64,8 @@ import { logger } from '../lib/logger'
 import { CLI_FLAVOR_META } from '../lib/cliFlavorMeta'
 
 interface TerminalMessage {
-  type: 'Input' | 'Output' | 'Resize' | 'Close' | 'Error' | 'Connected' | 'Disconnected'
-  data?: string | { cols: number; rows: number }
+  type: 'Input' | 'Output' | 'Resize' | 'Close' | 'Error' | 'Connected' | 'Disconnected' | 'GuardHold' | 'GuardStatus'
+  data?: string | { cols: number; rows: number } | GuardHoldData | { state: string; detail: string }
   session_id?: string
   reason?: string
   /** Display name of the resolved jump (jump host name or session name) for
@@ -104,8 +105,11 @@ interface TerminalProps {
   onSessionSettings?: () => void
   onStatusChange?: (status: ConnectionStatus) => void
   autoReconnect?: boolean
+  /** Seconds between automatic reconnect attempts */
   reconnectDelay?: number
   maxReconnectAttempts?: number
+  /** xterm scrollback buffer size in lines (null = xterm default) */
+  scrollbackLines?: number | null
   // Multi-send support
   onBroadcast?: (input: string, sourceId: string) => void
   onRegisterBroadcastListener?: (terminalId: string, listener: (input: string, sourceId: string) => void) => () => void
@@ -170,10 +174,18 @@ export interface TerminalHandle {
   isRecording: () => boolean
   /** Reconnect to the session */
   reconnect: () => void
+  /** Open the in-terminal find bar (Edit → Find / Cmd+F) */
+  openSearch: () => void
 }
 
 const DEFAULT_RECONNECT_DELAY = 5
+/** xterm's own default scrollback; used when the session doesn't set one. */
+const DEFAULT_SCROLLBACK_LINES = 1000
 const DEFAULT_MAX_ATTEMPTS = 0 // 0 = infinite
+/** sendCommand: output is complete once no new chunk arrives for this long. */
+const SEND_COMMAND_QUIET_MS = 300
+/** sendCommand: hard cap on how long to wait for output. */
+const SEND_COMMAND_MAX_WAIT_MS = 30_000
 
 /** Convert mouse coordinates to terminal cell position */
 function mouseToTerminalCell(
@@ -231,6 +243,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   autoReconnect = true,
   reconnectDelay = DEFAULT_RECONNECT_DELAY,
   maxReconnectAttempts = DEFAULT_MAX_ATTEMPTS,
+  scrollbackLines,
   onBroadcast,
   onRegisterBroadcastListener,
   highlightingEnabled = true,
@@ -262,8 +275,14 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const isConnectedRef = useRef(false)
   // Track if we've ever had a successful connection (to avoid showing reconnect overlay on initial failures)
   const hasEverConnectedRef = useRef(false)
-  // Flag to prevent reconnect loop when intentionally closing connection
-  const isIntentionalCloseRef = useRef(false)
+  // Sockets we closed on purpose (reconnect, unmount, superseded). Tracked
+  // per socket rather than as a shared flag: closing an already-CLOSED
+  // socket never fires onclose, so a shared flag would stay set and swallow
+  // the next socket's real close.
+  const intentionalCloseSocketsRef = useRef(new WeakSet<WebSocket>())
+  // Live terminal.onData subscription for the current socket; disposed on
+  // every reconnect so keystrokes never reach a dead socket's listener.
+  const dataDisposableRef = useRef<{ dispose: () => void } | null>(null)
   // Reconnect function ref for imperative handle
   const reconnectFnRef = useRef<(() => void) | null>(null)
 
@@ -286,6 +305,15 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Paste-from-clipboard bound to the live terminal instance (set in the
   // terminal-creation effect; used by the context menu and middle-click).
   const pasteFromClipboardRef = useRef<() => void>(() => {})
+
+  // Session Guard hold awaiting the user's decision (standalone SSH only).
+  const [guardHold, setGuardHold] = useState<GuardHoldData | null>(null)
+  // Why the last decision could not be delivered; keeps the dialog up
+  // instead of silently discarding the click (NS-GUARD-6).
+  const [guardHoldError, setGuardHoldError] = useState<string | null>(null)
+  // The first `probing` status per connection is surfaced; refresh probes
+  // after config writes stay quiet (NS-GUARD-11).
+  const guardProbingAnnouncedRef = useRef(false)
   // Troubleshooting capture callback (Phase 26)
   const onTroubleshootingCaptureRef = useRef(onTroubleshootingCapture)
   onTroubleshootingCaptureRef.current = onTroubleshootingCapture
@@ -330,7 +358,22 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false)
   const [countdown, setCountdown] = useState(reconnectDelay)
   const [attemptCount, setAttemptCount] = useState(0)
-  const [autoReconnectDisabled, setAutoReconnectDisabled] = useState(!autoReconnect)
+  // "Don't auto-reconnect this session" (overlay button) — combined with the
+  // autoReconnect prop so a session-settings change is honoured live.
+  const [userDisabledAutoReconnect, setUserDisabledAutoReconnect] = useState(false)
+  const autoReconnectDisabled = !autoReconnect || userDisabledAutoReconnect
+  // Mirrors read by socket handlers (bound once per connect) so they never
+  // see state captured when connect() was memoized.
+  const attemptCountRef = useRef(0)
+  const autoReconnectDisabledRef = useRef(autoReconnectDisabled)
+  autoReconnectDisabledRef.current = autoReconnectDisabled
+  const reconnectDelayRef = useRef(reconnectDelay)
+  reconnectDelayRef.current = reconnectDelay
+  const maxReconnectAttemptsRef = useRef(maxReconnectAttempts)
+  maxReconnectAttemptsRef.current = maxReconnectAttempts
+  const startReconnectCountdownRef = useRef<() => void>(() => {})
+  const onBroadcastRef = useRef(onBroadcast)
+  onBroadcastRef.current = onBroadcast
 
   // Display name of the resolved jump for THIS connection (sent on Connected).
   // Drives the top-right "via {jumpName}" pill. `null` for direct connections.
@@ -346,6 +389,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const [logFormat, setLogFormat] = useState<LogFormat>('plain')
   const [logTimestamps, setLogTimestamps] = useState(false)
   const [logFilePath, setLogFilePath] = useState<string | null>(null)
+  const logFilePathRef = useRef<string | null>(null)
   const logBufferRef = useRef<string[]>([])
   const logFlushIntervalRef = useRef<number | null>(null)
   const logOutputRef = useRef<((data: string) => void) | null>(null)
@@ -605,6 +649,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     enabled: settings['ai.nextStepSuggestions'] ?? true,
   })
   const [showNextStepSuggestions, setShowNextStepSuggestions] = useState(false)
+  const showNextStepSuggestionsRef = useRef(false)
+  showNextStepSuggestionsRef.current = showNextStepSuggestions
   // Track last executed command for suggestions
   const lastCommandRef = useRef<string>('')
   // Track recent output for prompt detection
@@ -617,60 +663,58 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
   // Expose imperative handle for external command execution (AI agent)
   useImperativeHandle(ref, () => ({
-    sendCommand: async (command: string, timeoutMs: number = 5000): Promise<string> => {
+    sendCommand: async (command: string, timeoutMs: number = SEND_COMMAND_MAX_WAIT_MS): Promise<string> => {
       return new Promise((resolve, reject) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        const ws = wsRef.current
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
           reject(new Error('Terminal not connected'))
           return
         }
 
-        // Capture output starting now
+        // Capture output on THIS socket via a side listener: the terminal's
+        // own onmessage keeps running untouched, and a reconnect can't
+        // inherit our listener.
         const outputBuffer: string[] = []
-        const startTime = Date.now()
+        let quietTimer: number | null = null
+        let capTimer: number | null = null
 
-        // Create a temporary listener to capture output
-        const originalOnMessage = wsRef.current.onmessage
-        const ws = wsRef.current
-        wsRef.current.onmessage = (event) => {
-          // Call original handler first
-          if (originalOnMessage && ws) {
-            originalOnMessage.call(ws, event)
-          }
-
+        const cleanup = () => {
+          if (quietTimer !== null) window.clearTimeout(quietTimer)
+          if (capTimer !== null) window.clearTimeout(capTimer)
+          ws.removeEventListener('message', onMessage)
+          ws.removeEventListener('close', onClose)
+        }
+        const finish = () => {
+          cleanup()
+          resolve(outputBuffer.join(''))
+        }
+        const onClose = () => {
+          cleanup()
+          reject(new Error('Terminal disconnected while waiting for command output'))
+        }
+        const onMessage = (event: MessageEvent) => {
           try {
             const msg: TerminalMessage = JSON.parse(event.data)
-            if (msg.type === 'Output' && typeof msg.data === 'string') {
-              outputBuffer.push(msg.data)
-            }
+            if (msg.type !== 'Output' || typeof msg.data !== 'string') return
+            outputBuffer.push(msg.data)
+            // Command is considered complete once output goes quiet.
+            if (quietTimer !== null) window.clearTimeout(quietTimer)
+            quietTimer = window.setTimeout(finish, SEND_COMMAND_QUIET_MS)
           } catch {
             // Ignore parse errors
           }
         }
 
+        ws.addEventListener('message', onMessage)
+        ws.addEventListener('close', onClose)
+        // Hard cap: resolve with whatever was captured (possibly nothing).
+        capTimer = window.setTimeout(finish, timeoutMs)
+
         // Send command + Enter
-        wsRef.current.send(JSON.stringify({
+        ws.send(JSON.stringify({
           type: 'Input',
           data: command + '\r'
         }))
-
-        // Wait for timeout then return captured output
-        const checkComplete = () => {
-          const elapsed = Date.now() - startTime
-
-          // Check if we've received output and had a quiet period (100ms no new data)
-          // or if timeout reached
-          if (elapsed >= timeoutMs) {
-            // Restore original handler
-            if (wsRef.current) {
-              wsRef.current.onmessage = originalOnMessage
-            }
-            resolve(outputBuffer.join(''))
-          } else {
-            setTimeout(checkComplete, 100)
-          }
-        }
-
-        setTimeout(checkComplete, 100)
       })
     },
 
@@ -732,6 +776,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       if (reconnectFnRef.current) {
         reconnectFnRef.current()
       }
+    },
+    openSearch: (): void => {
+      setShowFindBar(true)
     }
   }), [sessionId])
 
@@ -765,8 +812,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // This hook is only active for enterprise (controller-managed) sessions.
   // profileId may be empty (agent-open / device-anchored) → controller resolves
   // the device's default profile.
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- isEnterpriseMode is fixed for this terminal's lifetime, so hook order is stable across renders (deliberate).
-  const enterpriseSSH = isEnterpriseMode ? useEnterpriseSSH({
+  const enterpriseSSHHook = useEnterpriseSSH({
+    enabled: isEnterpriseMode,
     profileId: enterpriseProfileId ?? '',
     sessionDefinitionId: enterpriseSessionDefinitionId,
     host: enterpriseTargetHost,
@@ -805,6 +852,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       hasEverConnectedRef.current = true
       onStatusChangeRef.current?.('connected')
       setShowReconnectOverlay(false)
+      attemptCountRef.current = 0
       setAttemptCount(0)
       // Write connection status message to terminal
       if (terminalRef.current && enterpriseHost) {
@@ -826,6 +874,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     },
     onReconnecting: (attempt, delay) => {
       logger.log(`[Enterprise SSH] Reconnecting attempt ${attempt}, delay ${delay}ms`)
+      attemptCountRef.current = attempt
       setAttemptCount(attempt)
       setCountdown(Math.ceil(delay / 1000))
       // Only show overlay if we've had a successful connection before —
@@ -852,12 +901,13 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         }
       }
     },
-  }) : null
+  })
+  const enterpriseSSH = isEnterpriseMode ? enterpriseSSHHook : null
 
   // Jumpbox terminal connection (conditional hook usage)
   // This hook is only active when isJumpbox is true and no enterprise credential/session
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- isJumpboxMode is fixed for this terminal's lifetime, so hook order is stable across renders (deliberate).
-  const jumpboxTerminal = isJumpboxMode ? useJumpboxTerminal({
+  const jumpboxTerminalHook = useJumpboxTerminal({
+    enabled: isJumpboxMode,
     cols: fitAddonRef.current ? terminalRef.current?.cols || 80 : 80,
     rows: fitAddonRef.current ? terminalRef.current?.rows || 24 : 24,
     onData: (data) => {
@@ -902,7 +952,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         terminalRef.current.writeln(`\r\n\x1b[31mError: ${message}\x1b[0m\r\n`)
       }
     },
-  }) : null
+  })
+  const jumpboxTerminal = isJumpboxMode ? jumpboxTerminalHook : null
 
   // Stable refs for enterprise SSH functions (avoids re-subscribing on every render)
   const enterpriseSendDataRef = useRef<((data: string) => void) | null>(null)
@@ -1174,9 +1225,14 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         return
       }
       // WebSocket is CLOSING or CLOSED, close it and create new one
-      isIntentionalCloseRef.current = true
+      intentionalCloseSocketsRef.current.add(wsRef.current)
       wsRef.current.close()
     }
+    // Drop the previous socket's input listener before binding a new one,
+    // otherwise every keystroke also hits the dead socket's handler (which
+    // triggers a reconnect and kills the live session).
+    dataDisposableRef.current?.dispose()
+    dataDisposableRef.current = null
 
     // Defer status change to avoid React state update during render
     queueMicrotask(() => {
@@ -1202,6 +1258,17 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       params.set('cols', String(terminalRef.current.cols))
       params.set('rows', String(terminalRef.current.rows))
     }
+    // Session Guard (opt-in). The agent gates on flavor (Cisco IOS only in
+    // v1) and on the connection being SSH, so local shells ignore this.
+    // Quick-connect sessions have no name: the host labels the device.
+    if (settingsRef.current['guard.enabled']) {
+      params.set('guard', '1')
+      params.set('guard_mode', settingsRef.current['guard.mode'] ?? 'dry-run')
+      params.set('guard_flavor', cliFlavorRef.current ?? 'auto')
+      const guardDevice = sessionName || sessionHostRef.current
+      if (guardDevice) params.set('guard_device', guardDevice)
+    }
+    guardProbingAnnouncedRef.current = false
     // Use remote agent URL if available, otherwise local sidecar
     let wsUrl: string
     if (remoteAgentUrl && remoteAgentToken) {
@@ -1222,8 +1289,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         hasEverConnectedRef.current = true
         onStatusChangeRef.current?.('connected')
         setShowReconnectOverlay(false)
+        attemptCountRef.current = 0
         setAttemptCount(0)
-        setCountdown(reconnectDelay)
+        setCountdown(reconnectDelayRef.current)
       }
       // Send initial resize
       handleResize()
@@ -1240,8 +1308,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
             hasEverConnectedRef.current = true
             onStatusChangeRef.current?.('connected')
             setShowReconnectOverlay(false)
+            attemptCountRef.current = 0
             setAttemptCount(0)
-            setCountdown(reconnectDelay)
+            setCountdown(reconnectDelayRef.current)
             // Capture the resolved jump for the "via X" pill (null = direct).
             setViaJumpName(typeof msg.via_jump === 'string' ? msg.via_jump : null)
             // Re-send the actual terminal size now that the DOM is laid out.
@@ -1274,8 +1343,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
                 hasEverConnectedRef.current = true
                 onStatusChangeRef.current?.('connected')
                 setShowReconnectOverlay(false)
+                attemptCountRef.current = 0
                 setAttemptCount(0)
-                setCountdown(reconnectDelay)
+                setCountdown(reconnectDelayRef.current)
                 clearCountdownInterval()
               }
               // Log output if logging is active
@@ -1339,12 +1409,43 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
             terminal.writeln(`\r\n\x1b[31mDisconnected: ${msg.reason || 'Connection closed'}\x1b[0m`)
             break
           case 'Close':
+            // The PTY/SSH session ended on the agent side. Close our end so
+            // the normal onclose path runs (status → disconnected, overlay,
+            // auto-reconnect) instead of leaving a green zombie terminal.
             terminal.writeln('\r\n\x1b[31mConnection closed\x1b[0m')
+            ws.close()
             onCloseRef.current?.()
             break
           case 'Error':
             if (typeof msg.data === 'string') {
               terminal.writeln(`\r\n\x1b[31mError: ${msg.data}\x1b[0m`)
+            }
+            break
+          case 'GuardHold':
+            if (msg.data && typeof msg.data === 'object' && 'id' in msg.data) {
+              setGuardHold(msg.data as GuardHoldData)
+            }
+            break
+          case 'GuardStatus':
+            if (msg.data && typeof msg.data === 'object' && 'state' in msg.data) {
+              const { state, detail } = msg.data as { state: string; detail: string }
+              if (state === 'probing') {
+                // Announce the first probe of a connection; later refreshes
+                // (after config writes) are routine.
+                if (!guardProbingAnnouncedRef.current) {
+                  guardProbingAnnouncedRef.current = true
+                  showToast(`Session Guard: ${detail}`, 'info', 4000)
+                }
+              } else if (state === 'ready') showToast(`Session Guard ready: ${detail}`, 'info', 6000)
+              else if (state === 'failed') showToast(`Session Guard probe failed: ${detail}`, 'warning', 8000)
+              else if (state === 'skipped') showToast(`Session Guard: ${detail}`, 'warning', 6000)
+              else if (state === 'hold-expired') {
+                // The agent cancelled a hold nobody answered; drop the
+                // dialog if it is still the one on screen.
+                setGuardHold((h) => (h && h.id === detail ? null : h))
+                setGuardHoldError(null)
+                showToast('Session Guard: hold expired with no decision; command cancelled', 'warning', 6000)
+              }
             }
             break
         }
@@ -1354,7 +1455,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     }
 
     ws.onerror = (error) => {
-      if (isIntentionalCloseRef.current) return
+      if (intentionalCloseSocketsRef.current.has(ws)) return
       console.error('Terminal WebSocket error:', error)
       onStatusChangeRef.current?.('error')
       terminal.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
@@ -1362,24 +1463,21 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
     ws.onclose = () => {
       logger.log('Terminal WebSocket closed')
+      // A close we initiated (reconnect, unmount, superseded socket) must not
+      // drive the overlay/reconnect UI.
+      if (intentionalCloseSocketsRef.current.has(ws)) return
+
       const wasConnected = isConnectedRef.current
       isConnectedRef.current = false
-
-      // If this was an intentional close (reconnecting), don't trigger reconnect logic
-      if (isIntentionalCloseRef.current) {
-        isIntentionalCloseRef.current = false
-        return
-      }
-
       onStatusChangeRef.current?.('disconnected')
 
       // Only show reconnect overlay if we've had a successful connection before
       // This prevents the overlay from flashing during initial connection attempts
-      if (hasEverConnectedRef.current && wasConnected && !autoReconnectDisabled) {
+      if (hasEverConnectedRef.current && wasConnected) {
         setShowReconnectOverlay(true)
-        startReconnectCountdown()
-      } else if (hasEverConnectedRef.current && wasConnected) {
-        setShowReconnectOverlay(true)
+        if (!autoReconnectDisabledRef.current) {
+          startReconnectCountdownRef.current()
+        }
       }
     }
 
@@ -1461,7 +1559,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         // Analyze command for safety warning indicator
         analyzeSafetyCommandRef.current(commandLineBufferRef.current)
         // Auto-hide next-step suggestions when user starts typing
-        if (showNextStepSuggestions) {
+        if (showNextStepSuggestionsRef.current) {
           setShowNextStepSuggestions(false)
           clearNextStepSuggestionsRef.current()
         }
@@ -1478,7 +1576,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         data: data
       }))
       // Broadcast to other multi-send enabled terminals
-      onBroadcast?.(data, id)
+      onBroadcastRef.current?.(data, id)
       // Capture input for recording (asciicast format)
       if (recordingCaptureRef.current.recording) {
         recordingCaptureRef.current.addInput(data)
@@ -1514,52 +1612,66 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       }
     })
 
+    dataDisposableRef.current = dataDisposable
+
     return () => {
       dataDisposable.dispose()
+      if (dataDisposableRef.current === dataDisposable) {
+        dataDisposableRef.current = null
+      }
     }
   // Note: All dynamic callbacks accessed via refs to prevent reconnection loops
-  }, [handleResize, autoReconnectDisabled, reconnectDelay, clearCountdownInterval, onBroadcast, id, sessionId])
+  }, [handleResize, clearCountdownInterval, id, sessionId])
 
   // Store connect in ref so connection effect doesn't re-run when connect changes
   const connectRef = useRef(connect)
   connectRef.current = connect
 
-  // Start reconnect countdown
+  // Start reconnect countdown. Reads attempt count / delay / max from refs and
+  // reconnects through connectRef so the copy bound to a socket's onclose is
+  // never stale.
   const startReconnectCountdown = useCallback(() => {
-    if (maxReconnectAttempts > 0 && attemptCount >= maxReconnectAttempts) {
-      // Max attempts reached, don't auto-reconnect
+    const maxAttempts = maxReconnectAttemptsRef.current
+    if (maxAttempts > 0 && attemptCountRef.current >= maxAttempts) {
+      // Max attempts reached: leave the overlay up without a countdown.
+      setCountdown(0)
       return
     }
 
-    setCountdown(reconnectDelay)
+    const delay = reconnectDelayRef.current
+    setCountdown(delay)
     clearCountdownInterval()
 
+    let remaining = delay
     countdownIntervalRef.current = window.setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          clearCountdownInterval()
-          // Trigger reconnect
-          setAttemptCount(a => a + 1)
-          connect()
-          return reconnectDelay
-        }
-        return prev - 1
-      })
+      remaining -= 1
+      if (remaining > 0) {
+        setCountdown(remaining)
+        return
+      }
+      clearCountdownInterval()
+      // Trigger reconnect
+      attemptCountRef.current += 1
+      setAttemptCount(attemptCountRef.current)
+      setCountdown(delay)
+      connectRef.current()
     }, 1000)
-  }, [reconnectDelay, maxReconnectAttempts, attemptCount, clearCountdownInterval, connect])
+  }, [clearCountdownInterval])
+  startReconnectCountdownRef.current = startReconnectCountdown
 
   // Handle reconnect now button
   const handleReconnectNow = useCallback(() => {
     clearCountdownInterval()
-    setAttemptCount(a => a + 1)
+    attemptCountRef.current += 1
+    setAttemptCount(attemptCountRef.current)
     // Force close any existing WebSocket to allow fresh reconnect
     if (wsRef.current) {
-      isIntentionalCloseRef.current = true
+      intentionalCloseSocketsRef.current.add(wsRef.current)
       wsRef.current.close()
       wsRef.current = null
     }
-    connect()
-  }, [clearCountdownInterval, connect])
+    connectRef.current()
+  }, [clearCountdownInterval])
 
   // Expose reconnect function for imperative handle (standalone/local only — enterprise sets its own)
   if (!isEnterpriseMode && !isJumpboxMode) {
@@ -1575,7 +1687,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
   // Handle disable auto-reconnect
   const handleDisableAutoReconnect = useCallback(() => {
-    setAutoReconnectDisabled(true)
+    setUserDisabledAutoReconnect(true)
     clearCountdownInterval()
   }, [clearCountdownInterval])
 
@@ -1693,24 +1805,29 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   }, [])
 
   // Logging functions
+  // Reads the path from a ref: the flush interval is created inside
+  // startLogging with whatever flushLogBuffer was current at the time, so a
+  // state-backed path would still be null there and nothing would ever flush.
   const flushLogBuffer = useCallback(async () => {
-    if (logBufferRef.current.length === 0 || !logFilePath) return
+    const path = logFilePathRef.current
+    if (logBufferRef.current.length === 0 || !path) return
 
     const content = logBufferRef.current.join('')
     logBufferRef.current = []
 
     try {
-      await getClient().http.post('/logs/append', { path: logFilePath, content })
+      await getClient().http.post('/logs/append', { path, content })
     } catch (err) {
       console.error('Failed to flush log buffer:', err)
     }
-  }, [logFilePath])
+  }, [])
 
   const startLogging = useCallback(async (format: LogFormat, timestamps: boolean) => {
     try {
       const { data } = await getClient().http.post(`/terminals/${id}/log/start`, { format, timestamps })
 
       const { path } = data
+      logFilePathRef.current = path
       setLogFilePath(path)
       setLogFormat(format)
       setLogTimestamps(timestamps)
@@ -1742,7 +1859,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // Notify backend and save log to docs
     try {
       await getClient().http.post(`/terminals/${id}/log/stop`, {
-        path: logFilePath,
+        path: logFilePathRef.current,
         session_id: sessionId,
         session_name: sessionName,
       })
@@ -1750,9 +1867,10 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       console.error('Failed to stop logging on backend:', err)
     }
 
+    logFilePathRef.current = null
     setIsLogging(false)
     logger.log('Stopped logging')
-  }, [id, flushLogBuffer, logFilePath, sessionId, sessionName])
+  }, [id, flushLogBuffer, sessionId, sessionName])
 
   const logOutput = useCallback((data: string) => {
     if (!isLogging) return
@@ -2153,13 +2271,16 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   useEffect(() => {
     if (!containerRef.current) return
 
-    // Create terminal instance with theme and font settings (session-specific → global settings → defaults)
-    const effectiveFontSize = fontSize ?? settingsRef.current.fontSize ?? 14
-    const effectiveFontFamily = fontFamily ?? 'Menlo, Monaco, Consolas, monospace'
+    // Create terminal instance with theme and font settings (session-specific → global terminal settings → defaults).
+    // The UI `fontSize` is the chrome size; the terminal has its own (NS-TERM-11).
+    const effectiveFontSize = fontSize ?? settingsRef.current['terminal.fontSize'] ?? 14
+    const effectiveFontFamily = fontFamily ?? settingsRef.current['terminal.fontFamily'] ?? 'Menlo, Monaco, Consolas, monospace'
     // Use session theme, or fall back to default theme from settings
     const effectiveTheme = terminalTheme ?? settingsRef.current['terminal.defaultTheme']
     // Font weight setting
     const fontWeight = settingsRef.current['terminal.fontWeight'] ?? 'normal'
+    // Captured for the cleanup below (the ref's identity never changes).
+    const intentionalCloseSockets = intentionalCloseSocketsRef.current
     const terminal = new XTerm({
       cursorBlink: true,
       cursorStyle: 'block',
@@ -2167,6 +2288,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       fontFamily: effectiveFontFamily,
       fontWeight: fontWeight as 'normal' | 'bold',
       theme: getTerminalTheme(effectiveTheme),
+      scrollback: scrollbackLines ?? DEFAULT_SCROLLBACK_LINES,
       allowProposedApi: true,
     })
     // Load addons
@@ -2490,10 +2612,17 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         terminalEl.removeEventListener('webkitmouseforcedown', handleForceClick)
       }
       clearCountdownInterval()
-      // Clean up logging
+      if (captureTimeoutRef.current) {
+        window.clearTimeout(captureTimeoutRef.current)
+        captureTimeoutRef.current = null
+      }
+      // Clean up logging: stop the interval and push whatever is buffered so
+      // closing the tab doesn't drop the tail of the log.
       if (logFlushIntervalRef.current) {
         window.clearInterval(logFlushIntervalRef.current)
+        logFlushIntervalRef.current = null
       }
+      void flushLogBuffer()
       // Clean up highlight engine
       if (highlightEngineRef.current) {
         highlightEngineRef.current.destroy()
@@ -2505,14 +2634,14 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         enrichPopupRef.current = null
       }
       if (wsRef.current) {
-        isIntentionalCloseRef.current = true
+        intentionalCloseSockets.add(wsRef.current)
         wsRef.current.close()
       }
       // Clear terminal instance for useDetection hook
       setTerminalInstance(null)
       terminal.dispose()
     }
-  }, [id, handleResize, clearCountdownInterval])
+  }, [id, handleResize, clearCountdownInterval, flushLogBuffer])
 
   // Connect on mount after terminal is ready (use ref to prevent reconnection loops)
   // Deferred via setTimeout(0) so React StrictMode's rapid unmount/remount cycle
@@ -2599,15 +2728,22 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Update terminal font when props or global settings change
   useEffect(() => {
     if (terminalRef.current && fitAddonRef.current) {
-      const effectiveFontSize = fontSize ?? settings.fontSize ?? 14
-      const effectiveFontFamily = fontFamily ?? 'Menlo, Monaco, Consolas, monospace'
+      const effectiveFontSize = fontSize ?? settings['terminal.fontSize'] ?? 14
+      const effectiveFontFamily = fontFamily ?? settings['terminal.fontFamily'] ?? 'Menlo, Monaco, Consolas, monospace'
       terminalRef.current.options.fontSize = effectiveFontSize
       terminalRef.current.options.fontFamily = effectiveFontFamily
       // Re-fit terminal to account for font size changes
       fitAddonRef.current.fit()
       terminalRef.current.refresh(0, terminalRef.current.rows - 1)
     }
-  }, [fontSize, fontFamily, settings.fontSize])
+  }, [fontSize, fontFamily, settings])
+
+  // Update scrollback when the session setting changes
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.scrollback = scrollbackLines ?? DEFAULT_SCROLLBACK_LINES
+    }
+  }, [scrollbackLines])
 
   // Update terminal font weight when setting changes
   useEffect(() => {
@@ -3391,9 +3527,10 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Command safety dialog handlers (Phase 24: Smart Warnings)
   const handleSafetyProceed = useCallback(() => {
     if (pendingSafetyAnalysis && wsRef.current?.readyState === WebSocket.OPEN) {
-      // Send the command that was pending
-      const cmd = pendingSafetyAnalysis.command + '\r'
-      wsRef.current.send(JSON.stringify({ type: 'Input', data: cmd }))
+      // The command text was already echoed to the device as the user typed;
+      // only the intercepted Enter is outstanding. Re-sending the text would
+      // double it on the line (and hand the Session Guard `reloadreload`).
+      wsRef.current.send(JSON.stringify({ type: 'Input', data: '\r' }))
       commandLineBufferRef.current = ''
       // Clear suggestions if inline suggestions enabled
       if (settingsRef.current['ai.inlineSuggestions']) {
@@ -3405,7 +3542,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   }, [pendingSafetyAnalysis, clearSafetyPending])
 
   const handleSafetyCancel = useCallback(() => {
-    // User cancelled - clear the command line buffer but don't clear terminal
+    // User cancelled - wipe the typed line on the device (Ctrl-U) so a later
+    // Enter doesn't run it, and clear our local buffer.
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'Input', data: '\x15' }))
+    }
     commandLineBufferRef.current = ''
     clearSafetyPending()
     // Re-focus terminal
@@ -3418,16 +3559,31 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     clearSafetyPending()
     // Clear current command buffer
     commandLineBufferRef.current = ''
-    // Type the alternative command to the terminal
+    // Replace the typed line on the device with the alternative: Ctrl-U wipes
+    // the original, then the alternative is typed (not executed) — the user
+    // still presses Enter.
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // We just clear and start fresh - the user can then press Enter to send
-      // Note: The alternative is just displayed, user must press Enter to execute
-      wsRef.current.send(JSON.stringify({ type: 'Input', data: altCommand }))
+      wsRef.current.send(JSON.stringify({ type: 'Input', data: '\x15' + altCommand }))
       commandLineBufferRef.current = altCommand
     }
     // Re-focus terminal
     terminalRef.current?.focus()
   }, [clearSafetyPending])
+
+  // Session Guard: answer a hold. The agent retypes the line on proceed.
+  // If the socket is gone the decision cannot reach the agent: keep the
+  // dialog and say so rather than silently dropping the click (NS-GUARD-6).
+  const handleGuardDecision = useCallback((proceed: boolean) => {
+    if (!guardHold) return
+    if (wsRef.current?.readyState !== WebSocket.OPEN) {
+      setGuardHoldError('Connection lost — the decision cannot be delivered. The held command was not sent; reconnect and retype it if you still want to run it.')
+      return
+    }
+    wsRef.current.send(JSON.stringify({ type: 'GuardDecision', data: { id: guardHold.id, proceed } }))
+    setGuardHold(null)
+    setGuardHoldError(null)
+    terminalRef.current?.focus()
+  }, [guardHold])
 
   // Get menu items for the right-click context menu
   // Include session info when triggering AI actions so AI knows which terminal to use
@@ -3772,7 +3928,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         onCancel={handleCancel}
         onDisableAutoReconnect={handleDisableAutoReconnect}
         autoReconnectDisabled={autoReconnectDisabled}
-        maxAttempts={isEnterpriseMode ? maxReconnectAttempts : undefined}
+        maxAttempts={maxReconnectAttempts}
       />
       <ContextMenu
         position={contextMenuPosition}
@@ -3802,6 +3958,14 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         />
       )}
       {/* Command safety warning dialog - shown when attempting to execute dangerous command */}
+      {guardHold && (
+        <GuardHoldDialog
+          hold={guardHold}
+          error={guardHoldError}
+          onProceed={() => handleGuardDecision(true)}
+          onCancel={() => handleGuardDecision(false)}
+        />
+      )}
       {pendingSafetyAnalysis && (
         <CommandWarningDialog
           analysis={pendingSafetyAnalysis}

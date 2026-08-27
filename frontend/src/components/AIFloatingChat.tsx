@@ -52,6 +52,10 @@ interface AIFloatingChatProps {
   onContinueInPanel?: (messages: AgentMessage[], context?: AiContext) => void
 }
 
+// Viewport clamp for the open position (compact header + input row height).
+const COMPACT_HEIGHT = 90
+const VIEWPORT_MARGIN = 10
+
 const AIFloatingChat = ({
   isOpen,
   position,
@@ -125,6 +129,8 @@ const AIFloatingChat = ({
 
   // Resize state
   const [size, setSize] = useState({ width: 340, height: 350 })
+  const sizeRef = useRef(size)
+  useEffect(() => { sizeRef.current = size }, [size])
   const [isResizing, setIsResizing] = useState(false)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
@@ -141,7 +147,7 @@ const AIFloatingChat = ({
     clearMessages,
   } = useAIAgent({
     permissionMode: 'auto',
-    provider: selectedProvider ?? undefined,
+    provider: selectedProvider || undefined,
     model: selectedModel,
     sessions: availableSessions?.map(s => ({
       id: s.id,
@@ -189,16 +195,33 @@ const AIFloatingChat = ({
   // Has content (messages or loading)
   const hasContent = messages.length > 0 || isLoading
 
-  // Update position when prop changes (new open)
+  // Update position when prop changes (new open). Clamp to the viewport so a
+  // right-click near the bottom/right edge doesn't open the chat off-screen.
   useEffect(() => {
     if (isOpen) {
-      setPos(position)
+      const width = sizeRef.current.width
+      const height = COMPACT_HEIGHT
+      setPos({
+        x: Math.max(VIEWPORT_MARGIN, Math.min(position.x, window.innerWidth - width - VIEWPORT_MARGIN)),
+        y: Math.max(VIEWPORT_MARGIN, Math.min(position.y, window.innerHeight - height - VIEWPORT_MARGIN)),
+      })
       clearMessages()
       setInput('')
       // Focus input after a short delay
-      setTimeout(() => inputRef.current?.focus(), 100)
+      const timer = setTimeout(() => inputRef.current?.focus(), 100)
+      return () => clearTimeout(timer)
     }
-  }, [isOpen, position, clearMessages])
+    // Closed: stop the loop — auto mode would otherwise keep running tool
+    // commands on the terminal after the chat is gone.
+    stopAgent()
+  }, [isOpen, position, clearMessages, stopAgent])
+
+  // Return focus to the input once the agent finishes a reply
+  useEffect(() => {
+    if (isOpen && agentState === 'idle' && messages.length > 0) {
+      inputRef.current?.focus()
+    }
+  }, [isOpen, agentState, messages.length])
 
   // Track selected text for context display (captured at open time)
   const [capturedSelectedText, setCapturedSelectedText] = useState<string | undefined>()
@@ -446,7 +469,7 @@ const AIFloatingChat = ({
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={sessionName ? `Ask about ${sessionName}...` : 'Ask AI...'}
-            disabled={!selectedProvider || isLoading}
+            disabled={!providerInitialized || isLoading}
           />
           {isLoading ? (
             <button
@@ -463,7 +486,7 @@ const AIFloatingChat = ({
             <button
               type="submit"
               className="ai-floating-chat-send"
-              disabled={!selectedProvider || !input.trim()}
+              disabled={!providerInitialized || !input.trim()}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                 <line x1="22" y1="2" x2="11" y2="13" />

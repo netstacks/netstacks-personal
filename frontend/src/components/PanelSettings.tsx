@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './StatusBarSettings.css' // Reuse existing settings styles
+import Switch from './Switch'
 import {
   type PanelSettings,
   loadPanelSettings,
@@ -54,14 +55,11 @@ export default function PanelSettingsPanel() {
               When pinned, the sidebar stays open. When unpinned, it auto-hides when focus moves away.
             </span>
           </div>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.leftSidebarPinned}
-              onChange={(e) => updateSetting('leftSidebarPinned', e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
+          <Switch
+            checked={settings.leftSidebarPinned}
+            onChange={(v) => updateSetting('leftSidebarPinned', v)}
+            label="Left Sidebar Pinned"
+          />
         </div>
 
         <div className="status-bar-settings-row">
@@ -71,14 +69,11 @@ export default function PanelSettingsPanel() {
               When pinned, the AI panel stays open. When unpinned, it auto-hides when focus moves away.
             </span>
           </div>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.aiPanelPinned}
-              onChange={(e) => updateSetting('aiPanelPinned', e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
+          <Switch
+            checked={settings.aiPanelPinned}
+            onChange={(v) => updateSetting('aiPanelPinned', v)}
+            label="AI Panel Pinned"
+          />
         </div>
 
         <div className="status-bar-settings-row">
@@ -88,14 +83,11 @@ export default function PanelSettingsPanel() {
               When enabled, the left sidebar floats over the terminal area. When disabled, opening the sidebar pushes the tabs and terminal to make room.
             </span>
           </div>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.sidebarOverlay}
-              onChange={(e) => updateSetting('sidebarOverlay', e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
+          <Switch
+            checked={settings.sidebarOverlay}
+            onChange={(v) => updateSetting('sidebarOverlay', v)}
+            label="Sidebar Overlay"
+          />
         </div>
       </div>
 
@@ -110,14 +102,11 @@ export default function PanelSettingsPanel() {
               Moving the mouse to the left or right edge of the window reveals hidden panels.
             </span>
           </div>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.hotEdgesEnabled}
-              onChange={(e) => updateSetting('hotEdgesEnabled', e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
+          <Switch
+            checked={settings.hotEdgesEnabled}
+            onChange={(v) => updateSetting('hotEdgesEnabled', v)}
+            label="Enable Hot Edges"
+          />
         </div>
       </div>
 

@@ -28,7 +28,6 @@ use rand::Rng;
 use std::sync::Arc;
 use tokio_rustls::TlsAcceptor;
 use tower_http::cors::CorsLayer;
-use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -64,6 +63,7 @@ mod terminal;
 mod tls;
 mod tracked_router;
 mod git;
+mod guard_probe;
 mod git_accounts;
 mod git_api;
 mod tunnels;
@@ -967,7 +967,9 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         // Settings
         .route(
             "/settings/:key",
-            get(api::get_setting).put(api::set_setting),
+            get(api::get_setting)
+                .put(api::set_setting)
+                .delete(api::delete_setting),
         )
         // Terminal Logging
         .route(
@@ -1531,7 +1533,12 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/:id/disconnect", post(api::sftp_disconnect))
         .route("/:id/ls", get(api::sftp_ls))
         .route("/:id/download", get(api::sftp_download))
-        .route("/:id/upload", post(api::sftp_upload))
+        // Uploads stream to the SFTP server; no body limit on this route
+        // only (NS-FEAT-13).
+        .route(
+            "/:id/upload",
+            post(api::sftp_upload).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/:id/mkdir", post(api::sftp_mkdir))
         .route("/:id/rm", delete(api::sftp_rm))
         .route("/:id/rename", post(api::sftp_rename))
@@ -1602,6 +1609,8 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .nest("/lsp", lsp_http)
         .nest("/lsp", lsp_ws)
         .fallback_service(static_service)
-        .layer(RequestBodyLimitLayer::new(64 * 1024 * 1024)) // 64 MB
+        // 64 MB for every body-reading extractor. `DefaultBodyLimit` (unlike
+        // tower-http's layer) can be lifted per route — see the SFTP upload.
+        .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(cors)
 }

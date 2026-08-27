@@ -1,0 +1,17 @@
+Port        Mode             Encapsulation  Status        Native vlan
+Gi1/0/23    on               802.1q         trunking      1
+Gi1/0/24    on               802.1q         trunking      1
+
+Port        Vlans allowed on trunk
+Gi1/0/23    30,40
+Gi1/0/24    1-4094
+
+Port        Vlans allowed and active in management domain
+Gi1/0/23    30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300,
+            310,320,330
+Gi1/0/24    1,20,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100
+            2200,2300,10
+
+Port        Vlans in spanning tree forwarding state and not pruned
+Gi1/0/23    30,40
+Gi1/0/24    1,20

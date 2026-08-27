@@ -15,14 +15,20 @@ import { mapNetBoxRoleToDeviceType } from '../types/topology';
 /**
  * NetBox API device response
  */
+/** NetBox device role reference (NetBox >= 3.6 serialises it as `role`, older as `device_role`). */
+export interface NetBoxDeviceRoleRef {
+  id: number;
+  slug: string;
+  name: string;
+}
+
 export interface NetBoxDevice {
   id: number;
   name: string;
-  device_role?: {
-    id: number;
-    slug: string;
-    name: string;
-  } | null;
+  /** Role as returned by NetBox >= 3.6 and by the agent proxy. */
+  role?: NetBoxDeviceRoleRef | null;
+  /** Legacy role field (NetBox < 3.6). Prefer `getNetBoxDeviceRole()`. */
+  device_role?: NetBoxDeviceRoleRef | null;
   device_type?: {
     id: number;
     slug: string;
@@ -52,6 +58,18 @@ export interface NetBoxDevice {
     value: string;
     label: string;
   };
+}
+
+/**
+ * Resolve a device's role regardless of which field name NetBox (or the
+ * agent proxy) used. Always read roles through this — `device_role` alone
+ * is undefined on modern NetBox, which made role-based profile mappings
+ * never match and typed every imported device `unknown`.
+ */
+export function getNetBoxDeviceRole(
+  device: Pick<NetBoxDevice, 'role' | 'device_role'>,
+): NetBoxDeviceRoleRef | null | undefined {
+  return device.role ?? device.device_role;
 }
 
 /**
@@ -612,13 +630,13 @@ export async function importTopologyFromNetBox(
   const devices: Device[] = netboxDevices.map(nbDevice => ({
     id: `netbox-${nbDevice.id}`,
     name: nbDevice.name,
-    type: mapNetBoxRoleToDeviceType(nbDevice.device_role?.slug),
+    type: mapNetBoxRoleToDeviceType(getNetBoxDeviceRole(nbDevice)?.slug),
     status: mapNetBoxStatus(nbDevice.status?.value),
     x: 0, // Will be calculated
     y: 0, // Will be calculated
     netboxId: nbDevice.id,
     site: nbDevice.site?.name,
-    role: nbDevice.device_role?.name,
+    role: getNetBoxDeviceRole(nbDevice)?.name,
     platform: nbDevice.platform?.name,
     primaryIp: (nbDevice.primary_ip?.address || nbDevice.primary_ip?.display)?.split('/')[0], // Remove CIDR notation
   }));
@@ -863,13 +881,13 @@ export interface ImportSourceConfig {
  * Priority: role mapping > site mapping > default profile
  */
 function resolveProfileId(
-  device: { site?: { slug: string } | null; device_role?: { slug: string } | null },
+  device: { site?: { slug: string } | null; role?: { slug: string } | null; device_role?: { slug: string } | null },
   sourceConfig: ImportSourceConfig | null
 ): string | null {
   if (!sourceConfig) return null;
 
   // Check role mapping first (higher priority)
-  const roleSlug = device.device_role?.slug;
+  const roleSlug = (device.role ?? device.device_role)?.slug;
   if (roleSlug && sourceConfig.profileMappings.by_role[roleSlug]) {
     return sourceConfig.profileMappings.by_role[roleSlug];
   }

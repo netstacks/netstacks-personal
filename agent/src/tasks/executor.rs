@@ -20,6 +20,18 @@ use super::registry::TaskRegistry;
 use super::store::TaskStore;
 use super::tools::{AskUserTool, DelegateAgentTool, DeviceQueryTool, EditFileTool, ListSpecialistsTool, MopAnalysisTool, MopExecutionTool, MopPlanTool, PatchFileTool, SaveDocumentTool, SendEmailTool, SharedTool, SshCommandTool, ToolRegistry, WriteFileTool};
 
+/// Interpret the `ai.terminal_mode` setting. Accepts the seeded bare boolean
+/// (`true`), a bare string (`"true"`), and the frontend's settings envelope
+/// (`{"value": "true"}` / `{"value": true}`). Anything else is disabled.
+fn terminal_mode_enabled(value: &serde_json::Value) -> bool {
+    let inner = value.get("value").unwrap_or(value);
+    match inner {
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::String(s) => s.trim().eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
 /// Agent task executor - spawns background tasks with concurrency control
 pub struct AgentTaskExecutor {
     store: TaskStore,
@@ -71,15 +83,12 @@ impl AgentTaskExecutor {
             )));
         }
 
-        // Acquire semaphore permit (blocks if at capacity)
+        // The semaphore permit is acquired INSIDE the spawned task (below), so
+        // this returns immediately even when the pool is full (NS-API-8).
         let semaphore = self.registry.semaphore();
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| ExecutorError::SemaphoreClosed)?;
 
-        // Create cancellation token for this task
+        // Create cancellation token for this task. It also aborts the queued
+        // wait for a slot, so a queued task can be cancelled without running.
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
 
@@ -100,6 +109,25 @@ impl AgentTaskExecutor {
 
         // Spawn the background task
         let join_handle = tokio::spawn(async move {
+            // Wait for a concurrency slot here — not in the HTTP handler — so
+            // `POST /tasks` returns the pending row at once (NS-API-8).
+            let permit = match acquire_slot(&semaphore, &cancel_token_clone).await {
+                Ok(p) => p,
+                Err(SlotWaitError::Cancelled) => {
+                    info!("Task {} cancelled while queued for a slot", task_id_clone);
+                    if let Err(e) = mark_cancelled_before_execution(&store, &task_id_clone).await {
+                        warn!("Task {}: failed to record queued cancellation: {}", task_id_clone, e);
+                    }
+                    registry.unregister(&task_id_clone).await;
+                    return;
+                }
+                Err(SlotWaitError::SemaphoreClosed) => {
+                    error!("Task {} could not start: executor semaphore closed", task_id_clone);
+                    registry.unregister(&task_id_clone).await;
+                    return;
+                }
+            };
+
             // Hold the permit for real work; the guard lets the react loop
             // RELEASE the slot while parked on a human decision and RE-ACQUIRE
             // it (cancel-aware) before resuming. Feature B permit-release.
@@ -150,16 +178,14 @@ impl AgentTaskExecutor {
                 provider.clone(),
             )));
 
-            // Register write tools if AI terminal mode is enabled (Professional+ only)
-            let ai_terminal_mode_enabled: bool = sqlx::query_scalar::<_, String>(
-                "SELECT value FROM settings WHERE key = 'ai.terminal_mode'"
-            )
-            .fetch_optional(&pool)
-            .await
-            .ok()
-            .flatten()
-            .map(|v| v == "true")
-            .unwrap_or(false);
+            // Register write tools if AI terminal mode is enabled (Professional+ only).
+            // Read through the same JSON-parsed path as `get_setting` so the
+            // seeded bare `true` and the frontend's `{"value": "true"}` agree.
+            let ai_terminal_mode_enabled = provider
+                .get_setting("ai.terminal_mode")
+                .await
+                .map(|v| terminal_mode_enabled(&v))
+                .unwrap_or(false);
 
             if ai_terminal_mode_enabled {
                 tool_registry.register(Arc::new(WriteFileTool::new(pool.clone())));
@@ -235,23 +261,51 @@ impl AgentTaskExecutor {
                 .map_err(|e| ExecutorError::StoreError(e.to_string()))?;
 
             if task.status == TaskStatus::Pending {
-                self.store
-                    .update_task(
-                        task_id,
-                        UpdateTaskRequest {
-                            status: Some(TaskStatus::Cancelled),
-                            progress_pct: None,
-                            result_json: None,
-                            error_message: Some("Cancelled before execution".to_string()),
-                        },
-                    )
-                    .await
-                    .map_err(|e| ExecutorError::StoreError(e.to_string()))?;
+                mark_cancelled_before_execution(&self.store, task_id).await?;
             }
         }
 
         Ok(())
     }
+}
+
+/// Why a queued task never got its concurrency slot.
+#[derive(Debug, PartialEq, Eq)]
+enum SlotWaitError {
+    /// The task was cancelled while waiting in the queue.
+    Cancelled,
+    /// The registry semaphore was closed.
+    SemaphoreClosed,
+}
+
+/// Wait for a concurrency slot, giving up as soon as `cancel_token` fires so a
+/// queued task can be cancelled without ever running (NS-API-8).
+async fn acquire_slot(
+    semaphore: &Arc<tokio::sync::Semaphore>,
+    cancel_token: &CancellationToken,
+) -> Result<tokio::sync::OwnedSemaphorePermit, SlotWaitError> {
+    tokio::select! {
+        biased;
+        _ = cancel_token.cancelled() => Err(SlotWaitError::Cancelled),
+        res = semaphore.clone().acquire_owned() => res.map_err(|_| SlotWaitError::SemaphoreClosed),
+    }
+}
+
+/// Record that a task was cancelled before its ReAct loop ever started.
+async fn mark_cancelled_before_execution(store: &TaskStore, task_id: &str) -> Result<(), ExecutorError> {
+    store
+        .update_task(
+            task_id,
+            UpdateTaskRequest {
+                status: Some(TaskStatus::Cancelled),
+                progress_pct: None,
+                result_json: None,
+                error_message: Some("Cancelled before execution".to_string()),
+            },
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| ExecutorError::StoreError(e.to_string()))
 }
 
 /// Executor errors
@@ -261,8 +315,6 @@ pub enum ExecutorError {
     StoreError(String),
     #[error("Invalid state: {0}")]
     InvalidState(String),
-    #[error("Semaphore closed")]
-    SemaphoreClosed,
     #[error("Execution error: {0}")]
     _ExecutionError(String),
 }
@@ -476,5 +528,76 @@ async fn load_enabled_mcp_tools(
             warn!(error = %e, "Failed to load MCP tools from database");
             vec![]
         }
+    }
+}
+
+#[cfg(test)]
+mod slot_wait_tests {
+    use super::{acquire_slot, SlotWaitError};
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn returns_permit_when_slot_is_free() {
+        let sem = Arc::new(Semaphore::new(1));
+        let permit = acquire_slot(&sem, &CancellationToken::new()).await;
+        assert!(permit.is_ok());
+        assert_eq!(sem.available_permits(), 0);
+        drop(permit);
+        assert_eq!(sem.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancellation_while_queued_does_not_take_a_slot() {
+        let sem = Arc::new(Semaphore::new(1));
+        let _held = sem.clone().acquire_owned().await.unwrap();
+        let token = CancellationToken::new();
+
+        let waiter = {
+            let sem = sem.clone();
+            let token = token.clone();
+            tokio::spawn(async move { acquire_slot(&sem, &token).await.map(|_| ()) })
+        };
+        tokio::task::yield_now().await;
+        token.cancel();
+
+        assert_eq!(waiter.await.unwrap(), Err(SlotWaitError::Cancelled));
+        assert_eq!(sem.available_permits(), 0, "the held slot is untouched");
+    }
+
+    #[tokio::test]
+    async fn closed_semaphore_is_reported() {
+        let sem = Arc::new(Semaphore::new(1));
+        sem.close();
+        assert_eq!(
+            acquire_slot(&sem, &CancellationToken::new()).await.map(|_| ()),
+            Err(SlotWaitError::SemaphoreClosed)
+        );
+    }
+}
+
+#[cfg(test)]
+mod terminal_mode_tests {
+    use super::terminal_mode_enabled;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_bare_and_enveloped_encodings() {
+        assert!(terminal_mode_enabled(&json!(true)));
+        assert!(terminal_mode_enabled(&json!("true")));
+        assert!(terminal_mode_enabled(&json!({ "value": "true" })));
+        assert!(terminal_mode_enabled(&json!({ "value": true })));
+    }
+
+    #[test]
+    fn everything_else_is_disabled() {
+        assert!(!terminal_mode_enabled(&json!(false)));
+        assert!(!terminal_mode_enabled(&json!("false")));
+        assert!(!terminal_mode_enabled(&json!({ "value": "false" })));
+        assert!(!terminal_mode_enabled(&json!({ "value": false })));
+        assert!(!terminal_mode_enabled(&json!(null)));
+        assert!(!terminal_mode_enabled(&json!({})));
+        assert!(!terminal_mode_enabled(&json!(1)));
     }
 }

@@ -28,9 +28,14 @@ export default function NewTopologyDialog({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const isEnterprise = getCurrentMode() === 'enterprise';
+  // Key on the id list's contents, not the array identity — App used to pass
+  // a fresh array on every render, which re-ran the load effect (and the form
+  // reset) mid-typing.
+  const connectedSessionKey = connectedSessionIds.join(',');
 
   useEffect(() => {
     if (!isOpen) return;
+    const connectedIds = connectedSessionKey ? connectedSessionKey.split(',') : [];
 
     async function load() {
       try {
@@ -41,20 +46,24 @@ export default function NewTopologyDialog({
           setSelectedIds(response.items.map(d => d.id));
         } else {
           const data = await listSessions();
-          const activeSessions = data.filter(s => connectedSessionIds.includes(s.id));
+          const activeSessions = data.filter(s => connectedIds.includes(s.id));
           setSessions(activeSessions);
-          setSelectedIds(connectedSessionIds);
+          setSelectedIds(connectedIds);
         }
       } catch (err) {
         console.error('Failed to load devices:', err);
       }
     }
     load();
+  }, [isOpen, connectedSessionKey, isEnterprise]);
 
+  // Reset the form only when the dialog opens, never on a session-list change.
+  useEffect(() => {
+    if (!isOpen) return;
     setName('');
     setError(null);
     setSearchQuery('');
-  }, [isOpen, connectedSessionIds, isEnterprise]);
+  }, [isOpen]);
 
   const { submitting, run } = useSubmitting();
 

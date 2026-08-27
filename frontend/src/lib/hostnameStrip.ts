@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../api/errors'
 /**
  * Compiles hostname strip patterns into RegExp objects.
  * @param patterns - Array of regex pattern strings
@@ -16,7 +17,7 @@ export function compileStripPatterns(patterns: string[]): {
     } catch (e) {
       invalid.push({
         pattern: p,
-        error: e instanceof Error ? e.message : String(e)
+        error: getErrorMessage(e, String(e))
       })
     }
   }

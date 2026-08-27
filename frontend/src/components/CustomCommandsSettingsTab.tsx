@@ -14,6 +14,8 @@ import type { DetectionType } from '../types/detection';
 import './CustomCommandsSettingsTab.css';
 import AITabInput from './AITabInput';
 import { confirmDialog } from './ConfirmDialog';
+import { showToast } from './Toast';
+import { getErrorMessage } from '../api/errors';
 import { isMac } from '../hooks/useKeyboard';
 
 const DETECTION_TYPE_OPTIONS: { value: DetectionType; label: string }[] = [
@@ -46,6 +48,7 @@ export default function CustomCommandsSettingsTab() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [scriptAnalyses, setScriptAnalyses] = useState<Record<string, ScriptAnalysis>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -63,10 +66,20 @@ export default function CustomCommandsSettingsTab() {
   // Also surface this action in the macOS Force Touch popover.
   const [formShowInForceClick, setFormShowInForceClick] = useState(false);
 
+  const loadCommands = useCallback(() => {
+    return listCustomCommands()
+      .then(cmds => {
+        setCommands(cmds);
+        setLoadError(null);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoadError(getErrorMessage(err, 'Failed to load custom actions'));
+      });
+  }, []);
+
   useEffect(() => {
-    listCustomCommands()
-      .then(setCommands)
-      .catch(console.error);
+    loadCommands();
     listQuickActions()
       .then(setQuickActions)
       .catch(err => console.error('Failed to load quick actions:', err));
@@ -84,7 +97,7 @@ export default function CustomCommandsSettingsTab() {
       })
       .catch(err => console.error('Failed to load scripts:', err))
       .finally(() => setLoading(false));
-  }, []);
+  }, [loadCommands]);
 
   // Quick actions eligible for custom actions: exactly 1 variable
   const eligibleQuickActions = useMemo(() => {
@@ -211,8 +224,9 @@ export default function CustomCommandsSettingsTab() {
       resetForm();
     } catch (err) {
       console.error('Failed to save custom command:', err);
+      showToast(getErrorMessage(err, 'Failed to save custom action'), 'error');
     }
-  }, [formName, formCommand, formMode, formDetectionTypes, formEnabled, formActionType, formQuickActionId, formQuickActionVariable, formScriptId, formShowInForceClick, editingId, resetForm]);
+  }, [formName, formCommand, formMode, formDetectionTypes, formCustomRegex, formEnabled, formActionType, formQuickActionId, formQuickActionVariable, formScriptId, formShowInForceClick, editingId, resetForm]);
 
   const handleDelete = useCallback(async (id: string) => {
     const cmd = commands.find(c => c.id === id);
@@ -232,8 +246,9 @@ export default function CustomCommandsSettingsTab() {
       }
     } catch (err) {
       console.error('Failed to delete custom command:', err);
+      showToast(getErrorMessage(err, 'Failed to delete custom action'), 'error');
     }
-  }, [editingId, resetForm]);
+  }, [commands, editingId, resetForm]);
 
   const handleToggleEnabled = useCallback(async (cmd: CustomCommand) => {
     try {
@@ -241,6 +256,7 @@ export default function CustomCommandsSettingsTab() {
       setCommands(prev => prev.map(c => c.id === cmd.id ? updated : c));
     } catch (err) {
       console.error('Failed to toggle custom command:', err);
+      showToast(getErrorMessage(err, `Failed to ${cmd.enabled ? 'disable' : 'enable'} ${cmd.name}`), 'error');
     }
   }, []);
 
@@ -504,6 +520,12 @@ export default function CustomCommandsSettingsTab() {
 
         {loading ? (
           <p className="custom-commands-loading">Loading...</p>
+        ) : loadError && !isCreating ? (
+          <div className="custom-commands-empty">
+            {loadError}
+            <br /><br />
+            <button className="btn-secondary" onClick={() => loadCommands()}>Retry</button>
+          </div>
         ) : commands.length === 0 && !isCreating ? (
           <div className="custom-commands-empty">
             No custom actions configured yet.<br /><br />

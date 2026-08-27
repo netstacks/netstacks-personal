@@ -18,6 +18,7 @@ import {
 } from '../lib/ruleExport';
 import ColorPicker from './ColorPicker';
 import AITabInput from './AITabInput';
+import Switch from './Switch';
 import { useSettings } from '../hooks/useSettings';
 import './SettingsHighlighting.css';
 
@@ -749,14 +750,11 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
               Right-click highlighted items for lookup options.
             </span>
           </div>
-          <label className="setting-toggle">
-            <input
-              type="checkbox"
-              checked={appSettings['detection.highlighting']}
-              onChange={(e) => updateSetting('detection.highlighting', e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
+          <Switch
+            checked={appSettings['detection.highlighting']}
+            onChange={(checked) => updateSetting('detection.highlighting', checked)}
+            label="Highlight detected network identifiers"
+          />
         </div>
       </div>
 
@@ -773,14 +771,11 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
               Press Enter to see confirmation dialog with safe alternatives.
             </span>
           </div>
-          <label className="setting-toggle">
-            <input
-              type="checkbox"
-              checked={appSettings['commandSafety.enabled']}
-              onChange={(e) => updateSetting('commandSafety.enabled', e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
+          <Switch
+            checked={appSettings['commandSafety.enabled']}
+            onChange={(checked) => updateSetting('commandSafety.enabled', checked)}
+            label="Warn on dangerous commands"
+          />
         </div>
       </div>
 

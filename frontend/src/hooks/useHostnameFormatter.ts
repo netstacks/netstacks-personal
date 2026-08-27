@@ -16,10 +16,11 @@ export function useHostnameFormatter(): (name: string) => string {
   const patterns = settings['hostname.stripPatterns'] ?? [];
 
   // Memoize compiled RegExp array keyed on enabled + patterns joined
+  const patternsKey = patterns.join('\n');
   const compiledRegexps = useMemo(() => {
-    const { valid } = compileStripPatterns(patterns);
+    const { valid } = compileStripPatterns(patternsKey ? patternsKey.split('\n') : []);
     return valid;
-  }, [enabled, patterns.join('\n')]);
+  }, [patternsKey]);
 
   // Return stable callback
   return useCallback(

@@ -175,6 +175,7 @@ mod tests {
                 })
             })),
             eof_before_exit_status: false,
+            shell: None,
             host_key: ephemeral_ed25519(),
         })
         .await;

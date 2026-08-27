@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::io::{Read, Write};
-use crate::models::PortForward;
-use crate::ssh::{SshSession, SshConfig, SshAuth};
+use crate::ssh::approvals::HostKeyApprovalService;
+use crate::ssh::{ShellOptions, SshSession, SshConfig, SshAuth};
 use crate::telnet::{TelnetConfig, TelnetSession};
 use crate::utf8_decoder::Utf8Decoder;
 
@@ -22,6 +24,20 @@ pub enum TerminalMessage {
     Close,
     /// Error occurred
     Error(String),
+    /// Session Guard is holding a command; the client must answer with
+    /// `GuardDecision`. Only ever sent server → client.
+    GuardHold {
+        id: String,
+        command: String,
+        verdict: String,
+        reason: String,
+        objects: Vec<String>,
+        block_lines: usize,
+    },
+    /// The client's answer to a `GuardHold`. Only ever sent client → server.
+    GuardDecision { id: String, proceed: bool },
+    /// Session Guard lifecycle: `probing`, `ready`, `failed`, `skipped`.
+    GuardStatus { state: String, detail: String },
 }
 
 /// Inner session type - either local PTY or native SSH
@@ -66,11 +82,25 @@ pub struct SshJump<'a> {
     pub legacy_ssh: bool,
 }
 
+/// Per-connection options for an interactive SSH terminal session.
+#[derive(Default)]
+pub struct SshSessionOptions {
+    /// Host-key approval service; `None` falls back to silent TOFU.
+    pub approvals: Option<Arc<HostKeyApprovalService>>,
+    /// Profile `keepalive_interval` in seconds; 0 disables keepalives.
+    pub keepalive_interval_secs: u32,
+}
+
 /// A terminal session (local PTY or SSH)
 pub struct TerminalSession {
     pub id: String,
     kind: SessionKind,
     _reader_handle: tokio::task::JoinHandle<()>,
+    /// Cancelled once the underlying PTY / SSH / Telnet transport has ended
+    /// (the reader emitted `Close` or `Error`). The WebSocket loop selects
+    /// on this so a dead transport closes the socket instead of leaving a
+    /// zombie terminal (NS-TERM-5).
+    closed: CancellationToken,
 }
 
 impl TerminalSession {
@@ -168,6 +198,8 @@ impl TerminalSession {
         let master = Arc::new(Mutex::new(master));
 
         // Spawn a task to read from PTY and send to output channel
+        let closed = CancellationToken::new();
+        let closed_for_reader = closed.clone();
         let reader_handle = tokio::task::spawn_blocking(move || {
             let mut buf = [0u8; 4096];
             let mut decoder = Utf8Decoder::new();
@@ -192,12 +224,14 @@ impl TerminalSession {
                     }
                 }
             }
+            closed_for_reader.cancel();
         });
 
         Ok(Self {
             id,
             kind: SessionKind::Local { writer, master },
             _reader_handle: reader_handle,
+            closed,
         })
     }
 
@@ -210,16 +244,20 @@ impl TerminalSession {
         target: SshTarget<'_>,
         // Jump host / proxy support
         jump: Option<SshJump<'_>>,
-        // Port forwarding - delegated to TunnelManager
-        port_forwards: Vec<PortForward>,
         // Initial PTY dimensions from frontend (0 = use defaults)
         initial_cols: u32,
         initial_rows: u32,
+        options: SshSessionOptions,
     ) -> Result<Self, anyhow::Error> {
         let SshTarget { host, port, username, password, key_path, key_passphrase, legacy_ssh } = target;
-        // Port forwards are started via TunnelManager in ws.rs, not here
-        let _ = port_forwards;
-
+        let SshSessionOptions { approvals, keepalive_interval_secs } = options;
+        let shell_options = ShellOptions {
+            cols: initial_cols,
+            rows: initial_rows,
+            approvals,
+            keepalive_interval: (keepalive_interval_secs > 0)
+                .then(|| Duration::from_secs(u64::from(keepalive_interval_secs))),
+        };
         // Build target SshConfig
         let target_auth = if let Some(pw) = password {
             SshAuth::Password(pw.to_string())
@@ -272,11 +310,11 @@ impl TerminalSession {
                 "Creating SSH session to {} via jump {} (russh ProxyJump)",
                 host, jump_host_str
             );
-            SshSession::connect_via_jump(target_cfg, jump_cfg, initial_cols, initial_rows)
+            SshSession::connect_via_jump(target_cfg, jump_cfg, shell_options)
                 .await
                 .map_err(|e| anyhow::anyhow!("SSH connection via jump failed: {}", e))?
         } else {
-            SshSession::connect(target_cfg, initial_cols, initial_rows)
+            SshSession::connect(target_cfg, shell_options)
                 .await
                 .map_err(|e| anyhow::anyhow!("SSH connection failed: {}", e))?
         };
@@ -285,6 +323,8 @@ impl TerminalSession {
         let session_for_reader = session.clone();
 
         // Spawn a task to read from SSH session and send to output channel
+        let closed = CancellationToken::new();
+        let closed_for_reader = closed.clone();
         let reader_handle = tokio::spawn(async move {
             let mut decoder = Utf8Decoder::new();
             loop {
@@ -312,12 +352,14 @@ impl TerminalSession {
                     }
                 }
             }
+            closed_for_reader.cancel();
         });
 
         Ok(Self {
             id,
             kind: SessionKind::Ssh { session },
             _reader_handle: reader_handle,
+            closed,
         })
     }
 
@@ -345,23 +387,39 @@ impl TerminalSession {
 
         // Spawn reader task (same pattern as SSH)
         let reader_session = session.clone();
+        let closed = CancellationToken::new();
+        let closed_for_reader = closed.clone();
         let reader_handle = tokio::spawn(async move {
             let mut decoder = Utf8Decoder::new();
-            while let Ok(Some(data)) = reader_session.recv().await {
-                let text = decoder.decode(&data);
-                if text.is_empty() {
-                    continue;
-                }
-                if output_tx.send(TerminalMessage::Output(text)).is_err() {
-                    break;
+            loop {
+                match reader_session.recv().await {
+                    Ok(Some(data)) => {
+                        let text = decoder.decode(&data);
+                        if text.is_empty() {
+                            continue;
+                        }
+                        if output_tx.send(TerminalMessage::Output(text)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = output_tx.send(TerminalMessage::Close);
+                        break;
+                    }
+                    Err(e) => {
+                        let _ = output_tx.send(TerminalMessage::Error(e.to_string()));
+                        break;
+                    }
                 }
             }
+            closed_for_reader.cancel();
         });
 
         Ok(Self {
             id,
             kind: SessionKind::Telnet { session },
             _reader_handle: reader_handle,
+            closed,
         })
     }
 
@@ -383,6 +441,13 @@ impl TerminalSession {
                     .map_err(|e| anyhow::anyhow!("Failed to send data: {}", e))
             }
         }
+    }
+
+    /// Token cancelled once the transport has ended (reader emitted `Close`
+    /// or `Error`). Callers `select!` on `token.cancelled()` alongside the
+    /// WebSocket receive loop so they can tear the socket down.
+    pub fn close_token(&self) -> CancellationToken {
+        self.closed.clone()
     }
 
     /// Resize the terminal PTY
@@ -440,18 +505,19 @@ impl TerminalManager {
         Ok(id)
     }
 
-    /// Create a new SSH terminal session using native russh
+    /// Create a new SSH terminal session using native russh, with host-key
+    /// approvals (NS-TERM-6) and profile keepalive (NS-TERM-7) from `options`.
+    /// Session port forwards are started via TunnelManager in ws.rs, not here.
     pub async fn create_ssh_session(
         &self,
         output_tx: mpsc::UnboundedSender<TerminalMessage>,
         target: SshTarget<'_>,
         // Jump host / proxy support (Phase 06.2)
         jump: Option<SshJump<'_>>,
-        // Port forwarding (Phase 06.3)
-        port_forwards: Vec<PortForward>,
         // Initial PTY dimensions from frontend
         initial_cols: u32,
         initial_rows: u32,
+        options: SshSessionOptions,
     ) -> Result<String, anyhow::Error> {
         let id = uuid::Uuid::new_v4().to_string();
         let session = TerminalSession::new_ssh(
@@ -459,9 +525,9 @@ impl TerminalManager {
             output_tx,
             target,
             jump,
-            port_forwards,
             initial_cols,
             initial_rows,
+            options,
         ).await?;
 
         self.sessions

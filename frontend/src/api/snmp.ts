@@ -162,8 +162,7 @@ export async function snmpGet(req: SnmpGetRequest): Promise<SnmpGetResponse> {
     });
     return data;
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
-    throw new Error(axiosErr.response?.data?.error || `SNMP GET failed (${axiosErr.response?.status})`);
+    throw snmpFailure('GET', err);
   }
 }
 
@@ -191,8 +190,7 @@ export async function snmpWalk(req: SnmpWalkRequest): Promise<SnmpWalkResponse> 
     });
     return data;
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
-    throw new Error(axiosErr.response?.data?.error || `SNMP WALK failed (${axiosErr.response?.status})`);
+    throw snmpFailure('WALK', err);
   }
 }
 
@@ -218,17 +216,28 @@ export async function snmpTryCommunities(req: SnmpTryCommunityRequest): Promise<
     });
     return data;
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
-    throw new Error(axiosErr.response?.data?.error || `SNMP try-communities failed (${axiosErr.response?.status})`);
+    throw snmpFailure('try-communities', err);
   }
 }
 
 // Per-call timeout for interface-stats SNMP. Tighter than the client
 // default (30s) because LinkDetailTab fans these out to two endpoints
-// in parallel and one unreachable side blocks the whole tab. 15s
-// covers a slow via-jump pooled walk; anything beyond that almost
-// always means the endpoint isn't actually SNMP-reachable.
-const INTERFACE_STATS_TIMEOUT_MS = 15000;
+// in parallel and one unreachable side blocks the whole tab. Must stay
+// above the agent's own worst case (try-interface-stats walks the
+// ifTable once per vault community with its own per-walk timeout —
+// roughly 20s when every community times out), otherwise the client
+// gives up first and the user sees a bare timeout instead of the
+// agent's diagnosis.
+const INTERFACE_STATS_TIMEOUT_MS = 25000;
+
+/** Build the error for a failed SNMP call without leaking "(undefined)"
+ *  when there was no HTTP response (timeout / network error). */
+function snmpFailure(op: string, err: unknown): Error {
+  const axiosErr = err as { response?: { data?: { error?: string }; status?: number }; message?: string };
+  if (axiosErr.response?.data?.error) return new Error(axiosErr.response.data.error);
+  if (axiosErr.response?.status) return new Error(`SNMP ${op} failed (${axiosErr.response.status})`);
+  return new Error(`SNMP ${op} failed: ${axiosErr.message || 'no response from agent'}`);
+}
 
 /**
  * Get SNMP interface stats using an explicit community string.
@@ -255,8 +264,7 @@ export async function snmpInterfaceStats(req: SnmpInterfaceStatsRequest): Promis
     }, { timeout: INTERFACE_STATS_TIMEOUT_MS });
     return data;
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
-    throw new Error(axiosErr.response?.data?.error || `SNMP interface-stats failed (${axiosErr.response?.status})`);
+    throw snmpFailure('interface-stats', err);
   }
 }
 
@@ -284,7 +292,6 @@ export async function snmpTryInterfaceStats(req: SnmpTryInterfaceStatsRequest): 
     }, { timeout: INTERFACE_STATS_TIMEOUT_MS });
     return data;
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
-    throw new Error(axiosErr.response?.data?.error || `SNMP try-interface-stats failed (${axiosErr.response?.status})`);
+    throw snmpFailure('try-interface-stats', err);
   }
 }

@@ -2,11 +2,13 @@
 // here so it persists across closing the panel and app restarts.
 //
 // Circuit breaker: in enterprise mode these calls route to the Controller,
-// which may not implement `/ai-conversations` yet (→ 404). The first 404 flips
-// `endpointMissing` so subsequent calls short-circuit (no network) instead of
-// hammering a 404 on every chat message. Standalone (local agent supports the
-// endpoints) never trips it. It auto-recovers per app session if the backend
-// starts supporting them after a reload.
+// which may not implement `/ai-conversations` yet (→ 404). The first 404 on
+// the COLLECTION route (list/create) flips `endpointMissing` so subsequent
+// calls short-circuit (no network) instead of hammering a 404 on every chat
+// message. A 404 on `/:id` only means that one conversation is gone (deleted
+// or stale localStorage id) and must never trip the breaker. Standalone (local
+// agent supports the endpoints) never trips it. It auto-recovers per app
+// session if the backend starts supporting them after a reload.
 
 import { getClient } from './client';
 import { createCrudApi } from './crudFactory';
@@ -66,13 +68,8 @@ export async function listAiConversations(): Promise<AiConversationSummary[]> {
 
 export async function getAiConversation(id: string): Promise<AiConversation> {
   if (endpointMissing) throw new Error('ai-conversations endpoint unavailable');
-  try {
-    const { data } = await getClient().http.get(`/ai-conversations/${id}`);
-    return data;
-  } catch (e) {
-    if (isNotFound(e)) endpointMissing = true;
-    throw e;
-  }
+  const { data } = await getClient().http.get(`/ai-conversations/${id}`);
+  return data;
 }
 
 export async function createAiConversation(body: NewAiConversation): Promise<AiConversation> {
@@ -90,12 +87,7 @@ export async function updateAiConversation(
   body: UpdateAiConversation,
 ): Promise<AiConversation> {
   if (endpointMissing) throw new Error('ai-conversations endpoint unavailable');
-  try {
-    return await api.update(id, body);
-  } catch (e) {
-    if (isNotFound(e)) endpointMissing = true;
-    throw e;
-  }
+  return api.update(id, body);
 }
 
 export async function deleteAiConversation(id: string): Promise<void> {
@@ -103,6 +95,7 @@ export async function deleteAiConversation(id: string): Promise<void> {
   try {
     await api.delete(id);
   } catch (e) {
-    if (isNotFound(e)) endpointMissing = true;
+    // Already gone is fine; anything else propagates.
+    if (!isNotFound(e)) throw e;
   }
 }

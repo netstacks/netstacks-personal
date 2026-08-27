@@ -33,6 +33,9 @@ interface DiscoveryModalProps {
   devices: {
     name: string;
     tabId: string;
+    /** Database session UUID — what the agent's session lookup (jump host,
+     *  creds, port) keys on. `tabId` is only for mapping results back. */
+    sessionId?: string;
     ip?: string;
     profileId?: string;
     snmpProfileId?: string;
@@ -107,7 +110,7 @@ export default function DiscoveryModal({
       const request: BatchDiscoveryRequest = {
         targets: devices.map(d => ({
           ip: d.ip || '',
-          sessionId: d.tabId,
+          sessionId: d.sessionId,
           // Standalone mode: profile IDs for local agent credential resolution
           snmpProfileId: d.snmpProfileId,
           credentialProfileId: d.profileId,

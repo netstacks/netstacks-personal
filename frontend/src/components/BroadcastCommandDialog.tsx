@@ -11,6 +11,8 @@ import { downloadFile } from '../lib/formatters';
 import AITabInput from './AITabInput';
 
 import { getErrorMessage } from '../api/errors'
+import { showToast } from './Toast';
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 interface BroadcastCommandDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -108,16 +110,8 @@ function BroadcastCommandDialog({
     }
   }, [isOpen]);
 
-  // Handle escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  // Escape + backdrop click
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: isOpen });
 
   // Execute command handler
   const handleExecute = useCallback(async () => {
@@ -209,18 +203,18 @@ function BroadcastCommandDialog({
 
     try {
       await navigator.clipboard.writeText(text);
-      // Could add a toast notification here
-    } catch {
-      // Fallback for older browsers
-      console.error('Failed to copy to clipboard');
+      showToast(`Copied ${results.results.length} result${results.results.length === 1 ? '' : 's'} to clipboard`, 'success');
+    } catch (err) {
+      console.error('Failed to copy to clipboard', err);
+      showToast(`Failed to copy to clipboard: ${getErrorMessage(err)}`, 'error');
     }
   }, [results]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="broadcast-dialog-overlay">
-      <div className="broadcast-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="broadcast-dialog-overlay" {...backdropProps}>
+      <div className="broadcast-dialog" {...contentProps}>
         <div className="broadcast-dialog-header">
           <h2>Broadcast Command to {selectedSessionIds.length} Session{selectedSessionIds.length === 1 ? '' : 's'}</h2>
           <button className="broadcast-dialog-close" onClick={onClose} title="Close">

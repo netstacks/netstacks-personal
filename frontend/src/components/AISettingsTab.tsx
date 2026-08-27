@@ -46,6 +46,7 @@ import './AISettingsTab.css';
 
 // Icons
 import { getErrorMessage } from '../api/errors'
+import Switch from './Switch';
 const Icons = {
   anthropic: (
     <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
@@ -297,6 +298,32 @@ export default function AISettingsTab() {
         setControllerAiConfigEnabled(true); // default to unlocked if setting doesn't exist yet
       });
   }, [isEnterprise]);
+
+  // AI Terminal Mode — lets the write_file / edit_file / patch_file tools run
+  // against device and host filesystems. Standalone only (useAIAgent skips
+  // the read in enterprise). Stored as `{ value: "true" | "false" }`, which
+  // is the shape both agent-side readers accept.
+  const [aiTerminalMode, setAiTerminalMode] = useState(false);
+  useEffect(() => {
+    if (isEnterprise || !isClientInitialized()) return;
+    getClient().http.get('/settings/ai.terminal_mode')
+      .then((res) => {
+        const data = res.data;
+        setAiTerminalMode(data === true || data?.value === 'true');
+      })
+      .catch(() => setAiTerminalMode(false)); // not set = off
+  }, [isEnterprise]);
+
+  const handleToggleTerminalMode = async (enabled: boolean) => {
+    const previous = aiTerminalMode;
+    setAiTerminalMode(enabled);
+    try {
+      await getClient().http.put('/settings/ai.terminal_mode', { value: enabled ? 'true' : 'false' });
+    } catch (err) {
+      setAiTerminalMode(previous);
+      setError(getErrorMessage(err, 'Failed to update AI Terminal Mode'));
+    }
+  };
 
   // Track configuration status for each provider
   const [providerStatus, setProviderStatus] = useState<Record<AiProviderType, {
@@ -860,9 +887,23 @@ export default function AISettingsTab() {
     updateSetting(key, currentModels);
   };
 
+  /** Persist base_url/verify_ssl for EVERY provider (ai.provider_overrides),
+   *  and — only for the default provider — the singleton ai.provider_config
+   *  the agent boots from. Test/Save on a non-default card must never clobber
+   *  the default provider's config (RC-8). */
+  const persistProviderConfig = async (providerType: AiProviderType, config: AiConfig) => {
+    await setAiProviderOverrides({ base_urls: baseUrls, verify_ssl: verifySSL });
+    if ((settings['ai.defaultProvider'] || 'anthropic') === providerType) {
+      await setAiConfig(config);
+    }
+  };
+
   const handleSaveKey = async (providerType: AiProviderType) => {
     const key = apiKeys[providerType];
-    if (!key && providerType !== 'ollama' && providerType !== 'litellm') return;
+    const requiresKey = PROVIDERS.find(p => p.type === providerType)?.requiresKey ?? true;
+    // A key is only mandatory when none is stored yet; with a stored key the
+    // user may be saving just base_url / verify_ssl / api_format edits.
+    if (!key && requiresKey && !providerStatus[providerType].hasKey) return;
 
     try {
       setSaving(providerType);
@@ -876,7 +917,7 @@ export default function AISettingsTab() {
       // hasKey=true update was unreachable → user saw "unconfigured"
       // even though the key was in the vault).
       let vaultWriteSucceeded = false;
-      if (key && providerType !== 'ollama' && providerType !== 'litellm') {
+      if (key && requiresKey) {
         await storeAiApiKey(providerType, key);
         vaultWriteSucceeded = true;
       }
@@ -910,7 +951,7 @@ export default function AISettingsTab() {
         }
       }
       try {
-        await setAiConfig(config);
+        await persistProviderConfig(providerType, config);
       } catch (cfgErr) {
         // Vault succeeded but config save failed. Reflect the
         // partial-success in providerStatus so the UI is honest about
@@ -947,7 +988,7 @@ export default function AISettingsTab() {
       // Re-fetch models after saving key (Task 5 — cloud APIs now have auth)
       fetchLiveModels(providerType, true);
 
-      setSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} configured successfully`);
+      setSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} settings saved`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to save configuration'));
@@ -1016,7 +1057,8 @@ export default function AISettingsTab() {
           setApiKeys(prev => ({ ...prev, [providerType]: '' }));
         }
 
-        // Save config (including base_url) before testing so the backend has it
+        // Persist endpoint settings before testing so the backend has them
+        // (overrides for every provider; provider_config only if default).
         const configuredModels = getProviderModels(providerType);
         const testModel = providerType === 'custom' ? customModel : configuredModels[0] || '';
         const testConfig: AiConfig = {
@@ -1046,7 +1088,7 @@ export default function AISettingsTab() {
             }
           }
         }
-        await setAiConfig(testConfig);
+        await persistProviderConfig(providerType, testConfig);
 
         const result = await testAiConnection(providerType, testModel);
 
@@ -1272,14 +1314,14 @@ export default function AISettingsTab() {
                       {providerEnabled && getStatusBadge(status.connectionStatus)}
                     </span>
                   </button>
-                  <label className="ai-provider-enable-toggle" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
+                  <span className="ai-provider-enable-toggle" onClick={(e) => e.stopPropagation()}>
+                    <Switch
+                      size="sm"
                       checked={providerEnabled}
                       onChange={() => toggleProviderEnabled(p.type)}
+                      label={`Enable ${p.name}`}
                     />
-                    <span className="toggle-slider small" />
-                  </label>
+                  </span>
                 </div>
 
                 {isExpanded && (
@@ -1650,16 +1692,15 @@ export default function AISettingsTab() {
                         {isDefault ? 'Default Provider' : 'Set as Default'}
                       </button>
 
-                      {p.requiresKey && (
-                        <button
-                          className="btn-save-key"
-                          onClick={() => handleSaveKey(p.type)}
-                          disabled={saving === p.type || !canSaveKey}
-                        >
-                          {Icons.save}
-                          {saving === p.type ? 'Saving...' : 'Save Key'}
-                        </button>
-                      )}
+                      <button
+                        className="btn-save-key"
+                        onClick={() => handleSaveKey(p.type)}
+                        disabled={saving === p.type || !canSaveKey}
+                        title={p.requiresKey ? 'Save API key and endpoint settings' : 'Save endpoint settings'}
+                      >
+                        {Icons.save}
+                        {saving === p.type ? 'Saving...' : (p.requiresKey ? 'Save Key' : 'Save')}
+                      </button>
 
                       <button
                         className="btn-test-connection"
@@ -1698,47 +1739,41 @@ export default function AISettingsTab() {
         <div className="ai-automation-toggles">
           {/* Command Autocomplete Toggle */}
           <div className="ai-automation-feature">
-            <label className="ai-automation-item">
+            <div className="ai-automation-item">
               <div className="ai-automation-info">
                 <span className="ai-automation-label">Command Autocomplete</span>
                 <span className="ai-automation-description">
                   AI suggests commands as you type in terminals (uses API after 300ms debounce)
                 </span>
               </div>
-              <div className="toggle-wrapper">
-                <input
-                  type="checkbox"
-                  checked={settings['ai.inlineSuggestions']}
-                  onChange={(e) => updateSetting('ai.inlineSuggestions', e.target.checked)}
-                />
-                <span className="toggle-slider" />
-              </div>
-            </label>
+              <Switch
+                checked={settings['ai.inlineSuggestions']}
+                onChange={(v) => updateSetting('ai.inlineSuggestions', v)}
+                label="Command Autocomplete"
+              />
+            </div>
           </div>
 
           {/* Next Step Suggestions Toggle */}
           <div className="ai-automation-feature">
-            <label className="ai-automation-item">
+            <div className="ai-automation-item">
               <div className="ai-automation-info">
                 <span className="ai-automation-label">Next Step Suggestions</span>
                 <span className="ai-automation-description">
                   AI suggests follow-up commands after you execute commands
                 </span>
               </div>
-              <div className="toggle-wrapper">
-                <input
-                  type="checkbox"
-                  checked={settings['ai.nextStepSuggestions']}
-                  onChange={(e) => updateSetting('ai.nextStepSuggestions', e.target.checked)}
-                />
-                <span className="toggle-slider" />
-              </div>
-            </label>
+              <Switch
+                checked={settings['ai.nextStepSuggestions']}
+                onChange={(v) => updateSetting('ai.nextStepSuggestions', v)}
+                label="Next Step Suggestions"
+              />
+            </div>
           </div>
 
           {/* Contextual Ask-AI help toggle */}
           <div className="ai-automation-feature">
-            <label className="ai-automation-item">
+            <div className="ai-automation-item">
               <div className="ai-automation-info">
                 <span className="ai-automation-label">Contextual "Ask AI" help</span>
                 <span className="ai-automation-description">
@@ -1747,20 +1782,17 @@ export default function AISettingsTab() {
                   the AI explains the concept and can help you set it up.
                 </span>
               </div>
-              <div className="toggle-wrapper">
-                <input
-                  type="checkbox"
-                  checked={settings['ai.contextualHelp.enabled']}
-                  onChange={(e) => updateSetting('ai.contextualHelp.enabled', e.target.checked)}
-                />
-                <span className="toggle-slider" />
-              </div>
-            </label>
+              <Switch
+                checked={settings['ai.contextualHelp.enabled']}
+                onChange={(v) => updateSetting('ai.contextualHelp.enabled', v)}
+                label="Contextual 'Ask AI' help"
+              />
+            </div>
           </div>
 
           {/* Topology structural edits toggle */}
           <div className="ai-automation-feature">
-            <label className="ai-automation-item">
+            <div className="ai-automation-item">
               <div className="ai-automation-info">
                 <span className="ai-automation-label">Allow AI to edit topologies</span>
                 <span className="ai-automation-description">
@@ -1770,16 +1802,38 @@ export default function AISettingsTab() {
                   undo history.
                 </span>
               </div>
-              <div className="toggle-wrapper">
-                <input
-                  type="checkbox"
-                  checked={settings['ai.topology.allowStructuralEdits']}
-                  onChange={(e) => updateSetting('ai.topology.allowStructuralEdits', e.target.checked)}
-                />
-                <span className="toggle-slider" />
-              </div>
-            </label>
+              <Switch
+                checked={settings['ai.topology.allowStructuralEdits']}
+                onChange={(v) => updateSetting('ai.topology.allowStructuralEdits', v)}
+                label="Allow AI to edit topologies"
+              />
+            </div>
           </div>
+
+          {/* AI Terminal Mode — remote file-write tools (NS-API-10) */}
+          {!isEnterprise && (
+            <div className="ai-automation-feature">
+              <div className="ai-automation-item">
+                <div className="ai-automation-info">
+                  <span className="ai-automation-label">AI Terminal Mode</span>
+                  <span className="ai-automation-description">
+                    Allow the AI's <code>write_file</code>, <code>edit_file</code> and{' '}
+                    <code>patch_file</code> tools to modify files on connected devices
+                    and hosts over the active session.
+                  </span>
+                  <span className="ai-automation-description ai-automation-warning">
+                    Warning: with this on, the AI can change remote filesystems directly.
+                    Leave it off unless you need it.
+                  </span>
+                </div>
+                <Switch
+                  checked={aiTerminalMode}
+                  onChange={(v) => { void handleToggleTerminalMode(v) }}
+                  label="AI Terminal Mode — allow write_file, edit_file and patch_file on devices"
+                />
+              </div>
+            </div>
+          )}
 
           {/* AUDIT FIX (EXEC-002): server-side AI config-mode panel.
               Replaces the old persistent client-side toggle. Enabling
@@ -1898,41 +1952,35 @@ export default function AISettingsTab() {
 
         {/* Live Workspace Context */}
         <div className="ai-automation-feature" style={{ marginTop: '16px' }}>
-          <label className="ai-automation-item" style={{ marginBottom: '12px' }}>
+          <div className="ai-automation-item" style={{ marginBottom: '12px' }}>
             <div className="ai-automation-info">
               <span className="ai-automation-label">Live Workspace Context</span>
               <span className="ai-automation-description">
                 Automatically include current terminal scrollback and editor content with each AI request
               </span>
             </div>
-            <div className="toggle-wrapper">
-              <input
-                type="checkbox"
-                checked={settings['ai.liveContext.enabled']}
-                onChange={(e) => updateSetting('ai.liveContext.enabled', e.target.checked)}
-              />
-              <span className="toggle-slider" />
-            </div>
-          </label>
+            <Switch
+              checked={settings['ai.liveContext.enabled']}
+              onChange={(v) => updateSetting('ai.liveContext.enabled', v)}
+              label="Live Workspace Context"
+            />
+          </div>
 
           {settings['ai.liveContext.enabled'] && (
             <>
-              <label className="ai-automation-item" style={{ marginBottom: '12px', paddingLeft: '20px' }}>
+              <div className="ai-automation-item" style={{ marginBottom: '12px', paddingLeft: '20px' }}>
                 <div className="ai-automation-info">
                   <span className="ai-automation-label">Include Editor Content</span>
                   <span className="ai-automation-description">
                     Send the active editor file (redacted) with each AI request
                   </span>
                 </div>
-                <div className="toggle-wrapper">
-                  <input
-                    type="checkbox"
-                    checked={settings['ai.liveContext.includeEditor']}
-                    onChange={(e) => updateSetting('ai.liveContext.includeEditor', e.target.checked)}
-                  />
-                  <span className="toggle-slider" />
-                </div>
-              </label>
+                <Switch
+                  checked={settings['ai.liveContext.includeEditor']}
+                  onChange={(v) => updateSetting('ai.liveContext.includeEditor', v)}
+                  label="Include Editor Content"
+                />
+              </div>
 
               <div className="ai-automation-item" style={{ paddingLeft: '20px' }}>
                 <div className="ai-automation-info">
@@ -2239,14 +2287,14 @@ export default function AISettingsTab() {
                       {enabled}/{total}
                     </span>
                   </button>
-                  <label className="ai-tools-category-master-toggle">
-                    <input
-                      type="checkbox"
+                  <span className="ai-tools-category-master-toggle">
+                    <Switch
+                      size="sm"
                       checked={allEnabled}
-                      onChange={(e) => toggleCategoryTools(category, e.target.checked)}
+                      onChange={(v) => toggleCategoryTools(category, v)}
+                      label={`Enable all ${categoryInfo.label} tools`}
                     />
-                    <span className="toggle-slider small" />
-                  </label>
+                  </span>
                 </div>
 
                 {isExpanded && (
@@ -2472,18 +2520,18 @@ export default function AISettingsTab() {
                 { key: 'redact_hostnames' as const, label: 'Hostnames/FQDNs', desc: 'router1.corp.example.com' },
                 { key: 'redact_usernames' as const, label: 'Usernames', desc: 'username admin' },
               ]).map(({ key, label, desc }) => (
-                <label key={key} className="sanitization-toggle-row">
+                <div key={key} className="sanitization-toggle-row">
                   <div className="sanitization-toggle-info">
                     <span className="sanitization-toggle-label">{label}</span>
                     <span className="sanitization-toggle-desc">{desc}</span>
                   </div>
-                  <input
-                    type="checkbox"
+                  <Switch
+                    size="sm"
                     checked={sanitizationConfig[key] as boolean}
-                    onChange={(e) => handleToggleSanitization(key, e.target.checked)}
+                    onChange={(v) => handleToggleSanitization(key, v)}
+                    label={`Redact ${label}`}
                   />
-                  <span className="toggle-slider small" />
-                </label>
+                </div>
               ))}
             </div>
 

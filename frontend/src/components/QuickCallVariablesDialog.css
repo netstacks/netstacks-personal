@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   animation: qcvFadeIn 0.15s ease;
 }
 
@@ -23,6 +23,7 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   width: 90%;
   max-width: 480px;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
 }
@@ -70,6 +71,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .qcv-dialog-hint {

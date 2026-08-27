@@ -131,6 +131,22 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
     })
   }, [allRows, search])
 
+  // Entity hits render first, so the single keyboard cursor spans
+  // [hits..., commands...]. Index math below uses this offset.
+  const hitRows = useMemo<Row[]>(() => hits.map((hit) => ({
+    id: `hit:${hit.type}:${hit.id}`,
+    label: hit.title,
+    category: hit.type,
+    shortcut: hit.subtitle,
+    description: undefined,
+    enabled: true,
+    run: () => {
+      onNavigate?.(hit)
+      onClose()
+    },
+  })), [hits, onNavigate, onClose])
+  const navRows = useMemo<Row[]>(() => [...hitRows, ...filteredCommands], [hitRows, filteredCommands])
+
   // Debounced entity search
   useEffect(() => {
     const q = search.trim()
@@ -158,15 +174,14 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
     }
   }, [isOpen])
 
-  // Scroll selected item into view
+  // Scroll selected item into view. Query by class rather than indexing
+  // `children` — the "Results" section wrapper is a child of the list, so
+  // positional indexing was off by one whenever hits were present.
   useEffect(() => {
-    if (listRef.current && filteredCommands.length > 0) {
-      const selectedElement = listRef.current.children[selectedIndex] as HTMLElement
-      if (selectedElement) {
-        selectedElement.scrollIntoView({ block: 'nearest' })
-      }
-    }
-  }, [selectedIndex, filteredCommands.length])
+    if (!listRef.current || navRows.length === 0) return
+    const items = listRef.current.querySelectorAll<HTMLElement>('.command-palette-item')
+    items[selectedIndex]?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex, navRows.length])
 
   // Handle keyboard navigation. Disabled rows are skipped on
   // arrow navigation so the user can't accidentally land on
@@ -180,7 +195,7 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
           // Move up, skipping disabled items
           setSelectedIndex(i => {
             let next = i - 1
-            while (next >= 0 && !filteredCommands[next]?.enabled) next--
+            while (next >= 0 && !navRows[next]?.enabled) next--
             return Math.max(next, 0)
           })
           return
@@ -189,8 +204,8 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
         // Move down, skipping disabled items
         setSelectedIndex(i => {
           let next = i + 1
-          while (next < filteredCommands.length && !filteredCommands[next]?.enabled) next++
-          return Math.min(next, filteredCommands.length - 1)
+          while (next < navRows.length && !navRows[next]?.enabled) next++
+          return Math.min(next, navRows.length - 1)
         })
         break
       }
@@ -199,13 +214,13 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
         // Move up, skipping disabled items
         setSelectedIndex(i => {
           let next = i - 1
-          while (next >= 0 && !filteredCommands[next]?.enabled) next--
+          while (next >= 0 && !navRows[next]?.enabled) next--
           return Math.max(next, 0)
         })
         break
       case 'Enter': {
         e.preventDefault()
-        const target = filteredCommands[selectedIndex]
+        const target = navRows[selectedIndex]
         if (target?.enabled) target.run()
         break
       }
@@ -214,12 +229,12 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
         onClose()
         break
     }
-  }, [filteredCommands, selectedIndex, onClose])
+  }, [navRows, selectedIndex, onClose])
 
-  // Reset selection when search changes
+  // Reset selection when search changes or entity hits land/clear
   useEffect(() => {
     setSelectedIndex(0)
-  }, [search])
+  }, [search, hits])
 
   if (!isOpen) return null
 
@@ -241,19 +256,17 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
           {hits.length > 0 && (
             <div className="command-palette-section">
               <div className="command-palette-section-title">Results</div>
-              {hits.map((hit) => (
+              {hitRows.map((hit, index) => (
                 <div
-                  key={`${hit.type}:${hit.id}`}
-                  className="command-palette-item"
-                  onClick={() => {
-                    onNavigate?.(hit)
-                    onClose()
-                  }}
+                  key={hit.id}
+                  className={`command-palette-item ${index === selectedIndex ? 'selected' : ''}`}
+                  onClick={hit.run}
+                  onMouseEnter={() => setSelectedIndex(index)}
                 >
-                  <span className="command-palette-category">{hit.type}</span>
-                  <span className="command-label">{hit.title}</span>
-                  {hit.subtitle && (
-                    <span className="command-shortcut">{hit.subtitle}</span>
+                  <span className="command-palette-category">{hit.category}</span>
+                  <span className="command-label">{hit.label}</span>
+                  {hit.shortcut && (
+                    <span className="command-shortcut">{hit.shortcut}</span>
                   )}
                 </div>
               ))}
@@ -262,7 +275,9 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
           {filteredCommands.length === 0 && hits.length === 0 ? (
             <div className="command-palette-empty">No commands found</div>
           ) : (
-            filteredCommands.map((cmd, index) => (
+            filteredCommands.map((cmd, i) => {
+              const index = hitRows.length + i
+              return (
               <div
                 key={cmd.id}
                 className={`command-palette-item ${index === selectedIndex ? 'selected' : ''} ${cmd.enabled ? '' : 'disabled'}`}
@@ -280,7 +295,8 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
                   <span className="command-shortcut">{fmtShortcut(cmd.shortcut)}</span>
                 )}
               </div>
-            ))
+              )
+            })
           )}
         </div>
       </div>

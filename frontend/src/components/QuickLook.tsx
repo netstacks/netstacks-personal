@@ -4,6 +4,8 @@ import CsvViewer from './CsvViewer';
 import JsonViewer from './JsonViewer';
 import JinjaViewer from './JinjaViewer';
 import type { Document, DocumentCategory } from '../api/docs';
+import { showToast } from './Toast';
+import { getErrorMessage } from '../api/errors';
 
 // Icons
 const Icons = {
@@ -140,6 +142,7 @@ export default function QuickLook({
       setIsEditing(false);
     } catch (err) {
       console.error('Failed to save:', err);
+      showToast(`Failed to save ${document.name}: ${getErrorMessage(err)}`, 'error');
     } finally {
       setIsSaving(false);
     }

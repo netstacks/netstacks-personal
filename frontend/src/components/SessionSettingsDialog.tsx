@@ -30,6 +30,7 @@ import AITabInput from './AITabInput';
 import SessionContextEditor from './SessionContextEditor';
 import DeviceMemoryEditor from './DeviceMemoryEditor';
 import ProfileEditorDialog from './ProfileEditorDialog';
+import Switch from './Switch';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 
 interface SessionSettingsDialogProps {
@@ -87,6 +88,53 @@ const Icons = {
     </svg>
   ),
 };
+
+interface ClampedNumberInputProps {
+  id: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (value: number) => void;
+  style?: React.CSSProperties;
+}
+
+/**
+ * Numeric input that keeps whatever the user typed (including "") while
+ * editing and only clamps to [min, max] on blur — so emptying the field to
+ * type a new value doesn't snap it back to a default mid-keystroke.
+ */
+function ClampedNumberInput({ id, value, min, max, onCommit, style }: ClampedNumberInputProps) {
+  const [text, setText] = useState(String(value));
+  // Re-sync the draft when the committed value changes from outside (session
+  // load, protocol switch) — derived during render, no effect needed.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (value !== syncedValue) {
+    setSyncedValue(value);
+    setText(String(value));
+  }
+
+  return (
+    <input
+      id={id}
+      type="number"
+      value={text}
+      min={min}
+      max={max}
+      style={style}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = parseInt(e.target.value, 10);
+        if (!isNaN(n) && n >= min && n <= max) onCommit(n);
+      }}
+      onBlur={() => {
+        const n = parseInt(text, 10);
+        const clamped = isNaN(n) ? value : Math.min(max, Math.max(min, n));
+        setText(String(clamped));
+        onCommit(clamped);
+      }}
+    />
+  );
+}
 
 function SessionSettingsDialog({
   isOpen,
@@ -324,6 +372,11 @@ function SessionSettingsDialog({
     }
     if (!host.trim()) {
       setError('Host is required');
+      setActiveTab('general');
+      return;
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      setError('Port must be between 1 and 65535');
       setActiveTab('general');
       return;
     }
@@ -631,11 +684,10 @@ function SessionSettingsDialog({
                 </div>
                 <div className="form-group" style={{ width: '120px' }}>
                   <label htmlFor="session-port">Port</label>
-                  <input
+                  <ClampedNumberInput
                     id="session-port"
-                    type="number"
                     value={port}
-                    onChange={(e) => setPort(parseInt(e.target.value) || (protocol === 'telnet' ? 23 : 22))}
+                    onCommit={setPort}
                     min={1}
                     max={65535}
                   />
@@ -803,14 +855,12 @@ function SessionSettingsDialog({
                 <div className="port-forwards-list">
                   {portForwards.map((fwd) => (
                     <div key={fwd.id} className={`port-forward-item ${!fwd.enabled ? 'disabled' : ''}`}>
-                      <label className="toggle toggle-small">
-                        <input
-                          type="checkbox"
-                          checked={fwd.enabled}
-                          onChange={() => handleTogglePortForward(fwd.id)}
-                        />
-                        <span className="toggle-slider" />
-                      </label>
+                      <Switch
+                        size="sm"
+                        checked={fwd.enabled}
+                        onChange={() => handleTogglePortForward(fwd.id)}
+                        label={`Enable port forward ${formatPortForward(fwd)}`}
+                      />
                       <span className="port-forward-type">
                         {PORT_FORWARD_TYPE_OPTIONS.find(o => o.value === fwd.forward_type)?.label || fwd.forward_type}
                       </span>
@@ -900,14 +950,7 @@ function SessionSettingsDialog({
                         Enable older, less secure algorithms for compatibility with legacy devices (e.g., older Cisco switches, HP ProCurve, etc.).
                       </span>
                     </div>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={legacySsh}
-                        onChange={(e) => setLegacySsh(e.target.checked)}
-                      />
-                      <span className="toggle-slider" />
-                    </label>
+                    <Switch checked={legacySsh} onChange={setLegacySsh} label="Legacy SSH Algorithms" />
                   </div>
                 </div>
               </div>}
@@ -939,25 +982,17 @@ function SessionSettingsDialog({
                     <label>Auto-Reconnect</label>
                     <span className="form-hint">Automatically reconnect when disconnected</span>
                   </div>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={autoReconnect}
-                      onChange={(e) => setAutoReconnect(e.target.checked)}
-                    />
-                    <span className="toggle-slider" />
-                  </label>
+                  <Switch checked={autoReconnect} onChange={setAutoReconnect} label="Auto-Reconnect" />
                 </div>
               </div>
 
               {autoReconnect && (
                 <div className="form-group">
                   <label htmlFor="reconnect-delay">Reconnect Delay (seconds)</label>
-                  <input
+                  <ClampedNumberInput
                     id="reconnect-delay"
-                    type="number"
                     value={reconnectDelay}
-                    onChange={(e) => setReconnectDelay(parseInt(e.target.value) || 5)}
+                    onCommit={setReconnectDelay}
                     min={1}
                     max={60}
                     style={{ width: '100px' }}
@@ -967,11 +1002,10 @@ function SessionSettingsDialog({
 
               <div className="form-group">
                 <label htmlFor="scrollback-lines">Scrollback Lines</label>
-                <input
+                <ClampedNumberInput
                   id="scrollback-lines"
-                  type="number"
                   value={scrollbackLines}
-                  onChange={(e) => setScrollbackLines(parseInt(e.target.value) || 10000)}
+                  onCommit={setScrollbackLines}
                   min={100}
                   max={100000}
                   style={{ width: '120px' }}
@@ -985,14 +1019,7 @@ function SessionSettingsDialog({
                     <label>Local Echo</label>
                     <span className="form-hint">Echo typed characters locally</span>
                   </div>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={localEcho}
-                      onChange={(e) => setLocalEcho(e.target.checked)}
-                    />
-                    <span className="toggle-slider" />
-                  </label>
+                  <Switch checked={localEcho} onChange={setLocalEcho} label="Local Echo" />
                 </div>
               </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC } from 'react';
+import { useState, useEffect, useRef, type FC } from 'react';
 import type { LspPluginListItem } from './types';
 import { installPlugin, subscribeToInstallProgress, type InstallEvent } from './installationApi';
 
@@ -19,6 +19,16 @@ const DONT_ASK_KEY = (pluginId: string) => `lsp-banner-dismissed-${pluginId}`;
 
 export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) => {
   const [state, setState] = useState<BannerState>({ kind: 'offer' });
+  // True while the install POST is in flight; the progress subscription
+  // (effect below) must not start until the agent has accepted it.
+  const [starting, setStarting] = useState(false);
+  // Parents typically pass an inline `onInstalled`; reading it through a ref
+  // keeps the progress subscription below from tearing down and re-opening
+  // the SSE stream on every parent render.
+  const onInstalledRef = useRef(onInstalled);
+  useEffect(() => {
+    onInstalledRef.current = onInstalled;
+  }, [onInstalled]);
 
   // Hook declaration must come before any early return so React sees the
   // same hook count + order on every render of this fiber. The effect is
@@ -31,7 +41,7 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
       plugin.id,
       (ev) => {
         if (ev.phase === 'done') {
-          onInstalled();
+          onInstalledRef.current();
           unsub?.();
           return;
         }
@@ -53,7 +63,7 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
     return () => {
       unsub?.();
     };
-  }, [state.kind, plugin.id, onInstalled]);
+  }, [state.kind, plugin.id]);
 
   // Don't render if user previously checked "Don't ask again". Done AFTER
   // all hooks for Rules-of-Hooks compliance.
@@ -61,11 +71,15 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
   if (dismissed) return null;
 
   const handleInstall = async () => {
-    setState({ kind: 'installing', phase: 'downloading' });
+    if (starting) return;
+    setStarting(true);
     try {
       await installPlugin(plugin.id);
+      setState({ kind: 'installing', phase: 'downloading' });
     } catch (e) {
       setState({ kind: 'error', message: (e as Error).message });
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -84,7 +98,7 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
             <span>Install {plugin.displayName} for diagnostics, autocomplete, hover docs, and go-to-definition.</span>
           </div>
           <div className="lsp-install-banner__actions">
-            <button className="primary" onClick={handleInstall}>Install</button>
+            <button className="primary" onClick={handleInstall} disabled={starting}>Install</button>
             <button onClick={onDismiss}>Skip</button>
             <button onClick={handleDontAskAgain}>Don't ask again</button>
           </div>
@@ -110,7 +124,7 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
             <span>{state.message}</span>
           </div>
           <div className="lsp-install-banner__actions">
-            <button onClick={handleInstall}>Retry</button>
+            <button onClick={handleInstall} disabled={starting}>Retry</button>
             <button onClick={onDismiss}>Dismiss</button>
           </div>
         </>

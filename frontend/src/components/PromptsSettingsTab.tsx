@@ -35,6 +35,7 @@ import './PromptsSettingsTab.css';
 import AITabInput from './AITabInput';
 import { confirmDialog } from './ConfirmDialog';
 import { showToast } from './Toast';
+import { getErrorMessage } from '../api/errors';
 import { TOAST_DURATION } from '../constants/toast';
 
 import { logger } from '../lib/logger'
@@ -207,28 +208,30 @@ export default function PromptsSettingsTab() {
   }, []);
 
   const handleResetSystem = useCallback(async (key: SystemKey) => {
+    // Local state is cleared only AFTER the server accepts the reset; on
+    // failure the previous value stays put so the editor doesn't show an
+    // empty prompt the server still has (NS-AI-28).
     try {
       switch (key) {
         case 'autopilot':
         case 'overlord': {
-          setModePrompts(prev => ({ ...prev, [key]: '' }));
           await setModePrompt(key, null);
+          setModePrompts(prev => ({ ...prev, [key]: '' }));
           break;
         }
         case 'discovery':
-          setDiscoveryPrompt('');
           await apiSetDiscoveryPrompt(null);
+          setDiscoveryPrompt('');
           break;
         case 'topology':
-          setTopologyPrompt('');
           await apiSetTopologyPrompt(null);
+          setTopologyPrompt('');
           break;
         case 'script':
-          setScriptPrompt('');
           await apiSetScriptPrompt(null);
+          setScriptPrompt('');
           break;
         case 'agent': {
-          setAgentPrompt('');
           const agentConfig = await getAiAgentConfig();
           if (agentConfig) {
             await setAiAgentConfig({ ...agentConfig, system_prompt: DEFAULT_AGENT_PROMPT });
@@ -238,19 +241,21 @@ export default function PromptsSettingsTab() {
           const parsed = stored ? JSON.parse(stored) : {};
           parsed['ai.agent.systemPrompt'] = settings['ai.agent.systemPrompt'];
           localStorage.setItem('netstacks-settings', JSON.stringify(parsed));
+          setAgentPrompt('');
           break;
         }
         case 'agentGuide':
-          setAgentGuide('');
           await setAgentOperatingGuide(null);
+          setAgentGuide('');
           break;
         case 'workspaceInit':
-          setWorkspaceInitPrompt('');
           await apiSetWorkspaceInitPrompt(null);
+          setWorkspaceInitPrompt('');
           break;
       }
     } catch (err) {
       console.error('Failed to reset system prompt:', err);
+      showToast(getErrorMessage(err, 'Failed to reset prompt'), 'error');
     }
   }, []);
 
@@ -357,6 +362,7 @@ export default function PromptsSettingsTab() {
         handleCloseEditor();
       } catch (err) {
         console.error('Failed to save prompt:', err);
+        showToast(getErrorMessage(err, 'Failed to save prompt'), 'error');
       }
     },
     [editor, handleCloseEditor]

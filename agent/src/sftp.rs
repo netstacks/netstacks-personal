@@ -338,6 +338,20 @@ impl SftpSession {
 
     /// Upload a file with the given contents.
     pub async fn upload(&self, path: &str, data: &[u8]) -> Result<(), SftpError> {
+        let once = futures::stream::once(async { Ok::<_, std::convert::Infallible>(data) });
+        self.upload_from_stream(path, once).await
+    }
+
+    /// Upload a file, writing each chunk of `stream` through the SFTP
+    /// session as it arrives so the whole body is never held in memory
+    /// (NS-FEAT-13). A failed chunk read aborts the upload.
+    pub async fn upload_from_stream<S, B, E>(&self, path: &str, stream: S) -> Result<(), SftpError>
+    where
+        S: futures::Stream<Item = Result<B, E>>,
+        B: AsRef<[u8]>,
+        E: std::fmt::Display,
+    {
+        use futures::StreamExt;
         use tokio::io::AsyncWriteExt;
 
         let mut file = self
@@ -346,9 +360,14 @@ impl SftpSession {
             .await
             .map_err(|e| SftpError::Protocol(e.to_string()))?;
 
-        file.write_all(data)
-            .await
-            .map_err(|e| SftpError::Protocol(e.to_string()))?;
+        let mut stream = std::pin::pin!(stream);
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk
+                .map_err(|e| SftpError::Protocol(format!("Upload body read failed: {}", e)))?;
+            file.write_all(chunk.as_ref())
+                .await
+                .map_err(|e| SftpError::Protocol(e.to_string()))?;
+        }
 
         file.shutdown()
             .await

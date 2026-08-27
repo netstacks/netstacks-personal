@@ -42,6 +42,12 @@ export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 // Default LiteLLM base URL
 export const DEFAULT_LITELLM_URL = 'http://localhost:4000';
 
+/** Strip only a literal `:latest` tag — `llama3.1:8b` must stay `llama3.1:8b`
+ *  or Ollama returns "model not found" for the request. */
+export function stripLatestTag(name: string): string {
+  return name.endsWith(':latest') ? name.slice(0, -':latest'.length) : name;
+}
+
 // Fetch available models from Ollama
 export async function fetchOllamaModels(baseUrl?: string): Promise<{ value: string; label: string }[]> {
   const url = baseUrl || DEFAULT_OLLAMA_URL;
@@ -54,7 +60,7 @@ export async function fetchOllamaModels(baseUrl?: string): Promise<{ value: stri
     const data = await res.json();
     if (data.models && Array.isArray(data.models)) {
       return data.models.map((m: { name: string }) => ({
-        value: m.name.split(':')[0], // Remove :latest tag
+        value: stripLatestTag(m.name),
         label: m.name,
       }));
     }
@@ -184,7 +190,9 @@ async function getPromptSetting(key: string): Promise<string | null> {
 async function setPromptSetting(key: string, prompt: string | null): Promise<void> {
   const fullKey = `${settingsPrefix()}/${key}`;
   if (!prompt || !prompt.trim()) {
-    try { await getClient().http.delete(fullKey); } catch { /* ok */ }
+    // Reset = DELETE the key. Errors propagate so the UI can surface them
+    // (previously a swallowed 405 made "Reset to default" a silent no-op).
+    await getClient().http.delete(fullKey);
   } else if (getCurrentMode() === 'enterprise') {
     await getClient().http.put(fullKey, prompt);
   } else {
@@ -240,6 +248,17 @@ export async function getAiProviderOverrides(): Promise<AiProviderOverrides | nu
     // Non-fatal: absent/unreadable overrides just mean "use defaults".
     return null;
   }
+}
+
+/** Configured Ollama endpoint: per-provider override first, then the active
+ *  provider config if it happens to be Ollama. `undefined` = use the default. */
+export async function getOllamaBaseUrl(): Promise<string | undefined> {
+  const overrides = await getAiProviderOverrides();
+  const fromOverride = overrides?.base_urls?.ollama?.trim();
+  if (fromOverride) return fromOverride;
+  const cfg = await getAiConfig();
+  if (cfg?.provider === 'ollama' && cfg.base_url?.trim()) return cfg.base_url.trim();
+  return undefined;
 }
 
 export async function setAiProviderOverrides(overrides: AiProviderOverrides): Promise<void> {

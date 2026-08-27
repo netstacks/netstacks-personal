@@ -28,6 +28,7 @@ import SmtpSettingsSection from './SmtpSettingsSection';
 import SecureCRTImportDialog from './SecureCRTImportDialog';
 import ApiResourcePicker from './ApiResourcePicker';
 import { downloadFile } from '../lib/formatters';
+import { importSessions, type ExportData } from '../api/sessions';
 import { showToast } from './Toast';
 import { confirmDialog } from './ConfirmDialog';
 import { useSubmitting } from '../hooks/useSubmitting';
@@ -527,34 +528,50 @@ export default function IntegrationsTab() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
+      // The agent's /sessions/import is a JSON endpoint (the same one the
+      // session panel's Import uses) — parse the file here and post the body.
+      let parsed: unknown;
       try {
-        const formData = new FormData();
-        formData.append('file', file);
-        const { data: result } = await getClient().http.post('/sessions/import', formData);
-        // Audit P1-12: previous code blindly toasted "Imported 0
-        // sessions successfully." for empty JSON, all-duplicates, and
-        // {success: false, errors: [...]} responses. Inspect the
-        // response shape before deciding success / warning / error.
-        const created = result.sessions_created ?? result.imported ?? 0;
-        const errors: unknown[] = Array.isArray(result.errors) ? result.errors : [];
-        if (result.success === false || (created === 0 && errors.length > 0)) {
-          showToast(
-            `Import failed: ${errors[0] ?? 'no sessions were created'}`,
-            'error',
-          );
+        parsed = JSON.parse(await file.text());
+      } catch {
+        showToast(`${file.name} is not valid JSON.`, 'error');
+        return;
+      }
+      const exportData = parsed as Partial<ExportData> | null;
+      if (!exportData || !Array.isArray(exportData.sessions)) {
+        showToast(`${file.name} is not a NetStacks session export (missing "sessions").`, 'error');
+        return;
+      }
+
+      try {
+        const result = await importSessions({
+          version: exportData.version ?? '1.0',
+          format: exportData.format ?? 'netstacks-sessions',
+          exported_at: exportData.exported_at ?? new Date().toISOString(),
+          sessions: exportData.sessions,
+          folders: Array.isArray(exportData.folders) ? exportData.folders : [],
+        });
+        const created = result.sessions_created;
+        const warnings = result.warnings ?? [];
+        if (created > 0 || result.folders_created > 0) {
+          window.dispatchEvent(new Event('sessions-changed'));
+        }
+        if (created === 0 && warnings.length > 0) {
+          showToast(`Import failed: ${warnings[0]}`, 'error');
         } else if (created === 0) {
           showToast('Nothing to import — the file contained no new sessions.', 'warning');
-        } else if (errors.length > 0) {
+        } else if (warnings.length > 0) {
+          console.warn('Session import warnings:', warnings);
           showToast(
-            `Imported ${created} sessions with ${errors.length} error${errors.length === 1 ? '' : 's'}.`,
+            `Imported ${created} sessions, ${result.folders_created} folders with ${warnings.length} warning${warnings.length === 1 ? '' : 's'} — see console.`,
             'warning',
           );
         } else {
-          showToast(`Imported ${created} sessions successfully.`, 'success');
+          showToast(`Imported ${created} sessions, ${result.folders_created} folders.`, 'success');
         }
       } catch (err) {
         console.error('Import error:', err);
-        showToast('Failed to import sessions. Please check the file format.', 'error');
+        showToast(getErrorMessage(err, 'Failed to import sessions'), 'error');
       }
     };
     input.click();

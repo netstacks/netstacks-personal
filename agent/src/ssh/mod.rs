@@ -396,15 +396,34 @@ pub struct SshSession {
     _closed: Mutex<bool>,
 }
 
+/// Options for an interactive shell session (`SshSession::connect` /
+/// `SshSession::connect_via_jump`).
+#[derive(Default)]
+pub struct ShellOptions {
+    /// Initial PTY dimensions (0 = 80x24 default).
+    pub cols: u32,
+    pub rows: u32,
+    /// Host-key prompt service; `None` falls back to silent TOFU.
+    pub approvals: Option<Arc<approvals::HostKeyApprovalService>>,
+    /// SSH-level keepalive interval; `None` disables keepalives.
+    pub keepalive_interval: Option<Duration>,
+}
+
 impl SshSession {
-    /// Connect to an SSH server and open a shell session.
-    /// `cols` and `rows` set the initial PTY dimensions (defaults to 80x24 if 0).
-    pub async fn connect(config: SshConfig, cols: u32, rows: u32) -> Result<Self, SshError> {
+    /// Connect to an SSH server and open a shell session, with host-key
+    /// approvals (NS-TERM-6) and keepalive (NS-TERM-7) wired in.
+    /// `options.cols`/`rows` set the initial PTY dimensions (0 = 80x24).
+    pub async fn connect(config: SshConfig, options: ShellOptions) -> Result<Self, SshError> {
+        let ShellOptions { cols, rows, approvals, keepalive_interval } = options;
         let cols = if cols == 0 { 80 } else { cols };
         let rows = if rows == 0 { 24 } else { rows };
 
         // Connect and authenticate using the shared helper
-        let handle = connect_and_authenticate(&config, false).await?;
+        let handle = connect_and_authenticate_with_options(
+            &config,
+            ConnectOptions { auto_accept_changed_keys: false, approvals, keepalive_interval },
+        )
+        .await?;
 
         // Open session channel
         let mut channel = handle
@@ -489,20 +508,21 @@ impl SshSession {
     /// Same PTY and I/O semantics as `connect()`, but the underlying TCP
     /// connection goes through russh's direct-tcpip channel.
     ///
-    /// `cols` and `rows` set the initial PTY dimensions (defaults to 80x24 if 0).
+    /// `options.cols`/`rows` set the initial PTY dimensions (0 = 80x24).
+    /// Host-key approvals (NS-TERM-6) apply to both hops.
+    ///
+    /// `options.keepalive_interval` is not yet honoured on this path:
+    /// `jump::connect_via_jump` builds both hops' russh configs itself and
     pub async fn connect_via_jump(
         target: SshConfig,
         jump: SshConfig,
-        cols: u32,
-        rows: u32,
+        options: ShellOptions,
     ) -> Result<Self, SshError> {
+        let ShellOptions { cols, rows, approvals, keepalive_interval: _ } = options;
         let cols = if cols == 0 { 80 } else { cols };
         let rows = if rows == 0 { 24 } else { rows };
 
-        // Use the jump module helper. Pass `None` for approvals — the
-        // approvals service is not currently threaded through here; if
-        // T9 needs it, plumb it as a parameter then.
-        let handle = crate::ssh::jump::connect_via_jump(&target, &jump, None).await?;
+        let handle = crate::ssh::jump::connect_via_jump(&target, &jump, approvals).await?;
 
         // Open session channel, request PTY, request shell — same as connect().
         let mut channel = handle
@@ -671,8 +691,17 @@ const MAX_CONCURRENT_CONNECTIONS: usize = 10;
 
 /// Build russh client config with comprehensive algorithm support
 /// Like SecureCRT, we include ALL algorithms by default - SSH negotiation picks the best one
-fn build_ssh_config(_legacy_ssh: bool) -> client::Config {
+fn build_ssh_config(_legacy_ssh: bool, keepalive_interval: Option<Duration>) -> client::Config {
     let mut cfg = client::Config::default();
+
+    // SSH-level keepalive (NS-TERM-7): russh sends `keepalive@openssh.com`
+    // every `keepalive_interval` and tears the transport down after
+    // `keepalive_max` unanswered probes, so an idle session behind NAT dies
+    // loudly (channel close → terminal `Close`) instead of silently.
+    if keepalive_interval.is_some() {
+        cfg.keepalive_interval = keepalive_interval;
+        cfg.keepalive_max = 3;
+    }
 
     // Key exchange algorithms - comprehensive list matching SecureCRT
     // Includes modern + legacy algorithms; negotiation picks the strongest common one
@@ -760,7 +789,33 @@ pub async fn connect_and_authenticate_with_approvals(
     auto_accept_changed_keys: bool,
     approvals: Option<Arc<approvals::HostKeyApprovalService>>,
 ) -> Result<client::Handle<ClientHandler>, SshError> {
-    let russh_config = Arc::new(build_ssh_config(config.legacy_ssh));
+    connect_and_authenticate_with_options(
+        config,
+        ConnectOptions { auto_accept_changed_keys, approvals, keepalive_interval: None },
+    )
+    .await
+}
+
+/// Per-connection knobs for `connect_and_authenticate_with_options`.
+#[derive(Default, Clone)]
+pub struct ConnectOptions {
+    /// Auto-accept changed host keys WITHOUT prompting (MOP escape hatch).
+    pub auto_accept_changed_keys: bool,
+    /// Host-key prompt service; `None` falls back to silent TOFU.
+    pub approvals: Option<Arc<approvals::HostKeyApprovalService>>,
+    /// SSH-level keepalive interval; `None` disables keepalives.
+    pub keepalive_interval: Option<Duration>,
+}
+
+/// Connect to an SSH server with the full set of per-connection options
+/// (host-key approvals + keepalive). The `_with_approvals` / plain variants
+/// are thin wrappers over this.
+pub async fn connect_and_authenticate_with_options(
+    config: &SshConfig,
+    options: ConnectOptions,
+) -> Result<client::Handle<ClientHandler>, SshError> {
+    let ConnectOptions { auto_accept_changed_keys, approvals, keepalive_interval } = options;
+    let russh_config = Arc::new(build_ssh_config(config.legacy_ssh, keepalive_interval));
     let addr = format!("{}:{}", config.host, config.port);
 
     // Load host key store for verification
@@ -942,7 +997,7 @@ pub async fn connect_and_authenticate_over_stream<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let russh_config = Arc::new(build_ssh_config(config.legacy_ssh));
+    let russh_config = Arc::new(build_ssh_config(config.legacy_ssh, None));
 
     // Load host key store for verification
     let host_key_store = host_keys::load_default_store();
@@ -1228,7 +1283,7 @@ pub struct ShellExecutionResults {
 }
 
 /// Strip ANSI escape sequences from PTY output.
-fn strip_ansi(input: &str) -> String {
+pub(crate) fn strip_ansi(input: &str) -> String {
     match strip_ansi_escapes::strip_str(input) {
         s if s.is_empty() => input.to_string(),
         s => s.to_string(),
@@ -1252,9 +1307,43 @@ fn _strip_echo(output: &str, command: &str) -> String {
 /// Uses a "settle" approach: after detecting a potential prompt ending, waits briefly
 /// for more data. If no more data arrives, it's a real prompt. This prevents false
 /// triggers on output lines like "Hardware version:" or "Serial number:".
-async fn wait_for_prompt(
+pub(crate) async fn wait_for_prompt(
     channel: &mut russh::Channel<client::Msg>,
     timeout: Duration,
+) -> Result<String, SshError> {
+    wait_for_prompt_matching(channel, timeout, |trimmed| {
+        trimmed.ends_with('>')
+            || trimmed.ends_with('#')
+            || trimmed.ends_with('$')
+            || trimmed.ends_with('%')
+            || trimmed.ends_with(':')
+    })
+    .await
+}
+
+/// Stricter variant for automated probes: only an exec/config prompt ends
+/// the wait — the last line must be a single token ending in `#` or `>`.
+/// A trailing `:` (`Password:`, `Username:`, `--More--` paging) never
+/// counts, so a credential challenge or pager surfaces as a timeout rather
+/// than as command output.
+pub(crate) async fn wait_for_exec_prompt(
+    channel: &mut russh::Channel<client::Msg>,
+    timeout: Duration,
+) -> Result<String, SshError> {
+    wait_for_prompt_matching(channel, timeout, is_exec_prompt).await
+}
+
+/// Whether the last line of (ANSI-stripped) output is an exec/config
+/// prompt: `^\S+[#>]$`.
+pub(crate) fn is_exec_prompt(text: &str) -> bool {
+    let last = text.trim_end().lines().next_back().unwrap_or("");
+    last.len() > 1 && !last.contains(char::is_whitespace) && (last.ends_with('#') || last.ends_with('>'))
+}
+
+async fn wait_for_prompt_matching(
+    channel: &mut russh::Channel<client::Msg>,
+    timeout: Duration,
+    looks_like_prompt: impl Fn(&str) -> bool,
 ) -> Result<String, SshError> {
     let mut buffer = Vec::new();
     let settle_duration = Duration::from_millis(200);
@@ -1300,13 +1389,8 @@ async fn wait_for_prompt(
         let text = String::from_utf8_lossy(&buffer);
         let clean_text = strip_ansi(&text);
         let trimmed = clean_text.trim_end();
-        let looks_like_prompt = trimmed.ends_with('>')
-            || trimmed.ends_with('#')
-            || trimmed.ends_with('$')
-            || trimmed.ends_with('%')
-            || trimmed.ends_with(':');
 
-        if looks_like_prompt {
+        if looks_like_prompt(trimmed) {
             // Settle: wait briefly for more data. If nothing arrives, it's a real prompt.
             // This prevents false triggers on output lines like "Hardware version:"
             let settle_deadline = tokio::time::Instant::now() + settle_duration;
@@ -1583,6 +1667,22 @@ pub async fn execute_bulk_command(
 }
 
 #[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn build_ssh_config_sets_keepalive_from_profile_interval() {
+        let cfg = build_ssh_config(false, Some(Duration::from_secs(30)));
+        assert_eq!(cfg.keepalive_interval, Some(Duration::from_secs(30)));
+        assert_eq!(cfg.keepalive_max, 3);
+
+        // No interval → keepalives stay disabled (russh default).
+        let cfg = build_ssh_config(false, None);
+        assert_eq!(cfg.keepalive_interval, None);
+    }
+}
+
+#[cfg(test)]
 mod exec_tests {
     //! Behavior contracts for the exec channel-handling loop, exercised
     //! through the production caller (`exec_on_remote_pooled`). Each test
@@ -1616,6 +1716,7 @@ mod exec_tests {
             allow_direct_tcpip: false,
             exec_responder: Some(Arc::new(responder)),
             eof_before_exit_status: false,
+            shell: None,
             host_key: ephemeral_ed25519(),
         })
         .await
@@ -1713,6 +1814,7 @@ mod exec_tests {
                 exit_status: 0,
             }))),
             eof_before_exit_status: true,
+            shell: None,
             host_key: ephemeral_ed25519(),
         })
         .await;

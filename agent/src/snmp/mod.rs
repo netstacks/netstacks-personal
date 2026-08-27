@@ -433,11 +433,21 @@ pub async fn snmp_walk(
         let pdu_future = session.getbulk(&oids_arr, 0, BULK_REPS);
         let pdu = match timeout(DEFAULT_TIMEOUT, pdu_future).await {
             Ok(Ok(pdu)) => pdu,
-            Ok(Err(e)) => {
-                // Some devices return errors at end of MIB
-                tracing::debug!("WALK ended with error: {}", e);
-                break;
-            }
+            Ok(Err(e)) => match e {
+                // Credential / socket failures are real errors — never an
+                // empty walk (NS-FEAT-14).
+                snmp2::Error::CommunityMismatch | snmp2::Error::Send | snmp2::Error::Receive => {
+                    return Err(map_snmp_error(e, host));
+                }
+                // Some devices answer with an error PDU once a walk runs off
+                // the end of the MIB; only treat that as end-of-walk when we
+                // actually collected rows.
+                _ if !results.is_empty() => {
+                    tracing::debug!("WALK ended with error after {} rows: {}", results.len(), e);
+                    break;
+                }
+                _ => return Err(map_snmp_error(e, host)),
+            },
             Err(_) => {
                 return Err(SnmpError::Timeout(DEFAULT_TIMEOUT.as_secs()));
             }
@@ -695,6 +705,12 @@ pub async fn snmp_interface_stats(
         }
         let walk_results = match snmp_walk(dest, community, table_oid).await {
             Ok(results) => results,
+            // Reachability / credential failures affect every table — surface
+            // them so callers (e.g. try-interface-stats) can move on to the
+            // next community instead of reporting "interface not found".
+            Err(e @ (SnmpError::Timeout(_) | SnmpError::AuthError | SnmpError::ConnectionFailed { .. })) => {
+                return Err(e);
+            }
             Err(_) => continue, // Table might not exist on this device
         };
 

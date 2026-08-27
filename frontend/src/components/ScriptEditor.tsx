@@ -42,6 +42,8 @@ export interface ScriptEditorHandle {
 interface ScriptEditorProps {
   script: Script;
   onSave: (script: Script) => void;
+  /** Owning tab id — File → Save / Cmd+S arrive as `netstacks:save-document` with this id. */
+  tabId?: string;
 }
 
 // Icons
@@ -100,7 +102,7 @@ function isMultiDeviceOutput(output: ScriptOutput | MultiDeviceOutput): output i
   return 'results' in output && Array.isArray((output as MultiDeviceOutput).results);
 }
 
-const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function ScriptEditor({ script, onSave }, ref) {
+const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function ScriptEditor({ script, onSave, tabId }, ref) {
   const [name, setName] = useState(script.name);
   const [content, setContent] = useState(script.content);
   const [saving, setSaving] = useState(false);
@@ -348,6 +350,10 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
     return options;
   }, [selectedDeviceIds, executionMode, analysis, mainArgs, useRawJson, customInput]);
 
+  // Latest handleSave for the Monaco keybinding registered once in onMount.
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => { handleSaveRef.current = handleSave; }, [handleSave]);
+
   const handleRun = useCallback(async () => {
     // Save first if needed
     if (!currentScriptId) {
@@ -507,13 +513,20 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
     });
   };
 
-  // Handle Cmd+S to save, Cmd+Enter to run
+  // File → Save / Cmd+S: App dispatches `netstacks:save-document` for the
+  // active tab (single save path — no raw Cmd+S listener here).
+  useEffect(() => {
+    const handleSaveEvent = (e: Event) => {
+      const { tabId: target } = (e as CustomEvent<{ tabId: string }>).detail;
+      if (tabId && target === tabId) handleSave();
+    };
+    window.addEventListener('netstacks:save-document', handleSaveEvent);
+    return () => window.removeEventListener('netstacks:save-document', handleSaveEvent);
+  }, [tabId, handleSave]);
+
+  // Cmd+Enter to run
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
-      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         handleRun();
@@ -522,7 +535,7 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleSave, handleRun]);
+  }, [handleRun]);
 
   const renderDeviceResult = (result: DeviceResult) => {
     const isExpanded = expandedDevices.has(result.device_id);
@@ -873,6 +886,15 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
                 editorRef.current = editor;
                 modelRef.current = editor.getModel();
                 overlord.register(editor);
+                // The global Cmd+S handler yields to focused Monaco editors,
+                // so register the chord with Monaco itself (keycode-based —
+                // unaffected by Caps Lock).
+                editor.addAction({
+                  id: 'netstacks.script.save',
+                  label: 'Save Script',
+                  keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+                  run: () => { handleSaveRef.current(); },
+                });
               }}
               theme="vs-dark"
               options={{

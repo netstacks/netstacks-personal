@@ -32,6 +32,7 @@
 
 import { forwardRef, useRef, useState, useCallback, useEffect } from 'react';
 import { sendChatMessage, AiNotConfiguredError } from '../api/ai';
+import { logger } from '../lib/logger';
 import { NETSTACKS_CONCEPTS_PRIMER } from '../lib/aiModes';
 import { getFormAiContext } from '../lib/aiFormContext';
 import './AITabInput.css';
@@ -120,6 +121,9 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
       } catch (err) {
         if (err instanceof AiNotConfiguredError) {
           setAiConfigured(false);
+        } else if (!abort.signal.aborted) {
+          // Not a config problem and not our own abort — don't swallow it.
+          logger.warn(`[AITabInput] generate failed for "${aiField}":`, err);
         }
       } finally {
         if (!abort.signal.aborted) {

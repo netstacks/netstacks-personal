@@ -16,6 +16,7 @@ import { useContextMenu } from '../hooks/useContextMenu';
 import AITabInput from './AITabInput';
 import { confirmDialog } from './ConfirmDialog';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 
 interface ScheduledTasksPanelProps {
   /** Callback when user wants to view execution history for a task */
@@ -312,6 +313,8 @@ function ScheduleTaskDialog({ task, onClose, onSave }: ScheduleTaskDialogProps) 
     if (!(await confirmDiscard())) return;
     onClose();
   };
+  // Escape + backdrop click both route through the dirty guard.
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: () => { void handleClose(); } });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -343,8 +346,8 @@ function ScheduleTaskDialog({ task, onClose, onSave }: ScheduleTaskDialogProps) 
   };
 
   return (
-    <div className="schedule-dialog-overlay" onClick={handleClose}>
-      <div className="schedule-dialog" onClick={e => e.stopPropagation()}>
+    <div className="schedule-dialog-overlay" {...backdropProps}>
+      <div className="schedule-dialog" {...contentProps}>
         <div className="schedule-dialog-header">
           <h3>{task ? 'Edit Schedule' : 'New Schedule'}</h3>
           <button className="schedule-dialog-close" onClick={handleClose}>

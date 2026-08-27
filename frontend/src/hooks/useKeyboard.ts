@@ -19,7 +19,6 @@ export type KeyboardAction =
   | 'previousTab'
   | 'toggleMultiSend'
   | 'reconnect'
-  | 'runScript'
   | 'settings'
   | 'connectSelectedSessions'
   | 'quickLookNotes'
@@ -29,6 +28,8 @@ export type KeyboardAction =
   | 'startTroubleshooting'
   | 'aiOverlay'
   | 'scratchpadOpen'
+  | 'groupSelectedTabs'
+  | 'saveTabsAsGroup'
 
 // Platform-specific keybinding
 export interface PlatformKeybinding {
@@ -58,16 +59,21 @@ export const DEFAULT_KEYBINDINGS: Record<KeyboardAction, PlatformKeybinding> = {
   previousTab: { mac: 'Cmd+Shift+[', windows: 'Ctrl+Shift+[' },
   toggleMultiSend: { mac: 'Cmd+Shift+M', windows: 'Ctrl+Shift+M' },
   reconnect: { mac: 'Cmd+Shift+R', windows: 'Ctrl+Shift+R' },
-  runScript: { mac: 'Cmd+Enter', windows: 'Ctrl+Enter' },
   settings: { mac: 'Cmd+,', windows: 'Ctrl+,' },
   connectSelectedSessions: { mac: 'Cmd+Shift+Enter', windows: 'Ctrl+Shift+Enter' },
-  quickLookNotes: { mac: 'Cmd+Shift+N', windows: 'Ctrl+Shift+N' },
-  quickLookTemplates: { mac: 'Cmd+Shift+T', windows: 'Ctrl+Shift+T' },
-  quickLookOutputs: { mac: 'Cmd+Shift+O', windows: 'Ctrl+Shift+O' },
+  // Quick Look chords must not collide with native menu accelerators
+  // (Cmd+Shift+N = New Document, Cmd+Shift+T = Reopen Closed Tab).
+  quickLookNotes: { mac: 'Cmd+Shift+E', windows: 'Ctrl+Shift+E' },
+  quickLookTemplates: { mac: 'Cmd+Shift+L', windows: 'Ctrl+Shift+L' },
+  quickLookOutputs: { mac: 'Cmd+Shift+U', windows: 'Ctrl+Shift+U' },
   saveDocument: { mac: 'Cmd+S', windows: 'Ctrl+S' },
   startTroubleshooting: { mac: 'Cmd+Shift+K', windows: 'Ctrl+Shift+K' },
   aiOverlay: { mac: 'Cmd+Shift+A', windows: 'Ctrl+Shift+A' },
   scratchpadOpen: { mac: 'Cmd+Shift+J', windows: 'Ctrl+Shift+J' },
+  groupSelectedTabs: { mac: 'Cmd+G', windows: 'Ctrl+G' },
+  // Cmd+Shift+G belongs to aiGenerateScript — the old raw window listener
+  // for save-as-group used the same chord and never fired.
+  saveTabsAsGroup: { mac: 'Cmd+Shift+D', windows: 'Ctrl+Shift+D' },
 }
 
 // Action metadata for UI display
@@ -92,9 +98,6 @@ export const KEYBOARD_ACTIONS: KeyboardActionInfo[] = [
   { id: 'aiGenerateScript', label: 'AI Generate Script', category: 'AI', defaultBinding: DEFAULT_KEYBINDINGS.aiGenerateScript },
   { id: 'aiOverlay', label: 'AI: Open Chat Tab', category: 'AI', defaultBinding: DEFAULT_KEYBINDINGS.aiOverlay },
 
-  // Scripts
-  { id: 'runScript', label: 'Run Script', category: 'Scripts', defaultBinding: DEFAULT_KEYBINDINGS.runScript },
-
   // Sessions
   { id: 'connectSelectedSessions', label: 'Connect Selected Sessions', category: 'Sessions', defaultBinding: DEFAULT_KEYBINDINGS.connectSelectedSessions },
 
@@ -109,6 +112,10 @@ export const KEYBOARD_ACTIONS: KeyboardActionInfo[] = [
 
   // Scratchpad
   { id: 'scratchpadOpen', label: 'Open Scratchpad', category: 'View', defaultBinding: DEFAULT_KEYBINDINGS.scratchpadOpen },
+
+  // Tab groups
+  { id: 'groupSelectedTabs', label: 'Group Selected Tabs', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.groupSelectedTabs },
+  { id: 'saveTabsAsGroup', label: 'Save Tabs as Group', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.saveTabsAsGroup },
 ]
 
 // Detect platform
@@ -249,6 +256,44 @@ export function getPlatformBinding(binding: PlatformKeybinding): string {
   return isMac() ? binding.mac : binding.windows
 }
 
+export type KeyboardActionHandler = () => void | boolean
+
+/**
+ * True when a keydown targeted a plain text-entry element. Single-modifier
+ * chords (Ctrl+W, Cmd+S, …) inside these are left to the element / its
+ * component; multi-modifier chords still reach the global bindings.
+ */
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (tag === 'INPUT') {
+    const type = (target as HTMLInputElement).type
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(type)
+  }
+  return false
+}
+
+/**
+ * Decide whether a matched binding should be swallowed by the global
+ * listener or left to the focused element. Exported for tests.
+ *
+ * - Inside xterm, single-Ctrl chords (Ctrl+W/T/B/F/I/S…) are readline
+ *   keys — the terminal owns them. Cmd-based chords on macOS still fire.
+ * - Inside a text-entry element, any single-modifier chord is left alone.
+ */
+export function shouldDeferToTarget(target: EventTarget | null, binding: string): boolean {
+  const el = target instanceof HTMLElement ? target : null
+  if (!el) return false
+  const parsed = parseKeybinding(binding)
+  const modifierCount = [parsed.ctrl, parsed.shift, parsed.alt, parsed.meta].filter(Boolean).length
+  // xterm's key events originate from its helper textarea — apply only the
+  // terminal rule there, so Cmd+W/T on macOS still reach the app.
+  if (el.closest('.xterm')) return parsed.ctrl && !parsed.meta && modifierCount === 1
+  return isTextEntryTarget(el) && modifierCount === 1
+}
+
 // Hook return type
 export interface UseKeyboardReturn {
   // Current bindings (custom overrides merged with defaults)
@@ -269,8 +314,10 @@ export interface UseKeyboardReturn {
   // Check if a binding has a conflict with another action
   findConflict: (action: KeyboardAction, binding: string) => KeyboardAction | null
 
-  // Register an action handler
-  registerAction: (action: KeyboardAction, handler: () => void) => void
+  // Register an action handler. A handler may return `false` to decline the
+  // event — the key then passes through untouched (no preventDefault) so a
+  // component-level listener (e.g. SFTP editor's own Cmd+S) can handle it.
+  registerAction: (action: KeyboardAction, handler: KeyboardActionHandler) => void
 
   // Unregister an action handler
   unregisterAction: (action: KeyboardAction) => void
@@ -287,7 +334,7 @@ export function useKeyboard(): UseKeyboardReturn {
   const [customBindings, setCustomBindings] = useState<Partial<Record<KeyboardAction, PlatformKeybinding>>>({})
 
   // Action handlers
-  const handlersRef = useRef<Partial<Record<KeyboardAction, () => void>>>({})
+  const handlersRef = useRef<Partial<Record<KeyboardAction, KeyboardActionHandler>>>({})
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -370,7 +417,7 @@ export function useKeyboard(): UseKeyboardReturn {
   }, [bindings])
 
   // Register action handler
-  const registerAction = useCallback((action: KeyboardAction, handler: () => void) => {
+  const registerAction = useCallback((action: KeyboardAction, handler: KeyboardActionHandler) => {
     handlersRef.current[action] = handler
   }, [])
 
@@ -400,9 +447,12 @@ export function useKeyboard(): UseKeyboardReturn {
         const platformBinding = getPlatformBinding(binding)
 
         if (matchesBinding(e, platformBinding)) {
+          // xterm (readline Ctrl+W/T/…) and text inputs own single-modifier
+          // chords — never steal them from the focused element.
+          if (shouldDeferToTarget(e.target, platformBinding)) return
+          if (handler() === false) return
           e.preventDefault()
           e.stopPropagation()
-          handler()
           return
         }
       }

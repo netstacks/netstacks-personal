@@ -3,6 +3,25 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Deserialize an `Option<Option<T>>` update field so that the three JSON states
+/// are distinguishable:
+///
+/// * field absent      → `None`             (leave the stored value unchanged)
+/// * `"field": null`   → `Some(None)`       (clear the stored value)
+/// * `"field": value`  → `Some(Some(value))` (set the stored value)
+///
+/// Plain `#[derive(Deserialize)]` collapses `null` into `None`, which makes it
+/// impossible to clear a nullable column through a partial update. Every
+/// `Option<Option<T>>` request field must carry
+/// `#[serde(default, deserialize_with = "double_option")]`.
+pub fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 // === Datetime Utilities ===
 
 /// Parse a datetime string from SQLite storage format.
@@ -248,6 +267,19 @@ pub struct NewSession {
     /// SFTP starting directory override
     #[serde(default)]
     pub sftp_start_path: Option<String>,
+    // Session-specific terminal settings. These existed on `Session` and
+    // `UpdateSession` but not here, so the create dialog's values were
+    // silently dropped and only an edit could persist them (NS-SESS-3).
+    #[serde(default = "default_auto_reconnect")]
+    pub auto_reconnect: bool,
+    #[serde(default = "default_reconnect_delay")]
+    pub reconnect_delay: u32,
+    #[serde(default = "default_scrollback_lines")]
+    pub scrollback_lines: u32,
+    #[serde(default)]
+    pub local_echo: bool,
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 fn default_port() -> u16 {
@@ -258,10 +290,13 @@ fn default_port() -> u16 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateSession {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub folder_id: Option<Option<String>>,
     pub host: Option<String>,
     pub port: Option<u16>,
+    #[serde(default, deserialize_with = "double_option")]
     pub color: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub icon: Option<Option<String>>,
     pub sort_order: Option<i32>,
     // Session-specific settings
@@ -269,24 +304,31 @@ pub struct UpdateSession {
     pub reconnect_delay: Option<u32>,
     pub scrollback_lines: Option<u32>,
     pub local_echo: Option<bool>,
+    #[serde(default, deserialize_with = "double_option")]
     pub font_size_override: Option<Option<u32>>,
     /// Terminal font family (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub font_family: Option<Option<String>>,
     // Profile integration - all auth comes from profile
     /// Reference to credential profile (required - can update but not clear)
     pub profile_id: Option<String>,
     /// NetBox device ID (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub netbox_device_id: Option<Option<i64>>,
     /// NetBox source ID (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub netbox_source_id: Option<Option<String>>,
     /// CLI flavor for AI command suggestions
     pub cli_flavor: Option<CliFlavor>,
     /// Terminal color theme ID (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub terminal_theme: Option<Option<String>>,
     // Jump host / proxy support (refactored to global jump hosts)
     /// Reference to a global jump host configuration (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub jump_host_id: Option<Option<String>>,
     /// Reference to another Session used as the jump endpoint (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub jump_session_id: Option<Option<String>>,
     // Port forwarding (Phase 06.3)
     /// SSH port forwards (replaces entire list when provided)
@@ -300,6 +342,7 @@ pub struct UpdateSession {
     /// Connection protocol (ssh or telnet)
     pub protocol: Option<Protocol>,
     /// SFTP starting directory override (Option<Option<>> to allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
     pub sftp_start_path: Option<Option<String>>,
 }
 
@@ -315,6 +358,7 @@ pub struct NewFolder {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateFolder {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub parent_id: Option<Option<String>>,
     pub sort_order: Option<i32>,
 }
@@ -368,6 +412,7 @@ pub struct NewMappedKey {
 pub struct UpdateMappedKey {
     pub key_combo: Option<String>,
     pub command: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
     #[serde(default)]
     pub is_secret: Option<bool>,
@@ -453,12 +498,16 @@ fn default_enabled() -> bool {
 pub struct UpdateCustomCommand {
     pub name: Option<String>,
     pub command: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub detection_types: Option<Option<String>>,
     pub sort_order: Option<i32>,
     pub enabled: Option<bool>,
     pub action_type: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub quick_action_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub quick_action_variable: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub script_id: Option<Option<String>>,
     pub show_in_force_click: Option<bool>,
 }
@@ -608,17 +657,24 @@ pub struct ExportSession {
     pub color: Option<String>,
     pub icon: Option<String>,
     // Session-specific settings
+    #[serde(default = "default_auto_reconnect")]
     pub auto_reconnect: bool,
+    #[serde(default = "default_reconnect_delay")]
     pub reconnect_delay: u32,
+    #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
+    #[serde(default)]
     pub local_echo: bool,
     pub font_size_override: Option<u32>,
+    #[serde(default)]
     pub mapped_keys: Vec<NewMappedKey>,
+    #[serde(default)]
     pub snippets: Vec<NewSnippet>,
     // Jump host / proxy support (refactored to global jump hosts)
     /// Jump host name (for export - matched by name on import)
     pub jump_host_name: Option<String>,
     // Port forwarding (Phase 06.3)
+    #[serde(default)]
     pub port_forwards: Vec<PortForward>,
 }
 
@@ -759,7 +815,9 @@ pub struct UpdateDocument {
     pub category: Option<DocumentCategory>,
     pub content_type: Option<ContentType>,
     pub content: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub parent_folder: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub session_id: Option<Option<String>>,
 }
 
@@ -885,12 +943,16 @@ pub struct UpdateCredentialProfile {
     pub name: Option<String>,
     pub username: Option<String>,
     pub auth_type: Option<AuthType>,
+    #[serde(default, deserialize_with = "double_option")]
     pub key_path: Option<Option<String>>,
     pub port: Option<u16>,
     pub keepalive_interval: Option<u32>,
     pub connection_timeout: Option<u32>,
+    #[serde(default, deserialize_with = "double_option")]
     pub terminal_theme: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub default_font_size: Option<Option<u32>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub default_font_family: Option<Option<String>>,
     pub scrollback_lines: Option<u32>,
     pub local_echo: Option<bool>,
@@ -898,7 +960,9 @@ pub struct UpdateCredentialProfile {
     pub reconnect_delay: Option<u32>,
     pub cli_flavor: Option<CliFlavor>,
     pub auto_commands: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub jump_host_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub jump_session_id: Option<Option<String>>,
 }
 
@@ -1068,16 +1132,21 @@ pub struct UpdateNetBoxSource {
     pub name: Option<String>,
     /// New API resource binding
     pub api_resource_id: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub default_profile_id: Option<Option<String>>,
     pub profile_mappings: Option<ProfileMappings>,
     pub cli_flavor_mappings: Option<CliFlavorMappings>,
     /// Device filters for import (multi-select)
+    #[serde(default, deserialize_with = "double_option")]
     pub device_filters: Option<Option<DeviceFilters>>,
     /// Updated sync timestamp (set by sync-complete endpoint)
+    #[serde(default, deserialize_with = "double_option")]
     pub last_sync_at: Option<Option<DateTime<Utc>>>,
     /// Sync filters used in the last sync
+    #[serde(default, deserialize_with = "double_option")]
     pub last_sync_filters: Option<Option<SyncFilters>>,
     /// Result of the last sync
+    #[serde(default, deserialize_with = "double_option")]
     pub last_sync_result: Option<Option<SyncResult>>,
 }
 
@@ -1378,12 +1447,16 @@ pub struct UpdateTunnel {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub profile_id: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub jump_host_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub jump_session_id: Option<Option<String>>,
     pub forward_type: Option<PortForwardType>,
     pub local_port: Option<u16>,
     pub bind_address: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub remote_host: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub remote_port: Option<Option<u16>>,
     pub auto_start: Option<bool>,
     pub auto_reconnect: Option<bool>,
@@ -1509,7 +1582,9 @@ pub struct UpdateHighlightRule {
     pub is_regex: Option<bool>,
     pub case_sensitive: Option<bool>,
     pub whole_word: Option<bool>,
+    #[serde(default, deserialize_with = "double_option")]
     pub foreground: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub background: Option<Option<String>>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
@@ -1518,6 +1593,7 @@ pub struct UpdateHighlightRule {
     pub priority: Option<i32>,
     pub enabled: Option<bool>,
     /// Session ID (Option<Option<>> to allow clearing to make global)
+    #[serde(default, deserialize_with = "double_option")]
     pub session_id: Option<Option<String>>,
 }
 
@@ -1655,16 +1731,25 @@ pub struct NewChange {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateChange {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
     pub status: Option<ChangeStatus>,
     pub mop_steps: Option<Vec<MopStep>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub device_overrides: Option<Option<std::collections::HashMap<String, Vec<MopStep>>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub document_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub session_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub pre_snapshot_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub post_snapshot_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ai_analysis: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub executed_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub completed_at: Option<Option<DateTime<Utc>>>,
 }
 
@@ -1871,16 +1956,27 @@ pub struct TopologyConnection {
 /// optional — only fields that are `Some` will be written.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateConnectionRequest {
+    #[serde(default, deserialize_with = "double_option")]
     pub source_interface: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub target_interface: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub label: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub waypoints: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub curve_style: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub bundle_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub bundle_index: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub color: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub line_style: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub line_width: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub notes: Option<Option<String>>,
 }
 
@@ -2103,9 +2199,13 @@ pub struct NewSessionContext {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateSessionContext {
     pub issue: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub root_cause: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub resolution: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub commands: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ticket_ref: Option<Option<String>>,
 }
 
@@ -2189,9 +2289,13 @@ pub struct NewDeviceMemoryEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateDeviceMemory {
+    #[serde(default, deserialize_with = "double_option")]
     pub role: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub criticality: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub standing_instructions: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub notes: Option<Option<String>>,
 }
 
@@ -2428,14 +2532,17 @@ pub struct UpdateApiResourceRequest {
     pub auth_token: Option<String>,
     pub auth_username: Option<String>,
     pub auth_password: Option<String>,
-    pub auth_header_name: Option<String>,
-    pub auth_header_prefix: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub auth_header_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub auth_header_prefix: Option<Option<String>>,
     pub auth_flow: Option<Vec<AuthFlowStep>>,
     pub default_headers: Option<serde_json::Value>,
     pub custom_headers: Option<serde_json::Value>,
     pub verify_ssl: Option<bool>,
     pub timeout_secs: Option<i32>,
-    pub test_path: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub test_path: Option<Option<String>>,
 }
 
 /// Quick Action - saved one-click HTTP call
@@ -2488,17 +2595,23 @@ fn default_icon() -> Option<String> { Some("zap".to_string()) }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateQuickActionRequest {
     pub name: Option<String>,
-    pub description: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub description: Option<Option<String>>,
     pub api_resource_id: Option<String>,
     pub method: Option<String>,
     pub path: Option<String>,
     pub headers: Option<serde_json::Value>,
-    pub body: Option<String>,
-    pub json_extract_path: Option<String>,
-    pub icon: Option<String>,
-    pub color: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub body: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub json_extract_path: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub icon: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub color: Option<Option<String>>,
     pub sort_order: Option<i32>,
-    pub category: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub category: Option<Option<String>>,
 }
 
 /// Result of executing a quick action
@@ -2858,6 +2971,7 @@ pub struct NewMopTemplate {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateMopTemplate {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
     pub mop_steps: Option<Vec<MopStep>>,
 }
@@ -2958,19 +3072,26 @@ pub struct NewMopExecution {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateMopExecution {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
     pub execution_strategy: Option<ExecutionStrategy>,
     pub control_mode: Option<ControlMode>,
     pub status: Option<ExecutionStatus>,
+    #[serde(default, deserialize_with = "double_option")]
     pub current_phase: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ai_analysis: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ai_autonomy_level: Option<Option<i32>>,
     pub on_failure: Option<String>,
     pub pause_after_pre_checks: Option<bool>,
     pub pause_after_changes: Option<bool>,
     pub pause_after_post_checks: Option<bool>,
+    #[serde(default, deserialize_with = "double_option")]
     pub started_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub completed_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub last_checkpoint: Option<Option<String>>,
 }
 
@@ -3105,12 +3226,19 @@ pub struct NewMopExecutionDevice {
 pub struct UpdateMopExecutionDevice {
     pub device_order: Option<i32>,
     pub status: Option<DeviceExecutionStatus>,
+    #[serde(default, deserialize_with = "double_option")]
     pub current_step_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub pre_snapshot_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub post_snapshot_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ai_analysis: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub started_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub completed_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub error_message: Option<Option<String>>,
 }
 
@@ -3238,6 +3366,15 @@ pub struct MopPackageStep {
     pub paired_step_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_format: Option<String>,
+    /// Per-step device targeting ("all" | "specific"); dropped on import
+    /// before these fields existed, which turned every step into "all
+    /// devices" (NS-API-14).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deploy_metadata: Option<serde_json::Value>,
 }
 
 /// Embedded document in a MOP package
@@ -3415,23 +3552,37 @@ pub struct NewMopExecutionStep {
 pub struct UpdateMopExecutionStep {
     pub step_order: Option<i32>,
     pub command: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub expected_output: Option<Option<String>>,
     pub mock_enabled: Option<bool>,
+    #[serde(default, deserialize_with = "double_option")]
     pub mock_output: Option<Option<String>>,
     pub status: Option<StepExecutionStatus>,
+    #[serde(default, deserialize_with = "double_option")]
     pub output: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ai_feedback: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub started_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub completed_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub duration_ms: Option<Option<i64>>,
     // Execution source routing
     pub execution_source: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub quick_action_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub quick_action_variables: Option<Option<serde_json::Value>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub script_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub script_args: Option<Option<serde_json::Value>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub paired_step_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub output_format: Option<Option<String>>,
 }
 
@@ -3580,9 +3731,9 @@ pub struct UpdateGroupRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub tabs: Option<Vec<GroupTab>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     pub topology_id: Option<Option<String>>, // explicit `null` clears
-    #[serde(default)]
+    #[serde(default, deserialize_with = "double_option")]
     pub default_launch_action: Option<Option<LaunchAction>>,
     #[serde(default)]
     pub last_used_at: Option<String>,
@@ -3591,6 +3742,51 @@ pub struct UpdateGroupRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: `Option<Option<T>>` update fields must distinguish
+    /// absent (keep) from `null` (clear) from a value (set). Without
+    /// `double_option`, serde folds `null` into `None` and nothing nullable
+    /// can ever be cleared through a PUT (NS-SESS-1).
+    #[test]
+    fn double_option_distinguishes_absent_null_and_value() {
+        let absent: UpdateSession = serde_json::from_str(r#"{"name":"x"}"#).unwrap();
+        assert_eq!(absent.folder_id, None, "absent field must mean 'keep'");
+        assert_eq!(absent.jump_host_id, None);
+
+        let cleared: UpdateSession =
+            serde_json::from_str(r#"{"folder_id":null,"jump_host_id":null,"font_size_override":null}"#)
+                .unwrap();
+        assert_eq!(cleared.folder_id, Some(None), "null must mean 'clear'");
+        assert_eq!(cleared.jump_host_id, Some(None));
+        assert_eq!(cleared.font_size_override, Some(None));
+
+        let set: UpdateSession =
+            serde_json::from_str(r#"{"folder_id":"f1","font_size_override":16}"#).unwrap();
+        assert_eq!(set.folder_id, Some(Some("f1".to_string())));
+        assert_eq!(set.font_size_override, Some(Some(16)));
+
+        // A representative sample of the other update structs that carry
+        // nullable fields — each must honour `null` as an explicit clear.
+        let p: UpdateCredentialProfile = serde_json::from_str(r#"{"key_path":null}"#).unwrap();
+        assert_eq!(p.key_path, Some(None));
+        let f: UpdateFolder = serde_json::from_str(r#"{"parent_id":null}"#).unwrap();
+        assert_eq!(f.parent_id, Some(None));
+        let h: UpdateHighlightRule = serde_json::from_str(r#"{"foreground":null}"#).unwrap();
+        assert_eq!(h.foreground, Some(None));
+        let m: UpdateMappedKey = serde_json::from_str(r#"{"description":null}"#).unwrap();
+        assert_eq!(m.description, Some(None));
+        let d: UpdateDeviceMemory = serde_json::from_str(r#"{"role":null}"#).unwrap();
+        assert_eq!(d.role, Some(None));
+        let n: UpdateNetBoxSource = serde_json::from_str(r#"{"default_profile_id":null}"#).unwrap();
+        assert_eq!(n.default_profile_id, Some(None));
+        let tn: UpdateTunnel = serde_json::from_str(r#"{"remote_port":null}"#).unwrap();
+        assert_eq!(tn.remote_port, Some(None));
+        let g: UpdateGroupRequest = serde_json::from_str(r#"{"topology_id":null}"#).unwrap();
+        assert_eq!(g.topology_id, Some(None));
+        let e: UpdateEnrichmentSourceRequest =
+            serde_json::from_str(r#"{"api_resource_id":null}"#).unwrap();
+        assert_eq!(e.api_resource_id, Some(None));
+    }
 
     #[test]
     fn credential_profile_serde_round_trip_includes_jump_host_id() {
@@ -3840,6 +4036,7 @@ pub struct CreateEnrichmentSourceRequest {
 pub struct UpdateEnrichmentSourceRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
     pub api_resource_id: Option<Option<String>>,  // double-Option so caller can clear
     pub method: Option<String>,
     pub path_template: Option<String>,

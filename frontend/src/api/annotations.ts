@@ -43,6 +43,29 @@ function transformAnnotation(backend: BackendAnnotation): Annotation {
   } as Annotation;
 }
 
+/** Keys owned by `BaseAnnotation` — never part of `element_data`. */
+const BASE_ANNOTATION_KEYS: ReadonlySet<string> = new Set<keyof BaseAnnotation>([
+  'id', 'topologyId', 'type', 'zIndex', 'createdAt', 'updatedAt',
+]);
+
+/**
+ * Strip base fields from an annotation, leaving only the type-specific
+ * payload that belongs in `element_data`.
+ *
+ * The backend PUT replaces the whole `element_data` blob, so every update
+ * must send the FULL merged payload (position + size + points + styling),
+ * never a partial. Callers pass the already-merged annotation here.
+ */
+export function toElementData(annotation: Partial<Annotation>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(annotation)) {
+    if (BASE_ANNOTATION_KEYS.has(key)) continue;
+    if (value === undefined) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 /**
  * Transform frontend annotation to backend request format
  */
@@ -53,7 +76,7 @@ function transformToBackend(
 ): { annotation_type: string; element_data: Record<string, unknown>; z_index: number } {
   return {
     annotation_type: type,
-    element_data: data as Record<string, unknown>,
+    element_data: toElementData(data as Partial<Annotation>),
     z_index: zIndex,
   };
 }
@@ -92,6 +115,10 @@ export async function updateAnnotation(
   topologyId: string,
   annotationId: string,
   updates: {
+    /**
+     * FULL merged type-specific payload for the annotation (the backend
+     * replaces the blob wholesale). Use `toElementData(mergedAnnotation)`.
+     */
     elementData?: Partial<Omit<Annotation, keyof BaseAnnotation>>;
     zIndex?: number;
   }
@@ -99,7 +126,7 @@ export async function updateAnnotation(
   const body: { element_data?: Record<string, unknown>; z_index?: number } = {};
 
   if (updates.elementData) {
-    body.element_data = updates.elementData as Record<string, unknown>;
+    body.element_data = toElementData(updates.elementData as Partial<Annotation>);
   }
   if (updates.zIndex !== undefined) {
     body.z_index = updates.zIndex;

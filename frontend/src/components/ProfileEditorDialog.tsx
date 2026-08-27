@@ -5,6 +5,7 @@ import {
   updateProfile,
   storeProfileCredential,
   getProfileCredentialMeta,
+  VaultLockedError,
   type CredentialProfile,
   type NewCredentialProfile,
   type AuthType,
@@ -15,6 +16,7 @@ import { useDirtyGuard } from '../hooks/useDirtyGuard';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import { useMode } from '../hooks/useMode';
 import AITabInput from './AITabInput';
+import Switch from './Switch';
 import './ProfileEditorDialog.css';
 
 import { getErrorMessage } from '../api/errors'
@@ -109,6 +111,9 @@ export default function ProfileEditorDialog({
   const [snmpCommunities, setSnmpCommunities] = useState<string[]>([]);
   const [newCommunity, setNewCommunity] = useState('');
   const [existingCommunityCount, setExistingCommunityCount] = useState(0);
+  // Set when the vault is locked and existing credential metadata can't be
+  // read — distinct from "0 communities" so we don't invite an overwrite.
+  const [credentialMetaError, setCredentialMetaError] = useState<string | null>(null);
 
   // Terminal tab state
   const [terminalTheme, setTerminalTheme] = useState<string | null>(null);
@@ -179,10 +184,14 @@ export default function ProfileEditorDialog({
         }
 
         // Load SNMP community count from vault metadata (edit mode only)
+        setCredentialMetaError(null);
         if (profile && !cloneFrom) {
           getProfileCredentialMeta(profile.id).then((meta) => {
             setExistingCommunityCount(meta.snmp_community_count);
-          }).catch(() => setExistingCommunityCount(0));
+          }).catch((err: unknown) => {
+            setExistingCommunityCount(0);
+            if (err instanceof VaultLockedError) setCredentialMetaError(err.message);
+          });
         } else {
           setExistingCommunityCount(0);
         }
@@ -199,6 +208,7 @@ export default function ProfileEditorDialog({
         setConnectionTimeout(30);
         setSnmpCommunities([]);
         setExistingCommunityCount(0);
+        setCredentialMetaError(null);
         setTerminalTheme(null);
         setDefaultFontSize(null);
         setDefaultFontFamily(null);
@@ -637,14 +647,7 @@ export default function ProfileEditorDialog({
                       <label>Auto-Reconnect</label>
                       <span className="form-hint">Automatically reconnect when disconnected</span>
                     </div>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={autoReconnect}
-                        onChange={(e) => setAutoReconnect(e.target.checked)}
-                      />
-                      <span className="toggle-slider" />
-                    </label>
+                    <Switch checked={autoReconnect} onChange={setAutoReconnect} label="Auto-Reconnect" />
                   </div>
                 </div>
 
@@ -683,14 +686,7 @@ export default function ProfileEditorDialog({
                       <label>Local Echo</label>
                       <span className="form-hint">Echo typed characters locally</span>
                     </div>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={localEcho}
-                        onChange={(e) => setLocalEcho(e.target.checked)}
-                      />
-                      <span className="toggle-slider" />
-                    </label>
+                    <Switch checked={localEcho} onChange={setLocalEcho} label="Local Echo" />
                   </div>
                 </div>
 
@@ -850,6 +846,13 @@ export default function ProfileEditorDialog({
                   Community strings used for SNMPv2c polling. Multiple communities are tried in order
                   when discovering devices. Stored encrypted in the vault.
                 </div>
+
+                {credentialMetaError && (
+                  <div className="snmp-existing-indicator">
+                    {credentialMetaError} Existing community strings can't be shown while the vault is locked;
+                    saving new ones below will replace whatever is stored.
+                  </div>
+                )}
 
                 {existingCommunityCount > 0 && snmpCommunities.length === 0 && (
                   <div className="snmp-existing-indicator">

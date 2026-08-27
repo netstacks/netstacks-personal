@@ -234,29 +234,48 @@ pub struct ApiError {
 /// Convert ProviderError to HTTP response
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let status = match self.code.as_str() {
-            "NOT_FOUND" => StatusCode::NOT_FOUND,
-            "VAULT_LOCKED" => StatusCode::FORBIDDEN,
-            "INVALID_PASSWORD" => StatusCode::UNAUTHORIZED,
-            "ACCESS_DENIED" => StatusCode::FORBIDDEN,
-            "VALIDATION" => StatusCode::BAD_REQUEST,
-            "CONFLICT" => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
+        (status_for_error_code(&self.code), Json(self)).into_response()
+    }
+}
 
-        (status, Json(self)).into_response()
+/// Map an `ApiError.code` to its HTTP status.
+///
+/// Every code a handler can emit must be listed here, otherwise a client
+/// mistake (bad path, bad input, missing row) is reported to the UI as an
+/// internal server error and the message is treated as a crash rather than
+/// something the engineer can act on. Unknown codes still fall to 500 so a
+/// new code shows up in testing as a loud 500 rather than a silent 400.
+pub fn status_for_error_code(code: &str) -> StatusCode {
+    match code {
+        "NOT_FOUND" | "SESSION_NOT_FOUND" | "SHELL_NOT_FOUND" => StatusCode::NOT_FOUND,
+        "GONE" | "SESSION_CLOSED" => StatusCode::GONE,
+        "VAULT_LOCKED" | "ACCESS_DENIED" | "PERMISSION_DENIED" | "FS_PATH_DENIED"
+        | "APPROVAL_REQUIRED" => StatusCode::FORBIDDEN,
+        "INVALID_PASSWORD" | "AUTH_FAILED" | "AUTH_MISSING" | "KEY_ERROR" => {
+            StatusCode::UNAUTHORIZED
+        }
+        "VALIDATION" | "VALIDATION_ERROR" | "INVALID_INPUT" | "INVALID_PATH" | "INVALID_URL"
+        | "INVALID_FORMAT" | "INVALID_STEP" | "UNSUPPORTED_VERSION" | "NOT_CONFIGURED" => {
+            StatusCode::BAD_REQUEST
+        }
+        "CONFLICT" => StatusCode::CONFLICT,
+        "GIT_CMD_FAILED" => StatusCode::UNPROCESSABLE_ENTITY,
+        "CONNECTION_FAILED" | "CHANNEL_ERROR" => StatusCode::BAD_GATEWAY,
+        "RATE_LIMITED" => StatusCode::TOO_MANY_REQUESTS,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
 impl From<crate::db::DbError> for ApiError {
     fn from(err: crate::db::DbError) -> Self {
-        let error = err.to_string();
-        let code = if error.contains("RowNotFound") {
-            "NOT_FOUND"
-        } else {
-            "DATABASE_ERROR"
+        // Match structurally: `DbError::Sqlx` displays as "Database error: no rows
+        // returned…", so the old `to_string().contains("RowNotFound")` check (which
+        // only matched the Debug form) never fired and every missing row was a 500.
+        let code = match &err {
+            crate::db::DbError::Sqlx(sqlx::Error::RowNotFound) => "NOT_FOUND",
+            _ => "DATABASE_ERROR",
         };
-        ApiError { error, code: code.to_string() }
+        ApiError { error: err.to_string(), code: code.to_string() }
     }
 }
 
@@ -1125,6 +1144,19 @@ pub async fn get_setting(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let value = state.provider.get_setting(&key).await?;
     Ok(Json(value))
+}
+
+/// Delete a setting value ("reset to default"). 204 whether or not it existed.
+pub async fn delete_setting(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    state.provider.delete_setting(&key).await?;
+    if key == "ai.sanitization_config" {
+        let mut cache = state.sanitizer.write().await;
+        *cache = None;
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Set a setting value
@@ -2214,6 +2246,11 @@ pub struct NetBoxDevice {
     pub display: Option<String>,
     pub device_type: Option<serde_json::Value>,
     pub role: Option<serde_json::Value>,
+    /// NetBox < 4.0 name for `role`. Passed through so the frontend's
+    /// role-based profile mapping works against either server version
+    /// (NS-API-6); serde used to drop it because the field didn't exist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_role: Option<serde_json::Value>,
     pub tenant: Option<serde_json::Value>,
     pub platform: Option<serde_json::Value>,
     pub serial: Option<String>,
@@ -3320,8 +3357,21 @@ pub async fn bulk_command(
         });
     }
 
-    // Build SSH configs for each session
+    // Build SSH configs for each session. Sessions we cannot prepare are
+    // reported as failed results rather than silently dropped, so the
+    // success/error counts the UI shows cover every session requested (NS-AGENT-7).
     let mut configs: Vec<(SshConfig, String, String)> = Vec::new();
+    let mut skipped: Vec<ssh::CommandResult> = Vec::new();
+    let skip = |session_id: &str, name: &str, host: &str, reason: String| ssh::CommandResult {
+        session_id: session_id.to_string(),
+        session_name: name.to_string(),
+        host: host.to_string(),
+        status: ssh::CommandStatus::Error,
+        output: String::new(),
+        error: Some(reason),
+        execution_time_ms: 0,
+        exit_code: None,
+    };
 
     for session_id in &req.session_ids {
         // Get session from provider
@@ -3329,6 +3379,7 @@ pub async fn bulk_command(
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("Failed to get session {}: {}", session_id, e);
+                skipped.push(skip(session_id, session_id, "", format!("Session not found: {}", e)));
                 continue;
             }
         };
@@ -3338,6 +3389,7 @@ pub async fn bulk_command(
             Ok(p) => p,
             Err(e) => {
                 tracing::warn!("Failed to get profile for session {} ({}): {}", session_id, session.name, e);
+                skipped.push(skip(session_id, &session.name, &session.host, format!("Profile not found: {}", e)));
                 continue;
             }
         };
@@ -3346,15 +3398,14 @@ pub async fn bulk_command(
         let credential = state
             .provider
             .get_profile_credential(&session.profile_id)
-            .await
-            .ok()
-            .flatten();
+            .await?;
 
         // Build SSH config from session + profile + credential
         let config = match build_ssh_config_from_session(&session, &profile, credential.as_ref()) {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!("Skipping session {} ({}): {}", session_id, session.name, e);
+                skipped.push(skip(session_id, &session.name, &session.host, e));
                 continue;
             }
         };
@@ -3363,14 +3414,21 @@ pub async fn bulk_command(
     }
 
     if configs.is_empty() {
+        let detail = skipped
+            .iter()
+            .map(|r| format!("{}: {}", r.session_name, r.error.as_deref().unwrap_or("unknown")))
+            .collect::<Vec<_>>()
+            .join("; ");
         return Err(ApiError {
-            error: "No valid sessions found for bulk command execution".to_string(),
+            error: format!("No valid sessions for bulk command execution ({})", detail),
             code: "VALIDATION".to_string(),
         });
     }
 
     // Execute bulk command
-    let response = ssh::execute_bulk_command(configs, req.command, timeout_secs).await;
+    let mut response = ssh::execute_bulk_command(configs, req.command, timeout_secs).await;
+    response.error_count += skipped.len() as u32;
+    response.results.extend(skipped);
 
     Ok(Json(response))
 }
@@ -3627,9 +3685,7 @@ pub async fn ai_ssh_execute(
     let credential = state
         .provider
         .get_profile_credential(&session.profile_id)
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
     // Build SSH config from session + profile + credential
     let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())
@@ -4208,9 +4264,7 @@ async fn build_ssh_config_for_ai(
     let credential = state
         .provider
         .get_profile_credential(&session.profile_id)
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
     build_ssh_config_from_session(&session, &profile, credential.as_ref()).map_err(|e| ApiError {
         error: e,
@@ -4296,9 +4350,7 @@ pub async fn sftp_connect(
         .app_state
         .provider
         .get_profile_credential(&session.profile_id)
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
     // Build SFTP auth from profile
     let auth = match profile.auth_type {
@@ -4489,7 +4541,7 @@ pub async fn sftp_upload(
     State(state): State<Arc<SftpState>>,
     Path(sftp_id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<SftpUploadQuery>,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> Result<StatusCode, ApiError> {
     let sftp_session = state
         .manager
@@ -4497,8 +4549,11 @@ pub async fn sftp_upload(
         .await
         .ok_or(SftpError::SessionNotFound)?;
 
+    // Stream the request body straight into the remote file instead of
+    // buffering it under the global body limit (NS-FEAT-13). The route
+    // opts out of `DefaultBodyLimit` in main.rs.
     let session = sftp_session.lock().await;
-    session.upload(&query.path, &body).await?;
+    session.upload_from_stream(&query.path, body.into_data_stream()).await?;
 
     Ok(StatusCode::CREATED)
 }
@@ -4757,6 +4812,9 @@ pub async fn export_mop_package(
             script_args: s.script_args.clone(),
             paired_step_id: s.paired_step_id.clone(),
             output_format: s.output_format.clone(),
+            device_scope: s.device_scope.clone(),
+            device_ids: s.device_ids.clone(),
+            deploy_metadata: s.deploy_metadata.clone(),
         })
         .collect();
 
@@ -4784,6 +4842,9 @@ pub async fn export_mop_package(
                         script_args: s.script_args.clone(),
                         paired_step_id: s.paired_step_id.clone(),
                         output_format: s.output_format.clone(),
+                        device_scope: s.device_scope.clone(),
+                        device_ids: s.device_ids.clone(),
+                        deploy_metadata: s.deploy_metadata.clone(),
                     })
                     .collect();
                 (key, pkg_steps)
@@ -4874,9 +4935,14 @@ pub async fn import_mop_package(
     }
 
     // Validate version (accept 1.x)
-    if !pkg.version.starts_with("1.") && pkg.version != "1" {
+    // 2.x packages only add optional fields (all `#[serde(default)]` here), so
+    // they import fine; the frontend validator already accepts them (NS-API-15).
+    let version_ok = ["1", "2"].contains(&pkg.version.as_str())
+        || pkg.version.starts_with("1.")
+        || pkg.version.starts_with("2.");
+    if !version_ok {
         return Err(ApiError {
-            error: format!("Unsupported version: '{}', expected 1.x", pkg.version),
+            error: format!("Unsupported version: '{}', expected 1.x or 2.x", pkg.version),
             code: "UNSUPPORTED_VERSION".to_string(),
         });
     }
@@ -4921,9 +4987,9 @@ pub async fn import_mop_package(
             paired_step_id: s.paired_step_id.clone(),
             output_format: s.output_format.clone(),
             ai_feedback: None,
-            device_scope: None,
-            device_ids: None,
-            deploy_metadata: None,
+            device_scope: s.device_scope.clone(),
+            device_ids: s.device_ids.clone(),
+            deploy_metadata: s.deploy_metadata.clone(),
         })
         .collect();
     let steps_imported = mop_steps.len();
@@ -4956,9 +5022,9 @@ pub async fn import_mop_package(
                         paired_step_id: s.paired_step_id.clone(),
                         output_format: s.output_format.clone(),
                         ai_feedback: None,
-                        device_scope: None,
-                        device_ids: None,
-                        deploy_metadata: None,
+                        device_scope: s.device_scope.clone(),
+                        device_ids: s.device_ids.clone(),
+                        deploy_metadata: s.deploy_metadata.clone(),
                     })
                     .collect();
                 overrides_imported += 1;
@@ -7521,7 +7587,7 @@ pub async fn run_agent_definition(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(req): Json<RunAgentRequest>,
-) -> Result<Json<crate::tasks::AgentTask>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     // Verify agent definition exists and is enabled (Feature A safety fix:
     // a disabled definition must not run via the API).
     let definition = state.provider.get_agent_definition(&id).await
@@ -7541,12 +7607,14 @@ pub async fn run_agent_definition(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Spawn for background execution
+    // Spawn for background execution (returns immediately; a full pool
+    // queues the task inside the executor — NS-API-8).
+    let queued = state.task_registry.semaphore().available_permits() == 0;
     if let Err(e) = state.task_executor.spawn_task(task.id.clone()).await {
         tracing::warn!("Failed to spawn agent task {}: {}", task.id, e);
     }
 
-    Ok(Json(task))
+    Ok(spawned_task_response(task, queued))
 }
 
 // === MOP Templates API (Phase 30) ===
@@ -8004,9 +8072,33 @@ fn map_ssh_result_to_step_status(result: &ssh::ShellCommandResult) -> (StepExecu
 /// Execute a step - actually runs the command on the device via SSH
 pub async fn execute_step(
     State(state): State<Arc<AppState>>,
-    Path((_exec_id, step_id)): Path<(String, String)>,
+    Path((exec_id, step_id)): Path<(String, String)>,
 ) -> Result<Json<MopExecutionStep>, ApiError> {
     let start_time = chrono::Utc::now();
+    match execute_step_inner(State(state.clone()), Path((exec_id, step_id.clone())), start_time).await {
+        Ok(step) => Ok(step),
+        Err(err) => {
+            // The step was already marked Running; without this it stays in the
+            // "running" spinner forever after a 4xx/5xx (NS-AGENT-1).
+            let update = UpdateMopExecutionStep {
+                status: Some(StepExecutionStatus::Failed),
+                output: Some(Some(err.error.clone())),
+                completed_at: Some(Some(chrono::Utc::now())),
+                ..Default::default()
+            };
+            if let Err(e) = state.provider.update_mop_execution_step(&step_id, update).await {
+                tracing::warn!("execute_step: failed to mark step {} failed: {}", step_id, e);
+            }
+            Err(err)
+        }
+    }
+}
+
+async fn execute_step_inner(
+    State(state): State<Arc<AppState>>,
+    Path((_exec_id, step_id)): Path<(String, String)>,
+    start_time: chrono::DateTime<chrono::Utc>,
+) -> Result<Json<MopExecutionStep>, ApiError> {
 
     // Mark step as running
     let update = UpdateMopExecutionStep {
@@ -8107,9 +8199,7 @@ pub async fn execute_step(
     let credential = state
         .provider
         .get_profile_credential(&session.profile_id)
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
     // Build SSH config from session + profile + credential
     let config = match build_ssh_config_from_session(&session, &profile, credential.as_ref()) {
@@ -8310,6 +8400,29 @@ pub async fn execute_device_phase(
     Path((exec_id, device_id)): Path<(String, String)>,
     Json(req): Json<ExecutePhaseRequest>,
 ) -> Result<Json<PhaseExecutionResult>, ApiError> {
+    match execute_device_phase_inner(State(state.clone()), Path((exec_id, device_id.clone())), Json(req)).await {
+        Ok(r) => Ok(r),
+        Err(err) => {
+            // Same as execute_step: never leave the device stuck in Running (NS-AGENT-1).
+            let update = UpdateMopExecutionDevice {
+                status: Some(DeviceExecutionStatus::Failed),
+                error_message: Some(Some(err.error.clone())),
+                completed_at: Some(Some(chrono::Utc::now())),
+                ..Default::default()
+            };
+            if let Err(e) = state.provider.update_mop_execution_device(&device_id, update).await {
+                tracing::warn!("execute_device_phase: failed to mark device {} failed: {}", device_id, e);
+            }
+            Err(err)
+        }
+    }
+}
+
+async fn execute_device_phase_inner(
+    State(state): State<Arc<AppState>>,
+    Path((exec_id, device_id)): Path<(String, String)>,
+    Json(req): Json<ExecutePhaseRequest>,
+) -> Result<Json<PhaseExecutionResult>, ApiError> {
     tracing::info!("execute_device_phase called: exec_id={}, device_id={}, step_type={:?}", exec_id, device_id, req.step_type);
     // Get the device
     let device = state.provider.get_mop_execution_device(&device_id).await.map_err(|e| {
@@ -8345,9 +8458,7 @@ pub async fn execute_device_phase(
     let credential = state
         .provider
         .get_profile_credential(&session.profile_id)
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
     // Build SSH config from session + profile + credential
     let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())
@@ -8618,6 +8729,10 @@ pub struct SnapshotDiff {
     pub post_output: Option<String>,
     pub has_changes: bool,
     pub diff_summary: String,
+    /// Lines present in post but not pre (what the UI renders as the diff).
+    pub lines_added: Vec<String>,
+    /// Lines present in pre but not post.
+    pub lines_removed: Vec<String>,
 }
 
 /// Get diff between pre and post snapshots for a device
@@ -8645,18 +8760,32 @@ pub async fn get_device_snapshot_diff(
         _ => false,
     };
 
+    // Line-set diff. The frontend `SnapshotDiff` type renders `lines_added` /
+    // `lines_removed`; until these were emitted the MOP Review tab crashed on
+    // `undefined.map` for any device with changes (NS-API-7).
+    let (lines_added, lines_removed): (Vec<String>, Vec<String>) = match (&pre_output, &post_output) {
+        (Some(pre), Some(post)) if pre != post => {
+            let pre_lines: Vec<&str> = pre.lines().collect();
+            let post_lines: Vec<&str> = post.lines().collect();
+            (
+                post_lines.iter().filter(|l| !pre_lines.contains(l)).map(|l| l.to_string()).collect(),
+                pre_lines.iter().filter(|l| !post_lines.contains(l)).map(|l| l.to_string()).collect(),
+            )
+        }
+        _ => (Vec::new(), Vec::new()),
+    };
+
     // Generate a simple diff summary
     let diff_summary = match (&pre_output, &post_output) {
         (Some(pre), Some(post)) => {
             if pre == post {
                 "No changes detected between pre and post checks.".to_string()
             } else {
-                // Count line differences
-                let pre_lines: Vec<_> = pre.lines().collect();
-                let post_lines: Vec<_> = post.lines().collect();
-                let added = post_lines.iter().filter(|l| !pre_lines.contains(l)).count();
-                let removed = pre_lines.iter().filter(|l| !post_lines.contains(l)).count();
-                format!("Changes detected: {} lines added, {} lines removed", added, removed)
+                format!(
+                    "Changes detected: {} lines added, {} lines removed",
+                    lines_added.len(),
+                    lines_removed.len()
+                )
             }
         }
         (None, Some(_)) => "Post-check captured, no pre-check snapshot available.".to_string(),
@@ -8672,6 +8801,8 @@ pub async fn get_device_snapshot_diff(
         post_output,
         has_changes,
         diff_summary,
+        lines_added,
+        lines_removed,
     }))
 }
 
@@ -9062,12 +9193,16 @@ pub async fn snmp_try_communities(
 
     tracing::info!("SNMP try-communities {}:{} profile: {}", req.host, port, req.profile_id);
 
-    // Resolve SNMP communities with fallback: try requested profile first,
-    // then scan all profiles for one with SNMP communities configured.
     let mut communities: Vec<String> = Vec::new();
 
-    // Level 1: Try the requested profile
-    if let Ok(Some(cred)) = state.provider.get_profile_credential(&req.profile_id).await {
+    // Only the requested profile is consulted. A locked vault is a 403 the UI
+    // can act on, not "no communities".
+    let profile_cred = state
+        .provider
+        .get_profile_credential(&req.profile_id)
+        .await
+        .map_err(|e| ApiError::from(e).into_response())?;
+    if let Some(cred) = profile_cred {
         if let Some(ref comms) = cred.snmp_communities {
             if !comms.is_empty() {
                 communities = comms.clone();
@@ -9075,30 +9210,15 @@ pub async fn snmp_try_communities(
         }
     }
 
-    // Level 2: Scan all profiles for one with SNMP communities
     if communities.is_empty() {
-        tracing::debug!("Profile {} has no SNMP communities, scanning all profiles", req.profile_id);
-        if let Ok(all_profiles) = state.provider.list_profiles().await {
-            for profile in &all_profiles {
-                if profile.id == req.profile_id {
-                    continue;
-                }
-                if let Ok(Some(cred)) = state.provider.get_profile_credential(&profile.id).await {
-                    if let Some(ref comms) = cred.snmp_communities {
-                        if !comms.is_empty() {
-                            communities = comms.clone();
-                            tracing::info!("Found SNMP communities in profile {} ({})", profile.name, profile.id);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if communities.is_empty() {
+        // Do NOT fall back to other profiles' communities: that sent a
+        // customer/site community string to an unrelated device and made
+        // discovery "work" with credentials the engineer never chose (NS-AGENT-3).
         let api_err = ApiError {
-            error: "No SNMP communities found in any profile".to_string(),
+            error: format!(
+                "Profile {} has no SNMP communities configured. Add one under Profiles → SNMP.",
+                req.profile_id
+            ),
             code: "VALIDATION".to_string(),
         };
         return Err((StatusCode::BAD_REQUEST, Json(api_err)).into_response());
@@ -9280,12 +9400,16 @@ pub async fn snmp_try_interface_stats(
         req.host, port, req.profile_id, req.interface_name
     );
 
-    // Resolve SNMP communities with fallback: try requested profile first,
-    // then scan all profiles for one with SNMP communities configured.
     let mut communities: Vec<String> = Vec::new();
 
-    // Level 1: Try the requested profile
-    if let Ok(Some(cred)) = state.provider.get_profile_credential(&req.profile_id).await {
+    // Only the requested profile is consulted. A locked vault is a 403 the UI
+    // can act on, not "no communities".
+    let profile_cred = state
+        .provider
+        .get_profile_credential(&req.profile_id)
+        .await
+        .map_err(|e| ApiError::from(e).into_response())?;
+    if let Some(cred) = profile_cred {
         if let Some(ref comms) = cred.snmp_communities {
             if !comms.is_empty() {
                 communities = comms.clone();
@@ -9294,30 +9418,15 @@ pub async fn snmp_try_interface_stats(
         }
     }
 
-    // Level 2: Scan all profiles for one with SNMP communities
     if communities.is_empty() {
-        tracing::debug!("Profile {} has no SNMP communities, scanning all profiles", req.profile_id);
-        if let Ok(all_profiles) = state.provider.list_profiles().await {
-            for profile in &all_profiles {
-                if profile.id == req.profile_id {
-                    continue; // Already tried
-                }
-                if let Ok(Some(cred)) = state.provider.get_profile_credential(&profile.id).await {
-                    if let Some(ref comms) = cred.snmp_communities {
-                        if !comms.is_empty() {
-                            communities = comms.clone();
-                            tracing::info!("Found SNMP communities in profile {} ({})", profile.name, profile.id);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if communities.is_empty() {
+        // Do NOT fall back to other profiles' communities: that sent a
+        // customer/site community string to an unrelated device and made
+        // discovery "work" with credentials the engineer never chose (NS-AGENT-3).
         let api_err = ApiError {
-            error: "No SNMP communities found in any profile".to_string(),
+            error: format!(
+                "Profile {} has no SNMP communities configured. Add one under Profiles → SNMP.",
+                req.profile_id
+            ),
             code: "VALIDATION".to_string(),
         };
         return Err((StatusCode::BAD_REQUEST, Json(api_err)).into_response());
@@ -9396,28 +9505,46 @@ pub struct ListTasksParams {
 #[derive(Debug, Serialize)]
 pub struct ListTasksResponse {
     pub tasks: Vec<crate::tasks::AgentTask>,
+    /// Tasks currently holding a concurrency slot.
     pub running_count: usize,
+    /// Spawned tasks still waiting for a slot (NS-API-8).
+    pub queued_count: usize,
     pub max_concurrent: usize,
+}
+
+/// `POST /tasks` reply: the pending row, as 200 when it got a slot at once or
+/// 202 + `queued: true` when every slot was busy and the executor queued it.
+/// Either way the handler never blocks on the semaphore (NS-API-8).
+fn spawned_task_response(task: crate::tasks::AgentTask, queued: bool) -> Response {
+    if !queued {
+        return Json(task).into_response();
+    }
+    let mut body = serde_json::to_value(&task)
+        .unwrap_or_else(|_| serde_json::json!({ "id": task.id }));
+    body["queued"] = serde_json::json!(true);
+    (StatusCode::ACCEPTED, Json(body)).into_response()
 }
 
 /// Create a new task
 pub async fn create_task(
     State(state): State<Arc<AppState>>,
     Json(req): Json<crate::tasks::CreateTaskRequest>,
-) -> Result<Json<crate::tasks::AgentTask>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     let task = state
         .task_store
         .create_task(req)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Spawn for background execution
+    // Spawn for background execution (returns immediately; a full pool
+    // queues the task inside the executor — NS-API-8).
+    let queued = state.task_registry.semaphore().available_permits() == 0;
     if let Err(e) = state.task_executor.spawn_task(task.id.clone()).await {
         tracing::warn!("Failed to spawn task {}: {}", task.id, e);
         // Task is created but not running - client can retry
     }
 
-    Ok(Json(task))
+    Ok(spawned_task_response(task, queued))
 }
 
 /// List tasks with optional status filter
@@ -9437,12 +9564,21 @@ pub async fn list_tasks(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let running_count = state.task_registry.running_count().await;
+    // Registry handles include tasks still queued for a slot (NS-API-8), so
+    // "running" is the number of permits in use, and the rest are queued.
     let max_concurrent = state.task_registry.max_concurrent();
+    let running_count =
+        max_concurrent.saturating_sub(state.task_registry.semaphore().available_permits());
+    let queued_count = state
+        .task_registry
+        .running_count()
+        .await
+        .saturating_sub(running_count);
 
     Ok(Json(ListTasksResponse {
         tasks,
         running_count,
+        queued_count,
         max_concurrent,
     }))
 }
@@ -9673,7 +9809,11 @@ pub async fn delete_smtp_config(
 ) -> Result<StatusCode, ApiError> {
     let pool = state.provider.get_pool();
 
-    // Delete from database
+    // Delete the vault secret first and propagate failures (a locked vault is
+    // a 403). Deleting the row first left an orphaned password that a later
+    // config reported as `has_password: true` (NS-API-20).
+    state.provider.delete_api_key("smtp_password").await?;
+
     sqlx::query("DELETE FROM smtp_config WHERE id = 'default'")
         .execute(pool)
         .await
@@ -9681,9 +9821,6 @@ pub async fn delete_smtp_config(
             error: format!("Database error: {}", e),
             code: "DATABASE_ERROR".to_string(),
         })?;
-
-    // Delete password from vault
-    let _ = state.provider.delete_api_key("smtp_password").await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -10059,14 +10196,29 @@ pub async fn connect_mcp_server(
         })?;
     }
 
+    // The client builds every tool with `enabled: false`; the upsert above
+    // preserves the stored flag, so report the DB state or the UI shows 0/N
+    // enabled after every Connect/Restart (NS-AI-17).
+    let enabled_rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT id, enabled FROM mcp_tools WHERE server_id = ?")
+            .bind(&server_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| ApiError {
+                error: format!("Database error: {}", e),
+                code: "DATABASE_ERROR".to_string(),
+            })?;
+    let enabled_by_id: std::collections::HashMap<String, bool> =
+        enabled_rows.into_iter().map(|(id, e)| (id, e != 0)).collect();
+
     // Return updated server response with tools
     let tools: Vec<McpToolResponse> = mcp_tools
         .into_iter()
         .map(|t| McpToolResponse {
+            enabled: enabled_by_id.get(&t.id).copied().unwrap_or(t.enabled),
             id: t.id,
             name: t.name,
             description: t.description,
-            enabled: t.enabled,
             input_schema: t.input_schema,
         })
         .collect();
@@ -10158,7 +10310,14 @@ pub async fn update_mcp_server(
 
     if let Some(token) = req.auth_token.as_deref() {
         if token.is_empty() {
-            let _ = state.provider.delete_mcp_auth_token(&existing_id).await;
+            state
+                .provider
+                .delete_mcp_auth_token(&existing_id)
+                .await
+                .map_err(|e| ApiError {
+                    error: format!("Failed to clear MCP auth token: {}", e),
+                    code: "DATABASE_ERROR".to_string(),
+                })?;
         } else {
             state.provider.store_mcp_auth_token(&existing_id, token).await
                 .map_err(|e| ApiError { error: format!("Failed to encrypt MCP auth token: {}", e), code: "VAULT_ERROR".to_string() })?;
@@ -10433,7 +10592,7 @@ pub async fn cert_status(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
     match &state.cert_manager {
-        Some(cm) => Json(serde_json::to_value(cm.get_status().await).unwrap()),
+        Some(cm) => Json(serde_json::to_value(cm.get_status().await).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }))),
         None => Json(serde_json::json!({ "valid": false, "error": "Certificate auth not initialized" })),
     }
 }
@@ -10463,7 +10622,7 @@ pub async fn cert_store(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    Ok(Json(serde_json::to_value(cm.get_status().await).unwrap()))
+    Ok(Json(serde_json::to_value(cm.get_status().await).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }))))
 }
 
 /// POST /api/cert/renew - Trigger certificate renewal
@@ -10862,15 +11021,21 @@ pub async fn update_ai_memory(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<StatusCode, ApiError> {
-    let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if content.is_empty() {
+        return Err(ApiError { error: "Memory content cannot be empty".to_string(), code: "VALIDATION".to_string() });
+    }
     let category = body.get("category").and_then(|v| v.as_str()).unwrap_or("general");
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query("UPDATE ai_memory SET content = ?, category = ?, updated_at = ? WHERE id = ?")
+    let result = sqlx::query("UPDATE ai_memory SET content = ?, category = ?, updated_at = ? WHERE id = ?")
         .bind(content).bind(category).bind(&now).bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|e| ApiError { error: e.to_string(), code: "DATABASE_ERROR".to_string() })?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError { error: "Memory not found".to_string(), code: "NOT_FOUND".to_string() });
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -11262,8 +11427,16 @@ pub async fn update_tunnel(
     if let Some(bind) = update.bind_address.as_deref() {
         validate_tunnel_bind_address(bind)?;
     }
-    let _ = state.tunnel_manager.stop_tunnel(&id).await;
+    // stop_tunnel only succeeds for a tunnel the manager is tracking, so its
+    // result tells us whether to bring the tunnel back up after the edit.
+    // Previously an edit silently left a running tunnel down (NS-FEAT-12).
+    let was_running = state.tunnel_manager.stop_tunnel(&id).await.is_ok();
     let tunnel = crate::db::update_tunnel(&state.pool, &id, update).await?;
+    if was_running {
+        if let Err(e) = state.tunnel_manager.start_tunnel(&tunnel).await {
+            tracing::warn!("update_tunnel: tunnel {} was running but failed to restart: {}", id, e);
+        }
+    }
     Ok(Json(tunnel))
 }
 

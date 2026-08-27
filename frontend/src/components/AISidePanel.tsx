@@ -9,14 +9,14 @@ import { useAIAgent, type AgentSession, type AgentMessage, type AddSessionContex
 import type { TopologyAICallbacks } from '../lib/topologyAITools'
 import type { LiveContextDeps } from '../lib/aiLiveContext'
 import { useAgentTasks } from '../hooks/useAgentTasks'
-import { listAiConversations, getAiConversation, createAiConversation, updateAiConversation, deleteAiConversation, type AiConversationSummary } from '../api/aiConversations'
+import { listAiConversations, getAiConversation, createAiConversation, updateAiConversation, deleteAiConversation, type AiConversation, type AiConversationSummary } from '../api/aiConversations'
 import type { PermissionMode } from '../api/agent'
 import { type AgentType, AGENT_TYPES, PERMISSION_MODES } from '../lib/aiModes'
 import { useModeNames } from '../hooks/useModeNames'
 import type { CliFlavor } from '../api/sessions'
 import type { Document, DocumentCategory } from '../api/docs'
 import type { SessionContextEntry, AiProviderType } from '../api/ai'
-import { hasAiApiKey, checkOllamaStatus, fetchOllamaModels, getAiStatus, getAiConfig } from '../api/ai'
+import { hasAiApiKey, checkOllamaStatus, fetchOllamaModels, getAiStatus, getAiConfig, getAiProviderOverrides, getOllamaBaseUrl } from '../api/ai'
 import { getCurrentMode } from '../api/client'
 import { useSettings } from '../hooks/useSettings'
 import { loadPanelSettings, savePanelSettings } from '../api/panelSettings'
@@ -482,7 +482,24 @@ const AISidePanel = ({
   const [seed, setSeed] = useState<AgentMessage[] | undefined>(
     initialMessages && initialMessages.length ? initialMessages : undefined
   )
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversationId, setConversationIdState] = useState<string | null>(null)
+  // Ref mirrors of the id + the in-flight create so the debounced save effect
+  // (an async closure) always sees the CURRENT id and never issues a second
+  // POST while the first is still pending — that produced duplicate DB rows.
+  const conversationIdRef = useRef<string | null>(null)
+  const createInFlightRef = useRef<Promise<AiConversation> | null>(null)
+  // Bumped whenever the panel switches chats; a create that resolves for an
+  // older generation must not adopt its id into the new chat.
+  const chatGenRef = useRef(0)
+  const setConversationId = useCallback((id: string | null) => {
+    conversationIdRef.current = id
+    setConversationIdState(id)
+  }, [])
+  const switchChat = useCallback((id: string | null) => {
+    chatGenRef.current += 1
+    createInFlightRef.current = null
+    setConversationId(id)
+  }, [setConversationId])
   const [showHistory, setShowHistory] = useState(false)
   const [conversations, setConversations] = useState<AiConversationSummary[]>([])
 
@@ -559,7 +576,7 @@ const AISidePanel = ({
     const lastId = localStorage.getItem(LAST_CONVO_KEY)
     if (!lastId) return
     getAiConversation(lastId)
-      .then(conv => { setSeed(conv.messages); setConversationId(conv.id) })
+      .then(conv => { setSeed(conv.messages); switchChat(conv.id) })
       .catch(() => localStorage.removeItem(LAST_CONVO_KEY))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -570,9 +587,9 @@ const AISidePanel = ({
     if (!continueHandledRef.current) { continueHandledRef.current = true; return }
     if (initialMessages && initialMessages.length) {
       setSeed(initialMessages)
-      setConversationId(null)
+      switchChat(null)
     }
-  }, [initialMessages])
+  }, [initialMessages, switchChat])
 
   // Save the conversation (create on first message, update thereafter).
   // Debounced so streaming token updates don't thrash the DB. Failures are
@@ -581,26 +598,45 @@ const AISidePanel = ({
     if (agentMessages.length === 0) return
     const t = setTimeout(async () => {
       const title = deriveConversationTitle(agentMessages)
+      const gen = chatGenRef.current
       try {
-        if (conversationId) {
-          await updateAiConversation(conversationId, { messages: agentMessages, title })
-        } else {
-          const created = await createAiConversation({ messages: agentMessages, title, agent_type: agentType })
-          setConversationId(created.id)
-          localStorage.setItem(LAST_CONVO_KEY, created.id)
+        if (!conversationIdRef.current && !createInFlightRef.current) {
+          // First save of a new chat: exactly one POST. Later saves that fire
+          // while it's pending await it below instead of creating again.
+          const pending = createAiConversation({ messages: agentMessages, title, agent_type: agentType })
+          createInFlightRef.current = pending
+          try {
+            const created = await pending
+            if (chatGenRef.current !== gen) return // user switched chats meanwhile
+            setConversationId(created.id)
+            localStorage.setItem(LAST_CONVO_KEY, created.id)
+          } finally {
+            if (createInFlightRef.current === pending) createInFlightRef.current = null
+          }
+          return
         }
+        if (!conversationIdRef.current && createInFlightRef.current) {
+          await createInFlightRef.current
+          if (chatGenRef.current !== gen) return
+        }
+        const id = conversationIdRef.current
+        if (!id) return
+        await updateAiConversation(id, { messages: agentMessages, title })
       } catch { /* ignore */ }
     }, 700)
     return () => clearTimeout(t)
-  }, [agentMessages, conversationId, agentType])
+  }, [agentMessages, agentType, setConversationId])
 
   const handleNewChat = useCallback(() => {
+    // Abort any in-flight turn first so its reply can't land in (and be
+    // saved under) the new chat.
+    stopAgent()
     clearMessages()
     setSeed(undefined)
-    setConversationId(null)
+    switchChat(null)
     setShowHistory(false)
     localStorage.removeItem(LAST_CONVO_KEY)
-  }, [clearMessages])
+  }, [clearMessages, stopAgent, switchChat])
 
   const handleToggleHistory = useCallback(async () => {
     if (!showHistory) {
@@ -612,12 +648,15 @@ const AISidePanel = ({
   const handleLoadConversation = useCallback(async (id: string) => {
     try {
       const conv = await getAiConversation(id)
+      // Stop the in-flight turn BEFORE swapping ids, otherwise its streamed
+      // reply is appended to the loaded conversation and saved under its id.
+      stopAgent()
       setSeed(conv.messages)
-      setConversationId(conv.id)
+      switchChat(conv.id)
       localStorage.setItem(LAST_CONVO_KEY, conv.id)
       setShowHistory(false)
     } catch { /* ignore */ }
-  }, [])
+  }, [stopAgent, switchChat])
 
   const handleDeleteConversation = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -746,10 +785,13 @@ const AISidePanel = ({
           let ollamaRunning = false
           if (isEnabled('ollama')) {
             try {
-              const status = await checkOllamaStatus()
+              // Use the configured endpoint (Settings → AI → Ollama base URL);
+              // a remote Ollama must not be treated as unconfigured.
+              const ollamaUrl = await getOllamaBaseUrl()
+              const status = await checkOllamaStatus(ollamaUrl)
               ollamaRunning = status.running
               if (ollamaRunning) {
-                ollamaModels = await fetchOllamaModels()
+                ollamaModels = await fetchOllamaModels(ollamaUrl)
               }
             } catch {
               // Ollama not available
@@ -763,13 +805,17 @@ const AISidePanel = ({
             if (hasKey) {
               customConfigured = true
             } else {
-              // Check if OAuth2 is configured (doesn't need a static key upfront)
-              try {
-                const cfg = await getAiConfig()
-                if (cfg?.provider === 'custom' && cfg.auth_mode === 'oauth2') {
-                  customConfigured = true
-                }
-              } catch { /* ignore */ }
+              // No static key: OAuth2 and endpoint-only custom providers are
+              // still configured. `ai.provider_config` only describes the
+              // ACTIVE provider, so also read the custom provider's own
+              // stored endpoint from ai.provider_overrides — otherwise a
+              // non-default custom provider always read as unconfigured.
+              const [cfgRes, overridesRes] = await Promise.allSettled([getAiConfig(), getAiProviderOverrides()])
+              const cfg = cfgRes.status === 'fulfilled' ? cfgRes.value : null
+              const overrides = overridesRes.status === 'fulfilled' ? overridesRes.value : null
+              const activeOauth2 = cfg?.provider === 'custom' && cfg.auth_mode === 'oauth2'
+              const hasOwnEndpoint = Boolean(overrides?.base_urls?.custom?.trim())
+              customConfigured = activeOauth2 || hasOwnEndpoint
             }
           }
 
@@ -850,7 +896,7 @@ const AISidePanel = ({
       let models: { value: string; label: string }[] = []
       if (selectedProvider === 'ollama' && enabledProviders.includes('ollama')) {
         try {
-          const fetched = await fetchOllamaModels()
+          const fetched = await fetchOllamaModels(await getOllamaBaseUrl())
           // For Ollama, use fetched models, fall back to configured models in settings
           models = fetched.length > 0 ? fetched : getModelsFromSettings('ollama')
         } catch {
@@ -976,7 +1022,7 @@ const AISidePanel = ({
   // Message handlers
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault()
-    if (!input.trim() || agentState === 'thinking' || agentState === 'executing') return
+    if (!input.trim() || agentState === 'thinking' || agentState === 'executing' || agentState === 'waiting_approval') return
 
     const userMessage = input.trim()
     setInput('')
@@ -1007,7 +1053,7 @@ const AISidePanel = ({
     if (externalPrompt && externalPrompt.counter !== lastExternalPromptCounter.current) {
       lastExternalPromptCounter.current = externalPrompt.counter
       // Only send if not busy
-      if (agentState !== 'thinking' && agentState !== 'executing') {
+      if (agentState !== 'thinking' && agentState !== 'executing' && agentState !== 'waiting_approval') {
         sendMessage(externalPrompt.prompt)
       }
     }
@@ -1015,14 +1061,18 @@ const AISidePanel = ({
 
   // Use hook functions directly - no need for wrapper callbacks
 
-  const isAgentBusy = agentState === 'thinking' || agentState === 'executing'
+  // A turn is in progress (input/quick actions locked, Stop shown) — including
+  // while the agent is parked on an approval prompt: sending then would start
+  // a second agentic loop concurrently with the paused one.
+  const isAgentWorking = agentState === 'thinking' || agentState === 'executing'
+  const isAgentBusy = isAgentWorking || agentState === 'waiting_approval'
 
   // True once the agent's reply has actually started streaming text. Used to
   // show EITHER the thinking dots (pre-token) OR the streaming cursor (mid-text)
   // — never both, and never an empty bubble with a lone cursor.
   const lastDisplayMsg = displayMessages[displayMessages.length - 1]
   const isStreamingText =
-    isAgentBusy && lastDisplayMsg?.type === 'agent' && !!lastDisplayMsg.content?.trim()
+    isAgentWorking && lastDisplayMsg?.type === 'agent' && !!lastDisplayMsg.content?.trim()
 
   const showPanel = isOpen && !isCollapsed
 
@@ -1590,7 +1640,7 @@ const AISidePanel = ({
 
         {/* Thinking dots — only before the reply starts streaming (so it's
             never shown alongside the streaming cursor). */}
-        {isAgentBusy && !isStreamingText && (
+        {isAgentWorking && !isStreamingText && (
           <div className="ai-side-panel-message assistant">
             <div className="ai-side-panel-loading">
               <span></span>

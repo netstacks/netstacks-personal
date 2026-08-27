@@ -21,6 +21,16 @@ export function LspPluginRow({ plugin, onChanged, onEdit }: Props) {
   const handleInstall = async () => {
     setBusy(true);
     setInstallPhase('downloading');
+    // The progress stream only exists once the agent has accepted the
+    // install POST — subscribing first 404s and the row never flips.
+    try {
+      await installPlugin(plugin.id);
+    } catch (e) {
+      setBusy(false);
+      setInstallPhase(null);
+      showToast(`Install failed: ${(e as Error).message}`, 'error');
+      return;
+    }
     const unsub = subscribeToInstallProgress(
       plugin.id,
       (ev) => {
@@ -34,14 +44,6 @@ export function LspPluginRow({ plugin, onChanged, onEdit }: Props) {
       },
       () => { setBusy(false); setInstallPhase(null); }
     );
-    try {
-      await installPlugin(plugin.id);
-    } catch (e) {
-      unsub();
-      setBusy(false);
-      setInstallPhase(null);
-      showToast(`Install failed: ${(e as Error).message}`, 'error');
-    }
   };
 
   const handleUninstall = async () => {

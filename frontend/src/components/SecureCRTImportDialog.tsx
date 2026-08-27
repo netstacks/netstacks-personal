@@ -13,6 +13,7 @@ import { createFolder, createSession, listFolders } from '../api/sessions';
 // --- Inline SVG Icons ---
 
 import { getErrorMessage } from '../api/errors'
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 const CloseIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <line x1="3" y1="3" x2="11" y2="11" />
@@ -215,9 +216,19 @@ export default function SecureCRTImportDialog({
   // APIs don't accept AbortSignal yet) but the per-row 60s timeout caps
   // how long the user has to wait after they hit Cancel.
   const cancelRequestedRef = useRef(false);
+  // Render-side mirror of the ref: the Cancel button's label/disabled state
+  // must come from state so the button actually re-renders when it flips.
+  const [cancelRequested, setCancelRequested] = useState(false);
+  // Bumped on every import start and on close. A loop still draining an
+  // in-flight row after the dialog was closed compares its own run id and
+  // skips the final setResults/setStage('done') so a later reopen doesn't
+  // land on a stale "done" screen.
+  const importRunRef = useRef(0);
 
   const handleClose = useCallback(() => {
     cancelRequestedRef.current = true;
+    setCancelRequested(true);
+    importRunRef.current++;
     resetState();
     onClose();
   }, [resetState, onClose]);
@@ -352,6 +363,8 @@ export default function SecureCRTImportDialog({
     if (!parseResult || !selectedProfileId || selectedFolderIds.size === 0) return;
 
     cancelRequestedRef.current = false;
+    setCancelRequested(false);
+    const runId = ++importRunRef.current;
     setStage('importing');
     setProgress(0);
     setProgressText('Preparing import...');
@@ -466,26 +479,42 @@ export default function SecureCRTImportDialog({
         warnings.push(...parseResult.warnings);
       }
 
+      if (importRunRef.current !== runId) return; // dialog closed mid-import
       setProgress(100);
       setResults({ foldersCreated, sessionsCreated, warnings });
       setStage('done');
     } catch (err) {
+      if (importRunRef.current !== runId) return;
       warnings.push(`Import error: ${getErrorMessage(err, String(err))}`);
       setResults({ foldersCreated, sessionsCreated, warnings });
       setStage('done');
+    } finally {
+      // Whether finished or cancelled, rows may have been created — tell
+      // the session tree to refetch.
+      if (foldersCreated > 0 || sessionsCreated > 0) {
+        window.dispatchEvent(new Event('sessions-changed'));
+      }
     }
   }, [parseResult, selectedProfileId, selectedFolderIds, selectedSessionCount, withRowTimeout]);
 
   const handleCancelImport = useCallback(() => {
     cancelRequestedRef.current = true;
+    setCancelRequested(true);
     setProgressText('Cancelling — finishing the current row…');
   }, []);
+
+  // Escape / backdrop close (NS-UI-4). Disabled mid-import so a stray Escape
+  // can't abandon rows half-written; the header × still cancels explicitly.
+  const { backdropProps, contentProps } = useOverlayDismiss({
+    onDismiss: handleClose,
+    enabled: isOpen && stage !== 'importing',
+  });
 
   if (!isOpen) return null;
 
   return (
-    <div className="scrt-import-overlay">
-      <div className="scrt-import-dialog">
+    <div className="scrt-import-overlay" {...backdropProps}>
+      <div className="scrt-import-dialog" {...contentProps}>
         {/* Header */}
         <div className="scrt-import-header">
           <h3>Import SecureCRT Sessions</h3>
@@ -630,9 +659,9 @@ export default function SecureCRTImportDialog({
             <button
               className="scrt-btn-cancel"
               onClick={handleCancelImport}
-              disabled={cancelRequestedRef.current}
+              disabled={cancelRequested}
             >
-              {cancelRequestedRef.current ? 'Cancelling…' : 'Cancel'}
+              {cancelRequested ? 'Cancelling…' : 'Cancel'}
             </button>
           )}
           {stage === 'done' && (

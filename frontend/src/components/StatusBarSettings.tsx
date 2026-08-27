@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './StatusBarSettings.css'
+import Switch from './Switch'
 import {
   type StatusBarSettings,
   type StatusBarTheme,
@@ -8,21 +9,58 @@ import {
   applyStatusBarTheme,
   STATUS_BAR_THEMES,
   DEFAULT_STATUS_BAR_SETTINGS,
+  STATUS_BAR_SETTINGS_CHANGED,
 } from '../api/statusBarSettings'
+
+type FeatureKey = {
+  [K in keyof StatusBarSettings]: StatusBarSettings[K] extends boolean ? K : never
+}[keyof StatusBarSettings]
+
+// Every boolean the status bar honours gets a row here — StatusBar.tsx reads
+// showSnippets/showQuickPrompts too, which had no toggle before (NS-SET-6).
+const ELEMENT_TOGGLES: { key: FeatureKey; label: string }[] = [
+  { key: 'showConnectionStatus', label: 'Connection Status' },
+  { key: 'showActiveSession', label: 'Active Session' },
+  { key: 'showQuickLook', label: 'Quick Look Buttons' },
+  { key: 'showSnippets', label: 'Snippets' },
+  { key: 'showQuickPrompts', label: 'Quick Prompts' },
+  { key: 'showAIButton', label: 'AI Button' },
+  { key: 'showCommandPalette', label: 'Command Palette' },
+  { key: 'showScratchpad', label: 'Scratchpad Button' },
+  { key: 'showSettings', label: 'Settings Button' },
+  { key: 'showQuickCalls', label: 'Quick Calls' },
+]
+
+const STYLE_TOGGLES: { key: FeatureKey; label: string }[] = [
+  { key: 'showKeyboardShortcuts', label: 'Show Keyboard Shortcuts' },
+  { key: 'compactMode', label: 'Compact Mode' },
+]
 
 export default function StatusBarSettingsPanel() {
   const [settings, setSettings] = useState<StatusBarSettings>(() => loadStatusBarSettings())
+
+  // Stay in sync when something else writes the settings — the General
+  // tab's "Reset to defaults" (NS-SET-2) or a popout window.
+  useEffect(() => {
+    const handleChanged = (e: Event) => {
+      setSettings((e as CustomEvent<StatusBarSettings>).detail)
+    }
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'netstacks:statusBarSettings') setSettings(loadStatusBarSettings())
+    }
+    window.addEventListener(STATUS_BAR_SETTINGS_CHANGED, handleChanged)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener(STATUS_BAR_SETTINGS_CHANGED, handleChanged)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
 
   // Update settings and save
   const updateSettings = (updates: Partial<StatusBarSettings>) => {
     const newSettings = { ...settings, ...updates }
     setSettings(newSettings)
     saveStatusBarSettings(newSettings)
-  }
-
-  // Toggle a feature
-  const toggleFeature = (key: keyof StatusBarSettings) => {
-    updateSettings({ [key]: !settings[key] })
   }
 
   // Apply a theme
@@ -45,6 +83,18 @@ export default function StatusBarSettingsPanel() {
     saveStatusBarSettings(DEFAULT_STATUS_BAR_SETTINGS)
   }
 
+  const renderToggleRow = ({ key, label }: { key: FeatureKey; label: string }) => (
+    <div key={key} className="status-bar-settings-row compact">
+      <span>{label}</span>
+      <Switch
+        checked={settings[key]}
+        onChange={(checked) => updateSettings({ [key]: checked })}
+        disabled={!settings.enabled}
+        label={label}
+      />
+    </div>
+  )
+
   return (
     <div className="status-bar-settings">
       {/* Enable/Disable */}
@@ -53,14 +103,11 @@ export default function StatusBarSettingsPanel() {
           <span>Show Status Bar</span>
           <span className="status-bar-settings-desc">Display the status bar at the bottom of the window</span>
         </div>
-        <label className="status-bar-settings-toggle">
-          <input
-            type="checkbox"
-            checked={settings.enabled}
-            onChange={() => toggleFeature('enabled')}
-          />
-          <span className="toggle-slider" />
-        </label>
+        <Switch
+          checked={settings.enabled}
+          onChange={(checked) => updateSettings({ enabled: checked })}
+          label="Show Status Bar"
+        />
       </div>
 
       {/* Theme Selection */}
@@ -118,142 +165,13 @@ export default function StatusBarSettingsPanel() {
       {/* Feature Toggles */}
       <div className="status-bar-settings-section">
         <div className="status-bar-settings-section-title">Elements</div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Connection Status</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showConnectionStatus}
-              onChange={() => toggleFeature('showConnectionStatus')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Active Session</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showActiveSession}
-              onChange={() => toggleFeature('showActiveSession')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Quick Look Buttons</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showQuickLook}
-              onChange={() => toggleFeature('showQuickLook')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>AI Button</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showAIButton}
-              onChange={() => toggleFeature('showAIButton')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Command Palette</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showCommandPalette}
-              onChange={() => toggleFeature('showCommandPalette')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Scratchpad Button</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showScratchpad}
-              onChange={() => toggleFeature('showScratchpad')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Settings Button</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showSettings}
-              onChange={() => toggleFeature('showSettings')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Quick Calls</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showQuickCalls}
-              onChange={() => toggleFeature('showQuickCalls')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
+        {ELEMENT_TOGGLES.map(renderToggleRow)}
       </div>
 
       {/* Style Options */}
       <div className="status-bar-settings-section">
         <div className="status-bar-settings-section-title">Style</div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Show Keyboard Shortcuts</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.showKeyboardShortcuts}
-              onChange={() => toggleFeature('showKeyboardShortcuts')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
-
-        <div className="status-bar-settings-row compact">
-          <span>Compact Mode</span>
-          <label className="status-bar-settings-toggle">
-            <input
-              type="checkbox"
-              checked={settings.compactMode}
-              onChange={() => toggleFeature('compactMode')}
-              disabled={!settings.enabled}
-            />
-            <span className="toggle-slider" />
-          </label>
-        </div>
+        {STYLE_TOGGLES.map(renderToggleRow)}
       </div>
 
       {/* Reset */}

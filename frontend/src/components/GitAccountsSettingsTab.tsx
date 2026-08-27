@@ -51,6 +51,7 @@ const emptyForm: FormState = {
 export default function GitAccountsSettingsTab() {
   const [accounts, setAccounts] = useState<GitAccountView[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [testing, setTesting] = useState(false)
@@ -60,8 +61,13 @@ export default function GitAccountsSettingsTab() {
     try {
       const { data } = await getClient().http.get('/workspace/git/accounts')
       setAccounts(data.accounts || [])
-    } catch {
-      setAccounts([])
+      setLoadError(null)
+    } catch (err) {
+      // Keep whatever we had rather than rendering the "no accounts"
+      // empty state for what is really a fetch failure.
+      const msg = getErrorMessage(err, 'Failed to load Git accounts')
+      setLoadError(msg)
+      showToast(msg, 'error')
     } finally {
       setLoading(false)
     }
@@ -353,6 +359,27 @@ export default function GitAccountsSettingsTab() {
 
       {loading ? (
         <div style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>Loading...</div>
+      ) : loadError && accounts.length === 0 ? (
+        <div style={{ color: 'var(--color-error)', fontSize: 12, textAlign: 'center', padding: 32 }}>
+          Couldn't load Git accounts: {loadError}
+          <div style={{ marginTop: 8 }}>
+            <button
+              style={{
+                padding: '2px 8px',
+                background: 'none',
+                border: '1px solid var(--color-border)',
+                borderRadius: 4,
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontFamily: 'var(--font-family)',
+              }}
+              onClick={() => { setLoading(true); void fetchAccounts() }}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
       ) : accounts.length === 0 && !showForm ? (
         <div style={{ color: 'var(--color-text-secondary)', fontSize: 12, textAlign: 'center', padding: 32 }}>
           No git accounts configured. Click "+ Add Account" to get started.

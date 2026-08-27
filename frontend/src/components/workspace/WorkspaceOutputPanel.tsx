@@ -3,6 +3,7 @@ import { getClient } from '../../api/client'
 import { getSidecarAuthToken } from '../../api/localClient'
 
 import { getErrorMessage } from '../../api/errors'
+import { consumeSseLine } from './sseLines'
 interface WorkspaceOutputPanelProps {
   filePath: string | null
   onClose: () => void
@@ -78,6 +79,36 @@ export default function WorkspaceOutputPanel({ filePath }: WorkspaceOutputPanelP
       const collectedStderr: string[] = []
       let finalExitCode = -1
       let finalDuration = 0
+      // Current SSE event name; carried across chunk boundaries so an
+      // `event:` line at the end of one read still tags the `data:`
+      // line at the start of the next.
+      let currentEvent = ''
+
+      const handleSseData = (eventType: string, data: string) => {
+        switch (eventType) {
+          case 'status':
+            setStreamStatus(data)
+            break
+          case 'stderr':
+            collectedStderr.push(data)
+            setStreamStderr(prev => [...prev, data])
+            break
+          case 'stdout':
+            collectedStdout.push(data)
+            setStreamStdout(prev => [...prev, data])
+            break
+          case 'complete':
+            try {
+              const parsed = JSON.parse(data)
+              finalExitCode = parsed.exit_code
+              finalDuration = parsed.duration_ms
+            } catch { /* malformed complete-event payload — ignore */ }
+            break
+          case 'error':
+            setError(data)
+            break
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
@@ -88,42 +119,7 @@ export default function WorkspaceOutputPanel({ filePath }: WorkspaceOutputPanelP
         buffer = lines.pop() || ''
 
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            const eventType = line.slice(7).trim()
-            const dataIdx = lines.indexOf(line) + 1
-            if (dataIdx < lines.length && lines[dataIdx].startsWith('data: ')) {
-              // handled below
-            }
-            void eventType
-          } else if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            const prevLine = lines[lines.indexOf(line) - 1] || ''
-            const eventType = prevLine.startsWith('event: ') ? prevLine.slice(7).trim() : ''
-
-            switch (eventType) {
-              case 'status':
-                setStreamStatus(data)
-                break
-              case 'stderr':
-                collectedStderr.push(data)
-                setStreamStderr(prev => [...prev, data])
-                break
-              case 'stdout':
-                collectedStdout.push(data)
-                setStreamStdout(prev => [...prev, data])
-                break
-              case 'complete':
-                try {
-                  const parsed = JSON.parse(data)
-                  finalExitCode = parsed.exit_code
-                  finalDuration = parsed.duration_ms
-                } catch { /* malformed complete-event payload — ignore */ }
-                break
-              case 'error':
-                setError(data)
-                break
-            }
-          }
+          currentEvent = consumeSseLine(line, currentEvent, handleSseData)
         }
       }
 

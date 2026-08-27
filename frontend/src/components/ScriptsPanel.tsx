@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import './ScriptsPanel.css';
 import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
 import { listScripts, getScript, deleteScript, type Script } from '../api/scripts';
+import { confirmDialog } from './ConfirmDialog';
 
 import { getErrorMessage } from '../api/errors'
 interface ScriptsPanelProps {
@@ -109,13 +110,25 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
   };
 
   const handleDelete = async (scriptId: string) => {
+    setContextMenu(null);
+    const script = scripts.find(s => s.id === scriptId);
+    const ok = await confirmDialog({
+      title: 'Delete script?',
+      body: (
+        <>
+          Delete <strong>{script?.name ?? scriptId}</strong>? This cannot be undone.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteScript(scriptId);
       setScripts(prev => prev.filter(s => s.id !== scriptId));
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete script'));
     }
-    setContextMenu(null);
   };
 
   // Categorize scripts

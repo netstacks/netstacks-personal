@@ -6,6 +6,8 @@ import './SftpEditorTab.css';
 import { getErrorMessage } from '../api/errors'
 import { displayShortcut } from '../hooks/useKeyboard'
 interface SftpEditorTabProps {
+  /** Owning tab id — File → Save / Cmd+S arrive as `netstacks:save-document` with this id. */
+  tabId: string;
   connectionId: string;
   filePath: string;
   fileName: string;
@@ -31,6 +33,7 @@ const Icons = {
 };
 
 export default function SftpEditorTab({
+  tabId,
   connectionId,
   filePath,
   fileName,
@@ -111,17 +114,16 @@ export default function SftpEditorTab({
     await loadFile();
   }, [isDirty, loadFile]);
 
-  // Keyboard shortcut: Cmd+S / Ctrl+S
+  // File → Save / Cmd+S: App dispatches `netstacks:save-document` for the
+  // active tab (single save path — no raw Cmd+S listener here).
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
-      }
+    const handler = (e: Event) => {
+      const { tabId: target } = (e as CustomEvent<{ tabId: string }>).detail;
+      if (target === tabId) handleSave();
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleSave]);
+    window.addEventListener('netstacks:save-document', handler);
+    return () => window.removeEventListener('netstacks:save-document', handler);
+  }, [tabId, handleSave]);
 
   // Tab key inserts 2 spaces
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {

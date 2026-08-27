@@ -16,6 +16,54 @@ import type { DeviceStatsMap, LiveStatsMap } from './useTopologyLive';
 import type { LinkEnrichment } from '../types/enrichment';
 import { createDevice, updateDevice as apiUpdateDevice, deleteDevice, createConnection, updateConnection as apiUpdateConnection, deleteConnection, updateDevicePosition } from '../api/topology';
 
+/** Snake_case body accepted by the agent's device details PUT. */
+export type DeviceUpdateRequest = Parameters<typeof apiUpdateDevice>[2];
+
+/**
+ * Frontend `Device` key -> agent details field. Anything not listed here
+ * (id, x/y, sessionId, netboxId, metadata, isNeighbor, ...) is not part of
+ * the details struct and must be dropped rather than sent — serde ignores
+ * unknown keys silently, so the AI would think it persisted and the value
+ * would revert on reload.
+ */
+const DEVICE_UPDATE_FIELD_MAP: Record<string, keyof DeviceUpdateRequest> = {
+  name: 'name',
+  type: 'device_type',
+  status: 'status',
+  site: 'site',
+  role: 'role',
+  platform: 'platform',
+  vendor: 'vendor',
+  version: 'version',
+  model: 'model',
+  serial: 'serial',
+  uptime: 'uptime',
+  primaryIp: 'primary_ip',
+  notes: 'notes',
+  profileId: 'profile_id',
+  snmpProfileId: 'snmp_profile_id',
+};
+
+/**
+ * Map a camelCase `Partial<Device>` (what the AI tool hands us) to the
+ * agent's snake_case details request. Returns the keys it dropped so the
+ * caller can log them.
+ */
+export function toDeviceUpdateRequest(updates: Partial<Device>): { request: DeviceUpdateRequest; dropped: string[] } {
+  const request: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) continue;
+    const target = DEVICE_UPDATE_FIELD_MAP[key];
+    if (!target || typeof value !== 'string') {
+      dropped.push(key);
+      continue;
+    }
+    request[target] = value;
+  }
+  return { request: request as DeviceUpdateRequest, dropped };
+}
+
 // Forward-declared type for annotations (not yet implemented)
 interface Annotation {
   id: string;
@@ -226,8 +274,14 @@ export function useTopologyAICallbacks({
 
     // Update in backend (if not temporary)
     if (!isTemporary && effectiveTopologyId) {
+      const { request, dropped } = toDeviceUpdateRequest(updates);
+      if (dropped.length > 0) {
+        console.warn('[useTopologyAICallbacks] Dropping device update fields the agent does not persist:', dropped);
+      }
       try {
-        await apiUpdateDevice(effectiveTopologyId, deviceId, updates);
+        if (Object.keys(request).length > 0) {
+          await apiUpdateDevice(effectiveTopologyId, deviceId, request);
+        }
       } catch (err) {
         console.error('[useTopologyAICallbacks] Failed to update device in backend:', err);
         throw err;

@@ -9,7 +9,8 @@ import { getErrorMessage } from '../api/errors'
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { loadAppConfig, saveAppConfig } from '../lib/appConfig'
+import { loadAppConfig } from '../lib/appConfig'
+import { switchToEnterprise, switchToStandalone } from '../lib/switchMode'
 import { useMode } from '../hooks/useMode'
 import { fetchCaCertificateInfo, installCaCertificate, type CaCertificateInfo } from '../api/tlsTrust'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
@@ -69,12 +70,11 @@ export default function SettingsConnection() {
     setUrlSuccess(null)
 
     try {
-      const newUrl = urlInput.trim() || null
-      await saveAppConfig({ controllerUrl: newUrl })
-      setUrlSuccess(newUrl
-        ? 'Controller URL saved. Restart the app to apply changes.'
-        : 'Controller URL cleared. Restart the app to switch to standalone mode.'
-      )
+      // Save + relaunch (NS-SET-7). Outside Tauri the helpers can't
+      // relaunch and return a "restart the app" instruction instead.
+      const newUrl = urlInput.trim()
+      const message = newUrl ? await switchToEnterprise(newUrl) : await switchToStandalone()
+      setUrlSuccess(message)
     } catch (err) {
       setUrlError(getErrorMessage(err, 'Failed to save'))
     } finally {
@@ -115,8 +115,7 @@ export default function SettingsConnection() {
     setDeenrolling(true)
     setDeenrollMessage(null)
     try {
-      await saveAppConfig({ controllerUrl: null })
-      setDeenrollMessage('Switched to standalone mode. Restart the app to apply.')
+      setDeenrollMessage(await switchToStandalone())
     } catch {
       setDeenrollMessage('Failed to de-enroll. Try clearing the URL above.')
     } finally {

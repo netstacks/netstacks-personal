@@ -108,9 +108,15 @@ export async function sftpDownload(
   }
 }
 
+/** Shown when something in front of the SFTP upload answers HTTP 413 (body limit). */
+export const SFTP_UPLOAD_TOO_LARGE_MESSAGE = 'File is too large: the upload was rejected with HTTP 413 (body size limit)';
+
 // Upload a file. Same signal semantics as sftpDownload — abort mid-upload
 // closes the request rather than waiting for the full body to flush.
 // `onProgress` receives real bytes-sent counts during upload.
+// Pass a `File`/`Blob` where you can: the browser streams it and the agent
+// streams it on to the SFTP server, so there is no size limit on this
+// route. An `ArrayBuffer` works too but holds the whole file in memory.
 export async function sftpUpload(
   sftpId: string,
   path: string,
@@ -131,7 +137,13 @@ export async function sftpUpload(
     if ((err as Error).name === 'AbortError' || (err as Error).name === 'CanceledError') {
       throw err;
     }
-    const axiosErr = err as { response?: { data?: { error?: string } } };
+    const axiosErr = err as { response?: { status?: number; data?: { error?: string } } };
+    // The agent lifts its body limit on this route, but a proxy or an older
+    // agent may still reject with a bare 413 and no JSON body — give the
+    // user the actual reason.
+    if (axiosErr.response?.status === 413) {
+      throw new Error(SFTP_UPLOAD_TOO_LARGE_MESSAGE);
+    }
     throw new Error(axiosErr.response?.data?.error || 'Failed to upload file');
   }
 }

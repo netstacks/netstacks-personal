@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import Terminal from './Terminal'
 import TabContextMenu, { type TabGroup as TabGroupType } from './TabContextMenu'
 import TabGroup, { type TabGroupData } from './TabGroup'
@@ -6,7 +6,7 @@ import SplitPaneContainer, { MAX_NESTING_DEPTH } from './SplitPaneContainer'
 import { useMultiSend } from '../hooks/useMultiSend'
 import { useSftpStore } from '../stores/sftpStore'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
-import { listSessions } from '../api/sessions'
+import { listSessions, type Session } from '../api/sessions'
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter'
 import './TerminalPanel.css'
 
@@ -51,6 +51,42 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
   } = useMultiSend()
 
   const canSftp = useCapabilitiesStore(s => s.hasFeature)('local_sftp')
+
+  // Saved-session records for tabs bound to a session, so the terminal gets
+  // the session's Terminal-tab settings (scrollback, auto-reconnect, delay).
+  const [sessionsById, setSessionsById] = useState<Map<string, Session>>(() => new Map())
+  const requestedSessionIdsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const missing = tabs
+      .map(t => t.sessionId)
+      .filter((sid): sid is string => sid !== undefined && !requestedSessionIdsRef.current.has(sid))
+    if (missing.length === 0) return
+    for (const sid of missing) requestedSessionIdsRef.current.add(sid)
+    let cancelled = false
+    listSessions().then(all => {
+      if (cancelled) return
+      setSessionsById(prev => {
+        const next = new Map(prev)
+        for (const session of all) next.set(session.id, session)
+        return next
+      })
+    }).catch(err => {
+      console.error('[TerminalPanel] Failed to load session settings:', err)
+    })
+    return () => { cancelled = true }
+  }, [tabs])
+
+  // Props derived from the tab's saved session (all undefined for local shells,
+  // which leaves Terminal on its defaults).
+  const sessionTerminalProps = useCallback((tab: TerminalTab) => {
+    const session = tab.sessionId ? sessionsById.get(tab.sessionId) : undefined
+    return {
+      sessionId: tab.sessionId,
+      scrollbackLines: session?.scrollback_lines,
+      autoReconnect: session?.auto_reconnect,
+      reconnectDelay: session?.reconnect_delay,
+    }
+  }, [sessionsById])
 
   const addTerminal = useCallback(() => {
     const newId = `terminal-${Date.now()}`
@@ -464,6 +500,7 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
       return (
         <Terminal
           id={groupTabs[0].id}
+          {...sessionTerminalProps(groupTabs[0])}
           onBroadcast={broadcast}
           onRegisterBroadcastListener={registerListener}
         />
@@ -482,6 +519,7 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
           <Terminal
             key={tab.id}
             id={tab.id}
+            {...sessionTerminalProps(tab)}
             onBroadcast={broadcast}
             onRegisterBroadcastListener={registerListener}
           />
@@ -631,6 +669,7 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
           >
             <Terminal
               id={tab.id}
+              {...sessionTerminalProps(tab)}
               onBroadcast={broadcast}
               onRegisterBroadcastListener={registerListener}
             />

@@ -1,0 +1,84 @@
+/* Shared toggle switch (components/Switch.tsx). Every rule is scoped under
+   .ns-switch so nothing here can collide with another stylesheet. Sizes are
+   in px on purpose: the geometry (track − knob − 2·inset = translate) has to
+   stay exact regardless of the user's base font size. */
+
+.ns-switch {
+  --ns-switch-w: 40px;
+  --ns-switch-h: 22px;
+  --ns-switch-knob: 18px;
+  --ns-switch-inset: 2px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.ns-switch-sm {
+  --ns-switch-w: 34px;
+  --ns-switch-h: 20px;
+  --ns-switch-knob: 16px;
+}
+
+/* Visually hidden but still focusable/clickable — never `display: none`,
+   which would remove it from the tab order. */
+.ns-switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.ns-switch-track {
+  position: relative;
+  display: block;
+  width: var(--ns-switch-w);
+  height: var(--ns-switch-h);
+  border-radius: calc(var(--ns-switch-h) / 2);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  box-sizing: border-box;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.ns-switch-knob {
+  position: absolute;
+  top: calc(var(--ns-switch-inset) - 1px);
+  left: calc(var(--ns-switch-inset) - 1px);
+  width: var(--ns-switch-knob);
+  height: var(--ns-switch-knob);
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  transition: transform var(--transition-fast), background var(--transition-fast);
+}
+
+.ns-switch-input:checked + .ns-switch-track {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.ns-switch-input:checked + .ns-switch-track .ns-switch-knob {
+  /* Travel = track width − knob − both insets, so the knob lands flush on
+     the far side in every size. */
+  transform: translateX(calc(var(--ns-switch-w) - var(--ns-switch-knob) - 2 * var(--ns-switch-inset)));
+  background: var(--color-text-on-accent);
+}
+
+.ns-switch-input:focus-visible + .ns-switch-track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.ns-switch-input:disabled + .ns-switch-track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ns-switch:has(.ns-switch-input:disabled) {
+  cursor: not-allowed;
+}

@@ -4,7 +4,6 @@ import { logger } from '../lib/logger'
  *
  * This hook can be used by all AI interaction points:
  * - AISidePanel (troubleshooting)
- * - AIInlineChat
  * - AIInlinePopup
  * - Future AI components
  *
@@ -20,7 +19,7 @@ import { logger } from '../lib/logger'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { getAvailableTools, type AgentTool } from '../lib/agentTools';
 import { getSettings } from './useSettings';
-import { validateReadOnlyCommand, type ValidationResult } from '../lib/readOnlyFilter';
+import { validateReadOnlyCommands, type ValidationResult } from '../lib/readOnlyFilter';
 import { parseAiCommandArray } from '../lib/aiJson';
 import { getClient } from '../api/client';
 import { lookupOui, lookupDns, lookupWhois, lookupAsn } from '../api/lookup';
@@ -386,34 +385,188 @@ function truncateToolResult(content: string): string {
 // Tool name mapping for Anthropic API compatibility
 // Anthropic requires tool names to match [a-zA-Z0-9_-]{1,64}
 // MCP tools use "mcp:{server_id}:{tool_name}" which contains colons and may exceed 64 chars
-// We maintain a bidirectional map between sanitized names and original names
-const toolNameMap = new Map<string, string>(); // sanitized -> original
-const TOOL_NAME_MAP_MAX_SIZE = 1000;
+// We maintain a bidirectional map between sanitized names and original names.
+// The map is PER HOOK INSTANCE (held in a ref) so one panel's tool set can never
+// clobber another's, and it is never cleared — it is bounded by the number of
+// MCP tools offered, not by call count.
+export type ToolNameMap = Map<string, string>; // sanitized -> original
+const TOOL_NAME_MAX_LEN = 64;
 
-function sanitizeToolName(name: string): string {
+export function sanitizeToolName(name: string, map: ToolNameMap): string {
   // Non-MCP tools are already safe
   if (!name.startsWith('mcp:')) return name;
 
-  // For MCP tools, create a short sanitized name: mcp_{index}_{tool_name}
-  // Use the tool_name part only (after last colon), prefixed with mcp_
+  // For MCP tools, create a short sanitized name: mcp_{serverPrefix}_{tool_name}
   const parts = name.split(':');
   const toolName = parts.slice(2).join('_');
-  // Ensure unique by including a hash of the server ID
-  const serverId = parts[1];
-  const shortId = serverId.slice(0, 6);
-  let sanitized = `mcp_${shortId}_${toolName}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-  // Truncate to 64 chars
-  if (sanitized.length > 64) sanitized = sanitized.slice(0, 64);
+  const shortId = parts[1].slice(0, 6);
+  const base = `mcp_${shortId}_${toolName}`
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, TOOL_NAME_MAX_LEN);
 
-  if (toolNameMap.size >= TOOL_NAME_MAP_MAX_SIZE) {
-    toolNameMap.clear();
+  // Collision-safe truncation: two long tool names on the same server can
+  // share the first 64 chars. If the candidate is already taken by a
+  // DIFFERENT original, append a numeric suffix (still within 64 chars).
+  let candidate = base;
+  let n = 1;
+  while (map.has(candidate) && map.get(candidate) !== name) {
+    const suffix = `_${n++}`;
+    candidate = base.slice(0, TOOL_NAME_MAX_LEN - suffix.length) + suffix;
   }
-  toolNameMap.set(sanitized, name);
-  return sanitized;
+  map.set(candidate, name);
+  return candidate;
 }
 
-function unsanitizeToolName(name: string): string {
-  return toolNameMap.get(name) || name;
+export function unsanitizeToolName(name: string, map: ToolNameMap): string {
+  return map.get(name) ?? name;
+}
+
+// Tools that mutate a device/host/file and therefore require explicit user
+// approval when the agent runs in 'ask' mode. `run_command` was the only
+// gated tool historically; the others bypassed the approval gate entirely.
+export const NEEDS_APPROVAL: ReadonlySet<string> = new Set([
+  'run_command', 'ai_ssh_execute', 'run_bash', 'write_file', 'edit_file', 'patch_file',
+]);
+
+/**
+ * Resolve a `command` / `commands[]` tool input into a command list.
+ * Returns [] when neither is present (the tool itself reports the error).
+ */
+export function resolveCommandList(input: Record<string, unknown>): string[] {
+  const list = input.commands;
+  if (Array.isArray(list) && list.length > 0) {
+    return list.filter((c): c is string => typeof c === 'string');
+  }
+  const single = input.command;
+  return typeof single === 'string' && single.length > 0 ? [single] : [];
+}
+
+/** Human-readable label for a tool call — used for approval rows and result messages. */
+export function describeToolCall(toolName: string, input: Record<string, unknown>): string {
+  const str = (k: string): string => (typeof input[k] === 'string' ? (input[k] as string) : '');
+  switch (toolName) {
+    case 'run_command':
+      return resolveCommandList(input).join('\n');
+    case 'ai_ssh_execute':
+      return resolveCommandList(input).map(c => `[ssh] ${c}`).join('\n');
+    case 'run_bash':
+      return resolveCommandList(input).map(c => `[bash] ${c}`).join('\n');
+    case 'write_file':
+      return `write_file ${str('filepath')} (${str('content').length} chars)`;
+    case 'edit_file':
+      return `edit_file ${str('filepath')}`;
+    case 'patch_file':
+      return `patch_file ${str('filepath')}: ${str('sed_expression')}`;
+    default: {
+      const args = Object.entries(input)
+        .map(([k, v]) => {
+          const raw = typeof v === 'string' ? v : JSON.stringify(v);
+          const val = raw && raw.length > 40 ? raw.slice(0, 40) + '…' : raw;
+          return `${k}=${val}`;
+        })
+        .join(', ');
+      return args ? `${toolName}(${args})` : `${toolName}()`;
+    }
+  }
+}
+
+/**
+ * Guarantee that every `tool_use` block gets a `tool_result`. The Anthropic API
+ * rejects (400) a conversation where an assistant `tool_use` has no matching
+ * result in the next user message — which is exactly what an early break from
+ * the tool loop (Stop / Reject / close) used to leave behind.
+ */
+export function completeToolResults(
+  toolUses: ReadonlyArray<{ id: string; name: string }>,
+  results: ContentBlock[],
+  reasonFor: (toolUse: { id: string; name: string }) => string,
+): ContentBlock[] {
+  const answered = new Set(results.map(r => r.tool_use_id));
+  const completed = [...results];
+  for (const tu of toolUses) {
+    if (answered.has(tu.id)) continue;
+    completed.push({
+      type: 'tool_result',
+      tool_use_id: tu.id,
+      content: reasonFor(tu),
+      is_error: true,
+    });
+  }
+  return completed;
+}
+
+/**
+ * tool_results for tool_use blocks the loop is NOT going to execute (single-turn
+ * mode stops after the first assistant turn). Every id gets an error result so
+ * the conversation stays valid if it is continued later (NS-AI-25).
+ */
+export function skippedToolResults(
+  toolUses: ReadonlyArray<{ id: string; name: string }>,
+): ContentBlock[] {
+  return completeToolResults(
+    toolUses,
+    [],
+    (tu) => `Tool "${tu.name}" was not executed: this interaction is single-turn and stops after the first response.`,
+  );
+}
+
+export interface ApprovalRequest {
+  id: string;
+  name: string;
+  command: string;
+  sessionId: string;
+  sessionName?: string;
+  validation: ValidationResult;
+}
+
+/**
+ * Build the approval row for a gated tool call. Handles both `command` and
+ * `commands[]` inputs (the batch form used to crash here with `undefined.trim()`).
+ */
+export function buildApprovalRequest(
+  toolUse: ToolUseResponse,
+  resolveFlavor: (sessionId: string) => CliFlavor | undefined,
+): ApprovalRequest {
+  const { id, name, input } = toolUse;
+  const sessionId = typeof input.session_id === 'string' ? input.session_id : '';
+  const command = describeToolCall(name, input);
+  switch (name) {
+    case 'run_command':
+    case 'ai_ssh_execute':
+      return {
+        id, name, command, sessionId,
+        validation: validateReadOnlyCommands(resolveCommandList(input), resolveFlavor(sessionId)),
+      };
+    case 'run_bash':
+      return {
+        id, name, command, sessionId,
+        sessionName: 'local host',
+        validation: validateReadOnlyCommands(resolveCommandList(input), 'linux'),
+      };
+    default:
+      // File-mutating tools: never "read-only"; surface as needing review.
+      return {
+        id, name, command, sessionId,
+        validation: { allowed: false, reason: 'Modifies a file on the remote host', command },
+      };
+  }
+}
+
+// Cap on the number of tool-result characters shown in the UI for non-command
+// tools. The full (truncated-for-context) content still goes to the model.
+const MAX_DISPLAY_RESULT_CHARS = 4000;
+function displayToolResult(content: string, isError: boolean): string {
+  const body = content.length > MAX_DISPLAY_RESULT_CHARS
+    ? content.slice(0, MAX_DISPLAY_RESULT_CHARS) + `\n… (${content.length} chars total)`
+    : content;
+  return isError ? `Error: ${body}` : body;
+}
+
+// Cap on messages kept in the DISPLAYED list when a stored conversation is
+// loaded. `conversationRef` (model-visible) is trimmed separately per turn.
+const MAX_DISPLAY_MESSAGES = 200;
+function capDisplayMessages(msgs: AgentMessage[]): AgentMessage[] {
+  return msgs.length > MAX_DISPLAY_MESSAGES ? msgs.slice(-MAX_DISPLAY_MESSAGES) : msgs;
 }
 
 // Trim a JSON schema to reduce token count: keep only top-level property names,
@@ -447,7 +600,7 @@ function trimSchema(properties: Record<string, unknown> | undefined): Record<str
 }
 
 // Convert tools to Anthropic format
-function toolsToAnthropicFormat(tools: AgentTool[]): object[] {
+function toolsToAnthropicFormat(tools: AgentTool[], nameMap: ToolNameMap): object[] {
   return tools.map(tool => {
     // Handle both AgentTool (parameters) and ToolDefinition (input_schema) formats
     const schema = tool.parameters || (tool as unknown as { input_schema: AgentTool['parameters'] }).input_schema;
@@ -464,7 +617,7 @@ function toolsToAnthropicFormat(tools: AgentTool[]): object[] {
       : tool.description;
 
     return {
-      name: sanitizeToolName(tool.name),
+      name: sanitizeToolName(tool.name, nameMap),
       description,
       input_schema: {
         type: schema?.type || 'object',
@@ -586,7 +739,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const onNavigateToSettingsRef = useRef(onNavigateToSettings);
   onNavigateToSettingsRef.current = onNavigateToSettings;
 
-  const [messages, setMessages] = useState<AgentMessage[]>(initialMessages || []);
+  const [messages, setMessages] = useState<AgentMessage[]>(() => capDisplayMessages(initialMessages || []));
   const [agentState, setAgentState] = useState<AgentState>('idle');
   const [pendingCommands, setPendingCommands] = useState<PendingCommand[]>([]);
   const [tokenUsage, setTokenUsage] = useState<CumulativeTokenUsage>({
@@ -617,6 +770,11 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const conversationRef = useRef<AgentChatMessage[]>(buildInitialConversation());
   // Track if we should stop the loop
   const stopRequestedRef = useRef(false);
+  // The in-flight agent loop (if any). `sendMessage` awaits it so a Stop that
+  // lands mid-tool can never spawn a second, concurrent loop.
+  const loopPromiseRef = useRef<Promise<void> | null>(null);
+  // Per-instance sanitized<->original tool-name map (see sanitizeToolName).
+  const toolNameMapRef = useRef<ToolNameMap>(new Map());
 
   // CLI-flavor overrides set by the AI via `set_session_cli_flavor` after
   // probing a session whose stored flavor was 'auto' (or wrong). Reads in
@@ -655,7 +813,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const autoSendTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
     if (initialMessages && initialMessages.length > 0) {
-      setMessages(initialMessages);
+      setMessages(capDisplayMessages(initialMessages));
       // Rebuild conversation history
       const history: AgentChatMessage[] = [];
       for (const msg of initialMessages) {
@@ -671,10 +829,12 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       const lastMsg = initialMessages[initialMessages.length - 1];
       if (lastMsg?.type === 'user' && lastMsg.id !== autoSendTriggeredRef.current) {
         autoSendTriggeredRef.current = lastMsg.id;
-        // Defer to next tick so state is settled
-        setTimeout(() => {
+        // Defer to next tick so state is settled; cleared on unmount / change
+        // so it can't fire into an unmounted hook.
+        const timer = setTimeout(() => {
           sendMessageRef.current?.(lastMsg.content);
         }, 100);
+        return () => clearTimeout(timer);
       }
     }
   }, [initialMessages]);
@@ -702,7 +862,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     if (getCurrentMode() === 'enterprise') return;
     getClient().http.get('/settings/ai.terminal_mode')
       .then((res) => {
-        setAiTerminalMode(res.data?.value === 'true');
+        // The settings endpoint has returned both a bare JSON bool and a
+        // `{ value: 'true' }` wrapper over time — accept either encoding.
+        setAiTerminalMode(res.data === true || res.data?.value === 'true');
       })
       .catch(() => { /* not set, default false */ });
   }, []);
@@ -839,7 +1001,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   // Add topology AI tools when callbacks are provided (Phase 27-07)
   // These tools use a separate pattern with their own tool definitions.
   // In Personal Mode the local_ai_tools feature is always enabled.
-  const aiToolsEnabled = useCapabilitiesStore.getState().hasFeature('local_ai_tools');
+  const aiToolsEnabled = useCapabilitiesStore((s) => s.hasFeature('local_ai_tools'));
   const availableTools: AgentTool[] = useMemo(() => {
     if (!aiToolsEnabled) return [];
     let topoTools: AgentTool[] = [];
@@ -861,6 +1023,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     ];
   }, [aiToolsEnabled, baseTools, mcpTools, serverTools, topologyCallbacks, allowStructuralTopologyEdits]);
 
+  // Names of the tools actually offered to the model this turn. `executeTool`
+  // refuses anything else so a disabled tool (filtered from the schema only)
+  // can't be executed by a model that guesses / remembers its name.
+  const availableToolNames = useMemo(
+    () => new Set(availableTools.map(t => t.name)),
+    [availableTools],
+  );
+
   // Add a message to the UI
   const addMessage = useCallback((message: AgentMessage) => {
     setMessages(prev => [...prev, message]);
@@ -871,6 +1041,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     toolName: string,
     input: Record<string, unknown>
   ): Promise<{ content: string; is_error: boolean }> => {
+    if (!availableToolNames.has(toolName)) {
+      return { content: `Tool not available: ${toolName}`, is_error: true };
+    }
     switch (toolName) {
       case 'list_sessions': {
         const filter = input.filter as string | undefined;
@@ -2295,7 +2468,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
             name: s.name,
             server_type: s.server_type,
             tools: s.tools.filter(t => t.enabled).map(t => ({
-              tool_name: sanitizeToolName(`mcp:${s.id}:${t.name}`),
+              tool_name: sanitizeToolName(`mcp:${s.id}:${t.name}`, toolNameMapRef.current),
               description: t.description || t.name,
             })),
           }));
@@ -2608,8 +2781,13 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       }
 
       case 'spawn_agent_task': {
-        const { prompt, agent_id, timeout_seconds } = input as { prompt: string; agent_id?: string; timeout_seconds?: string };
-        const timeout = parseInt(timeout_seconds || '300', 10) * 1000; // Convert to ms
+        const { prompt, agent_id, timeout_seconds } = input as { prompt: string; agent_id?: string; timeout_seconds?: string | number };
+        const parsedTimeout = typeof timeout_seconds === 'number'
+          ? timeout_seconds
+          : parseInt(timeout_seconds || '300', 10);
+        // NaN / non-positive → default; never a NaN deadline (which made the
+        // poll loop exit immediately).
+        const timeout = (Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 300) * 1000;
         try {
           // Create the task — use agent definition if specified, otherwise generic
           const task = agent_id
@@ -2625,6 +2803,16 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
           while (Date.now() - startTime < timeout) {
             await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+            // Honor Stop: the background task keeps running server-side, but
+            // this loop must release the agent so the next message isn't
+            // blocked (or dropped) for the rest of the timeout window.
+            if (stopRequestedRef.current) {
+              return {
+                content: `Cancelled by user. Background task ${task.id.slice(0, 8)} is still running — check the Agents panel for results. Task ID: ${task.id}`,
+                is_error: true,
+              };
+            }
 
             try {
               const updated = await getTask(task.id);
@@ -2814,11 +3002,11 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         return { content: `Unknown tool: ${toolName}`, is_error: true };
       }
     }
-  }, [sessions, onExecuteCommand, getTerminalContext, addMessage, onListDocuments, onReadDocument, onSearchDocuments, onSaveDocument, onAddSessionContext, onListSessionContext, onAnalyzeChangeDiff, onSuggestPreChecks, onValidateChangeResult, onDiscoverNeighbors, onAddNeighborToTopology, onNetBoxGetNeighbors, onNetBoxImportTopology, onLibreNmsImportTopology, onNetStacksCrawlerImportTopology, onCreateMop, onTopologyDeviceUpdated, topologyCallbacks]);
+  }, [availableToolNames, sessions, onExecuteCommand, getTerminalContext, addMessage, onListDocuments, onReadDocument, onSearchDocuments, onSaveDocument, onAddSessionContext, onListSessionContext, onAnalyzeChangeDiff, onSuggestPreChecks, onValidateChangeResult, onDiscoverNeighbors, onAddNeighborToTopology, onNetBoxGetNeighbors, onNetBoxImportTopology, onLibreNmsImportTopology, onNetStacksCrawlerImportTopology, onCreateMop, onTopologyDeviceUpdated, topologyCallbacks]);
 
   // Wait for approval if needed
   const waitForApproval = useCallback(async (
-    commands: Array<{ id: string; name: string; command: string; sessionId: string; validation: ValidationResult }>
+    commands: ApprovalRequest[]
   ): Promise<boolean> => {
     const pending: PendingCommand[] = commands.map(c => {
       const session = sessions.find(s => s.id === c.sessionId);
@@ -2826,7 +3014,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         id: c.id,
         command: c.command,
         sessionId: c.sessionId,
-        sessionName: session?.name || c.sessionId,
+        sessionName: c.sessionName || session?.name || c.sessionId,
         validation: c.validation,
       };
     });
@@ -2839,6 +3027,74 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       approvalResolverRef.current = { resolve };
     });
   }, [sessions]);
+
+  // Execute one turn's tool calls. Shared by the streaming and non-streaming
+  // loops. Invariants:
+  //   - 'ask' mode gates every tool in NEEDS_APPROVAL (not just run_command);
+  //   - Reject / Stop executes NOTHING else in the turn;
+  //   - every tool_use gets a tool_result (synthesized when skipped), so an
+  //     early break can never leave an orphaned tool_use that 400s the next call.
+  const processToolCalls = useCallback(async (
+    toolUses: ToolUseResponse[]
+  ): Promise<ContentBlock[]> => {
+    const toolResults: ContentBlock[] = [];
+    const resolveFlavor = (sessionId: string): CliFlavor | undefined =>
+      sessionFlavorOverridesRef.current.get(sessionId)
+      ?? sessions.find(s => s.id === sessionId)?.cliFlavor;
+
+    const gated = permissionMode === 'ask'
+      ? toolUses.filter(t => NEEDS_APPROVAL.has(t.name))
+      : [];
+    let rejected = false;
+    if (gated.length > 0) {
+      const approved = await waitForApproval(gated.map(t => buildApprovalRequest(t, resolveFlavor)));
+      rejected = !approved || stopRequestedRef.current;
+    }
+
+    if (!rejected) {
+      setAgentState('executing');
+      for (const toolUse of toolUses) {
+        if (stopRequestedRef.current) break;
+
+        const result = await executeTool(toolUse.name, toolUse.input);
+
+        // Surface every tool result in the UI. run_command keeps its full
+        // output (the terminal transcript); other tools get a compact row.
+        const sessionId = typeof toolUse.input.session_id === 'string' ? toolUse.input.session_id : '';
+        const session = sessions.find(s => s.id === sessionId);
+        if (toolUse.name === 'run_command') {
+          addMessage(createCommandResultMessage(
+            describeToolCall(toolUse.name, toolUse.input),
+            result.content,
+            sessionId,
+            session?.name || sessionId
+          ));
+        } else {
+          addMessage(createCommandResultMessage(
+            describeToolCall(toolUse.name, toolUse.input),
+            displayToolResult(result.content, result.is_error),
+            sessionId,
+            session?.name || ''
+          ));
+        }
+
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: truncateToolResult(result.content),
+          is_error: result.is_error,
+        });
+      }
+    }
+
+    const gatedIds = new Set(gated.map(t => t.id));
+    return completeToolResults(toolUses, toolResults, (tu) => {
+      if (stopRequestedRef.current) return 'Cancelled by user';
+      return gatedIds.has(tu.id)
+        ? 'User rejected this command execution.'
+        : 'Skipped: the user rejected this turn\'s pending actions.';
+    });
+  }, [permissionMode, sessions, waitForApproval, executeTool, addMessage]);
 
   // Call the agent-chat API
   const callAgentApi = useCallback(async (
@@ -3131,10 +3387,12 @@ Guidelines:
 
   // Main agent loop
   const runAgentLoop = useCallback(async () => {
-    const tools = toolsToAnthropicFormat(availableTools);
+    const tools = toolsToAnthropicFormat(availableTools, toolNameMapRef.current);
     logger.log(`[AI Agent] Starting loop with ${tools.length} tools`);
 
-    // Create AbortController for this agent loop
+    // Create AbortController for this agent loop. A stale stop flag from a
+    // Stop pressed while idle must not swallow this message.
+    stopRequestedRef.current = false;
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
@@ -3239,123 +3497,25 @@ Guidelines:
         // Check if we're done (end_turn, no tools, or single-turn mode)
         if (response.stop_reason === 'end_turn' || response.tool_use.length === 0 || singleTurn) {
           logger.log('[AI Agent] Stopping loop - stop_reason:', response.stop_reason, 'tool_use count:', response.tool_use.length, 'singleTurn:', singleTurn);
+          // Stopping with unanswered tool_use blocks (single-turn mode) would
+          // leave an orphan that 400s the next request — answer them first.
+          if (response.tool_use.length > 0) {
+            conversationRef.current.push({
+              role: 'user',
+              content: skippedToolResults(response.tool_use),
+            });
+          }
           setAgentState('idle');
           break;
         }
 
-        // Process tool calls
-        const toolResults: ContentBlock[] = [];
-
         // Unsanitize tool names for local execution (mcp_id_name -> mcp:id:name)
         for (const tu of response.tool_use) {
-          tu.name = unsanitizeToolName(tu.name);
+          tu.name = unsanitizeToolName(tu.name, toolNameMapRef.current);
         }
 
-        // Check if any commands need approval
-        const commandToolCalls = response.tool_use.filter(t => t.name === 'run_command');
-
-        if (commandToolCalls.length > 0 && permissionMode === 'ask') {
-          // Need approval for commands
-          const commandsToApprove = commandToolCalls.map(t => {
-            const sessionId = t.input.session_id as string;
-            const command = t.input.command as string;
-            const session = sessions.find(s => s.id === sessionId);
-            return {
-              id: t.id,
-              name: t.name,
-              command,
-              sessionId,
-              validation: validateReadOnlyCommand(command, session?.cliFlavor),
-            };
-          });
-
-          const approved = await waitForApproval(commandsToApprove);
-
-          if (!approved || stopRequestedRef.current) {
-            // User rejected - add rejection results
-            for (const cmd of commandsToApprove) {
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: cmd.id,
-                content: 'User rejected this command execution.',
-                is_error: true,
-              });
-            }
-
-            // Still need to process non-command tools
-            for (const toolUse of response.tool_use) {
-              if (toolUse.name !== 'run_command') {
-                const result = await executeTool(toolUse.name, toolUse.input);
-                toolResults.push({
-                  type: 'tool_result',
-                  tool_use_id: toolUse.id,
-                  content: truncateToolResult(result.content),
-                  is_error: result.is_error,
-                });
-              }
-            }
-          } else {
-            // Approved - execute all tools
-            setAgentState('executing');
-
-            for (const toolUse of response.tool_use) {
-              if (stopRequestedRef.current) break;
-
-              const result = await executeTool(toolUse.name, toolUse.input);
-
-              // Add command result message for run_command
-              if (toolUse.name === 'run_command') {
-                const sessionId = toolUse.input.session_id as string;
-                const command = toolUse.input.command as string;
-                const session = sessions.find(s => s.id === sessionId);
-                addMessage(createCommandResultMessage(
-                  command,
-                  result.content,
-                  sessionId,
-                  session?.name || sessionId
-                ));
-              }
-
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                content: truncateToolResult(result.content),
-                is_error: result.is_error,
-              });
-            }
-          }
-        } else {
-          // Auto-execute (safe-auto mode or no commands)
-          setAgentState('executing');
-
-          for (const toolUse of response.tool_use) {
-            if (stopRequestedRef.current) break;
-
-            const result = await executeTool(toolUse.name, toolUse.input);
-
-            // Add command result message for run_command
-            if (toolUse.name === 'run_command') {
-              const sessionId = toolUse.input.session_id as string;
-              const command = toolUse.input.command as string;
-              const session = sessions.find(s => s.id === sessionId);
-              addMessage(createCommandResultMessage(
-                command,
-                result.content,
-                sessionId,
-                session?.name || sessionId
-              ));
-            }
-
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolUse.id,
-              content: truncateToolResult(result.content),
-              is_error: result.is_error,
-            });
-          }
-        }
-
-        // Add tool results as user message
+        // Process tool calls — every tool_use gets a tool_result
+        const toolResults = await processToolCalls(response.tool_use);
         conversationRef.current.push({
           role: 'user',
           content: toolResults,
@@ -3381,14 +3541,16 @@ Guidelines:
     // Cleanup
     stopRequestedRef.current = false;
     abortControllerRef.current = null;
-  }, [callAgentApi, executeTool, waitForApproval, addMessage, permissionMode, sessions, availableTools, singleTurn]);
+  }, [callAgentApi, processToolCalls, addMessage, availableTools, singleTurn, provider, globalTokenTracker]);
 
   // Streaming variant of the agent loop — uses SSE events for progressive text rendering
   const runAgentLoopStreaming = useCallback(async () => {
-    const tools = toolsToAnthropicFormat(availableTools);
+    const tools = toolsToAnthropicFormat(availableTools, toolNameMapRef.current);
     logger.log(`[AI Agent] Starting streaming loop with ${tools.length} tools`);
 
-    // Create AbortController for this agent loop
+    // Create AbortController for this agent loop. A stale stop flag from a
+    // Stop pressed while idle must not swallow this message.
+    stopRequestedRef.current = false;
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
@@ -3547,123 +3709,24 @@ Guidelines:
         // Check if we're done (end_turn, no tools, or single-turn mode)
         if (stopReason === 'end_turn' || parsedToolUses.length === 0 || singleTurn) {
           logger.log('[AI Agent] Stopping streaming loop - stop_reason:', stopReason, 'tool_use count:', parsedToolUses.length, 'singleTurn:', singleTurn);
+          // Same orphan guard as the non-streaming loop (NS-AI-25).
+          if (parsedToolUses.length > 0) {
+            conversationRef.current.push({
+              role: 'user',
+              content: skippedToolResults(parsedToolUses),
+            });
+          }
           setAgentState('idle');
           break;
         }
 
-        // Process tool calls — identical logic to non-streaming runAgentLoop
-        const toolResults: ContentBlock[] = [];
-
         // Unsanitize tool names for local execution (mcp_id_name -> mcp:id:name)
         for (const tu of parsedToolUses) {
-          tu.name = unsanitizeToolName(tu.name);
+          tu.name = unsanitizeToolName(tu.name, toolNameMapRef.current);
         }
 
-        // Check if any commands need approval
-        const commandToolCalls = parsedToolUses.filter(t => t.name === 'run_command');
-
-        if (commandToolCalls.length > 0 && permissionMode === 'ask') {
-          // Need approval for commands
-          const commandsToApprove = commandToolCalls.map(t => {
-            const sessionId = t.input.session_id as string;
-            const command = t.input.command as string;
-            const session = sessions.find(s => s.id === sessionId);
-            return {
-              id: t.id,
-              name: t.name,
-              command,
-              sessionId,
-              validation: validateReadOnlyCommand(command, session?.cliFlavor),
-            };
-          });
-
-          const approved = await waitForApproval(commandsToApprove);
-
-          if (!approved || stopRequestedRef.current) {
-            // User rejected - add rejection results
-            for (const cmd of commandsToApprove) {
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: cmd.id,
-                content: 'User rejected this command execution.',
-                is_error: true,
-              });
-            }
-
-            // Still need to process non-command tools
-            for (const toolUse of parsedToolUses) {
-              if (toolUse.name !== 'run_command') {
-                const result = await executeTool(toolUse.name, toolUse.input);
-                toolResults.push({
-                  type: 'tool_result',
-                  tool_use_id: toolUse.id,
-                  content: truncateToolResult(result.content),
-                  is_error: result.is_error,
-                });
-              }
-            }
-          } else {
-            // Approved - execute all tools
-            setAgentState('executing');
-
-            for (const toolUse of parsedToolUses) {
-              if (stopRequestedRef.current) break;
-
-              const result = await executeTool(toolUse.name, toolUse.input);
-
-              // Add command result message for run_command
-              if (toolUse.name === 'run_command') {
-                const sessionId = toolUse.input.session_id as string;
-                const command = toolUse.input.command as string;
-                const session = sessions.find(s => s.id === sessionId);
-                addMessage(createCommandResultMessage(
-                  command,
-                  result.content,
-                  sessionId,
-                  session?.name || sessionId
-                ));
-              }
-
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                content: truncateToolResult(result.content),
-                is_error: result.is_error,
-              });
-            }
-          }
-        } else {
-          // Auto-execute (safe-auto mode or no commands)
-          setAgentState('executing');
-
-          for (const toolUse of parsedToolUses) {
-            if (stopRequestedRef.current) break;
-
-            const result = await executeTool(toolUse.name, toolUse.input);
-
-            // Add command result message for run_command
-            if (toolUse.name === 'run_command') {
-              const sessionId = toolUse.input.session_id as string;
-              const command = toolUse.input.command as string;
-              const session = sessions.find(s => s.id === sessionId);
-              addMessage(createCommandResultMessage(
-                command,
-                result.content,
-                sessionId,
-                session?.name || sessionId
-              ));
-            }
-
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolUse.id,
-              content: truncateToolResult(result.content),
-              is_error: result.is_error,
-            });
-          }
-        }
-
-        // Add tool results as user message
+        // Process tool calls — every tool_use gets a tool_result
+        const toolResults = await processToolCalls(parsedToolUses);
         conversationRef.current.push({
           role: 'user',
           content: toolResults,
@@ -3689,7 +3752,7 @@ Guidelines:
     // Cleanup
     stopRequestedRef.current = false;
     abortControllerRef.current = null;
-  }, [callAgentApiStream, executeTool, waitForApproval, addMessage, permissionMode, sessions, availableTools, singleTurn, provider, globalTokenTracker]);
+  }, [callAgentApiStream, processToolCalls, addMessage, availableTools, singleTurn, provider, globalTokenTracker]);
 
   // Send a new message to the agent
   const sendMessage = useCallback(async (content: string) => {
@@ -3698,7 +3761,7 @@ Guidelines:
       logger.log('[AI Agent] Blocked: empty content');
       return;
     }
-    if (agentState === 'thinking' || agentState === 'executing') {
+    if (agentState === 'thinking' || agentState === 'executing' || agentState === 'waiting_approval') {
       logger.log('[AI Agent] Blocked: agent busy, state =', agentState);
       return;
     }
@@ -3706,6 +3769,14 @@ Guidelines:
     logger.log('[AI Agent] Proceeding with message');
     // Add user message to UI (plain — the envelope is model-only)
     addMessage(createUserMessage(content));
+
+    // A Stop mid-tool flips the state to idle before the previous loop has
+    // actually unwound. Wait for it rather than starting a second loop that
+    // would race it on conversationRef.
+    if (loopPromiseRef.current) {
+      setAgentState('thinking');
+      await loopPromiseRef.current;
+    }
 
     // Build the fresh live-workspace-state envelope for THIS turn and prepend it
     // to the model-visible content. The envelope is sanitized server-side by
@@ -3731,10 +3802,12 @@ Guidelines:
     });
 
     // Start the agent loop
-    if (streaming) {
-      await runAgentLoopStreaming();
-    } else {
-      await runAgentLoop();
+    const loop = streaming ? runAgentLoopStreaming() : runAgentLoop();
+    loopPromiseRef.current = loop;
+    try {
+      await loop;
+    } finally {
+      if (loopPromiseRef.current === loop) loopPromiseRef.current = null;
     }
   }, [agentState, addMessage, runAgentLoop, runAgentLoopStreaming, streaming]);
 
@@ -3785,6 +3858,18 @@ Guidelines:
 
     setPendingCommands([]);
     setAgentState('idle');
+  }, []);
+
+  // Unmount: stop the loop and abort any in-flight request so a closed popup
+  // can't keep executing tool calls on the terminal behind the user's back.
+  useEffect(() => {
+    return () => {
+      stopRequestedRef.current = true;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      approvalResolverRef.current?.resolve(false);
+      approvalResolverRef.current = null;
+    };
   }, []);
 
   // Clear all messages

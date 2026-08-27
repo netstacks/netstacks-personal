@@ -121,7 +121,10 @@ pub struct UpdateAccountRequest {
     pub id: String,
     pub name: Option<String>,
     pub provider: Option<String>,
-    pub host: Option<String>,
+    /// `null` clears the host (switching e.g. GitHub Enterprise → GitHub);
+    /// absent keeps it.
+    #[serde(default, deserialize_with = "crate::models::double_option")]
+    pub host: Option<Option<String>>,
     pub auth_method: Option<String>,
     pub credential: Option<String>,
     pub is_default: Option<bool>,
@@ -146,7 +149,10 @@ pub async fn update_account(
 
     let name = req.name.unwrap_or(existing.name);
     let provider = req.provider.unwrap_or(existing.provider);
-    let host = req.host.or(existing.host);
+    let host = match req.host {
+        Some(h) => h,
+        None => existing.host,
+    };
     let auth_method = req.auth_method.unwrap_or(existing.auth_method);
     let credential = req.credential.unwrap_or(existing.credential);
     let is_default = req.is_default.unwrap_or(existing.is_default);

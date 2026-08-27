@@ -14,13 +14,336 @@ use subtle::ConstantTimeEq;
 
 use crate::api::AppState;
 use crate::models::{AuthType, PortForward};
-use crate::terminal::{SshJump, SshTarget, TerminalManager, TerminalMessage};
+use crate::terminal::{SshJump, SshSessionOptions, SshTarget, TerminalManager, TerminalMessage, TerminalSession};
+use crate::guard_probe::{probe_session_facts, ProbeSpec};
+use crate::ssh::{SshAuth, SshConfig};
+use netstacks_agent::guard::live::{ECHO_TICK, HOLD_TIMEOUT};
+use netstacks_agent::guard::{store::append_trace, Action, GuardMode, LiveGuard, Platform, SessionFacts};
+use std::sync::Mutex as StdMutex;
+use tokio::task::AbortHandle;
 
 /// Combined state for WebSocket handlers
 #[derive(Clone)]
 pub struct WsState {
     pub terminal_manager: Arc<TerminalManager>,
     pub app_state: Arc<AppState>,
+}
+
+/// Per-session Session Guard handle shared by the input and output tasks.
+///
+/// The engine itself is synchronous and microsecond-fast, so a std mutex
+/// is fine — it is never held across an await.
+#[derive(Clone)]
+pub struct GuardRuntime {
+    guard: Arc<StdMutex<LiveGuard>>,
+    /// Injects guard notices into the session's output stream so they
+    /// reach the client through the same WebSocket writer as PTY output.
+    notices: mpsc::UnboundedSender<TerminalMessage>,
+    /// How to open the probe login, or why it cannot be opened — in which
+    /// case facts stay unknown and the reason reaches the UI (NS-GUARD-11).
+    probe: Result<Arc<ProbeSpec>, ProbeSkipped>,
+    /// Background work owned by this session, aborted when it closes.
+    tasks: Arc<StdMutex<GuardTasks>>,
+}
+
+/// Why no probe login can be opened for this session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeSkipped {
+    /// v1's probe runner is direct-only.
+    JumpHost,
+    /// Agent-auth / interactive-only sessions leave nothing to log in with.
+    NoCredentials,
+}
+
+impl ProbeSkipped {
+    fn detail(self) -> &'static str {
+        match self {
+            ProbeSkipped::JumpHost => "probe connection not available for jump-host sessions; facts stay unknown",
+            ProbeSkipped::NoCredentials => {
+                "no stored password or key to open the probe connection with; facts stay unknown"
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct GuardTasks {
+    /// The running probe, if any (NS-GUARD-13).
+    probe: Option<AbortHandle>,
+    /// The echo-settle ticker while an Enter is withheld (NS-GUARD-5).
+    ticker: Option<AbortHandle>,
+    /// Hold-timeout timers (NS-GUARD-6).
+    timers: Vec<AbortHandle>,
+}
+
+impl GuardRuntime {
+    fn set_facts(&self, facts: SessionFacts) {
+        if let Ok(mut g) = self.guard.lock() {
+            g.set_facts(facts);
+        }
+    }
+
+    fn refresh_failed(&self) {
+        if let Ok(mut g) = self.guard.lock() {
+            g.refresh_failed();
+        }
+    }
+
+    fn status(&self, state: &str, detail: impl Into<String>) {
+        let _ = self.notices.send(TerminalMessage::GuardStatus { state: state.to_string(), detail: detail.into() });
+    }
+
+    /// Run the probes in the background and install the facts when done.
+    /// A probe still running from an earlier request is abandoned first.
+    fn spawn_probe(&self) {
+        let spec = match &self.probe {
+            Ok(spec) => spec.clone(),
+            Err(skip) => {
+                self.status("skipped", skip.detail());
+                self.refresh_failed();
+                return;
+            }
+        };
+        self.status("probing", format!("opening probe connection to {} (second login as {})", spec.config.host, spec.config.username));
+        let rt = self.clone();
+        let task = tokio::spawn(async move {
+            match probe_session_facts(&spec).await {
+                Ok(outcome) => {
+                    tracing::info!("Session Guard facts for {}: {}", spec.device, outcome.summary);
+                    rt.set_facts(outcome.facts);
+                    rt.status("ready", outcome.summary.to_string());
+                }
+                Err(e) => {
+                    tracing::warn!("Session Guard probe failed for {}: {}", spec.device, e);
+                    rt.refresh_failed();
+                    rt.status("failed", e);
+                }
+            }
+        });
+        if let Ok(mut t) = self.tasks.lock() {
+            if let Some(prev) = t.probe.replace(task.abort_handle()) {
+                prev.abort();
+            }
+        }
+    }
+
+    /// Start the echo-settle ticker unless one is already running. It calls
+    /// the guard every `ECHO_TICK` until the withheld Enter is resolved.
+    fn ensure_ticker(&self, session: Arc<TerminalSession>) {
+        let Ok(mut t) = self.tasks.lock() else { return };
+        if t.ticker.as_ref().is_some_and(|h| !h.is_finished()) {
+            return;
+        }
+        let rt = self.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(ECHO_TICK).await;
+                let actions = rt.guard.lock().map(|mut g| g.on_await_tick()).unwrap_or_default();
+                let waiting = actions.iter().any(|a| matches!(a, Action::AwaitEcho));
+                let actions: Vec<Action> = actions.into_iter().filter(|a| !matches!(a, Action::AwaitEcho)).collect();
+                apply_guard_actions(Some(&rt), &session, actions).await;
+                if !waiting {
+                    break;
+                }
+            }
+        });
+        t.ticker = Some(task.abort_handle());
+    }
+
+    /// Cancel hold `id` if nobody answers it within `HOLD_TIMEOUT`.
+    fn arm_hold_timeout(&self, id: String, session: Arc<TerminalSession>) {
+        let rt = self.clone();
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(HOLD_TIMEOUT).await;
+            let actions = rt.guard.lock().map(|mut g| g.on_hold_expired(&id)).unwrap_or_default();
+            if !actions.is_empty() {
+                tracing::info!("Session Guard hold {} expired with no decision; cancelled", id);
+            }
+            apply_guard_actions(Some(&rt), &session, actions).await;
+        });
+        if let Ok(mut t) = self.tasks.lock() {
+            t.timers.retain(|h| !h.is_finished());
+            t.timers.push(task.abort_handle());
+        }
+    }
+
+    /// The session is closing: stop every background task it owns.
+    fn shutdown(&self) {
+        let Ok(mut t) = self.tasks.lock() else { return };
+        if let Some(h) = t.probe.take() {
+            h.abort();
+        }
+        if let Some(h) = t.ticker.take() {
+            h.abort();
+        }
+        for h in t.timers.drain(..) {
+            h.abort();
+        }
+    }
+
+    fn on_output(&self, data: &str) -> Vec<Action> {
+        self.guard.lock().map(|mut g| g.on_output(data)).unwrap_or_default()
+    }
+
+    fn on_input(&self, data: &str) -> Vec<Action> {
+        match self.guard.lock() {
+            Ok(mut g) => g.on_input(data),
+            // A poisoned guard must never eat input: fall back to pass-through.
+            Err(_) => vec![Action::Send(data.to_string())],
+        }
+    }
+
+    fn on_decision(&self, id: &str, proceed: bool) -> Vec<Action> {
+        self.guard.lock().map(|mut g| g.on_decision(id, proceed)).unwrap_or_default()
+    }
+}
+
+/// Build the guard for an SSH session if the client asked for it and the
+/// CLI flavor is one the v1 engine understands (IOS-XE only).
+fn build_guard_runtime(
+    query: &WsQuery,
+    params: &SshParams,
+    notices: mpsc::UnboundedSender<TerminalMessage>,
+) -> Option<GuardRuntime> {
+    let host = params.host.as_str();
+    if !matches!(query.guard.as_deref(), Some("1") | Some("true")) {
+        return None;
+    }
+    let platform = match query.guard_flavor.as_deref().unwrap_or("auto") {
+        "cisco-ios" => Platform::IosXe,
+        // `auto` is every session's default; it says nothing about the
+        // device, so it must not put an IOS probe login on it (NS-GUARD-9).
+        "auto" => {
+            tracing::info!("Session Guard: CLI flavor is 'auto' for {}; guard inactive until the session's flavor is set to Cisco IOS", host);
+            let _ = notices.send(TerminalMessage::GuardStatus {
+                state: "skipped".to_string(),
+                detail: "flavor auto — set CLI flavor to Cisco IOS to enable".to_string(),
+            });
+            return None;
+        }
+        other => {
+            tracing::info!("Session Guard: CLI flavor '{}' not supported in v1; guard inactive", other);
+            let _ = notices.send(TerminalMessage::GuardStatus {
+                state: "skipped".to_string(),
+                detail: format!("CLI flavor {other} is not supported in v1 (Cisco IOS only)"),
+            });
+            return None;
+        }
+    };
+    let mode = query.guard_mode.as_deref().and_then(GuardMode::parse).unwrap_or(GuardMode::DryRun);
+    let device = query
+        .guard_device
+        .clone()
+        .filter(|d| !d.trim().is_empty())
+        .unwrap_or_else(|| host.to_string());
+    tracing::info!("Session Guard active for {} ({}, {})", device, platform.as_str(), mode.as_str());
+    Some(GuardRuntime {
+        guard: Arc::new(StdMutex::new(LiveGuard::new(&device, platform, mode))),
+        notices,
+        probe: probe_spec_for(params, &device).map(Arc::new),
+        tasks: Arc::new(StdMutex::new(GuardTasks::default())),
+    })
+}
+
+/// The probe login reuses the session's own credentials. Jump-host paths
+/// are not supported in v1 (`connect_and_authenticate` is direct-only).
+fn probe_spec_for(params: &SshParams, device: &str) -> Result<ProbeSpec, ProbeSkipped> {
+    if params.jump_host.is_some() {
+        return Err(ProbeSkipped::JumpHost);
+    }
+    let auth = match (&params.password, &params.key_path) {
+        (Some(p), _) => SshAuth::Password(p.clone()),
+        (None, Some(path)) => SshAuth::KeyFile { path: path.clone(), passphrase: params.key_passphrase.clone() },
+        (None, None) => return Err(ProbeSkipped::NoCredentials),
+    };
+    Ok(ProbeSpec {
+        config: SshConfig {
+            host: params.host.clone(),
+            port: params.port,
+            username: params.username.clone(),
+            auth,
+            legacy_ssh: params.legacy_ssh,
+            skip_keyboard_interactive: false,
+        },
+        device: device.to_string(),
+    })
+}
+
+/// Optional behaviour layered over the plain terminal loop.
+struct SessionOptions {
+    /// Commands to send once the first prompt appears.
+    auto_commands: Vec<String>,
+    /// Session Guard, if the client enabled it for this session.
+    guard: Option<GuardRuntime>,
+}
+
+/// Execute the guard's actions, in order, against the session.
+async fn apply_guard_actions(guard: Option<&GuardRuntime>, session: &Arc<TerminalSession>, actions: Vec<Action>) {
+    for action in actions {
+        match action {
+            Action::Send(data) => {
+                if let Err(e) = session.write(&data).await {
+                    tracing::error!("Failed to write to PTY: {}", e);
+                }
+            }
+            Action::Hold(n) => {
+                if let Some(g) = guard {
+                    let _ = g.notices.send(TerminalMessage::GuardHold {
+                        id: n.id.clone(),
+                        command: n.command,
+                        verdict: n.verdict,
+                        reason: n.reason,
+                        objects: n.objects,
+                        block_lines: n.block_lines,
+                    });
+                    g.arm_hold_timeout(n.id, session.clone());
+                }
+            }
+            Action::HoldExpired(id) => {
+                if let Some(g) = guard {
+                    g.status("hold-expired", id);
+                }
+            }
+            Action::Trace(record) => match append_trace(&record).await {
+                Ok(path) => tracing::info!("Session Guard trace {} appended to {}", record.id, path.display()),
+                Err(e) => tracing::warn!("Session Guard: failed to write trace record: {}", e),
+            },
+            Action::RefreshFacts => {
+                if let Some(g) = guard {
+                    g.spawn_probe();
+                }
+            }
+            Action::AwaitEcho => {
+                if let Some(g) = guard {
+                    g.ensure_ticker(session.clone());
+                }
+            }
+        }
+    }
+}
+
+/// Auto-command prompt heuristic: the last non-blank output ends in a shell
+/// or network-device prompt character. A trailing `:` is *not* a prompt —
+/// `Password:` and banner lines end that way (NS-TERM-14).
+fn looks_like_prompt(output: &str) -> bool {
+    let trimmed = output.trim_end();
+    trimmed.ends_with('>') || trimmed.ends_with('#') || trimmed.ends_with('$') || trimmed.ends_with('%')
+}
+
+/// Keep only the tail of the auto-command output buffer; a chatty login
+/// (long banners, `show run` in a startup script) must not grow it without
+/// bound. Cuts on a char boundary.
+const OUTPUT_BUFFER_CAP: usize = 8 * 1024;
+
+fn cap_output_buffer(buf: &mut String) {
+    if buf.len() <= OUTPUT_BUFFER_CAP {
+        return;
+    }
+    let mut cut = buf.len() - OUTPUT_BUFFER_CAP;
+    while !buf.is_char_boundary(cut) {
+        cut += 1;
+    }
+    buf.drain(..cut);
 }
 
 /// Query parameters for WebSocket connections
@@ -41,6 +364,16 @@ pub struct WsQuery {
     /// Initial terminal rows (from xterm.js FitAddon)
     #[serde(default)]
     pub rows: u32,
+    /// Session Guard: `1`/`true` to activate for this session.
+    pub guard: Option<String>,
+    /// Session Guard mode: `dry-run` (default) or `enforce`.
+    pub guard_mode: Option<String>,
+    /// CLI flavor of the saved session (kebab-case, e.g. `cisco-ios`).
+    /// The v1 engine only understands IOS-XE; other flavors leave the
+    /// guard inactive.
+    pub guard_flavor: Option<String>,
+    /// Device label for trace records (session name); defaults to host.
+    pub guard_device: Option<String>,
 }
 
 /// Connection type for WebSocket
@@ -141,7 +474,7 @@ async fn handle_local_terminal(socket: WebSocket, manager: Arc<TerminalManager>,
 
     tracing::info!("Created terminal session: {}", session_id);
 
-    run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, "Terminal").await;
+    run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, "Terminal", None).await;
 }
 
 /// Handle SSH terminal connections using PTY-based ssh command
@@ -165,6 +498,10 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
 
     // Create channel for PTY output
     let (pty_tx, pty_rx) = mpsc::unbounded_channel::<TerminalMessage>();
+
+    // Session Guard (opt-in via query). Shares the PTY output channel so
+    // hold notices ride the same WebSocket writer as terminal output.
+    let guard = build_guard_runtime(&query, &ssh_params, pty_tx.clone());
 
     // Clone port forwards before passing to create_ssh_session (which moves them)
     let session_port_forwards = ssh_params.port_forwards.clone();
@@ -190,9 +527,15 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
             key_passphrase: ssh_params.jump_key_passphrase.as_deref(),
             legacy_ssh: ssh_params.jump_legacy_ssh,
         }),
-        ssh_params.port_forwards,
         query.cols,
         query.rows,
+        SshSessionOptions {
+            // Interactive terminals now go through the same host-key approval
+            // flow as the AI exec path: unknown keys prompt, changed keys can
+            // be approved instead of hard-refused (NS-TERM-6).
+            approvals: Some(app_state.host_key_approvals.clone()),
+            keepalive_interval_secs: ssh_params.keepalive_interval,
+        },
     ).await {
         Ok(id) => id,
         Err(e) => {
@@ -209,6 +552,12 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
     };
 
     tracing::info!("Created SSH session {} to {}", session_id, host_for_log);
+
+    // The user's login succeeded, so the probe login (same credentials)
+    // is worth attempting now.
+    if let Some(g) = &guard {
+        g.spawn_probe();
+    }
 
     // Stamp last_connected_at on the saved-session row. Best-effort: a DB
     // hiccup mustn't break the connect path, so we spawn and log.
@@ -283,10 +632,10 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
     if !ssh_params.auto_commands.is_empty() {
         run_terminal_session_with_auto_commands(
             ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label,
-            ssh_params.auto_commands,
+            SessionOptions { auto_commands: ssh_params.auto_commands, guard },
         ).await;
     } else {
-        run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label).await;
+        run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label, guard).await;
     }
 
     // Stop session tunnels on disconnect
@@ -308,6 +657,7 @@ async fn run_terminal_session<S>(
     session_id: &str,
     manager: &Arc<TerminalManager>,
     log_label: &str,
+    guard: Option<GuardRuntime>,
 )
 where
     S: futures::Stream<Item = Result<Message, axum::Error>> + Unpin,
@@ -317,11 +667,22 @@ where
     let log_label_owned = log_label.to_string();
     let manager_for_cleanup = manager.clone();
     let manager_for_input = manager.clone();
+    let manager_for_output = manager.clone();
+    let guard_for_output = guard.clone();
 
     // Task to forward PTY output to WebSocket
-    let output_task = tokio::spawn(async move {
+    let mut output_task = tokio::spawn(async move {
         let mut ws_tx = ws_tx;
         while let Some(msg) = pty_rx.recv().await {
+            if let (Some(g), TerminalMessage::Output(data)) = (&guard_for_output, &msg) {
+                // Echo arriving may release a withheld Enter.
+                let actions = g.on_output(data);
+                if !actions.is_empty() {
+                    if let Some(session) = manager_for_output.get_session(&session_id_for_output).await {
+                        apply_guard_actions(Some(g), &session, actions).await;
+                    }
+                }
+            }
             let json = match serde_json::to_string(&msg) {
                 Ok(j) => j,
                 Err(e) => {
@@ -337,8 +698,29 @@ where
         }
     });
 
+    // Tear the socket down when the transport ends (device closed the session,
+    // exec-timeout, shell exit). Without this the loop waited for the *client*
+    // to close and the tab stayed "connected" while every keystroke failed
+    // (NS-TERM-5).
+    let close_token = manager.get_session(session_id).await.map(|s| s.close_token());
+
     // Handle incoming WebSocket messages
-    while let Some(Ok(msg)) = ws_rx.next().await {
+    loop {
+        let msg = tokio::select! {
+            _ = async {
+                match &close_token {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => {
+                tracing::info!("Transport closed for {}; closing WebSocket", session_id);
+                break;
+            }
+            next = ws_rx.next() => match next {
+                Some(Ok(m)) => m,
+                _ => break,
+            },
+        };
         match msg {
             Message::Text(text) => {
                 let terminal_msg: TerminalMessage = match serde_json::from_str(&text) {
@@ -351,9 +733,19 @@ where
 
                 match terminal_msg {
                     TerminalMessage::Input(data) => {
+                        let actions = match &guard {
+                            Some(g) => g.on_input(&data),
+                            None => vec![Action::Send(data)],
+                        };
                         if let Some(session) = manager_for_input.get_session(&session_id_owned).await {
-                            if let Err(e) = session.write(&data).await {
-                                tracing::error!("Failed to write to PTY: {}", e);
+                            apply_guard_actions(guard.as_ref(), &session, actions).await;
+                        }
+                    }
+                    TerminalMessage::GuardDecision { id, proceed } => {
+                        if let Some(g) = &guard {
+                            let actions = g.on_decision(&id, proceed);
+                            if let Some(session) = manager_for_input.get_session(&session_id_owned).await {
+                                apply_guard_actions(Some(g), &session, actions).await;
                             }
                         }
                     }
@@ -380,7 +772,17 @@ where
     }
 
     // Cleanup
+    // If the transport died (close_token fired) give the output task a moment to
+    // flush the reader's final `Close`/`Error` frame to the client before
+    // aborting it — the guard holds a `pty_tx` clone, so the channel never
+    // drains on its own.
+    if close_token.as_ref().is_some_and(|t| t.is_cancelled()) {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(250), &mut output_task).await;
+    }
     output_task.abort();
+    if let Some(g) = &guard {
+        g.shutdown();
+    }
     manager_for_cleanup.remove_session(&session_id_owned).await;
     tracing::info!("{} {} closed", log_label_owned, session_id_owned);
 }
@@ -394,16 +796,18 @@ async fn run_terminal_session_with_auto_commands<S>(
     session_id: &str,
     manager: &Arc<TerminalManager>,
     log_label: &str,
-    auto_commands: Vec<String>,
+    opts: SessionOptions,
 )
 where
     S: futures::Stream<Item = Result<Message, axum::Error>> + Unpin,
 {
+    let SessionOptions { auto_commands, guard } = opts;
     let session_id_for_output = session_id.to_string();
     let session_id_owned = session_id.to_string();
     let log_label_owned = log_label.to_string();
     let manager_for_cleanup = manager.clone();
     let manager_for_input = manager.clone();
+    let guard_for_output = guard.clone();
     let manager_for_auto = manager.clone();
     let session_id_for_auto = session_id.to_string();
 
@@ -411,7 +815,7 @@ where
     let (auto_done_tx, _auto_done_rx) = tokio::sync::oneshot::channel::<()>();
 
     // Task to forward PTY output to WebSocket and detect prompt for auto commands
-    let output_task = tokio::spawn(async move {
+    let mut output_task = tokio::spawn(async move {
         let mut ws_tx = ws_tx;
         let mut output_buffer = String::new();
         let mut auto_commands_sent = false;
@@ -420,6 +824,15 @@ where
         let mut current_command_idx = 0;
 
         while let Some(msg) = pty_rx.recv().await {
+            if let (Some(g), TerminalMessage::Output(data)) = (&guard_for_output, &msg) {
+                // Echo arriving may release a withheld Enter.
+                let actions = g.on_output(data);
+                if !actions.is_empty() {
+                    if let Some(session) = manager_for_auto.get_session(&session_id_for_auto).await {
+                        apply_guard_actions(Some(g), &session, actions).await;
+                    }
+                }
+            }
             // Forward to WebSocket
             let json = match serde_json::to_string(&msg) {
                 Ok(j) => j,
@@ -438,17 +851,11 @@ where
             if current_command_idx < commands_to_send.len() {
                 if let TerminalMessage::Output(data) = &msg {
                     output_buffer.push_str(data);
+                    cap_output_buffer(&mut output_buffer);
 
                     // Check if output ends with a prompt character
-                    // Common prompts: hostname>, hostname#, user$, user%, Password:
-                    let trimmed = output_buffer.trim_end();
-                    let looks_like_prompt = trimmed.ends_with('>')
-                        || trimmed.ends_with('#')
-                        || trimmed.ends_with('$')
-                        || trimmed.ends_with('%')
-                        || trimmed.ends_with(':');
-
-                    if looks_like_prompt {
+                    // Common prompts: hostname>, hostname#, user$, user%
+                    if looks_like_prompt(&output_buffer) {
                         // Send the next auto command
                         if let Some(session) = manager_for_auto.get_session(&session_id_for_auto).await {
                             let cmd = &commands_to_send[current_command_idx];
@@ -471,8 +878,29 @@ where
         }
     });
 
+    // Tear the socket down when the transport ends (device closed the session,
+    // exec-timeout, shell exit). Without this the loop waited for the *client*
+    // to close and the tab stayed "connected" while every keystroke failed
+    // (NS-TERM-5).
+    let close_token = manager.get_session(session_id).await.map(|s| s.close_token());
+
     // Handle incoming WebSocket messages
-    while let Some(Ok(msg)) = ws_rx.next().await {
+    loop {
+        let msg = tokio::select! {
+            _ = async {
+                match &close_token {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => {
+                tracing::info!("Transport closed for {}; closing WebSocket", session_id);
+                break;
+            }
+            next = ws_rx.next() => match next {
+                Some(Ok(m)) => m,
+                _ => break,
+            },
+        };
         match msg {
             Message::Text(text) => {
                 let terminal_msg: TerminalMessage = match serde_json::from_str(&text) {
@@ -485,9 +913,19 @@ where
 
                 match terminal_msg {
                     TerminalMessage::Input(data) => {
+                        let actions = match &guard {
+                            Some(g) => g.on_input(&data),
+                            None => vec![Action::Send(data)],
+                        };
                         if let Some(session) = manager_for_input.get_session(&session_id_owned).await {
-                            if let Err(e) = session.write(&data).await {
-                                tracing::error!("Failed to write to PTY: {}", e);
+                            apply_guard_actions(guard.as_ref(), &session, actions).await;
+                        }
+                    }
+                    TerminalMessage::GuardDecision { id, proceed } => {
+                        if let Some(g) = &guard {
+                            let actions = g.on_decision(&id, proceed);
+                            if let Some(session) = manager_for_input.get_session(&session_id_owned).await {
+                                apply_guard_actions(Some(g), &session, actions).await;
                             }
                         }
                     }
@@ -514,7 +952,17 @@ where
     }
 
     // Cleanup
+    // If the transport died (close_token fired) give the output task a moment to
+    // flush the reader's final `Close`/`Error` frame to the client before
+    // aborting it — the guard holds a `pty_tx` clone, so the channel never
+    // drains on its own.
+    if close_token.as_ref().is_some_and(|t| t.is_cancelled()) {
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(250), &mut output_task).await;
+    }
     output_task.abort();
+    if let Some(g) = &guard {
+        g.shutdown();
+    }
     manager_for_cleanup.remove_session(&session_id_owned).await;
     tracing::info!("{} {} closed", log_label_owned, session_id_owned);
 }
@@ -550,6 +998,8 @@ struct SshParams {
     auto_commands: Vec<String>,
     // Legacy SSH support for older devices
     legacy_ssh: bool,
+    /// Profile `keepalive_interval` (seconds); 0 disables SSH keepalives.
+    keepalive_interval: u32,
 }
 
 /// Get SSH parameters with vault credential lookup
@@ -701,6 +1151,7 @@ async fn get_ssh_params_with_vault(query: &WsQuery, app_state: &Arc<AppState>) -
                         profile_id: session.profile_id,
                         auto_commands,
                         legacy_ssh: session.legacy_ssh,
+                        keepalive_interval: profile.keepalive_interval,
                     });
                 }
                 Err(e) => {
@@ -916,6 +1367,7 @@ fn get_ssh_params(query: &WsQuery) -> Result<SshParams, String> {
         auto_commands: vec![],
         // Legacy SSH not supported in quick connect (only stored sessions)
         legacy_ssh: false,
+        keepalive_interval: 30,
     })
 }
 
@@ -1059,10 +1511,10 @@ async fn handle_telnet_terminal(
     if !telnet_params.auto_commands.is_empty() {
         run_terminal_session_with_auto_commands(
             ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label,
-            telnet_params.auto_commands,
+            SessionOptions { auto_commands: telnet_params.auto_commands, guard: None },
         ).await;
     } else {
-        run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label).await;
+        run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label, None).await;
     }
 }
 
@@ -1726,6 +2178,35 @@ enum TaskWsCommand {
 }
 
 #[cfg(test)]
+mod auto_command_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn trailing_colon_is_not_a_prompt() {
+        assert!(looks_like_prompt("mgmt-sw-01#"));
+        assert!(looks_like_prompt("banner\r\nmgmt-sw-01> "));
+        assert!(looks_like_prompt("user@host:~$ "));
+        assert!(looks_like_prompt("host% "));
+        assert!(!looks_like_prompt("Password: "));
+        assert!(!looks_like_prompt("Authorized users only. Violators will be prosecuted:\r\n"));
+        assert!(!looks_like_prompt(""));
+    }
+
+    #[test]
+    fn output_buffer_is_capped_on_a_char_boundary() {
+        let mut buf = "ñ".repeat(OUTPUT_BUFFER_CAP); // 2 bytes each
+        buf.push_str("sw#");
+        cap_output_buffer(&mut buf);
+        assert!(buf.len() <= OUTPUT_BUFFER_CAP);
+        assert!(buf.ends_with("sw#"));
+        assert!(buf.starts_with('ñ'));
+        let mut small = "abc".to_string();
+        cap_output_buffer(&mut small);
+        assert_eq!(small, "abc");
+    }
+}
+
+#[cfg(test)]
 mod resolve_effective_jump_tests {
     use super::*;
     use crate::models::{NewCredentialProfile, NewJumpHost, AuthType, CliFlavor};
@@ -1924,6 +2405,11 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            auto_reconnect: true,
+            reconnect_delay: 5,
+            scrollback_lines: 10000,
+            local_echo: false,
+            icon: None,
         }).await.unwrap();
 
         // Resolve "session A as jump" via the new path.
@@ -1999,6 +2485,11 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            auto_reconnect: true,
+            reconnect_delay: 5,
+            scrollback_lines: 10000,
+            local_echo: false,
+            icon: None,
         }).await.unwrap();
 
         // Set up Session B with jump_session_id = A. Different profile,
@@ -2032,6 +2523,11 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            auto_reconnect: true,
+            reconnect_delay: 5,
+            scrollback_lines: 10000,
+            local_echo: false,
+            icon: None,
         }).await.unwrap();
 
         // Resolve the effective jump for session B (no profile-level jump).
@@ -2101,6 +2597,7 @@ mod resolve_effective_jump_tests {
                 })
             })),
             eof_before_exit_status: false,
+            shell: None,
             host_key: ephemeral_ed25519(),
         })
         .await;
@@ -2139,6 +2636,11 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            auto_reconnect: true,
+            reconnect_delay: 5,
+            scrollback_lines: 10000,
+            local_echo: false,
+            icon: None,
         }).await.unwrap();
 
         // 3. Resolve the jump exactly as api.rs does.

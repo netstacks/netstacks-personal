@@ -16,6 +16,7 @@
  *   }
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import './ConfirmDialog.css'
 
 export interface ConfirmOptions {
@@ -39,6 +40,10 @@ interface PendingConfirm extends ConfirmOptions {
 type ConfirmListener = (pending: PendingConfirm | null) => void
 let listeners: ConfirmListener[] = []
 let current: PendingConfirm | null = null
+// FIFO of confirms waiting behind `current`. A plain array — the old
+// "wrap the current resolver" trick only remembered ONE follower, so a
+// third concurrent call replaced the second and its promise never settled.
+let queue: PendingConfirm[] = []
 
 function notifyListeners() {
   listeners.forEach((l) => l(current))
@@ -56,13 +61,7 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
     const id = `confirm-${crypto.randomUUID()}`
     const pending: PendingConfirm = { ...opts, id, resolve }
     if (current) {
-      // Queue behind the current one (resolves when current finishes)
-      const previousResolve = current.resolve
-      current.resolve = (value) => {
-        previousResolve(value)
-        current = pending
-        notifyListeners()
-      }
+      queue.push(pending)
     } else {
       current = pending
       notifyListeners()
@@ -73,9 +72,16 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
 function resolveCurrent(value: boolean) {
   if (!current) return
   const pending = current
-  current = null
+  current = queue.shift() ?? null
   notifyListeners()
   pending.resolve(value)
+}
+
+/** Test seam: drop every pending confirm without resolving. */
+export function resetConfirmQueueForTests() {
+  current = null
+  queue = []
+  notifyListeners()
 }
 
 /**
@@ -101,21 +107,16 @@ export function ConfirmDialogHost() {
     }
   }, [pending])
 
-  // Escape dismisses (resolves false)
-  useEffect(() => {
-    if (!pending) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        resolveCurrent(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [pending])
-
   const handleCancel = useCallback(() => resolveCurrent(false), [])
   const handleConfirm = useCallback(() => resolveCurrent(true), [])
+
+  // Escape / backdrop dismiss (resolves false). Goes through the shared
+  // hook so the confirm — always the topmost overlay — is the ONLY thing
+  // that handles Escape while it's up; the dialog underneath stays open.
+  const { backdropProps, contentProps } = useOverlayDismiss({
+    onDismiss: handleCancel,
+    enabled: pending !== null,
+  })
 
   if (!pending) return null
 
@@ -128,11 +129,11 @@ export function ConfirmDialogHost() {
   } = pending
 
   return (
-    <div className="confirm-dialog-overlay" onClick={handleCancel} role="presentation">
+    <div className="confirm-dialog-overlay" {...backdropProps} role="presentation">
       <div
         ref={dialogRef}
         className="confirm-dialog"
-        onClick={(e) => e.stopPropagation()}
+        {...contentProps}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={`${pending.id}-title`}

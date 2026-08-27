@@ -157,6 +157,26 @@ fn map_ssh_error(e: crate::ssh::SshError) -> SnmpError {
     SnmpError::Other(format!("SSH to jump host failed: {}", e))
 }
 
+/// Classify net-snmp's stderr into a typed error where the text is
+/// unambiguous, so via-jump callers can tell "device didn't answer" and
+/// "credentials rejected" apart from tool/jump failures (NS-FEAT-6).
+/// Returns `None` when stderr doesn't match a known pattern.
+fn classify_stderr(stderr: &str) -> Option<SnmpError> {
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("timeout") || lower.contains("no response") {
+        // net-snmp waits `-t` seconds, `-r` + 1 times.
+        let total_secs = u64::from(SNMP_CLI_TIMEOUT_SECS) * (u64::from(SNMP_CLI_RETRIES) + 1);
+        return Some(SnmpError::Timeout(total_secs));
+    }
+    if lower.contains("authentication failure")
+        || lower.contains("unknown user")
+        || lower.contains("wrong digest")
+    {
+        return Some(SnmpError::AuthError);
+    }
+    None
+}
+
 /// Translate the remote shell's exit status into an actionable SnmpError.
 /// 0 means the tool succeeded (parse stdout). 127 means the tool wasn't
 /// found on the jump host. Anything else is a net-snmp-side failure;
@@ -183,6 +203,8 @@ fn interpret_exit(
                     "{tool} on jump '{}' exited with status {} (no stderr)",
                     jump.host, code
                 )))
+            } else if let Some(typed) = classify_stderr(stderr) {
+                Err(typed)
             } else {
                 Err(SnmpError::Other(format!(
                     "{tool} on jump '{}' exited with status {}: {}",
@@ -259,6 +281,63 @@ mod tests {
         assert!(cmd.contains("'1.3.6.1.2.1.1.5.0'"), "oid quoted");
     }
 
+    fn exited(code: u32, stderr: &str) -> crate::ssh::ExecResult {
+        crate::ssh::ExecResult {
+            stdout: vec![],
+            stderr: stderr.as_bytes().to_vec(),
+            exit_status: Some(code),
+            termination: crate::ssh::ExecTermination::Normal,
+        }
+    }
+
+    fn jump() -> SshConfig {
+        SshConfig {
+            host: "jump.example".into(),
+            port: 22,
+            username: "u".into(),
+            auth: SshAuth::Password("p".into()),
+            legacy_ssh: false,
+            skip_keyboard_interactive: false,
+        }
+    }
+
+    #[test]
+    fn interpret_exit_maps_net_snmp_timeout_to_typed_timeout() {
+        for stderr in [
+            "Timeout: No Response from 10.0.0.1:161.\n",
+            "snmpwalk: Timeout\n",
+            "No Response from 10.0.0.1\n",
+        ] {
+            let err = interpret_exit(&exited(1, stderr), &jump(), "snmpget").unwrap_err();
+            assert!(matches!(err, SnmpError::Timeout(_)), "{stderr:?} -> {err:?}");
+        }
+    }
+
+    #[test]
+    fn interpret_exit_maps_net_snmp_auth_failures_to_auth_error() {
+        for stderr in [
+            "snmpget: Authentication failure (incorrect password, community or key)\n",
+            "snmpget: Unknown user name\n",
+            "snmpget: Authentication failure: wrong digest\n",
+        ] {
+            let err = interpret_exit(&exited(1, stderr), &jump(), "snmpget").unwrap_err();
+            assert!(matches!(err, SnmpError::AuthError), "{stderr:?} -> {err:?}");
+        }
+    }
+
+    #[test]
+    fn interpret_exit_keeps_unknown_stderr_as_other_and_127_as_not_found() {
+        let err = interpret_exit(&exited(1, "snmpget: some other failure"), &jump(), "snmpget")
+            .unwrap_err();
+        assert!(matches!(err, SnmpError::Other(ref m) if m.contains("some other failure")), "{err:?}");
+
+        let err = interpret_exit(&exited(127, "bash: snmpget: command not found"), &jump(), "snmpget")
+            .unwrap_err();
+        assert!(matches!(err, SnmpError::Other(ref m) if m.contains("not found on jump host")), "{err:?}");
+
+        assert!(interpret_exit(&exited(0, ""), &jump(), "snmpget").is_ok());
+    }
+
     #[test]
     fn build_command_quotes_each_oid_separately() {
         let cmd = build_command("snmpget", "x", "h", 161, &["1.2.3", "4.5.6"]);
@@ -305,6 +384,7 @@ mod tests {
                 })
             })),
             eof_before_exit_status: false,
+            shell: None,
             host_key: ephemeral_ed25519(),
         })
         .await;
@@ -349,6 +429,7 @@ mod tests {
                 exit_status: 127,
             }))),
             eof_before_exit_status: false,
+            shell: None,
             host_key: ephemeral_ed25519(),
         })
         .await;

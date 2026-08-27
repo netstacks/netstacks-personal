@@ -31,7 +31,7 @@ import { executeHistoryAction } from '../lib/topologyHistoryActions';
 import { computeLayout } from '../lib/topologyLayout';
 import type { LayoutType } from '../lib/topologyLayout';
 import { filterTopology } from '../lib/topologyFilters';
-import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../api/annotations';
+import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, toElementData } from '../api/annotations';
 import type { Topology, Device, Connection } from '../types/topology';
 import { DEFAULT_DEVICE_FILTERS } from '../types/topology';
 import type { DeviceFilterState } from '../types/topology';
@@ -287,7 +287,6 @@ export default function TopologyTabEditor({
   const topologyLiveHttp = useTopologyLiveHttp();
 
   // Cached SNMP profile (first profile with snmp_communities)
-  const [snmpProfileId, setSnmpProfileId] = useState<string | null>(null);
   const [snmpProfileLoaded, setSnmpProfileLoaded] = useState(false);
   const [profiles, setProfiles] = useState<CredentialProfile[]>([]);
 
@@ -297,13 +296,9 @@ export default function TopologyTabEditor({
     async function loadSnmpProfile() {
       try {
         const profiles: CredentialProfile[] = await listProfiles();
-        // We cannot check vault credentials from frontend list API
-        // Use the first profile as SNMP profile (backend will resolve communities from vault)
+        // Backend resolves SNMP communities from the vault per profile.
         if (!cancelled) {
           setProfiles(profiles);
-          if (profiles.length > 0) {
-            setSnmpProfileId(profiles[0].id);
-          }
         }
       } catch (err) {
         console.warn('[TopologyTabEditor] Failed to load profiles for SNMP:', err);
@@ -553,23 +548,22 @@ export default function TopologyTabEditor({
 
   /**
    * Build live SNMP targets from topology data.
-   * Includes all devices with primaryIp — connection interface names are
-   * added when available but not required (backend polls all interfaces
-   * when the list is empty).
+   * Includes all devices with primaryIp AND a profile of their own —
+   * connection interface names are added when available but not required
+   * (backend polls all interfaces when the list is empty).
    */
   const liveTargets = useMemo((): TopologyLiveTarget[] => {
-    if (!topology || !snmpProfileId) return [];
+    if (!topology) return [];
 
-    // Seed every device that has a primary IP (uses device-specific profile
-    // when available so jump-host config is honoured, falls back to global).
+    // Seed every device that has a primary IP. Each device polls with ITS
+    // OWN profile (so jump-host config is honoured); a device with no
+    // profile is skipped rather than borrowing an arbitrary one (NS-FEAT-24).
     const hostMap = new Map<string, { profileId: string; interfaces: Set<string> }>();
     for (const d of topology.devices) {
-      if (d.primaryIp) {
-        hostMap.set(d.primaryIp, {
-          profileId: d.snmpProfileId || d.profileId || snmpProfileId,
-          interfaces: new Set<string>(),
-        });
-      }
+      if (!d.primaryIp) continue;
+      const profileId = d.snmpProfileId || d.profileId;
+      if (!profileId) continue;
+      hostMap.set(d.primaryIp, { profileId, interfaces: new Set<string>() });
     }
 
     // Enrich with specific interface names from connections when available
@@ -590,7 +584,21 @@ export default function TopologyTabEditor({
       profileId: entry.profileId,
       interfaces: Array.from(entry.interfaces),
     }));
-  }, [topology, snmpProfileId]);
+  }, [topology]);
+
+  // Log the devices liveTargets skipped, once per distinct set.
+  const devicesWithoutProfile = useMemo(
+    () => (topology?.devices ?? [])
+      .filter(d => d.primaryIp && !d.snmpProfileId && !d.profileId)
+      .map(d => d.name || d.id)
+      .join(', '),
+    [topology],
+  );
+  useEffect(() => {
+    if (devicesWithoutProfile) {
+      logger.warn(`[TopologyTabEditor] Skipping live SNMP for device(s) with no credential profile: ${devicesWithoutProfile}`);
+    }
+  }, [devicesWithoutProfile]);
 
   const isEnterprise = getCurrentMode() === 'enterprise';
 
@@ -917,6 +925,7 @@ export default function TopologyTabEditor({
         await updateDevicePosition(topologyId, deviceId, x, y);
       } catch (err) {
         console.error('Failed to save device position:', err);
+        showToast(`Failed to save position: ${getErrorMessage(err)}`, 'error');
       }
     }
   }, [topologyId, isTemporary, topology, pushAction, showAIActionToast]);
@@ -961,6 +970,8 @@ export default function TopologyTabEditor({
           await updateDevicePosition(topologyId, move.deviceId, move.x, move.y);
         } catch (err) {
           console.error('Failed to persist group move position:', err);
+          showToast(`Failed to save position: ${getErrorMessage(err)}`, 'error');
+          break;
         }
       }
     }
@@ -1123,12 +1134,13 @@ export default function TopologyTabEditor({
       if (actionSource === 'ai') {
         showAIActionToast(action);
       }
-
-      // Exit drawing mode
-      setDrawingConnection(false);
-      setConnectionSource(null);
     } catch (err) {
       console.error('Failed to create connection:', err);
+      showToast(`Failed to connect ${source.name} to ${target.name}: ${getErrorMessage(err)}`, 'error');
+    } finally {
+      // Always exit drawing mode — connect mode must not stay armed on error
+      setDrawingConnection(false);
+      setConnectionSource(null);
     }
   }, [topologyId, isTemporary, topology, pushAction, showAIActionToast]);
 
@@ -1195,6 +1207,7 @@ export default function TopologyTabEditor({
       }
     } catch (err) {
       console.error('Failed to delete connection:', err);
+      showToast(`Failed to delete connection ${connectionLabel}: ${getErrorMessage(err)}`, 'error');
     }
   }, [topologyId, isTemporary, topology, pushAction, showAIActionToast]);
 
@@ -1204,7 +1217,7 @@ export default function TopologyTabEditor({
 
     setSaving(true);
     try {
-      const savedTopology = await saveTemporaryTopology(topology);
+      const savedTopology = await saveTemporaryTopology(topology, annotations);
       onSaveTopology?.(savedTopology);
     } catch (err) {
       console.error('Failed to save topology:', err);
@@ -1212,7 +1225,7 @@ export default function TopologyTabEditor({
     } finally {
       setSaving(false);
     }
-  }, [topology, isTemporary, saving, onSaveTopology]);
+  }, [topology, isTemporary, saving, onSaveTopology, annotations]);
 
   // Handle saving topology snapshot to Docs for documentation/archival
   const handleSaveToDocs = useCallback(async () => {
@@ -1248,13 +1261,22 @@ export default function TopologyTabEditor({
 
       if (hops.length === 0) return;
 
-      // Collect credential IDs for hop probing
-      const snmpIds = snmpProfileId ? [snmpProfileId] : [];
+      // Collect credential IDs for hop probing. Prefer the profiles the
+      // topology's own devices carry (so jump-host config is honoured); a
+      // pasted traceroute has none, in which case offer EVERY profile as a
+      // candidate rather than pinning to the alphabetically-first one —
+      // the agent loads communities from all supplied profiles and dedups.
       const credentialIds = [...new Set(
         topology.devices
-          .map(d => d.metadata?.profileId || d.metadata?.credentialProfileId)
+          .map(d => d.profileId || d.metadata?.profileId || d.metadata?.credentialProfileId)
           .filter((id): id is string => Boolean(id))
       )];
+      const deviceSnmpIds = [...new Set(
+        topology.devices
+          .map(d => d.snmpProfileId || d.profileId)
+          .filter((id): id is string => Boolean(id))
+      )];
+      const snmpIds = deviceSnmpIds.length > 0 ? deviceSnmpIds : profiles.map(p => p.id);
 
       // Call the traceroute resolve API
       // Send both standalone and enterprise field names so both agent and controller can parse
@@ -1332,10 +1354,11 @@ export default function TopologyTabEditor({
 
     } catch (err) {
       console.error('[TopologyTabEditor] DiscoverNetwork error:', err);
+      showToast(`Discover Network failed: ${getErrorMessage(err)}`, 'error');
     } finally {
       setIsDiscoveringNetwork(false);
     }
-  }, [topology]);
+  }, [topology, profiles]);
 
   /**
    * Execute undo action - reverses the last action
@@ -1570,7 +1593,7 @@ export default function TopologyTabEditor({
         setCurrentTool('select');
       } catch (err) {
         console.error('[TopologyTabEditor] Failed to create device:', err);
-        setError(getErrorMessage(err, 'Failed to create device'));
+        showToast(getErrorMessage(err, 'Failed to create device'), 'error');
       }
     }
 
@@ -1605,7 +1628,7 @@ export default function TopologyTabEditor({
           setSelectedAnnotationId(created.id);
         } catch (err) {
           console.error('[TopologyTabEditor] Failed to create text annotation:', err);
-          setError(getErrorMessage(err, 'Failed to create text'));
+          showToast(getErrorMessage(err, 'Failed to create text'), 'error');
         }
       }
       setCurrentTool('select');
@@ -1646,7 +1669,7 @@ export default function TopologyTabEditor({
           setSelectedAnnotationId(created.id);
         } catch (err) {
           console.error('[TopologyTabEditor] Failed to create shape annotation:', err);
-          setError(getErrorMessage(err, 'Failed to create shape'));
+          showToast(getErrorMessage(err, 'Failed to create shape'), 'error');
         }
       }
       setCurrentTool('select');
@@ -1702,7 +1725,7 @@ export default function TopologyTabEditor({
           setSelectedAnnotationId(created.id);
         } catch (err) {
           console.error('[TopologyTabEditor] Failed to create line annotation:', err);
-          setError(getErrorMessage(err, 'Failed to create line'));
+          showToast(getErrorMessage(err, 'Failed to create line'), 'error');
         }
       }
 
@@ -1745,14 +1768,12 @@ export default function TopologyTabEditor({
    * Handle annotation position change (drag to reposition)
    */
   const handleAnnotationPositionChange = useCallback((annotationId: string, x: number, y: number) => {
-    // Update local annotations state
-    setAnnotations(prev => prev.map(a => {
-      if (a.id !== annotationId) return a;
+    const moveAnnotation = (a: Annotation): Annotation => {
       if ('position' in a) {
         return { ...a, position: { x, y } };
       }
       // For line annotations, shift all points by the delta
-      if ('points' in a && a.points.length > 0) {
+      if ('points' in a && Array.isArray(a.points) && a.points.length > 0) {
         const deltaX = x - a.points[0].x;
         const deltaY = y - a.points[0].y;
         return {
@@ -1761,23 +1782,29 @@ export default function TopologyTabEditor({
         };
       }
       return a;
-    }));
+    };
 
-    // Persist to backend
-    if (topology) {
+    // Update local annotations state
+    setAnnotations(prev => prev.map(a => (a.id === annotationId ? moveAnnotation(a) : a)));
+
+    // Persist to backend. The PUT replaces the whole element_data blob, so
+    // send the FULL merged annotation (position/points + size + styling).
+    const current = annotations.find(a => a.id === annotationId);
+    if (topology && !isTemporary && current) {
       updateAnnotation(topology.id, annotationId, {
-        elementData: { position: { x, y } },
-      }).catch(err => console.error('[TopologyTabEditor] Failed to update annotation position:', err));
+        elementData: toElementData(moveAnnotation(current)),
+      }).catch(err => {
+        console.error('[TopologyTabEditor] Failed to update annotation position:', err);
+        showToast(`Failed to move annotation: ${getErrorMessage(err)}`, 'error');
+      });
     }
-  }, [topology]);
+  }, [topology, isTemporary, annotations]);
 
   /**
    * Handle annotation size change (resize)
    */
   const handleAnnotationSizeChange = useCallback((annotationId: string, width: number, height: number, x?: number, y?: number) => {
-    // Update local annotations state
-    setAnnotations(prev => prev.map(a => {
-      if (a.id !== annotationId) return a;
+    const resizeAnnotation = (a: Annotation): Annotation => {
       if ('size' in a) {
         const updated = { ...a, size: { width, height } };
         // Also update position if provided
@@ -1787,20 +1814,22 @@ export default function TopologyTabEditor({
         return updated;
       }
       return a;
-    }));
+    };
 
-    // Persist to backend
-    if (topology) {
-      const updateData: { elementData: { size: { width: number; height: number }; position?: { x: number; y: number } } } = {
-        elementData: { size: { width, height } },
-      };
-      if (x !== undefined && y !== undefined) {
-        updateData.elementData.position = { x, y };
-      }
-      updateAnnotation(topology.id, annotationId, updateData)
-        .catch(err => console.error('[TopologyTabEditor] Failed to update annotation size:', err));
+    // Update local annotations state
+    setAnnotations(prev => prev.map(a => (a.id === annotationId ? resizeAnnotation(a) : a)));
+
+    // Persist the FULL merged annotation (backend replaces element_data wholesale)
+    const current = annotations.find(a => a.id === annotationId);
+    if (topology && !isTemporary && current) {
+      updateAnnotation(topology.id, annotationId, {
+        elementData: toElementData(resizeAnnotation(current)),
+      }).catch(err => {
+        console.error('[TopologyTabEditor] Failed to update annotation size:', err);
+        showToast(`Failed to resize annotation: ${getErrorMessage(err)}`, 'error');
+      });
     }
-  }, [topology]);
+  }, [topology, isTemporary, annotations]);
 
   /**
    * Handle annotation property update from properties panel
@@ -1808,21 +1837,25 @@ export default function TopologyTabEditor({
   const handleAnnotationPropertyUpdate = useCallback(async (updates: Partial<Annotation>) => {
     if (!selectedAnnotationId || !topology) return;
 
-    // Update local state
-    setAnnotations(prev => prev.map(a => {
-      if (a.id !== selectedAnnotationId) return a;
-      return { ...a, ...updates } as Annotation;
-    }));
+    const current = annotations.find(a => a.id === selectedAnnotationId);
+    if (!current) return;
+    const merged = { ...current, ...updates } as Annotation;
 
-    // Persist to backend
+    // Update local state
+    setAnnotations(prev => prev.map(a => (a.id === selectedAnnotationId ? { ...a, ...updates } as Annotation : a)));
+
+    if (isTemporary) return;
+
+    // Persist the FULL merged annotation (backend replaces element_data wholesale)
     try {
       await updateAnnotation(topology.id, selectedAnnotationId, {
-        elementData: updates,
+        elementData: toElementData(merged),
       });
     } catch (err) {
       console.error('[TopologyTabEditor] Failed to update annotation properties:', err);
+      showToast(`Failed to update annotation: ${getErrorMessage(err)}`, 'error');
     }
-  }, [selectedAnnotationId, topology]);
+  }, [selectedAnnotationId, topology, isTemporary, annotations]);
 
   /**
    * Handle deleting the selected annotation
@@ -1925,6 +1958,12 @@ export default function TopologyTabEditor({
 
     const newText = editingText.trim();
     if (newText && newText !== editingAnnotation.annotation.content) {
+      const current = annotations.find(a => a.id === editingAnnotation.annotation.id);
+      const merged: TextAnnotation = {
+        ...(current?.type === 'text' ? current : editingAnnotation.annotation),
+        content: newText,
+      };
+
       // Update local state
       setAnnotations(prev => prev.map(a => {
         if (a.id !== editingAnnotation.annotation.id) return a;
@@ -1934,19 +1973,22 @@ export default function TopologyTabEditor({
         return a;
       }));
 
-      // Persist to backend
-      try {
-        await updateAnnotation(topology.id, editingAnnotation.annotation.id, {
-          elementData: { content: newText },
-        });
-      } catch (err) {
-        console.error('[TopologyTabEditor] Failed to update annotation:', err);
+      // Persist the FULL merged annotation (backend replaces element_data wholesale)
+      if (!isTemporary) {
+        try {
+          await updateAnnotation(topology.id, editingAnnotation.annotation.id, {
+            elementData: toElementData(merged),
+          });
+        } catch (err) {
+          console.error('[TopologyTabEditor] Failed to update annotation:', err);
+          showToast(`Failed to update text: ${getErrorMessage(err)}`, 'error');
+        }
       }
     }
 
     setEditingAnnotation(null);
     setEditingText('');
-  }, [editingAnnotation, editingText, topology]);
+  }, [editingAnnotation, editingText, topology, isTemporary, annotations]);
 
   /**
    * Handle text edit cancel (Escape key)
@@ -2302,6 +2344,11 @@ export default function TopologyTabEditor({
           uptime: d.uptime,
           site: d.site,
           role: d.role,
+          profileId: d.profileId,
+          snmpProfileId: d.snmpProfileId,
+          notes: d.notes,
+          isNeighbor: d.isNeighbor,
+          metadata: d.metadata,
         })),
         connections: topology.connections.map(c => ({
           id: c.id,
@@ -2320,6 +2367,7 @@ export default function TopologyTabEditor({
           lineWidth: c.lineWidth,
           notes: c.notes,
         })),
+        annotations,
       },
     };
 
@@ -2331,7 +2379,7 @@ export default function TopologyTabEditor({
     });
     if (!filePath) return;
     await writeTextFile(filePath, json);
-  }, [topology]);
+  }, [topology, annotations]);
 
   /**
    * Handle export request based on format

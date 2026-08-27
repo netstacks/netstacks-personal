@@ -1467,10 +1467,16 @@ async fn migrate_mapped_keys_to_profiles(pool: &SqlitePool) -> Result<(), DbErro
         .execute(pool)
         .await;
 
-    // Ensure the profile-based index exists
-    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_mapped_keys_profile ON mapped_keys(profile_id)")
-        .execute(pool)
-        .await;
+    // Ensure the profile-based index exists — only while the table still
+    // has a profile_id column. Once `migrate_mapped_keys_to_global` has run
+    // the column is gone and this CREATE INDEX fails on every startup, so
+    // gate it and surface any real failure instead of discarding it (NS-AGENT-12).
+    if column_exists(pool, "mapped_keys", "profile_id").await? {
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_mapped_keys_profile ON mapped_keys(profile_id)")
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to create mapped_keys index: {}", e)))?;
+    }
 
     Ok(())
 }
@@ -1745,11 +1751,23 @@ async fn migrate_mcp_tables(pool: &SqlitePool) -> Result<(), DbError> {
 /// Migrate mapped_keys from profile-scoped to global (user-wide).
 /// Recreates the table without profile_id FK, adds description and UNIQUE on key_combo.
 /// Deduplicates by keeping first occurrence per key_combo.
+///
+/// Runs inside a single transaction so an interrupted migration can never
+/// leave the DB with `mapped_keys` renamed away (which used to brick the next
+/// startup). Also recovers a `mapped_keys_old` left behind by an interrupted
+/// pre-transactional run by folding its rows into the global table.
 async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError> {
-    // Guard: only run if profile_id column still exists
-    if !column_exists(pool, "mapped_keys", "profile_id").await? {
+    let has_profile_id = table_exists(pool, "mapped_keys").await?
+        && column_exists(pool, "mapped_keys", "profile_id").await?;
+    let leftover_exists = table_exists(pool, "mapped_keys_old").await?;
+
+    // Guard: nothing to migrate unless the live table is still profile-scoped
+    // or an interrupted run left the old rows behind.
+    if !has_profile_id && !leftover_exists {
         // Also ensure description column exists (for fresh DBs upgraded to new schema)
-        if !column_exists(pool, "mapped_keys", "description").await? {
+        if table_exists(pool, "mapped_keys").await?
+            && !column_exists(pool, "mapped_keys", "description").await?
+        {
             sqlx::query("ALTER TABLE mapped_keys ADD COLUMN description TEXT")
                 .execute(pool)
                 .await
@@ -1758,15 +1776,30 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
         return Ok(());
     }
 
-    // Rename old table
-    sqlx::query("ALTER TABLE mapped_keys RENAME TO mapped_keys_old")
-        .execute(pool)
+    let mut tx = pool
+        .begin()
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to rename mapped_keys: {}", e)))?;
+        .map_err(|e| DbError::Migration(format!("Failed to begin mapped_keys migration: {}", e)))?;
 
-    // Create new global table
+    if has_profile_id {
+        // The live profile-scoped table is authoritative; a stale leftover
+        // would only block the rename.
+        if leftover_exists {
+            sqlx::query("DROP TABLE mapped_keys_old")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Migration(format!("Failed to drop stale mapped_keys_old: {}", e)))?;
+        }
+        sqlx::query("ALTER TABLE mapped_keys RENAME TO mapped_keys_old")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to rename mapped_keys: {}", e)))?;
+    }
+
+    // Create new global table (IF NOT EXISTS: schema.sql may already have
+    // recreated it after an interrupted run).
     sqlx::query(
-        r#"CREATE TABLE mapped_keys (
+        r#"CREATE TABLE IF NOT EXISTS mapped_keys (
             id TEXT PRIMARY KEY,
             key_combo TEXT NOT NULL UNIQUE,
             command TEXT NOT NULL,
@@ -1774,7 +1807,7 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )"#
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| DbError::Migration(format!("Failed to create new mapped_keys table: {}", e)))?;
 
@@ -1785,19 +1818,24 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
            FROM mapped_keys_old
            ORDER BY created_at ASC"#
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| DbError::Migration(format!("Failed to migrate mapped_keys data: {}", e)))?;
 
     // Drop old table and index
     sqlx::query("DROP TABLE mapped_keys_old")
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Migration(format!("Failed to drop old mapped_keys table: {}", e)))?;
 
-    let _ = sqlx::query("DROP INDEX IF EXISTS idx_mapped_keys_profile")
-        .execute(pool)
-        .await;
+    sqlx::query("DROP INDEX IF EXISTS idx_mapped_keys_profile")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to drop mapped_keys profile index: {}", e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to commit mapped_keys migration: {}", e)))?;
 
     tracing::info!("Migrated mapped_keys from profile-scoped to global");
 
@@ -3117,6 +3155,124 @@ async fn migrate_task_interactions_table(pool: &SqlitePool) -> Result<(), DbErro
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    async fn scratch_pool(dir: &std::path::Path, name: &str) -> SqlitePool {
+        let url = format!("sqlite://{}?mode=rwc", dir.join(name).display());
+        sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap()
+    }
+
+    async fn mapped_key_rows(pool: &SqlitePool) -> Vec<(String, String)> {
+        sqlx::query_as("SELECT key_combo, command FROM mapped_keys ORDER BY key_combo")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    const PROFILE_SCOPED_MAPPED_KEYS: &str = "CREATE TABLE {name} (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        key_combo TEXT NOT NULL,
+        command TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )";
+
+    #[tokio::test]
+    async fn migrate_mapped_keys_to_global_dedups_and_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let pool = scratch_pool(dir.path(), "mk.db").await;
+
+        sqlx::query(&PROFILE_SCOPED_MAPPED_KEYS.replace("{name}", "mapped_keys"))
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO mapped_keys (id, profile_id, key_combo, command, created_at) VALUES
+             ('a', 'p1', 'F1', 'show run', '2024-01-01'),
+             ('b', 'p2', 'F1', 'show ver', '2024-01-02'),
+             ('c', 'p1', 'F2', 'show ip int br', '2024-01-03')",
+        )
+        .execute(&pool).await.unwrap();
+
+        migrate_mapped_keys_to_global(&pool).await.unwrap();
+
+        assert!(!column_exists(&pool, "mapped_keys", "profile_id").await.unwrap());
+        assert!(column_exists(&pool, "mapped_keys", "description").await.unwrap());
+        assert!(!table_exists(&pool, "mapped_keys_old").await.unwrap());
+        assert_eq!(
+            mapped_key_rows(&pool).await,
+            vec![("F1".to_string(), "show run".to_string()), ("F2".to_string(), "show ip int br".to_string())],
+        );
+
+        // Re-entry on an already-migrated DB is a no-op.
+        migrate_mapped_keys_to_global(&pool).await.unwrap();
+        assert_eq!(mapped_key_rows(&pool).await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn migrate_mapped_keys_to_profiles_skips_index_on_global_table() {
+        let dir = tempdir().unwrap();
+        let pool = scratch_pool(dir.path(), "mk-global.db").await;
+
+        // Global schema: no profile_id column, so the profile index can't exist.
+        sqlx::query(
+            "CREATE TABLE mapped_keys (
+                id TEXT PRIMARY KEY,
+                key_combo TEXT NOT NULL,
+                command TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&pool).await.unwrap();
+
+        migrate_mapped_keys_to_profiles(&pool).await.unwrap();
+
+        let index_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mapped_keys_profile'",
+        )
+        .fetch_one(&pool).await.unwrap();
+        assert_eq!(index_count, 0);
+    }
+
+    #[tokio::test]
+    async fn migrate_mapped_keys_to_profiles_creates_index_on_profile_table() {
+        let dir = tempdir().unwrap();
+        let pool = scratch_pool(dir.path(), "mk-profile.db").await;
+        sqlx::query(&PROFILE_SCOPED_MAPPED_KEYS.replace("{name}", "mapped_keys"))
+            .execute(&pool).await.unwrap();
+
+        migrate_mapped_keys_to_profiles(&pool).await.unwrap();
+
+        let index_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mapped_keys_profile'",
+        )
+        .fetch_one(&pool).await.unwrap();
+        assert_eq!(index_count, 1);
+    }
+
+    #[tokio::test]
+    async fn migrate_mapped_keys_to_global_recovers_interrupted_run() {
+        // State left by the old non-transactional migration crashing right
+        // after RENAME: no `mapped_keys`, rows stranded in `mapped_keys_old`.
+        let dir = tempdir().unwrap();
+        let pool = scratch_pool(dir.path(), "mk-leftover.db").await;
+
+        sqlx::query(&PROFILE_SCOPED_MAPPED_KEYS.replace("{name}", "mapped_keys_old"))
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO mapped_keys_old (id, profile_id, key_combo, command, created_at) VALUES
+             ('a', 'p1', 'F1', 'show run', '2024-01-01')",
+        )
+        .execute(&pool).await.unwrap();
+
+        migrate_mapped_keys_to_global(&pool).await.unwrap();
+
+        assert!(!table_exists(&pool, "mapped_keys_old").await.unwrap());
+        assert!(!column_exists(&pool, "mapped_keys", "profile_id").await.unwrap());
+        assert_eq!(mapped_key_rows(&pool).await, vec![("F1".to_string(), "show run".to_string())]);
+    }
 
     #[tokio::test]
     async fn test_init_db() {

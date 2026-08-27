@@ -167,7 +167,7 @@ describe('registerDeviceDetailProvider and buildDeviceDetail', () => {
   });
 
   it('runs a registered provider and includes its sections in output', () => {
-    const fakeProvider: DeviceDetailProvider = (device, ctx) => [
+    const fakeProvider: DeviceDetailProvider = () => [
       {
         id: 'fake',
         title: 'Fake Section',
@@ -204,7 +204,7 @@ describe('registerDeviceDetailProvider and buildDeviceDetail', () => {
   });
 
   it('normalizes output (drops empty fields, merges sections, sorts by priority)', () => {
-    const provider1: DeviceDetailProvider = (device, ctx) => [
+    const provider1: DeviceDetailProvider = () => [
       {
         id: 'shared',
         title: 'Shared Section',
@@ -216,7 +216,7 @@ describe('registerDeviceDetailProvider and buildDeviceDetail', () => {
       },
     ];
 
-    const provider2: DeviceDetailProvider = (device, ctx) => [
+    const provider2: DeviceDetailProvider = () => [
       {
         id: 'shared',
         title: 'Shared Section',

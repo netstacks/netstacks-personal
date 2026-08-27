@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { DocumentCategory, ContentType } from '../api/docs'
 import JsonViewer from './JsonViewer'
 import AITabInput from './AITabInput'
@@ -38,6 +38,18 @@ export default function UnsavedDocumentTab({ tabId, unsavedDoc, onSave }: Unsave
       setSaving(false)
     }
   }, [tabId, name, category, unsavedDoc, onSave, saving])
+
+  // File → Save / Cmd+S: App dispatches `netstacks:save-document` with the
+  // active tab id; every savable tab type listens for its own id (NS-APP-11).
+  useEffect(() => {
+    const onSaveEvent = (e: Event) => {
+      if ((e as CustomEvent<{ tabId: string }>).detail?.tabId === tabId) {
+        void handleSave()
+      }
+    }
+    window.addEventListener('netstacks:save-document', onSaveEvent)
+    return () => window.removeEventListener('netstacks:save-document', onSaveEvent)
+  }, [tabId, handleSave])
 
   return (
     <div className="unsaved-doc-tab">

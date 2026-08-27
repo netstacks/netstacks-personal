@@ -7,6 +7,10 @@ import {
 import type { TroubleshootingSettings } from '../types/troubleshooting';
 import './SettingsTroubleshooting.css';
 import { displayShortcut } from '../hooks/useKeyboard'
+import Switch from './Switch';
+
+const TIMEOUT_MIN = 1;
+const TIMEOUT_MAX = 120;
 
 /**
  * SettingsTroubleshooting Component
@@ -47,6 +51,25 @@ export default function SettingsTroubleshooting() {
     saveTroubleshootingSettings(newSettings);
   };
 
+  // Raw text of the timeout input while it's being edited. Lets the user
+  // clear the field to type a new value instead of snapping back to the
+  // default on the first keystroke (NS-SET-8). Committed when it parses
+  // in range; clamped on blur.
+  const [timeoutDraft, setTimeoutDraft] = useState<string | null>(null);
+  const clampTimeout = (n: number) => Math.min(TIMEOUT_MAX, Math.max(TIMEOUT_MIN, n));
+  const handleTimeoutInput = (raw: string) => {
+    setTimeoutDraft(raw);
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n === clampTimeout(n)) handleChange('inactivityTimeout', n);
+  };
+  const handleTimeoutBlur = () => {
+    if (timeoutDraft !== null) {
+      const n = parseInt(timeoutDraft, 10);
+      if (Number.isFinite(n)) handleChange('inactivityTimeout', clampTimeout(n));
+    }
+    setTimeoutDraft(null);
+  };
+
   return (
     <div className="settings-troubleshooting">
       <div className="settings-content">
@@ -61,12 +84,11 @@ export default function SettingsTroubleshooting() {
                   <input
                     type="number"
                     className="setting-input setting-input-number"
-                    min="1"
-                    max="120"
-                    value={settings.inactivityTimeout}
-                    onChange={(e) =>
-                      handleChange('inactivityTimeout', parseInt(e.target.value) || 15)
-                    }
+                    min={TIMEOUT_MIN}
+                    max={TIMEOUT_MAX}
+                    value={timeoutDraft ?? settings.inactivityTimeout}
+                    onChange={(e) => handleTimeoutInput(e.target.value)}
+                    onBlur={handleTimeoutBlur}
                   />
                   <span className="settings-input-suffix">min</span>
                 </div>
@@ -81,14 +103,11 @@ export default function SettingsTroubleshooting() {
             <div className="setting-header">
               <span className="setting-label">Auto-save on Timeout</span>
               <div className="setting-control">
-                <label className="setting-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoSaveOnTimeout}
-                    onChange={(e) => handleChange('autoSaveOnTimeout', e.target.checked)}
-                  />
-                  <span className="toggle-slider" />
-                </label>
+                <Switch
+                  checked={settings.autoSaveOnTimeout}
+                  onChange={(checked) => handleChange('autoSaveOnTimeout', checked)}
+                  label="Auto-save on Timeout"
+                />
               </div>
             </div>
             <div className="setting-description">
@@ -100,14 +119,11 @@ export default function SettingsTroubleshooting() {
             <div className="setting-header">
               <span className="setting-label">Capture AI Conversations</span>
               <div className="setting-control">
-                <label className="setting-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.captureAIConversations}
-                    onChange={(e) => handleChange('captureAIConversations', e.target.checked)}
-                  />
-                  <span className="toggle-slider" />
-                </label>
+                <Switch
+                  checked={settings.captureAIConversations}
+                  onChange={(checked) => handleChange('captureAIConversations', checked)}
+                  label="Capture AI Conversations"
+                />
               </div>
             </div>
             <div className="setting-description">

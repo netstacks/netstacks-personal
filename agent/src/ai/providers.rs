@@ -18,12 +18,35 @@ pub enum AiError {
     NotConfigured(String),
     #[error("API request failed: {0}")]
     RequestFailed(String),
+    /// Upstream rejected the credentials (HTTP 401/403).
+    #[error("AI provider rejected the API key: {0}")]
+    Unauthorized(String),
+    /// Upstream rejected the request itself (HTTP 400/404/422).
+    #[error("AI provider rejected the request: {0}")]
+    BadRequest(String),
     #[error("Invalid response from AI provider: {0}")]
     InvalidResponse(String),
     #[error("Rate limited by AI provider")]
     RateLimited,
     #[error("Request timed out")]
     Timeout,
+}
+
+impl AiError {
+    /// Map a non-success upstream HTTP status to the matching error variant so
+    /// the API layer can relay 401/400/429 instead of collapsing everything to
+    /// a 500 `PROVIDER_ERROR`.
+    pub fn from_http_status(status: reqwest::StatusCode, body: impl AsRef<str>) -> Self {
+        let msg = format!("HTTP {}: {}", status, body.as_ref());
+        match status {
+            reqwest::StatusCode::TOO_MANY_REQUESTS => AiError::RateLimited,
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => AiError::Unauthorized(msg),
+            reqwest::StatusCode::BAD_REQUEST
+            | reqwest::StatusCode::NOT_FOUND
+            | reqwest::StatusCode::UNPROCESSABLE_ENTITY => AiError::BadRequest(msg),
+            _ => AiError::RequestFailed(msg),
+        }
+    }
 }
 
 /// A message in the chat conversation
@@ -870,10 +893,7 @@ impl AiProvider for AnthropicProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: AnthropicResponse = response.json().await.map_err(|e| {
@@ -965,10 +985,7 @@ impl AiProvider for AnthropicProvider {
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
             tracing::error!("Anthropic agent_chat error: HTTP {} - {}", status, &error_text);
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: AnthropicAgentResponse = response.json().await.map_err(|e| {
@@ -1099,7 +1116,7 @@ impl AiProvider for AnthropicProvider {
             }
             if !status.is_success() {
                 let error_text = response.text().await.unwrap_or_default();
-                yield Err(AiError::RequestFailed(format!("HTTP {}: {}", status, error_text)));
+                yield Err(AiError::from_http_status(status, error_text));
                 return;
             }
 
@@ -1672,7 +1689,7 @@ impl OpenAIProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!("HTTP {}: {}", status, error_text)));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         Ok(response)
@@ -2640,15 +2657,12 @@ fn parse_openai_compatible_stream(
             // below always fires; the pre-finish read stays unbounded (the model
             // may legitimately take a long time to start responding).
             let next_chunk = if stop_reason.is_some() {
-                match tokio::time::timeout(
+                tokio::time::timeout(
                     std::time::Duration::from_secs(3),
                     byte_stream.next(),
                 )
                 .await
-                {
-                    Ok(v) => v,
-                    Err(_) => None,
-                }
+                .unwrap_or_default()
             } else {
                 byte_stream.next().await
             };
@@ -3125,10 +3139,7 @@ impl AiProvider for OllamaProvider {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: OpenAIResponse = response.json().await.map_err(|e| {
@@ -3163,7 +3174,7 @@ impl AiProvider for OllamaProvider {
         let result = self.try_agent_chat_with_tools(&system_prompt, &messages, &tools, &options).await;
 
         // If tools aren't supported, fall back to simple chat mode
-        if let Err(AiError::RequestFailed(ref msg)) = result {
+        if let Err(AiError::RequestFailed(ref msg) | AiError::BadRequest(ref msg)) = result {
             if msg.contains("does not support tools") {
                 tracing::info!("Model {} doesn't support tools, falling back to simple chat", self.model);
                 return self.simple_chat_fallback(&system_prompt, &messages).await;
@@ -3249,11 +3260,11 @@ impl AiProvider for OllamaProvider {
                     if !response.status().is_success() {
                         let s = response.status();
                         let b = response.text().await.unwrap_or_default();
-                        yield Err(AiError::RequestFailed(format!("HTTP {}: {}", s, b)));
+                        yield Err(AiError::from_http_status(s, b));
                         return;
                     }
                 } else {
-                    yield Err(AiError::RequestFailed(format!("HTTP {}: {}", status, body)));
+                    yield Err(AiError::from_http_status(status, body));
                     return;
                 }
             }
@@ -3390,10 +3401,7 @@ impl OllamaProvider {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
@@ -3627,10 +3635,7 @@ impl AiProvider for OpenRouterProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: OpenAIResponse = response.json().await.map_err(|e| {
@@ -3772,10 +3777,7 @@ impl AiProvider for OpenRouterProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
@@ -3888,7 +3890,7 @@ impl AiProvider for OpenRouterProvider {
             }
             if !status.is_success() {
                 let body = response.text().await.unwrap_or_default();
-                yield Err(AiError::RequestFailed(format!("HTTP {}: {}", status, body)));
+                yield Err(AiError::from_http_status(status, body));
                 return;
             }
 
@@ -4000,10 +4002,7 @@ impl AiProvider for LiteLLMProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: OpenAIResponse = response.json().await.map_err(|e| {
@@ -4153,10 +4152,7 @@ impl AiProvider for LiteLLMProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AiError::RequestFailed(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(AiError::from_http_status(status, error_text));
         }
 
         let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
@@ -4269,7 +4265,7 @@ impl AiProvider for LiteLLMProvider {
             }
             if !status.is_success() {
                 let body = response.text().await.unwrap_or_default();
-                yield Err(AiError::RequestFailed(format!("HTTP {}: {}", status, body)));
+                yield Err(AiError::from_http_status(status, body));
                 return;
             }
 

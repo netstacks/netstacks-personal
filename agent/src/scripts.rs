@@ -534,12 +534,7 @@ pub struct ScriptError {
 
 impl axum::response::IntoResponse for ScriptError {
     fn into_response(self) -> axum::response::Response {
-        let status = match self.code.as_str() {
-            "NOT_FOUND" => StatusCode::NOT_FOUND,
-            "VALIDATION" => StatusCode::BAD_REQUEST,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-        (status, Json(self)).into_response()
+        (crate::api::status_for_error_code(&self.code), Json(self)).into_response()
     }
 }
 

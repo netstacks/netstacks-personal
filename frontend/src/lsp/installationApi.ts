@@ -120,6 +120,17 @@ export interface TestCommandResult {
   stderr?: string;
 }
 
+/** Wire shape: older agents serialize `error_message` (snake_case). */
+interface TestCommandWire extends TestCommandResult {
+  error_message?: string;
+}
+
+/** Normalize either spelling of the error field onto `errorMessage`. */
+export function normalizeTestCommandResult(raw: TestCommandWire): TestCommandResult {
+  const { error_message: snake, ...rest } = raw;
+  return { ...rest, errorMessage: rest.errorMessage ?? snake };
+}
+
 /**
  * POST /lsp/plugins — create a user-added plugin.
  * Returns 201 with descriptor on success, 409 on conflict.
@@ -167,12 +178,12 @@ export async function deletePlugin(id: string): Promise<void> {
  */
 export async function testPluginCommand(command: string, args: string[]): Promise<TestCommandResult> {
   const apiClient = getClient();
-  const { data } = await apiClient.http.post<TestCommandResult>(
+  const { data } = await apiClient.http.post<TestCommandWire>(
     '/lsp/plugins/test',
     { command, args },
     { baseURL: apiClient.baseUrl }
   );
-  return data;
+  return normalizeTestCommandResult(data);
 }
 
 /** Server-Sent Event payload from /lsp/plugins/:id/install-progress */
@@ -213,7 +224,12 @@ export function subscribeToInstallProgress(
     }
   });
   es.onerror = () => {
-    onError(new Error('SSE connection failed'));
+    // EventSource fires `error` on every transient drop and then reconnects
+    // on its own (readyState CONNECTING). Only a CLOSED stream is fatal —
+    // treating reconnects as fatal tore down the subscription mid-install.
+    if (es.readyState === EventSource.CLOSED) {
+      onError(new Error('SSE connection failed'));
+    }
   };
   return () => es.close();
 }

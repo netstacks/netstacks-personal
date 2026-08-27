@@ -118,6 +118,8 @@ const AIInlinePopup = ({
 
   // Resize state
   const [size, setSize] = useState({ width: 450, height: 400 })
+  const sizeRef = useRef(size)
+  useEffect(() => { sizeRef.current = size }, [size])
   const [isResizing, setIsResizing] = useState(false)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
@@ -130,7 +132,7 @@ const AIInlinePopup = ({
     clearMessages,
   } = useAIAgent({
     permissionMode: 'auto',
-    provider: selectedProvider ?? undefined,
+    provider: selectedProvider || undefined,
     model: selectedModel,
     // Session/terminal tools (map availableSessions to sessions for hook)
     sessions: availableSessions?.map(s => ({
@@ -153,12 +155,13 @@ const AIInlinePopup = ({
     onSaveDocument,
   })
 
-  // Initialize position when opening
+  // Initialize position when opening. Reads the size through a ref so a
+  // resize doesn't re-run this and snap the popup back to its open position.
   useEffect(() => {
     if (isOpen) {
       // Adjust position to keep popup in viewport
-      const popupWidth = size.width
-      const popupHeight = size.height
+      const popupWidth = sizeRef.current.width
+      const popupHeight = sizeRef.current.height
       const adjustedX = Math.min(position.x, window.innerWidth - popupWidth - 20)
       const adjustedY = Math.min(position.y, window.innerHeight - popupHeight - 20)
       setPos({
@@ -166,7 +169,7 @@ const AIInlinePopup = ({
         y: Math.max(20, adjustedY),
       })
     }
-  }, [isOpen, position, size.width, size.height])
+  }, [isOpen, position])
 
   // Auto-send initial request when popup opens. Wait until the provider/model
   // are resolved (providerInitialized) — otherwise the first request races the
@@ -230,15 +233,24 @@ const AIInlinePopup = ({
     })
   }, [])
 
-  // Reset state when closed
+  // Reset state when closed. Stop FIRST — the popup runs in auto mode, so a
+  // loop left running would keep executing tool commands on the terminal.
   useEffect(() => {
     if (!isOpen) {
+      stopAgent()
       clearMessages()
       hasSentRef.current = false
       setInput('')
       setExpandedResults(new Set())
     }
-  }, [isOpen, clearMessages])
+  }, [isOpen, stopAgent, clearMessages])
+
+  // Return focus to the input once the agent finishes a reply
+  useEffect(() => {
+    if (isOpen && agentState === 'idle' && messages.length > 0) {
+      inputRef.current?.focus()
+    }
+  }, [isOpen, agentState, messages.length])
 
   // Close on Escape
   useEffect(() => {
@@ -446,7 +458,7 @@ const AIInlinePopup = ({
           placeholder="Ask a follow-up question..."
           value={input}
           onChange={e => setInput(e.target.value)}
-          disabled={!selectedProvider || isLoading}
+          disabled={!providerInitialized || isLoading}
         />
         {isLoading ? (
           <button type="button" className="ai-inline-popup-submit ai-stop-btn" onClick={stopAgent} title="Stop generating">
@@ -455,7 +467,7 @@ const AIInlinePopup = ({
             </svg>
           </button>
         ) : (
-          <button type="submit" className="ai-inline-popup-submit" disabled={!selectedProvider || !input.trim()}>
+          <button type="submit" className="ai-inline-popup-submit" disabled={!providerInitialized || !input.trim()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
               <line x1="22" y1="2" x2="11" y2="13" />
               <polygon points="22 2 15 22 11 13 2 9 22 2" />

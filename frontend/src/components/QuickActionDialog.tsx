@@ -288,15 +288,18 @@ export default function QuickActionDialog({
 
     try {
       if (isEdit) {
+        // `null` (not `undefined`) so a cleared field actually clears the
+        // column — `undefined` is dropped from JSON and the agent keeps the
+        // old value (NS-API-11).
         const update: UpdateQuickActionRequest = {
           name: name.trim(),
-          description: description.trim() || undefined,
+          description: description.trim() || null,
           api_resource_id: apiResourceId,
           method,
           path,
           headers: parsedHeaders,
-          body: body || undefined,
-          json_extract_path: jsonExtractPath || undefined,
+          body: body || null,
+          json_extract_path: jsonExtractPath || null,
         }
         await updateQuickAction(action!.id, update)
       } else {

@@ -17,6 +17,7 @@ import type {
 import { PasswordInput } from './PasswordInput'
 import AskAiHelp from './AskAiHelp'
 import AITabInput from './AITabInput'
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import './ApiResourceDialog.css'
 
 // Icons
@@ -360,9 +361,11 @@ export default function ApiResourceDialog({
     }
   }
 
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose })
+
   return (
-    <div className="api-resource-dialog-overlay">
-      <div className="api-resource-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="api-resource-dialog-overlay" {...backdropProps}>
+      <div className="api-resource-dialog" {...contentProps}>
         <div className="api-resource-dialog-header">
           <h2>{isEdit ? 'Edit API Resource' : 'Add API Resource'}</h2>
           <AskAiHelp prompt="Help me fill out this API Resource form. Explain Base URL, Test Path, and which Authentication type to pick (none / bearer token / basic / api-key header / custom header / multi-step), and how to set it up for the external API I'm integrating." />

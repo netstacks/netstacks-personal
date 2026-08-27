@@ -86,6 +86,31 @@ pub struct SnmpDiscoveryResult {
 
 // === Helper Functions ===
 
+/// Result of a secondary table walk (port ids, descriptions, addresses…).
+///
+/// A device that doesn't implement the table answers NoSuchObject /
+/// EndOfMibView and `snmp_walk` returns an empty `Ok`; the same goes for
+/// protocol oddities. Transport and credential failures are NOT "table
+/// absent": they must fail the discovery, otherwise we'd return neighbors
+/// with silently missing ports/addresses (NS-FEAT-26).
+fn optional_walk(
+    result: Result<Vec<(String, SnmpValue)>, snmp::SnmpError>,
+    label: &str,
+) -> Result<Vec<(String, SnmpValue)>, String> {
+    match result {
+        Ok(rows) => Ok(rows),
+        Err(
+            e @ (snmp::SnmpError::Timeout(_)
+            | snmp::SnmpError::AuthError
+            | snmp::SnmpError::ConnectionFailed { .. }),
+        ) => Err(format!("{} walk failed: {}", label, e)),
+        Err(e) => {
+            tracing::debug!("{} walk returned no data ({}); treating table as absent", label, e);
+            Ok(Vec::new())
+        }
+    }
+}
+
 /// Extract the index suffix from an OID after stripping a known prefix.
 ///
 /// Example: oid="1.0.8802.1.1.2.1.4.1.1.9.0.1.1", prefix="1.0.8802.1.1.2.1.4.1.1.9"
@@ -264,10 +289,10 @@ pub async fn discover_lldp_neighbors(
         return Ok(Vec::new());
     }
 
-    let port_ids = port_id_result.unwrap_or_default();
-    let port_descs = port_desc_result.unwrap_or_default();
-    let sys_descs = sys_desc_result.unwrap_or_default();
-    let man_addrs = man_addr_result.unwrap_or_default();
+    let port_ids = optional_walk(port_id_result, "LLDP PortId")?;
+    let port_descs = optional_walk(port_desc_result, "LLDP PortDesc")?;
+    let sys_descs = optional_walk(sys_desc_result, "LLDP SysDesc")?;
+    let man_addrs = optional_walk(man_addr_result, "LLDP ManAddr")?;
 
     // Build remote-table lookup maps
     let sys_name_map = build_walk_map(&sys_names, LLDP_REM_SYS_NAME);
@@ -421,9 +446,9 @@ pub async fn discover_cdp_neighbors(
         return Ok(Vec::new());
     }
 
-    let addresses = address_result.unwrap_or_default();
-    let platforms = platform_result.unwrap_or_default();
-    let device_ports = device_port_result.unwrap_or_default();
+    let addresses = optional_walk(address_result, "CDP Address")?;
+    let platforms = optional_walk(platform_result, "CDP Platform")?;
+    let device_ports = optional_walk(device_port_result, "CDP DevicePort")?;
 
     // Build lookup maps
     let device_id_map = build_walk_map(&device_ids, CDP_CACHE_DEVICE_ID);
@@ -608,6 +633,35 @@ pub async fn discover_snmp_neighbors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_walk_propagates_transport_and_auth_failures() {
+        let timeout: Result<Vec<(String, SnmpValue)>, snmp::SnmpError> =
+            Err(snmp::SnmpError::Timeout(30));
+        let err = optional_walk(timeout, "LLDP PortId").unwrap_err();
+        assert!(err.starts_with("LLDP PortId walk failed:"), "{err}");
+
+        assert!(optional_walk(Err(snmp::SnmpError::AuthError), "CDP Address").is_err());
+        assert!(optional_walk(
+            Err(snmp::SnmpError::ConnectionFailed {
+                host: "10.0.0.1".into(),
+                port: 161,
+                reason: "unreachable".into(),
+            }),
+            "CDP Platform",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn optional_walk_treats_missing_table_as_empty() {
+        let absent: Result<Vec<(String, SnmpValue)>, snmp::SnmpError> =
+            Err(snmp::SnmpError::NoSuchObject("1.2.3".into()));
+        assert_eq!(optional_walk(absent, "LLDP PortDesc").unwrap().len(), 0);
+
+        let rows = vec![("1.2.3.4".to_string(), SnmpValue::Integer(1))];
+        assert_eq!(optional_walk(Ok(rows), "LLDP PortDesc").unwrap().len(), 1);
+    }
 
     #[test]
     fn test_extract_index_suffix() {

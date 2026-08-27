@@ -222,14 +222,18 @@ export const SftpFileBrowser: React.FC<SftpFileBrowserProps> = ({
     }
   }, [homeDir]);
 
-  // Handle double click on entry
+  // Handle double click on entry. `handleDownload` is a plain closure
+  // re-created every render (it captures `sftp`), so it is read through a
+  // ref here rather than captured — otherwise this callback kept the
+  // download handler from the connection it was first created under.
+  const handleDownloadRef = useRef<(entry: FileEntry) => Promise<void>>(async () => {});
   const handleDoubleClick = useCallback(
     (entry: FileEntry) => {
       if (entry.is_dir) {
         navigateTo(entry.path);
       } else {
         // Download file
-        handleDownload(entry);
+        void handleDownloadRef.current(entry);
       }
     },
     [navigateTo]
@@ -331,6 +335,9 @@ export const SftpFileBrowser: React.FC<SftpFileBrowserProps> = ({
       transferAbortRef.current.delete(transferId);
     }
   };
+  useEffect(() => {
+    handleDownloadRef.current = handleDownload;
+  });
 
   // Handle upload
   const handleUpload = async (files: FileList | null) => {
@@ -395,8 +402,9 @@ export const SftpFileBrowser: React.FC<SftpFileBrowserProps> = ({
       transferAbortRef.current.set(transfer.id, ac);
 
       try {
-        const buffer = await file.arrayBuffer();
-        await sftpUpload(sftp, transfer.path, buffer, ac.signal);
+        // Stream the File itself — the agent streams the body to SFTP now, so
+        // buffering the whole file in memory (and hitting the body limit) is gone.
+        await sftpUpload(sftp, transfer.path, file, ac.signal);
 
         if (cancelledTransferIdsRef.current.has(transfer.id)) {
           continue;
@@ -531,7 +539,11 @@ export const SftpFileBrowser: React.FC<SftpFileBrowserProps> = ({
   // bespoke read_dropped_file invoke (sidesteps fs-plugin scoping
   // for caller-supplied paths) and feed the existing handleUpload
   // pipeline so progress + cancellation work uniformly.
-  const handleUploadFromPaths = useCallback(async (paths: string[]) => {
+  //
+  // Deliberately not memoized: it must call the latest `handleUpload`
+  // (which closes over the current `sftp` + `currentPath`), otherwise a
+  // drop after navigating uploads into the initial directory.
+  const handleUploadFromPaths = async (paths: string[]) => {
     if (paths.length === 0) return;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -563,7 +575,7 @@ export const SftpFileBrowser: React.FC<SftpFileBrowserProps> = ({
     } catch (err) {
       console.error('[SftpFileBrowser] Tauri drop upload failed:', err);
     }
-  }, []);
+  };
 
   useTauriDragDrop({
     selector: '.sftp-browser',

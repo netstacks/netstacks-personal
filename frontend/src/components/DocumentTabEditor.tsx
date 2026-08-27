@@ -204,6 +204,10 @@ function DocumentTabEditor({ document, tabId, onSave, onModified }: DocumentTabE
     }
   }, [editContent, isModified, onSave]);
 
+  // Latest save handler for the Monaco keybinding below (registered once on mount).
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => { handleSaveRef.current = handleSave; }, [handleSave]);
+
   // Listen for global save events from useKeyboard hook
   useEffect(() => {
     const handleSaveEvent = (e: Event) => {
@@ -293,7 +297,17 @@ ${editContent}`;
             language={monacoLang}
             value={editContent}
             onChange={(v) => setEditContent(v || '')}
-            onMount={(editor) => overlord.register(editor)}
+            onMount={(editor, monaco) => {
+              overlord.register(editor);
+              // The global Cmd+S handler yields to a focused Monaco editor, so
+              // bind the chord in Monaco itself (keycode-based; Caps Lock safe).
+              editor.addAction({
+                id: 'netstacks.document.save',
+                label: 'Save Document',
+                keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+                run: () => { handleSaveRef.current(); },
+              });
+            }}
             theme="vs-dark"
             options={{
               minimap: { enabled: false },

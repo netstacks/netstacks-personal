@@ -42,6 +42,20 @@ export function getApiErrorMessage(err: unknown, fallback: string): string {
  * companion that prevents the inline form from reappearing.
  */
 export function getErrorMessage(err: unknown, fallback = 'Unknown error'): string {
+  // An AxiosError *is* an Error, but its `.message` is the generic
+  // "Request failed with status code N". The agent always puts the real
+  // reason in the response body (`{error, code}` JSON, or plain text from a
+  // few older handlers) — prefer that so the user sees "Vault is locked",
+  // not an HTTP status. Network errors (no response) keep axios' message.
+  if (axios.isAxiosError(err)) {
+    const parsed = parseApiError(err);
+    if (parsed.error) return parsed.error;
+    const body = err.response?.data;
+    if (typeof body === 'string' && body.trim().length > 0 && body.length < 500) {
+      return body;
+    }
+    if (err.response) return fallback;
+  }
   // eslint-disable-next-line no-restricted-syntax -- this is the helper the rule directs callers TO; it's the one site that legitimately writes the pattern.
   return err instanceof Error ? err.message : fallback;
 }

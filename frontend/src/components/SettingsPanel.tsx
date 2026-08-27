@@ -38,6 +38,9 @@ import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { getCertStatus, type CertStatus } from '../api/cert'
 import SettingsConnection from './SettingsConnection'
 import SettingsTunnels from './SettingsTunnels'
+import Switch from './Switch'
+import { DEFAULT_STATUS_BAR_SETTINGS, saveStatusBarSettings } from '../api/statusBarSettings'
+import { resetPanelSettings } from '../api/panelSettings'
 
 interface Setting {
   id: string
@@ -150,6 +153,35 @@ const defaultSettings: Setting[] = [
   },
   // Terminal
   {
+    id: 'terminal.fontSize',
+    category: 'Terminal',
+    label: 'Terminal Font Size',
+    description: 'Text size in pixels for terminal sessions (Ctrl/Cmd+scroll zooms a single tab). Sessions with their own font setting override this.',
+    type: 'number',
+    value: 14,
+    min: 8,
+    max: 32,
+    step: 1,
+  },
+  {
+    id: 'terminal.fontFamily',
+    category: 'Terminal',
+    label: 'Terminal Font Family',
+    description: 'Monospace face for terminal sessions. Sessions with their own font setting override this.',
+    type: 'select',
+    value: 'Menlo, Monaco, Consolas, monospace',
+    options: [
+      { label: 'Menlo', value: 'Menlo, Monaco, Consolas, monospace' },
+      { label: 'SF Mono', value: "'SF Mono', Menlo, Monaco, monospace" },
+      { label: 'JetBrains Mono', value: "'JetBrains Mono', Menlo, Monaco, monospace" },
+      { label: 'Fira Code', value: "'Fira Code', Menlo, Monaco, monospace" },
+      { label: 'Cascadia Code', value: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace" },
+      { label: 'Source Code Pro', value: "'Source Code Pro', Menlo, Monaco, monospace" },
+      { label: 'Consolas', value: 'Consolas, Menlo, Monaco, monospace' },
+      { label: 'System Monospace', value: 'ui-monospace, monospace' },
+    ],
+  },
+  {
     id: 'terminal.defaultTheme',
     category: 'Terminal',
     label: 'Default Theme',
@@ -173,6 +205,26 @@ const defaultSettings: Setting[] = [
     description: 'Paste the clipboard on middle mouse click (SecureCRT-style). Ignored while the remote app is using the mouse (vim, htop, ...)',
     type: 'boolean',
     value: true,
+  },
+  {
+    id: 'guard.enabled',
+    category: 'Terminal',
+    label: 'Session Guard (applies to new sessions)',
+    description: 'Recognise commands that would sever your own SSH session (e.g. shutting the uplink it rides on). Cisco IOS flavor, standalone sessions only in this preview. Sessions already open keep the setting they connected with.',
+    type: 'boolean',
+    value: false,
+  },
+  {
+    id: 'guard.mode',
+    category: 'Terminal',
+    label: 'Session Guard Mode (applies to new sessions)',
+    description: 'Dry run evaluates every command and writes a local trace record without ever holding anything. Enforce holds a severing command and asks before sending it. Takes effect on the next connect.',
+    type: 'select',
+    value: 'dry-run',
+    options: [
+      { label: 'Dry run (trace only)', value: 'dry-run' },
+      { label: 'Enforce (hold and ask)', value: 'enforce' },
+    ],
   },
   {
     id: 'terminal.fontWeight',
@@ -260,17 +312,26 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
   // Use the persisted settings hook
   const { settings: appSettings, updateSetting, resetSettings } = useSettings()
 
-  // Initialize local settings state with persisted values. The app theme
-  // lives outside useSettings (own localStorage key, read pre-paint in
-  // main.tsx) so it is hydrated from lib/appTheme instead.
-  const [settings, setSettings] = useState<Setting[]>(() =>
+  // The app theme lives outside useSettings (own localStorage key, read
+  // pre-paint in main.tsx) so it is mirrored in local state here.
+  const [appTheme, setAppThemeState] = useState<AppTheme>(getAppTheme)
+
+  // Rendered values are derived from the persisted settings rather than a
+  // second copy in local state — a copy went stale the moment anything else
+  // (Reset, a popout window) wrote to useSettings (NS-SET-2).
+  const settings = useMemo<Setting[]>(() =>
     defaultSettings.map(s => ({
       ...s,
       value: s.id === 'ui.appTheme'
-        ? getAppTheme()
+        ? appTheme
         : (appSettings as unknown as Record<string, unknown>)[s.id] ?? s.value
-    }))
-  )
+    })),
+  [appSettings, appTheme])
+
+  // In-progress text of number inputs, keyed by setting id. Lets the user
+  // clear the field while typing without persisting NaN (NS-SET-4); the
+  // value is committed once it parses, and clamped to min/max on blur.
+  const [numberDrafts, setNumberDrafts] = useState<Record<string, string>>({})
 
   // Filter and group settings by category
   const filteredSettings = useMemo(() => {
@@ -321,10 +382,6 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
   }
 
   const handleChange = (id: string, value: unknown) => {
-    // Update local state for UI
-    setSettings((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, value } : s))
-    )
     // Persist to localStorage via useSettings hook
     if (id in appSettings) {
       updateSetting(id as keyof AppSettings, value as AppSettings[keyof AppSettings])
@@ -332,10 +389,37 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
     // App theme: persisted under its own key + applied live (no reload).
     if (id === 'ui.appTheme') {
       setAppTheme(value as AppTheme)
+      setAppThemeState(value as AppTheme)
     }
     // AUDIT FIX (REMOTE-002): backend sync of `ssh.hostKeyChecking` removed
     // (the setting itself is gone — strict host-key checking is always on).
     onSettingChange?.(id, value)
+  }
+
+  const clampNumber = (setting: Setting, n: number) => {
+    const lo = setting.min ?? -Infinity
+    const hi = setting.max ?? Infinity
+    return Math.min(hi, Math.max(lo, n))
+  }
+
+  const handleNumberInput = (setting: Setting, raw: string) => {
+    setNumberDrafts(prev => ({ ...prev, [setting.id]: raw }))
+    const n = parseInt(raw, 10)
+    // Commit only values that are already in range; out-of-range text is
+    // usually mid-edit ("1" on the way to "14") and gets clamped on blur.
+    if (Number.isFinite(n) && n === clampNumber(setting, n)) handleChange(setting.id, n)
+  }
+
+  const handleNumberBlur = (setting: Setting) => {
+    const raw = numberDrafts[setting.id]
+    setNumberDrafts(prev => {
+      const next = { ...prev }
+      delete next[setting.id]
+      return next
+    })
+    if (raw === undefined) return
+    const n = parseInt(raw, 10)
+    if (Number.isFinite(n)) handleChange(setting.id, clampNumber(setting, n))
   }
 
   const renderSettingItem = (setting: Setting) => {
@@ -347,14 +431,11 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
             <span className="setting-label">{setting.label}</span>
             <div className="setting-control">
               {setting.type === 'boolean' && (
-                <label className="setting-toggle">
-                  <input
-                    type="checkbox"
-                    checked={setting.value as boolean}
-                    onChange={(e) => handleChange(setting.id, e.target.checked)}
-                  />
-                  <span className="toggle-slider" />
-                </label>
+                <Switch
+                  checked={setting.value as boolean}
+                  onChange={(checked) => handleChange(setting.id, checked)}
+                  label={setting.label}
+                />
               )}
               {setting.type === 'select' && (
                 <select
@@ -373,11 +454,12 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
                 <input
                   type="number"
                   className="setting-input setting-input-number"
-                  value={setting.value as number}
+                  value={numberDrafts[setting.id] ?? (setting.value as number)}
                   min={setting.min}
                   max={setting.max}
                   step={setting.step}
-                  onChange={(e) => handleChange(setting.id, parseInt(e.target.value, 10))}
+                  onChange={(e) => handleNumberInput(setting, e.target.value)}
+                  onBlur={() => handleNumberBlur(setting)}
                 />
               )}
             </div>
@@ -548,7 +630,14 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
                       confirmLabel: 'Reset',
                       destructive: true,
                     })
-                    if (ok) resetSettings()
+                    if (!ok) return
+                    // Everything the confirm text promises: useSettings
+                    // (font, terminal), the app theme, status bar, panels.
+                    resetSettings()
+                    setAppTheme('dark')
+                    setAppThemeState('dark')
+                    saveStatusBarSettings(DEFAULT_STATUS_BAR_SETTINGS)
+                    resetPanelSettings()
                   }}
                 >
                   Reset to defaults…

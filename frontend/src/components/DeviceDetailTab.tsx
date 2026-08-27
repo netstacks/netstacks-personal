@@ -34,7 +34,7 @@ import { formatDuration } from '../lib/formatters';
 import { sendChatMessage, AiNotConfiguredError, type ChatMessage } from '../api/ai';
 import { resolveProvider } from '../lib/aiProviderResolver';
 import { listNetBoxSources, getNetBoxSourceConnection } from '../api/netboxSources';
-import { fetchDeviceByName, type NetBoxDevice } from '../api/netbox';
+import { fetchDeviceByName, getNetBoxDeviceRole, type NetBoxDevice } from '../api/netbox';
 import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
 import DetailSections from './detail/DetailSections';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
@@ -1743,10 +1743,10 @@ export default function DeviceDetailTab({
                         <td className="value">{netboxDevice.site.name}</td>
                       </tr>
                     )}
-                    {netboxDevice.device_role && (
+                    {getNetBoxDeviceRole(netboxDevice) && (
                       <tr>
                         <td className="label">Role</td>
-                        <td className="value">{netboxDevice.device_role.name}</td>
+                        <td className="value">{getNetBoxDeviceRole(netboxDevice)?.name}</td>
                       </tr>
                     )}
                     {netboxDevice.device_type?.manufacturer && (

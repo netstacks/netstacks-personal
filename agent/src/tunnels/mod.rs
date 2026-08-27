@@ -278,11 +278,17 @@ impl TunnelManager {
 
     /// Start a tunnel: establish SSH connection (if needed) and spawn listener.
     pub async fn start_tunnel(&self, tunnel: &Tunnel) -> Result<(), String> {
-        // Check if already active
+        // Check if already active. A `Failed` placeholder (see `mark_failed`)
+        // is not a running tunnel — evict it so the user can start again.
         {
-            let active = self.active_tunnels.read().await;
-            if active.contains_key(&tunnel.id) {
-                return Err(format!("Tunnel '{}' is already running", tunnel.name));
+            let mut active = self.active_tunnels.write().await;
+            if let Some(existing) = active.get(&tunnel.id) {
+                if *existing.status.lock().await != TunnelStatus::Failed {
+                    return Err(format!("Tunnel '{}' is already running", tunnel.name));
+                }
+                if let Some(stale) = active.remove(&tunnel.id) {
+                    stale.cancel.cancel();
+                }
             }
         }
 
@@ -509,4 +515,63 @@ impl TunnelManager {
             .collect()
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::TunnelStatus;
+
+    fn failed_tunnel() -> Tunnel {
+        Tunnel {
+            id: "t-failed".into(),
+            name: "failed tunnel".into(),
+            host: "127.0.0.1".into(),
+            port: 22,
+            profile_id: "no-such-profile".into(),
+            // Explicit jump so ConnectionKey resolution never touches the
+            // provider; the (missing) jump host fails the start instead.
+            jump_host_id: Some("no-such-jump".into()),
+            jump_session_id: None,
+            forward_type: PortForwardType::Local,
+            local_port: 0,
+            bind_address: "127.0.0.1".into(),
+            remote_host: Some("10.0.0.1".into()),
+            remote_port: Some(22),
+            auto_start: false,
+            auto_reconnect: false,
+            max_retries: 0,
+            enabled: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_tunnel_evicts_failed_placeholder_instead_of_already_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = crate::db::init_db(&dir.path().join("t.db")).await.unwrap();
+        let provider: Arc<dyn DataProvider> =
+            Arc::new(crate::providers::local::LocalDataProvider::new(pool));
+        let manager = TunnelManager::new(provider);
+        let tunnel = failed_tunnel();
+
+        manager.mark_failed(&tunnel, "boom".into()).await;
+        assert_eq!(
+            *manager.active_tunnels.read().await[&tunnel.id].status.lock().await,
+            TunnelStatus::Failed
+        );
+
+        // The placeholder must not block a restart. The restart itself fails
+        // (unresolvable jump host) — but with a real error, not "already running".
+        let err = manager.start_tunnel(&tunnel).await.unwrap_err();
+        assert!(
+            !err.contains("already running"),
+            "Failed placeholder blocked start_tunnel: {err}"
+        );
+        assert!(
+            !manager.active_tunnels.read().await.contains_key(&tunnel.id),
+            "stale Failed placeholder should have been evicted"
+        );
+    }
 }

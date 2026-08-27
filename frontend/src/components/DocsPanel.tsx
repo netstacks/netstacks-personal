@@ -22,7 +22,13 @@ import { getErrorMessage } from '../api/errors'
 interface DocsPanelProps {
   onOpenDocument: (doc: Document) => void;
   onNewDocument: (category: DocumentCategory) => void;
+  /** Category to expand and scroll into view on mount / when it changes
+   *  (Quick Look Notes / Templates / Outputs). */
+  initialCategory?: DocumentCategory;
 }
+
+/** Dispatched (with `detail.category`) to focus a category in an already-mounted panel. */
+export const DOCS_SELECT_CATEGORY_EVENT = 'netstacks:docs-select-category';
 
 // Icons
 const Icons = {
@@ -167,7 +173,7 @@ const CONTENT_TYPE_OPTIONS: { value: ContentType; label: string }[] = [
   { value: 'markdown', label: 'Markdown' },
 ];
 
-function DocsPanel({ onOpenDocument, onNewDocument }: DocsPanelProps) {
+function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanelProps) {
   const hasFeature = useCapabilitiesStore((s) => s.hasFeature);
   const visibleCategories = CATEGORY_ORDER.filter((cat) => {
     if (cat === 'mops') return hasFeature('mops');
@@ -180,6 +186,10 @@ function DocsPanel({ onOpenDocument, onNewDocument }: DocsPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Set<DocumentCategory>>(new Set());
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false);
+  // Per-category section elements + a category to scroll to once the list
+  // has rendered (focus requested while documents were still loading).
+  const sectionRefs = useRef<Partial<Record<DocumentCategory, HTMLDivElement | null>>>({});
+  const pendingScrollRef = useRef<DocumentCategory | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -291,6 +301,32 @@ function DocsPanel({ onOpenDocument, onNewDocument }: DocsPanelProps) {
       return () => document.removeEventListener('click', handleClick);
     }
   }, [contextMenu]);
+
+  // Expand a category and bring its header into view (Quick Look shortcuts).
+  const focusCategory = useCallback((category: DocumentCategory) => {
+    setExpandedCategories((prev) => {
+      if (prev.has(category)) return prev;
+      const next = new Set(prev);
+      next.add(category);
+      return next;
+    });
+    const el = sectionRefs.current[category];
+    if (el) el.scrollIntoView({ block: 'nearest' });
+    else pendingScrollRef.current = category;
+  }, []);
+
+  useEffect(() => {
+    if (initialCategory) focusCategory(initialCategory);
+  }, [initialCategory, focusCategory]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { category } = (e as CustomEvent<{ category: DocumentCategory }>).detail;
+      focusCategory(category);
+    };
+    window.addEventListener(DOCS_SELECT_CATEGORY_EVENT, handler);
+    return () => window.removeEventListener(DOCS_SELECT_CATEGORY_EVENT, handler);
+  }, [focusCategory]);
 
   const toggleCategory = (category: DocumentCategory) => {
     setExpandedCategories((prev) => {
@@ -464,11 +500,22 @@ function DocsPanel({ onOpenDocument, onNewDocument }: DocsPanelProps) {
   useEffect(() => {
     if (hasAutoExpanded || loading) return;
     const nonEmpty = CATEGORY_ORDER.filter((cat) => (documentsByCategory.get(cat)?.length ?? 0) > 0);
-    if (nonEmpty.length > 0) {
-      setExpandedCategories(new Set(nonEmpty));
+    // Keep a category focused (Quick Look) before load finished open too.
+    const pending = pendingScrollRef.current;
+    if (nonEmpty.length > 0 || pending) {
+      setExpandedCategories(new Set(pending ? [...nonEmpty, pending] : nonEmpty));
     }
     setHasAutoExpanded(true);
   }, [loading, hasAutoExpanded]);
+
+  // Deferred scroll: the section list only renders once loading finishes.
+  // Declared after the auto-expand effect so it reads the pending category first.
+  useEffect(() => {
+    const target = pendingScrollRef.current;
+    if (loading || !target) return;
+    pendingScrollRef.current = null;
+    sectionRefs.current[target]?.scrollIntoView({ block: 'nearest' });
+  }, [loading]);
 
   // Map our Document.content_type to a sensible file extension so vscode-icons
   // can pick a matching glyph. If the document's name already has an extension,
@@ -534,7 +581,11 @@ function DocsPanel({ onOpenDocument, onNewDocument }: DocsPanelProps) {
     const secure = isSecureCategory(category);
 
     return (
-      <div key={category} className="docs-section">
+      <div
+        key={category}
+        className="docs-section"
+        ref={(el) => { sectionRefs.current[category] = el; }}
+      >
         <div
           className={`docs-section-header${dropCategory === category ? ' drop-target' : ''}`}
           onClick={() => toggleCategory(category)}

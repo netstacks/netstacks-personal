@@ -42,7 +42,7 @@
  *     `devicePixelRatio` so elementFromPoint() works.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface DropTarget {
   /** CSS selector to match the surface root (e.g. `.sftp-panel`). */
@@ -171,17 +171,22 @@ export function registerDropTarget(target: DropTarget): () => void {
  *   })
  *
  * `onDrop` is captured fresh on every render via the latest-ref pattern,
- * so it can safely close over state without re-subscribing.
+ * so it can safely close over state without re-subscribing. Only a
+ * selector change (rare) re-registers the target.
  */
 export function useTauriDragDrop(target: DropTarget): void {
+  const onDropRef = useRef(target.onDrop)
   useEffect(() => {
-    return registerDropTarget(target)
-    // We intentionally re-subscribe when the selector changes (rare).
-    // The handler closure is captured at register time — if the caller
-    // needs fresh closures, they should memoize the whole target with
-    // useMemo and add their own deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.selector])
+    onDropRef.current = target.onDrop
+  })
+
+  const { selector } = target
+  useEffect(() => {
+    return registerDropTarget({
+      selector,
+      onDrop: (paths, matchedElement) => onDropRef.current(paths, matchedElement),
+    })
+  }, [selector])
 }
 
 // Start the Tauri subscription eagerly at import time so drops that

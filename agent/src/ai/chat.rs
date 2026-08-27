@@ -45,6 +45,7 @@ impl IntoResponse for AiApiError {
     fn into_response(self) -> axum::response::Response {
         let status = match self.code.as_str() {
             "NOT_CONFIGURED" => StatusCode::SERVICE_UNAVAILABLE,
+            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
             "RATE_LIMITED" => StatusCode::TOO_MANY_REQUESTS,
             "TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
             "BAD_REQUEST" => StatusCode::BAD_REQUEST,
@@ -68,6 +69,8 @@ impl From<AiError> for AiApiError {
                 "AI request timed out. Please try again.".to_string(),
             ),
             AiError::RequestFailed(msg) => ("PROVIDER_ERROR".to_string(), msg.clone()),
+            AiError::Unauthorized(msg) => ("UNAUTHORIZED".to_string(), msg.clone()),
+            AiError::BadRequest(msg) => ("BAD_REQUEST".to_string(), msg.clone()),
             AiError::InvalidResponse(msg) => ("PROVIDER_ERROR".to_string(), msg.clone()),
         };
 
@@ -118,20 +121,17 @@ pub async fn chat_completion(
         .await
         .unwrap_or(false);
 
-    // Load AI provider config - use per-request overrides if present, otherwise diagnostic error loading
-    let config = if req.provider.is_some() || req.model.is_some() {
-        let (cfg, _) = load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await;
-        cfg
-    } else {
-        match load_ai_config_or_error(&state).await {
-            Ok(cfg) => Some(cfg),
-            Err(reason) => {
-                tracing::warn!("AI config load failed: {}", reason);
-                return Err(AiApiError {
-                    error: reason,
-                    code: "NOT_CONFIGURED".to_string(),
-                });
-            }
+    // Load AI provider config (honouring per-request provider/model overrides).
+    // Surface the REAL reason on failure instead of silently falling back to
+    // the Mock provider's generic "AI not configured" message.
+    let config = match load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await.0 {
+        Ok(cfg) => Some(cfg),
+        Err(reason) => {
+            tracing::warn!("AI config load failed: {}", reason);
+            return Err(AiApiError {
+                error: reason,
+                code: "NOT_CONFIGURED".to_string(),
+            });
         }
     };
 
@@ -161,12 +161,7 @@ pub async fn chat_completion(
         let pool = state.pool.clone();
         let extraction_provider = wrap_provider(
             create_provider(
-                if req.provider.is_some() || req.model.is_some() {
-                    let (cfg, _) = load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await;
-                    cfg
-                } else {
-                    load_ai_config_or_error(&state).await.ok()
-                }
+                load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await.0.ok()
             ),
             &state,
         );
@@ -271,19 +266,15 @@ pub async fn generate_script(
         });
     }
 
-    // Load AI provider config - use per-request overrides if present, otherwise diagnostic error loading
-    let config = if req.provider.is_some() || req.model.is_some() {
-        let (cfg, _) = load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await;
-        cfg
-    } else {
-        match load_ai_config_or_error(&state).await {
-            Ok(cfg) => Some(cfg),
-            Err(reason) => {
-                return Err(AiApiError {
-                    error: reason,
-                    code: "NOT_CONFIGURED".to_string(),
-                });
-            }
+    // Load AI provider config (honouring per-request overrides); surface the
+    // real failure reason rather than degrading to the Mock provider.
+    let config = match load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await.0 {
+        Ok(cfg) => Some(cfg),
+        Err(reason) => {
+            return Err(AiApiError {
+                error: reason,
+                code: "NOT_CONFIGURED".to_string(),
+            });
         }
     };
 
@@ -412,6 +403,134 @@ struct AiSettingsConfig {
 
 fn default_verify_ssl() -> bool { true }
 
+/// Per-provider endpoint overrides. `ai.provider_config` only describes the
+/// ACTIVE provider, so the frontend (`setAiProviderOverrides` in
+/// `frontend/src/api/ai.ts`) remembers every provider's endpoint here as
+/// `{"base_urls": {"<provider>": "<url>"}, "verify_ssl": {"<provider>": bool}}`
+/// (wrapped as `{"value": "<json string>"}` in standalone mode).
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AiProviderOverrides {
+    #[serde(default)]
+    base_urls: HashMap<String, String>,
+    #[serde(default)]
+    verify_ssl: HashMap<String, bool>,
+}
+
+/// Unwrap a settings value the frontend may have stored as `{"value": "<json>"}`
+/// (standalone) or as a bare JSON object/string (enterprise). Returns
+/// `Ok(Null)` when the setting is absent or empty.
+fn unwrap_setting_json(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let inner = match value {
+        serde_json::Value::Object(mut obj) if obj.contains_key("value") => {
+            obj.remove("value").unwrap_or(serde_json::Value::Null)
+        }
+        other => other,
+    };
+    match inner {
+        serde_json::Value::String(s) if s.trim().is_empty() => Ok(serde_json::Value::Null),
+        serde_json::Value::String(s) => {
+            serde_json::from_str(&s).map_err(|e| format!("Invalid AI settings format: {}", e))
+        }
+        other => Ok(other),
+    }
+}
+
+/// Parse `ai.provider_overrides`. Absent/malformed overrides are non-fatal and
+/// simply mean "use provider defaults".
+fn parse_provider_overrides(value: serde_json::Value) -> AiProviderOverrides {
+    match unwrap_setting_json(value) {
+        Ok(json) if !json.is_null() => serde_json::from_value(json).unwrap_or_else(|e| {
+            tracing::warn!("Ignoring malformed ai.provider_overrides: {}", e);
+            AiProviderOverrides::default()
+        }),
+        Ok(_) => AiProviderOverrides::default(),
+        Err(e) => {
+            tracing::warn!("Ignoring unreadable ai.provider_overrides: {}", e);
+            AiProviderOverrides::default()
+        }
+    }
+}
+
+/// Endpoint/model values resolved for the provider actually being used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedProviderSettings {
+    /// `None` when the active config's model belongs to a different provider.
+    model: Option<String>,
+    base_url: Option<String>,
+    verify_ssl: bool,
+    api_format: Option<String>,
+}
+
+/// Trim surrounding whitespace and drop whitespace-only URLs. A stray
+/// leading/trailing space makes the URL unparseable downstream (reqwest
+/// "builder error"), so normalize it here for every provider.
+fn clean_url(url: &str) -> Option<String> {
+    let trimmed = url.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// `ai.provider_config` describes ONE provider (`settings.provider`). When a
+/// request targets a different provider its base_url / verify_ssl / model /
+/// api_format must not leak across (RC-8): take the endpoint from the
+/// per-provider overrides and otherwise fall back to provider defaults.
+///
+/// `settings` is `None` when no `ai.provider_config` has been saved yet
+/// (e.g. listing models before the first Save): only the overrides apply.
+fn resolve_provider_settings(
+    settings: Option<&AiSettingsConfig>,
+    overrides: &AiProviderOverrides,
+    provider_name: &str,
+) -> ResolvedProviderSettings {
+    let override_url = overrides
+        .base_urls
+        .get(provider_name)
+        .and_then(|u| clean_url(u));
+
+    if let Some(settings) = settings.filter(|s| provider_name == s.provider) {
+        ResolvedProviderSettings {
+            model: Some(settings.model.clone()).filter(|m| !m.is_empty()),
+            base_url: settings
+                .base_url
+                .as_deref()
+                .and_then(clean_url)
+                .or(override_url),
+            verify_ssl: settings.verify_ssl,
+            api_format: settings.api_format.clone(),
+        }
+    } else {
+        ResolvedProviderSettings {
+            model: None,
+            base_url: override_url,
+            verify_ssl: overrides.verify_ssl.get(provider_name).copied().unwrap_or(true),
+            api_format: None,
+        }
+    }
+}
+
+/// Saved endpoint settings for `provider_name` without requiring a complete
+/// config: `ai.provider_config` when it is the active provider, otherwise
+/// `ai.provider_overrides`. Absent/unparseable settings just mean "defaults".
+async fn saved_provider_settings(
+    dp: &dyn crate::providers::DataProvider,
+    provider_name: &str,
+) -> ResolvedProviderSettings {
+    let overrides = match dp.get_setting("ai.provider_overrides").await {
+        Ok(v) => parse_provider_overrides(v),
+        Err(e) => {
+            tracing::warn!("Failed to read ai.provider_overrides, using defaults: {}", e);
+            AiProviderOverrides::default()
+        }
+    };
+    let settings: Option<AiSettingsConfig> = match dp.get_setting("ai.provider_config").await {
+        Ok(v) => unwrap_setting_json(v)
+            .ok()
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value(v).ok()),
+        Err(_) => None,
+    };
+    resolve_provider_settings(settings.as_ref(), &overrides, provider_name)
+}
+
 /// THE single source of truth for resolving AI provider configuration.
 ///
 /// Reads `ai.provider_config` from settings, applies optional provider/model
@@ -440,25 +559,23 @@ pub async fn load_ai_config(
     };
 
     // The frontend may wrap the value as {"value": "<json string>"}.
-    let inner_value = if let Some(obj) = settings_value.as_object() {
-        obj.get("value").cloned().unwrap_or(serde_json::Value::Null)
-    } else {
-        settings_value
-    };
-    if inner_value.is_null() {
-        return (Err("AI provider not configured. Go to Settings > AI to select a provider and model.".into()), None);
-    }
-    let config_value: serde_json::Value = if let serde_json::Value::String(s) = &inner_value {
-        match serde_json::from_str(s) {
-            Ok(parsed) => parsed,
-            Err(e) => return (Err(format!("Invalid AI settings format: {}", e)), None),
-        }
-    } else {
-        inner_value
+    let config_value = match unwrap_setting_json(settings_value) {
+        Ok(v) if !v.is_null() => v,
+        Ok(_) => return (Err("AI provider not configured. Go to Settings > AI to select a provider and model.".into()), None),
+        Err(e) => return (Err(e), None),
     };
     let settings: AiSettingsConfig = match serde_json::from_value(config_value) {
         Ok(c) => c,
         Err(e) => return (Err(format!("Failed to parse AI settings: {}", e)), None),
+    };
+
+    // Per-provider endpoints for providers other than the active one (RC-8).
+    let overrides = match dp.get_setting("ai.provider_overrides").await {
+        Ok(v) => parse_provider_overrides(v),
+        Err(e) => {
+            tracing::warn!("Failed to read ai.provider_overrides, using defaults: {}", e);
+            AiProviderOverrides::default()
+        }
     };
 
     // System prompt is independent of provider/key resolution — keep it even if
@@ -469,11 +586,13 @@ pub async fn load_ai_config(
     let provider_name = provider_override
         .filter(|p| !p.is_empty())
         .unwrap_or(settings.provider.as_str());
+    let same_provider = provider_name == settings.provider;
+    let resolved = resolve_provider_settings(Some(&settings), &overrides, provider_name);
 
     let model = match model_override
         .filter(|m| !m.is_empty())
         .map(|m| m.to_string())
-        .or_else(|| Some(settings.model.clone()).filter(|m| !m.is_empty()))
+        .or(resolved.model)
     {
         Some(m) => m,
         None => {
@@ -484,15 +603,8 @@ pub async fn load_ai_config(
         }
     };
 
-    // Trim surrounding whitespace and drop whitespace-only values. A stray
-    // leading/trailing space makes the URL unparseable downstream (reqwest
-    // "builder error"), so normalize it here for every provider.
-    let base_url = settings
-        .base_url
-        .clone()
-        .map(|u| u.trim().to_string())
-        .filter(|u| !u.is_empty());
-    let verify_ssl = settings.verify_ssl;
+    let base_url = resolved.base_url;
+    let verify_ssl = resolved.verify_ssl;
 
     // --- Providers that don't require a vault API key ---
     if provider_name == "ollama" {
@@ -506,7 +618,9 @@ pub async fn load_ai_config(
     }
     if provider_name == "custom" {
         let api_key = dp.get_api_key("ai.custom").await.ok().flatten().unwrap_or_default();
-        let oauth2 = if settings.auth_mode.as_deref() == Some("oauth2") {
+        // OAuth2/header settings belong to the active config; only apply them
+        // when that config actually describes the custom provider.
+        let oauth2 = if same_provider && settings.auth_mode.as_deref() == Some("oauth2") {
             match (settings.oauth2_token_url.clone(), settings.oauth2_client_id.clone()) {
                 (Some(token_url), Some(client_id)) if !token_url.is_empty() && !client_id.is_empty() => {
                     Some(super::oauth2::OAuth2Config {
@@ -528,7 +642,7 @@ pub async fn load_ai_config(
                 model,
                 base_url: base_url.unwrap_or_default(),
                 oauth2,
-                api_format: settings.api_format.clone(),
+                api_format: resolved.api_format,
                 verify_ssl,
             }),
             custom_prompt,
@@ -1039,7 +1153,7 @@ pub async fn agent_chat(
             let pool = state.pool.clone();
             let extraction_provider = wrap_provider(
                 create_provider(
-                    load_ai_config_with_overrides(&state, ctx.provider_override.as_deref(), ctx.model_override.as_deref()).await.0
+                    load_ai_config_with_overrides(&state, ctx.provider_override.as_deref(), ctx.model_override.as_deref()).await.0.ok()
                 ),
                 &state,
             );
@@ -1128,23 +1242,16 @@ pub async fn agent_chat_stream_handler(
     Ok(Sse::new(sse_stream))
 }
 
-/// Load AI configuration with system prompt from settings + vault
-/// Returns both the provider config and the custom system prompt (if set)
-/// Load AI configuration with a descriptive error on failure.
-/// Used by chat_completion to return actionable error messages.
-async fn load_ai_config_or_error(state: &AppState) -> Result<AiProviderConfig, String> {
-    load_ai_config(state.provider.as_ref(), None, None).await.0
-}
-
 /// Load AI configuration with optional provider/model overrides from a request.
-/// Thin wrapper over [`load_ai_config`]; returns config + system prompt.
+/// Thin wrapper over [`load_ai_config`]; returns the config (or the descriptive
+/// reason it couldn't be built) + system prompt. Callers that can degrade to
+/// the Mock provider use `.0.ok()`; user-facing endpoints surface the error.
 async fn load_ai_config_with_overrides(
     state: &AppState,
     provider_override: Option<&str>,
     model_override: Option<&str>,
-) -> (Option<AiProviderConfig>, Option<String>) {
-    let (config, prompt) = load_ai_config(state.provider.as_ref(), provider_override, model_override).await;
-    (config.ok(), prompt)
+) -> (Result<AiProviderConfig, String>, Option<String>) {
+    load_ai_config(state.provider.as_ref(), provider_override, model_override).await
 }
 
 // === AI Highlight Analysis Endpoint ===
@@ -1181,7 +1288,7 @@ pub async fn analyze_highlights(
     ).await;
 
     // Create provider and make request (with sanitization)
-    let provider = wrap_provider(create_provider(config), &state);
+    let provider = wrap_provider(create_provider(config.ok()), &state);
 
     // Build system prompt for the analysis mode
     // NOTE: Do NOT prepend AI profile personality or custom prompts here.
@@ -1364,9 +1471,20 @@ pub async fn list_provider_models(
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<ProviderModelsResponse> {
     let refresh = params.get("refresh").map(|v| v == "true").unwrap_or(false);
-    let base_url = params.get("base_url").filter(|s| !s.is_empty()).cloned();
+    // Endpoint settings the query leaves out come from what's saved for THIS
+    // provider (`ai.provider_overrides` for a non-active one), so Test/Refresh
+    // before Save uses the right base_url / TLS setting (NS-AI-29).
+    let saved = saved_provider_settings(state.provider.as_ref(), &provider).await;
+    let base_url = params
+        .get("base_url")
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .or(saved.base_url);
     let api_format = params.get("api_format").filter(|s| !s.is_empty()).cloned();
-    let verify_ssl = params.get("verify_ssl").map(|v| v != "false").unwrap_or(true);
+    let verify_ssl = params
+        .get("verify_ssl")
+        .map(|v| v != "false")
+        .unwrap_or(saved.verify_ssl);
 
     let cache = crate::ai::models::global_cache();
     if !refresh {
@@ -1421,5 +1539,107 @@ mod model_listing_tests {
         assert_eq!(out.source, "error");
         assert!(out.models.is_empty());
         assert_eq!(out.error.as_deref(), Some("boom"));
+    }
+}
+
+#[cfg(test)]
+mod ai_config_resolution_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn settings(provider: &str, base_url: Option<&str>, verify_ssl: bool) -> AiSettingsConfig {
+        serde_json::from_value(json!({
+            "provider": provider,
+            "model": "active-model",
+            "base_url": base_url,
+            "verify_ssl": verify_ssl,
+            "api_format": "gemini",
+        }))
+        .unwrap()
+    }
+
+    fn overrides() -> AiProviderOverrides {
+        parse_provider_overrides(json!({
+            "value": json!({
+                "base_urls": { "litellm": " http://litellm:4000 ", "custom": "" },
+                "verify_ssl": { "litellm": false },
+            }).to_string()
+        }))
+    }
+
+    #[test]
+    fn parses_standalone_wrapped_and_bare_override_shapes() {
+        let wrapped = overrides();
+        assert_eq!(wrapped.base_urls.get("litellm").map(String::as_str), Some(" http://litellm:4000 "));
+        assert_eq!(wrapped.verify_ssl.get("litellm"), Some(&false));
+
+        let bare = parse_provider_overrides(json!({ "base_urls": { "ollama": "http://gpu:11434" } }));
+        assert_eq!(bare.base_urls.get("ollama").map(String::as_str), Some("http://gpu:11434"));
+        assert!(bare.verify_ssl.is_empty());
+
+        assert!(parse_provider_overrides(json!(null)).base_urls.is_empty());
+        assert!(parse_provider_overrides(json!({ "value": "" })).base_urls.is_empty());
+        assert!(parse_provider_overrides(json!({ "value": "{not json" })).base_urls.is_empty());
+    }
+
+    #[test]
+    fn active_provider_uses_its_own_config() {
+        let s = settings("custom", Some(" https://gw.example/v1 "), false);
+        let r = resolve_provider_settings(Some(&s), &overrides(), "custom");
+        assert_eq!(r, ResolvedProviderSettings {
+            model: Some("active-model".into()),
+            base_url: Some("https://gw.example/v1".into()),
+            verify_ssl: false,
+            api_format: Some("gemini".into()),
+        });
+    }
+
+    #[test]
+    fn active_provider_falls_back_to_override_url_when_config_has_none() {
+        let s = settings("litellm", None, true);
+        let r = resolve_provider_settings(Some(&s), &overrides(), "litellm");
+        assert_eq!(r.base_url.as_deref(), Some("http://litellm:4000"));
+        assert!(r.verify_ssl, "active config's verify_ssl wins over the override map");
+    }
+
+    #[test]
+    fn other_provider_does_not_inherit_active_config() {
+        // Active config is `custom` with a gateway URL, insecure TLS and gemini
+        // format; a request for litellm must not pick any of that up.
+        let s = settings("custom", Some("https://gw.example/v1"), false);
+        let r = resolve_provider_settings(Some(&s), &overrides(), "litellm");
+        assert_eq!(r, ResolvedProviderSettings {
+            model: None,
+            base_url: Some("http://litellm:4000".into()),
+            verify_ssl: false,
+            api_format: None,
+        });
+
+        // No override at all -> provider defaults.
+        let r = resolve_provider_settings(Some(&s), &overrides(), "anthropic");
+        assert_eq!(r, ResolvedProviderSettings { model: None, base_url: None, verify_ssl: true, api_format: None });
+    }
+
+    #[test]
+    fn no_saved_config_uses_overrides_only() {
+        // Model listing before the first Save: no ai.provider_config at all.
+        let r = resolve_provider_settings(None, &overrides(), "litellm");
+        assert_eq!(r, ResolvedProviderSettings {
+            model: None,
+            base_url: Some("http://litellm:4000".into()),
+            verify_ssl: false,
+            api_format: None,
+        });
+        let r = resolve_provider_settings(None, &overrides(), "anthropic");
+        assert_eq!(r, ResolvedProviderSettings { model: None, base_url: None, verify_ssl: true, api_format: None });
+    }
+
+    #[test]
+    fn unwrap_setting_json_handles_all_shapes() {
+        assert_eq!(unwrap_setting_json(json!(null)).unwrap(), json!(null));
+        assert_eq!(unwrap_setting_json(json!({ "value": "{\"a\":1}" })).unwrap(), json!({ "a": 1 }));
+        assert_eq!(unwrap_setting_json(json!({ "a": 1 })).unwrap(), json!({ "a": 1 }));
+        assert_eq!(unwrap_setting_json(json!("{\"a\":1}")).unwrap(), json!({ "a": 1 }));
+        assert!(unwrap_setting_json(json!({ "value": "nope" })).is_err());
     }
 }

@@ -57,6 +57,8 @@ import { getErrorMessage } from '../../api/errors'
 type SubTab = 'plan' | 'devices' | 'execute' | 'review' | 'history';
 
 interface MopWorkspaceProps {
+  /** Owning tab id — File → Save / Cmd+S arrive as `netstacks:save-document` with this id. */
+  tabId?: string;
   planId?: string;
   executionId?: string;
   onTitleChange?: (title: string) => void;
@@ -255,7 +257,7 @@ export function isExecutionFinished(status: string | undefined): boolean {
   return status === 'complete' || status === 'completed' || status === 'failed' || status === 'aborted';
 }
 
-export default function MopWorkspace({ planId, executionId, onTitleChange, onDelete, onOpenDocument }: MopWorkspaceProps) {
+export default function MopWorkspace({ tabId, planId, executionId, onTitleChange, onDelete, onOpenDocument }: MopWorkspaceProps) {
   const { mode } = useMode();
   const isEnterprise = mode === 'enterprise';
   const hasFeature = useCapabilitiesStore((s) => s.hasFeature);
@@ -729,17 +731,16 @@ export default function MopWorkspace({ planId, executionId, onTitleChange, onDel
     return () => clearTimeout(timer);
   }, [dirty, steps, nameValue, descriptionValue, riskLevel, changeTicket, tagsValue]);
 
-  // Keyboard shortcut: Cmd/Ctrl+S to save
+  // File → Save / Cmd+S: App dispatches `netstacks:save-document` for the
+  // active tab (single save path — no raw Cmd+S listener here).
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        savePlan();
-      }
+    const handleSaveEvent = (e: Event) => {
+      const { tabId: target } = (e as CustomEvent<{ tabId: string }>).detail;
+      if (tabId && target === tabId) savePlan();
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [savePlan]);
+    window.addEventListener('netstacks:save-document', handleSaveEvent);
+    return () => window.removeEventListener('netstacks:save-document', handleSaveEvent);
+  }, [tabId, savePlan]);
 
   // Step counts
   const hasPerDeviceSteps = Object.keys(perDeviceSteps).length > 0;

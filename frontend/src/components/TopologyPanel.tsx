@@ -569,33 +569,49 @@ function TopologyPanelContent({
       );
     } catch (err) {
       console.error('Failed to rename topology:', err);
+      showToast(getErrorMessage(err, 'Failed to rename topology'), 'error');
     }
     setRenamingTopologyId(null);
   };
 
-  const handleDeleteTopology = async (topologyId: string) => {
+  const handleDeleteTopology = async (topo: SavedTopologyListItem) => {
     setTopologyContextMenu(null);
+    const ok = await confirmDialog({
+      title: 'Delete topology?',
+      body: <>Delete topology <strong>{topo.name}</strong>? Its devices, links and annotations will be removed. This cannot be undone.</>,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await deleteTopology(topologyId);
-      setTopologies(prev => prev.filter(t => t.id !== topologyId));
+      await deleteTopology(topo.id);
+      setTopologies(prev => prev.filter(t => t.id !== topo.id));
     } catch (err) {
       console.error('Failed to delete topology:', err);
+      showToast(getErrorMessage(err, `Failed to delete topology "${topo.name}"`), 'error');
     }
   };
 
   const handleBulkDelete = async () => {
     setTopologyContextMenu(null);
+    const ids = Array.from(selectedItemIds);
+    const ok = await confirmDialog({
+      title: `Delete ${ids.length} topologies?`,
+      body: <>Delete <strong>{ids.length}</strong> selected topologies? Their devices, links and annotations will be removed. This cannot be undone.</>,
+      confirmLabel: `Delete ${ids.length}`,
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      const ids = Array.from(selectedItemIds);
       const result = await bulkDeleteTopologies(ids);
       setTopologies(prev => prev.filter(t => !selectedItemIds.has(t.id)));
       clearItemSelection();
 
       if (result.failed > 0) {
-        setError(`Deleted ${result.deleted} topologies, ${result.failed} failed`);
+        showToast(`Deleted ${result.deleted} topologies, ${result.failed} failed`, 'error');
       }
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to delete topologies'));
+      showToast(getErrorMessage(err, 'Failed to delete topologies'), 'error');
     }
   };
 
@@ -609,6 +625,7 @@ function TopologyPanelContent({
       );
     } catch (err) {
       console.error('Failed to share topology:', err);
+      showToast(getErrorMessage(err, `Failed to ${newShared ? 'publish' : 'unpublish'} topology`), 'error');
     }
   };
 
@@ -1386,7 +1403,7 @@ function TopologyPanelContent({
             <div className="topology-context-menu-divider" />
             <button
               className="topology-context-menu-item topology-context-menu-danger"
-              onClick={() => handleDeleteTopology(topo.id)}
+              onClick={() => handleDeleteTopology(topo)}
             >
               {Icons.trash}
               <span>Delete</span>

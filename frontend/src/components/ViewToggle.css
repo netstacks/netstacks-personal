@@ -6,7 +6,7 @@
   right: 100px; /* Moved left to avoid overlapping with 3D mode controls */
   display: flex;
   gap: 2px;
-  background: rgba(30, 30, 30, 0.9);
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 4px;
   padding: 2px;
@@ -36,7 +36,7 @@
 
 .view-toggle-btn:hover {
   color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-bg-hover);
 }
 
 .view-toggle-btn:focus-visible {
@@ -46,7 +46,7 @@
 
 .view-toggle-btn.active {
   background: var(--color-accent);
-  color: white;
+  color: var(--color-text-on-accent);
 }
 
 .view-toggle-btn.active:hover {

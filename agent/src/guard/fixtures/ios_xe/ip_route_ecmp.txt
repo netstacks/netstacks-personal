@@ -1,0 +1,8 @@
+Routing entry for 10.20.4.0/24
+  Known via "ospf 1", distance 110, metric 20, type intra area
+  Last update from 10.20.11.1 on GigabitEthernet1/0/2, 00:10:00 ago
+  Routing Descriptor Blocks:
+  * 10.20.10.1, from 10.20.10.1, 00:10:00 ago, via Vlan100
+      Route metric is 20, traffic share count is 1
+    10.20.11.1, from 10.20.11.1, 00:10:00 ago, via GigabitEthernet1/0/2
+      Route metric is 20, traffic share count is 1

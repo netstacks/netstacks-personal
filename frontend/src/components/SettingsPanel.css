@@ -147,52 +147,7 @@
   margin-top: var(--spacing-xs);
 }
 
-/* Toggle switch */
-.setting-toggle {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 20px;
-  cursor: pointer;
-}
-
-.setting-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--color-bg-tertiary);
-  border-radius: 20px;
-  transition: background var(--transition-fast);
-}
-
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  height: 14px;
-  width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background: var(--color-text-secondary);
-  border-radius: 50%;
-  transition: transform var(--transition-fast), background var(--transition-fast);
-}
-
-.setting-toggle input:checked + .toggle-slider {
-  background: var(--color-accent);
-}
-
-.setting-toggle input:checked + .toggle-slider::before {
-  transform: translateX(20px);
-  background: var(--color-text-on-accent);
-}
+/* Toggle switches: see components/Switch.tsx (shared, scoped stylesheet). */
 
 /* Text/number inputs */
 .setting-input {

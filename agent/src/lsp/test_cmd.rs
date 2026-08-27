@@ -16,8 +16,10 @@ pub struct TestCommandInput {
     pub args: Vec<String>,
 }
 
-/// Result of testing an LSP command.
+/// Result of testing an LSP command. Serialized camelCase to match the
+/// frontend's `TestCommandResult` (`errorMessage`).
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestCommandResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

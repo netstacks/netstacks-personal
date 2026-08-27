@@ -633,11 +633,11 @@ pub async fn resolve_traceroute_hops(
         }
     }
 
-    // Pre-resolve a single jump for all hops: if any of the supplied
-    // snmp/credential profiles has a jump configured, route hop SNMP
-    // through it. In practice the caller passes one or two profiles all
-    // pointing at the same bastion, so first-with-jump-wins is correct.
+    // Pre-resolve a single jump for all hops, preferring profiles the hop
+    // devices actually reference over the generic SNMP candidate list
+    // (which is EVERY profile for a pasted traceroute — NS-FEAT-25).
     let jump_dest = resolve_traceroute_jump(
+        &request.hops,
         &request.snmp_profile_ids,
         &request.credential_profile_ids,
         provider,
@@ -688,17 +688,35 @@ pub async fn resolve_traceroute_hops(
 /// apply to many hop targets. Resolution failure (vault credential
 /// missing) is treated as "no jump"; the hop's direct SNMP attempt will
 /// surface the right error if it's actually unreachable.
+/// Pick the jump used to probe every hop.
+///
+/// Profiles the hop devices actually reference win: the profile of any saved
+/// session whose host is a hop IP, then the credential profiles the caller
+/// took from the topology's own devices. Only when none of those has a jump
+/// do we fall back to the SNMP candidates — for a pasted traceroute the
+/// frontend sends EVERY profile there, and first-with-jump-wins would route
+/// the probes through an unrelated profile's bastion (NS-FEAT-25).
 async fn resolve_traceroute_jump(
+    hops: &[TracerouteHop],
     snmp_profile_ids: &[String],
     credential_profile_ids: &[String],
     provider: &Arc<dyn crate::providers::DataProvider>,
 ) -> Option<crate::ssh::SshConfig> {
-    let mut tried = std::collections::HashSet::new();
-    let candidates = snmp_profile_ids.iter().chain(credential_profile_ids.iter());
-    for pid in candidates {
-        if !tried.insert(pid.as_str()) {
-            continue;
+    let hop_session_profiles: Vec<String> = match provider.list_sessions().await {
+        Ok(sessions) => sessions
+            .into_iter()
+            .filter(|s| hops.iter().any(|h| h.ip == s.host))
+            .map(|s| s.profile_id)
+            .collect(),
+        Err(e) => {
+            tracing::debug!("Traceroute jump: could not list sessions for hop lookup: {}", e);
+            Vec::new()
         }
+    };
+
+    for (pid, source) in
+        jump_profile_candidates(&hop_session_profiles, credential_profile_ids, snmp_profile_ids)
+    {
         // Use a placeholder target — we only care about extracting the jump.
         let dest = crate::snmp::dest::snmp_dest_for(
             provider,
@@ -709,10 +727,39 @@ async fn resolve_traceroute_jump(
         )
         .await;
         if let Ok(crate::snmp::SnmpDest::ViaJump { jump, .. }) = dest {
+            tracing::info!(
+                "Traceroute hops will be probed via jump {}:{} from {} profile {}",
+                jump.host, jump.port, source, pid
+            );
             return Some(jump);
         }
     }
+    tracing::debug!("Traceroute jump: no candidate profile has a jump; probing hops directly");
     None
+}
+
+/// Jump-candidate order for `resolve_traceroute_jump`, deduplicated:
+/// device-referenced profiles first, generic SNMP candidates last. The
+/// second tuple field names the source for logging.
+fn jump_profile_candidates<'a>(
+    hop_session_profiles: &'a [String],
+    credential_profile_ids: &'a [String],
+    snmp_profile_ids: &'a [String],
+) -> Vec<(&'a str, &'static str)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut ordered = Vec::new();
+    for (ids, source) in [
+        (hop_session_profiles, "hop-session"),
+        (credential_profile_ids, "device-credential"),
+        (snmp_profile_ids, "snmp-candidate"),
+    ] {
+        for pid in ids {
+            if seen.insert(pid.as_str()) {
+                ordered.push((pid.as_str(), source));
+            }
+        }
+    }
+    ordered
 }
 
 /// Build a `SnmpDest` for a hop target, applying the pre-resolved jump
@@ -912,6 +959,29 @@ mod tests {
         let json = r#"{"targets": [{"ip": "10.0.0.1"}]}"#;
         let req: BatchDiscoveryRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.methods, vec!["snmp", "cli"]);
+    }
+
+    #[test]
+    fn jump_candidates_prefer_device_referenced_profiles() {
+        let hop_sessions = vec!["sess-prof".to_string()];
+        let creds = vec!["cred-prof".to_string(), "sess-prof".to_string()];
+        // A pasted traceroute: every profile is an SNMP candidate.
+        let snmp = vec!["zz-unrelated".to_string(), "cred-prof".to_string(), "other".to_string()];
+
+        let ordered = jump_profile_candidates(&hop_sessions, &creds, &snmp);
+        assert_eq!(
+            ordered,
+            vec![
+                ("sess-prof", "hop-session"),
+                ("cred-prof", "device-credential"),
+                ("zz-unrelated", "snmp-candidate"),
+                ("other", "snmp-candidate"),
+            ]
+        );
+
+        // Nothing device-referenced: fall back to the SNMP list, in order.
+        let ordered = jump_profile_candidates(&[], &[], &snmp);
+        assert_eq!(ordered.iter().map(|(p, _)| *p).collect::<Vec<_>>(), ["zz-unrelated", "cred-prof", "other"]);
     }
 
     #[test]

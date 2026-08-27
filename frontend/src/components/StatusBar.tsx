@@ -4,6 +4,7 @@ import { getRemoteAgentHost } from '../api/client'
 import { useAgentTasksStore } from '../hooks/useAgentTasks'
 import ContextMenu from './ContextMenu'
 import { useContextMenu } from '../hooks/useContextMenu'
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import {
   type StatusBarSettings,
   loadStatusBarSettings,
@@ -317,6 +318,14 @@ export default function StatusBar({
     }
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showControllerInfo, handleClickOutside])
+  useOverlayDismiss({
+    onDismiss: () => {
+      setShowControllerInfo(false)
+      setPermissionsExpanded(false)
+    },
+    enabled: showControllerInfo,
+    clickOutside: false,
+  })
 
   // Listen for settings changes from the settings panel
   useEffect(() => {
@@ -365,6 +374,7 @@ export default function StatusBar({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [showMcpPopover])
+  useOverlayDismiss({ onDismiss: () => setShowMcpPopover(false), enabled: showMcpPopover, clickOutside: false })
 
   // MCP connect handler
   const handleMcpConnect = useCallback(async (id: string) => {

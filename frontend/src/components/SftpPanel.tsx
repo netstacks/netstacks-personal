@@ -183,6 +183,13 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
 
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
   const sftpId = activeConnectionId;
+  // Latest-value refs for handlers that run from outside React's render
+  // cycle (the Tauri webview drop bridge), so a drop always targets the
+  // currently shown directory on the currently active connection.
+  const sftpIdRef = useRef(sftpId);
+  sftpIdRef.current = sftpId;
+  const rootPathRef = useRef(rootPath);
+  rootPathRef.current = rootPath;
 
   // --- Load root directory ---
 
@@ -438,8 +445,9 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
       };
 
       try {
-        const buffer = await file.arrayBuffer();
-        await sftpUpload(sftpId, transfer.path, buffer, undefined, handleProgress);
+        // Hand the File itself to the request so the browser streams it off
+        // disk instead of reading the whole thing into memory first (NS-FEAT-13).
+        await sftpUpload(sftpId, transfer.path, file, undefined, handleProgress);
 
         if (cancelledTransferIdsRef.current.has(transfer.id)) {
           continue;
@@ -598,8 +606,13 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
   // round-trip) and synthesizes pseudo-File objects so the existing
   // handleUpload path can stay the single source of truth for progress
   // tracking + cancellation.
-  const handleUploadFromPaths = useCallback(async (paths: string[], targetPath: string) => {
-    if (!sftpId || paths.length === 0) return;
+  //
+  // Deliberately not memoized: it must see the latest `handleUpload`
+  // (itself un-memoized) and reads the connection + directory from refs
+  // captured at drop time, not at mount time.
+  const handleUploadFromPaths = async (paths: string[]) => {
+    const targetPath = rootPathRef.current;
+    if (!sftpIdRef.current || paths.length === 0) return;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const fileList: File[] = [];
@@ -634,7 +647,7 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
     } catch (err) {
       console.error('[SftpPanel] Tauri drop upload failed:', err);
     }
-  }, [sftpId]);
+  };
 
   // Tauri v2 captures native OS file drops at the WebView layer before
   // they reach the DOM, so the React onDrop above only fires for
@@ -642,7 +655,7 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
   // the global drag-drop coordinator — see lib/tauriDragDrop.ts.
   useTauriDragDrop({
     selector: '.sftp-panel',
-    onDrop: (paths) => { void handleUploadFromPaths(paths, rootPath); },
+    onDrop: (paths) => { void handleUploadFromPaths(paths); },
   });
 
   // --- Transfer handlers ---

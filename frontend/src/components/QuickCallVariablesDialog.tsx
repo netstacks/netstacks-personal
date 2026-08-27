@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import type { QuickAction } from '../types/quickAction'
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import './QuickCallVariablesDialog.css'
 
 interface Props {
@@ -27,19 +28,20 @@ export default function QuickCallVariablesDialog({ call, variables, onSubmit, on
 
   const canSubmit = variables.every((v) => values[v]?.trim().length > 0)
 
+  // Escape + backdrop click go through the shared overlay hook (the old
+  // element-level onKeyDown only fired while focus was inside the dialog).
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onCancel })
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      onCancel()
-    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {
       e.preventDefault()
       onSubmit(values)
     }
   }
 
   return (
-    <div className="qcv-dialog-overlay" onKeyDown={handleKeyDown}>
-      <div className="qcv-dialog" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+    <div className="qcv-dialog-overlay" {...backdropProps}>
+      <div className="qcv-dialog" {...contentProps} onKeyDown={handleKeyDown}>
         <div className="qcv-dialog-header">
           <h2>Run &ldquo;{call.name}&rdquo;</h2>
           <button className="qcv-dialog-close" onClick={onCancel} title="Cancel">×</button>

@@ -20,6 +20,8 @@ import {
 } from '../lib/wsProtocol';
 
 export interface UseJumpboxTerminalOptions {
+  /** When false the hook is inert (no WebSocket). See useEnterpriseSSH (NS-TERM-13). */
+  enabled?: boolean;
   cols?: number;
   rows?: number;
   onData: (data: string) => void;
@@ -42,7 +44,7 @@ let wsGeneration = 0;
 export function useJumpboxTerminal(
   options: UseJumpboxTerminalOptions
 ): UseJumpboxTerminalReturn {
-  const { cols = 80, rows = 24, onData, onConnected, onDisconnected, onError } = options;
+  const { enabled = true, cols = 80, rows = 24, onData, onConnected, onDisconnected, onError } = options;
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<UseJumpboxTerminalReturn['status']>('disconnected');
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -185,6 +187,7 @@ export function useJumpboxTerminal(
   }, [startKeepalive, clearTimers]);
 
   useEffect(() => {
+    if (!enabled) return;
     connect();
     return () => {
       // Invalidate the current generation so the closing WebSocket's
@@ -197,7 +200,7 @@ export function useJumpboxTerminal(
         wsRef.current = null;
       }
     };
-  }, [connect, clearTimers]);
+  }, [enabled, connect, clearTimers]);
 
   const sendData = useCallback((data: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

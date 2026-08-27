@@ -3,6 +3,7 @@
 
 import { useEffect } from 'react';
 import type { Connection } from '../types/topology';
+import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './ConnectionDetailsOverlay.css';
 
 interface ConnectionDetailsOverlayProps {
@@ -25,19 +26,10 @@ export default function ConnectionDetailsOverlay({
   position,
   onClose,
 }: ConnectionDetailsOverlayProps) {
-  // Close on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
+  const isVisible = connection !== null && position !== null;
 
-    if (connection && position) {
-      document.addEventListener('keydown', handleKeyDown);
-      return () => document.removeEventListener('keydown', handleKeyDown);
-    }
-  }, [connection, position, onClose]);
+  // Close on Escape key
+  useOverlayDismiss({ onDismiss: onClose, enabled: isVisible, clickOutside: false });
 
   // Close on click outside
   useEffect(() => {
@@ -48,14 +40,18 @@ export default function ConnectionDetailsOverlay({
       }
     };
 
-    if (connection && position) {
-      // Delay to prevent immediate close
-      setTimeout(() => {
+    if (isVisible) {
+      // Delay to prevent immediate close. The timer is cancelled on cleanup
+      // so a fast open/close can't arm a listener that is never removed.
+      const timer = setTimeout(() => {
         document.addEventListener('mousedown', handleClickOutside);
       }, 0);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      return () => {
+        clearTimeout(timer);
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
     }
-  }, [connection, position, onClose]);
+  }, [isVisible, onClose]);
 
   if (!connection || !position) return null;
 
