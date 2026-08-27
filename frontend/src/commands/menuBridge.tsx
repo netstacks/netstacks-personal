@@ -31,6 +31,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { dispatchCommand, useCommandStore } from './registry'
 import { useActiveContextStore, getActiveContext } from './activeContext'
+import { getCurrentBinding, isMac, subscribeKeybindings, type KeyboardAction } from '../hooks/useKeyboard'
+import { ACTION_LINKS, toAccelerator } from './keybindingLinks'
 
 /**
  * Mapping from the native menu's item id (defined in main.rs) to the
@@ -189,6 +191,25 @@ export function MenuBridge(): null {
       offCtx()
       offCmd()
     }
+  }, [])
+
+  // Keep native menu accelerators in step with the user's keybindings. On
+  // macOS the OS dispatches a menu accelerator before the webview sees the
+  // key, so a rebound action must move its menu chord too — otherwise the
+  // old chord keeps firing and the new one never can. Nothing to do for the
+  // HTML menu bar (it reads the bindings directly).
+  useEffect(() => {
+    if (!isMac()) return
+    const push = () => {
+      const items = (Object.entries(ACTION_LINKS) as [KeyboardAction, { menuId?: string }][])
+        .filter(([, link]) => link.menuId)
+        .map(([actionId, link]) => ({ id: link.menuId!, accelerator: toAccelerator(getCurrentBinding(actionId)) }))
+      invoke('set_menu_accelerators_batch', { items }).catch(() => {
+        // Older app build without the command: the menu keeps its defaults.
+      })
+    }
+    push()
+    return subscribeKeybindings(push)
   }, [])
 
   return null

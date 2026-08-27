@@ -30,3 +30,12 @@ match historical behavior; each source's target is configurable there.
 
 The AI can read/write docs with the document tools (list/read/search/save_document);
 `read_document` accepts a name or id.
+
+## Console (out-of-band) tools
+
+Two AI tools work through a session's OOB console tab (terminal server serial line):
+`open_console` opens it, `run_console_command` runs read-only commands on it. Both are
+**off by default** — enable them per mode in Settings → AI → AI Tools → OOB Console. The AI
+only types into a console tab you can see, refuses login prompts / ROMMON / config mode, and
+never enters credentials. Console access itself is configured per session (Session Settings →
+Console, or right-click → Open Console).

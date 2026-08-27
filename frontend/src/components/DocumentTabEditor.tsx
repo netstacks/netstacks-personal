@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { useEditorFontSettings } from '../hooks/useEditorFontSettings';
 import './DocumentTabEditor.css';
+import { useShortcut } from '../hooks/useKeyboard'
 import CsvViewer from './CsvViewer';
 import JsonViewer from './JsonViewer';
 import JinjaViewer from './JinjaViewer';
@@ -119,6 +120,7 @@ function countLines(content: string): number {
 }
 
 function DocumentTabEditor({ document, tabId, onSave, onModified }: DocumentTabEditorProps) {
+  const saveShortcut = useShortcut('saveDocument')
   const overlord = useMonacoOverlord();
   const editorFont = useEditorFontSettings();
   const [isEditing, setIsEditing] = useState(false);
@@ -410,7 +412,7 @@ ${editContent}`;
               className="doc-tab-editor-btn primary"
               onClick={handleSave}
               disabled={isSaving}
-              title="Save (Cmd+S)"
+              title={`Save (${saveShortcut})`}
             >
               {Icons.save}
               <span>{isSaving ? 'Saving...' : 'Save'}</span>
@@ -496,7 +498,7 @@ ${editContent}`;
         </span>
         {isModified && (
           <span className="doc-tab-editor-status modified">
-            Unsaved changes <kbd>Cmd+S</kbd>
+            Unsaved changes <kbd>{saveShortcut}</kbd>
           </span>
         )}
       </div>

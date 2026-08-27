@@ -2293,6 +2293,12 @@ pub struct NetBoxDevice {
 
 /// Fetch devices from NetBox with filters (proxied for SSL bypass)
 /// Handles pagination to fetch ALL devices, not just the first page
+/// Cap on NetBox pagination so a NetBox that returns a self-referential
+/// `next` chain (misconfigured or malicious) can't OOM the agent. At
+/// limit=1000 per page, 200 pages = 200k objects — well past anything a
+/// real network ops user has.
+const MAX_NETBOX_PAGES: u32 = 200;
+
 pub async fn netbox_proxy_devices(
     Json(req): Json<NetBoxFetchDevicesRequest>,
 ) -> Result<Json<Vec<NetBoxDevice>>, ApiError> {
@@ -2327,28 +2333,216 @@ pub async fn netbox_proxy_devices(
     let initial_url = build_netbox_url(&req.url, "/dcim/devices/", &params);
     let token = req.token.clone();
 
-    // Collect all devices across all pages. Cap pagination so a NetBox
-    // that returns a self-referential `next` chain (misconfigured or
-    // malicious) can't OOM the agent. At limit=1000 per page, 200 pages =
-    // 200k devices — well past anything a real network ops user has.
-    const MAX_NETBOX_PAGES: u32 = 200;
-    let mut all_devices: Vec<NetBoxDevice> = vec![];
+    let all_devices: Vec<NetBoxDevice> = netbox_fetch_all_pages(&client, &token, initial_url).await?;
+
+    let with_ip = all_devices.iter().filter(|d| d.primary_ip.is_some()).count();
+    tracing::debug!("Total NetBox devices fetched: {} (with primary_ip: {})", all_devices.len(), with_ip);
+
+    Ok(Json(all_devices))
+}
+
+// === NetBox console access (OOB console import) ===
+
+/// Request body for the console-access join: the devices being imported.
+#[derive(Debug, Deserialize)]
+pub struct NetBoxConsoleAccessRequest {
+    pub url: String,
+    pub token: String,
+    #[serde(default = "default_proxy_verify_ssl")]
+    pub verify_ssl: bool,
+    pub device_ids: Vec<i64>,
+}
+
+/// The console server a device's console port is cabled to.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct NetBoxConsoleServerRef {
+    pub id: i64,
+    pub name: String,
+    /// primary_ip4 → primary_ip → oob_ip, CIDR stripped; `None` = no IP
+    pub host: Option<String>,
+    pub manufacturer_slug: Option<String>,
+}
+
+/// Why NetBox does not describe a usable console path for a device.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsoleSkip {
+    NoConsolePort,
+    NotCabled,
+    NoTcpPort,
+    ServerNoIp,
+}
+
+/// Console access resolved for one imported device. `skip` (with the
+/// human-readable `skip_reason`) is set when NetBox does not describe a
+/// usable console path; the importer reports the reason rather than guessing.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct NetBoxConsoleAccess {
+    pub device_id: i64,
+    pub console_port_name: Option<String>,
+    pub tcp_port: Option<u16>,
+    pub console_server: Option<NetBoxConsoleServerRef>,
+    pub skip: Option<ConsoleSkip>,
+    pub skip_reason: Option<String>,
+}
+
+/// Custom field on `dcim.consoleport` that carries the terminal-server TCP
+/// port for that line. Documented at netstacks.net/docs (NetBox console access).
+pub const NETBOX_CONSOLE_PORT_CF: &str = "device_console";
+
+/// NetBox `device_id` filters per request; keeps URLs well under proxy limits.
+const NETBOX_ID_CHUNK: usize = 100;
+
+/// What one `dcim.consoleport` record tells us, before the console server
+/// device is looked up.
+#[derive(Debug, Clone, PartialEq)]
+struct ParsedConsolePort {
+    device_id: i64,
+    name: String,
+    /// `(console server device id, console server name)` when cabled to a
+    /// `dcim.consoleserverport`
+    server: Option<(i64, String)>,
+    /// `device_console` custom field: `Ok(port)`, `Err(reason)` when absent/invalid
+    tcp_port: Result<u16, String>,
+}
+
+/// Parse a NetBox console-port object. Handles both the ≥3.3 plural
+/// `connected_endpoints[]` and the older singular `connected_endpoint`.
+fn parse_console_port(v: &serde_json::Value) -> Option<ParsedConsolePort> {
+    let device_id = v.get("device")?.get("id")?.as_i64()?;
+    let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+
+    let endpoint_type = v
+        .get("connected_endpoints_type")
+        .or_else(|| v.get("connected_endpoint_type"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+    let endpoint = v
+        .get("connected_endpoints")
+        .and_then(|e| e.as_array())
+        .and_then(|a| a.first())
+        .or_else(|| v.get("connected_endpoint").filter(|e| e.is_object()));
+    let server = if endpoint_type == "dcim.consoleserverport" {
+        endpoint.and_then(|e| {
+            let dev = e.get("device")?;
+            let id = dev.get("id")?.as_i64()?;
+            let name = dev.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            Some((id, name))
+        })
+    } else {
+        None
+    };
+
+    let cf = v.get("custom_fields").and_then(|c| c.get(NETBOX_CONSOLE_PORT_CF));
+    let tcp_port = match cf {
+        None | Some(serde_json::Value::Null) => Err(format!("no `{}` custom field (TCP port) on console port", NETBOX_CONSOLE_PORT_CF)),
+        Some(serde_json::Value::Number(n)) => n
+            .as_i64()
+            .and_then(|p| u16::try_from(p).ok())
+            .filter(|p| *p > 0)
+            .ok_or_else(|| format!("`{}` must be a TCP port 1-65535, got {}", NETBOX_CONSOLE_PORT_CF, n)),
+        Some(serde_json::Value::String(t)) => t
+            .trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|p| *p > 0)
+            .ok_or_else(|| format!("`{}` must be a TCP port 1-65535, got \"{}\"", NETBOX_CONSOLE_PORT_CF, t)),
+        Some(other) => Err(format!("`{}` must be a TCP port 1-65535, got {}", NETBOX_CONSOLE_PORT_CF, other)),
+    };
+
+    Some(ParsedConsolePort { device_id, name, server, tcp_port })
+}
+
+/// Console server reachability from a NetBox device object.
+fn parse_console_server(v: &serde_json::Value) -> Option<NetBoxConsoleServerRef> {
+    let id = v.get("id")?.as_i64()?;
+    let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let host = ["primary_ip4", "primary_ip", "oob_ip"].iter().find_map(|key| {
+        v.get(*key)
+            .and_then(|ip| ip.get("address"))
+            .and_then(|a| a.as_str())
+            .map(|a| a.split('/').next().unwrap_or(a).to_string())
+            .filter(|a| !a.is_empty())
+    });
+    let manufacturer_slug = v
+        .get("device_type")
+        .and_then(|dt| dt.get("manufacturer"))
+        .and_then(|m| m.get("slug"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_lowercase());
+    Some(NetBoxConsoleServerRef { id, name, host, manufacturer_slug })
+}
+
+/// Pick the console path for a device from its console ports: the first
+/// port that is cabled to a console server *and* carries a TCP port wins;
+/// otherwise the most specific skip reason seen.
+fn resolve_console_access(
+    device_id: i64,
+    ports: &[ParsedConsolePort],
+    servers: &std::collections::HashMap<i64, NetBoxConsoleServerRef>,
+) -> NetBoxConsoleAccess {
+    let skipped = |port_name: Option<String>, skip: ConsoleSkip, reason: String| NetBoxConsoleAccess {
+        device_id,
+        console_port_name: port_name,
+        tcp_port: None,
+        console_server: None,
+        skip: Some(skip),
+        skip_reason: Some(reason),
+    };
+    if ports.is_empty() {
+        return skipped(None, ConsoleSkip::NoConsolePort, "no console port in NetBox".to_string());
+    }
+    let mut best_reason: Option<(String, ConsoleSkip, String)> = None;
+    for port in ports {
+        let (server_id, server_name) = match &port.server {
+            Some(s) => s.clone(),
+            None => {
+                best_reason.get_or_insert((port.name.clone(), ConsoleSkip::NotCabled, "console port is not cabled to a console server".to_string()));
+                continue;
+            }
+        };
+        let tcp_port = match &port.tcp_port {
+            Ok(p) => *p,
+            Err(reason) => {
+                best_reason = Some((port.name.clone(), ConsoleSkip::NoTcpPort, reason.clone()));
+                continue;
+            }
+        };
+        let Some(server) = servers.get(&server_id).filter(|s| s.host.is_some()) else {
+            best_reason = Some((port.name.clone(), ConsoleSkip::ServerNoIp, format!("console server \"{}\" has no primary or OOB IP", server_name)));
+            continue;
+        };
+        return NetBoxConsoleAccess {
+            device_id,
+            console_port_name: Some(port.name.clone()),
+            tcp_port: Some(tcp_port),
+            console_server: Some(server.clone()),
+            skip: None,
+            skip_reason: None,
+        };
+    }
+    let (port_name, skip, reason) = best_reason.expect("non-empty ports always record a reason");
+    skipped(Some(port_name), skip, reason)
+}
+
+/// Fetch every page of a NetBox list endpoint, following `next` up to
+/// `MAX_NETBOX_PAGES`.
+async fn netbox_fetch_all_pages<T: serde::de::DeserializeOwned>(
+    client: &reqwest::Client,
+    token: &str,
+    initial_url: String,
+) -> Result<Vec<T>, ApiError> {
+    let mut results: Vec<T> = vec![];
     let mut next_url: Option<String> = Some(initial_url);
     let mut page_count: u32 = 0;
-
     while let Some(api_url) = next_url {
         page_count += 1;
         if page_count > MAX_NETBOX_PAGES {
             return Err(ApiError {
-                error: format!(
-                    "NetBox returned more than {} pages of devices — aborting to prevent runaway memory use",
-                    MAX_NETBOX_PAGES,
-                ),
+                error: format!("NetBox returned more than {} pages — aborting to prevent runaway memory use", MAX_NETBOX_PAGES),
                 code: "NETBOX_TOO_MANY_PAGES".to_string(),
             });
         }
-        tracing::debug!("Fetching NetBox devices page {} from: {}", page_count, api_url);
-
         let response = client
             .get(&api_url)
             .header("Authorization", format!("Token {}", token))
@@ -2356,42 +2550,97 @@ pub async fn netbox_proxy_devices(
             .timeout(std::time::Duration::from_secs(60))
             .send()
             .await
-            .map_err(|e| ApiError {
-                error: format!("Request failed: {}", e),
-                code: "REQUEST_ERROR".to_string(),
-            })?;
-
+            .map_err(|e| ApiError { error: format!("Request failed: {}", e), code: "REQUEST_ERROR".to_string() })?;
         if !response.status().is_success() {
             return Err(ApiError {
                 error: format!("NetBox API error: {}", response.status()),
                 code: "NETBOX_ERROR".to_string(),
             });
         }
-
-        let raw_text = response.text().await.map_err(|e| ApiError {
-            error: format!("Failed to read response: {}", e),
-            code: "READ_ERROR".to_string(),
-        })?;
-
-        let data: NetBoxPaginatedResponse<NetBoxDevice> = serde_json::from_str(&raw_text)
-            .map_err(|e| ApiError {
-                error: format!("Failed to parse response: {}", e),
-                code: "PARSE_ERROR".to_string(),
-            })?;
-
-        tracing::debug!("Page {} returned {} devices (total count: {})", page_count, data.results.len(), data.count);
-        all_devices.extend(data.results);
-
-        // Check for next page
+        let data: NetBoxPaginatedResponse<T> = response
+            .json()
+            .await
+            .map_err(|e| ApiError { error: format!("Failed to parse response: {}", e), code: "PARSE_ERROR".to_string() })?;
+        results.extend(data.results);
         next_url = data.next;
     }
+    Ok(results)
+}
 
-    // Log summary
-    let with_ip = all_devices.iter().filter(|d| d.primary_ip.is_some()).count();
-    tracing::debug!("Total devices fetched across {} pages: {} (with primary_ip: {})",
-              page_count, all_devices.len(), with_ip);
+/// Requests in flight at once when a lookup is split into id chunks.
+const NETBOX_CONCURRENT_REQUESTS: usize = 4;
 
-    Ok(Json(all_devices))
+/// List `path` filtered by `key=<id>` for every id, `NETBOX_ID_CHUNK` ids per
+/// request, requests overlapped `NETBOX_CONCURRENT_REQUESTS` at a time.
+async fn netbox_fetch_by_ids(
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    path: &str,
+    key: &str,
+    ids: &[i64],
+) -> Result<Vec<serde_json::Value>, ApiError> {
+    use futures::{StreamExt, TryStreamExt};
+    let limit_vec = vec!["1000".to_string()];
+    let urls: Vec<String> = ids
+        .chunks(NETBOX_ID_CHUNK)
+        .map(|chunk| {
+            let chunk_ids: Vec<String> = chunk.iter().map(|id| id.to_string()).collect();
+            build_netbox_url(base_url, path, &[(key, &chunk_ids), ("limit", &limit_vec)])
+        })
+        .collect();
+    let pages: Vec<Vec<serde_json::Value>> = futures::stream::iter(urls)
+        .map(|url| netbox_fetch_all_pages::<serde_json::Value>(client, token, url))
+        .buffer_unordered(NETBOX_CONCURRENT_REQUESTS)
+        .try_collect()
+        .await?;
+    Ok(pages.into_iter().flatten().collect())
+}
+
+/// POST /netbox/proxy/console-access — resolve OOB console access for the
+/// given devices from NetBox: each device's console port, the console
+/// server it is cabled to, that server's IP, and the `device_console`
+/// custom field (TCP port). One entry per requested device.
+pub async fn netbox_proxy_console_access(
+    Json(req): Json<NetBoxConsoleAccessRequest>,
+) -> Result<Json<Vec<NetBoxConsoleAccess>>, ApiError> {
+    validate_proxy_url(&req.url)?;
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(!req.verify_ssl)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    // 1. Console ports of the requested devices.
+    let mut ports_by_device: std::collections::HashMap<i64, Vec<ParsedConsolePort>> = std::collections::HashMap::new();
+    for raw in netbox_fetch_by_ids(&client, &req.url, &req.token, "/dcim/console-ports/", "device_id", &req.device_ids).await? {
+        if let Some(port) = parse_console_port(&raw) {
+            ports_by_device.entry(port.device_id).or_default().push(port);
+        }
+    }
+
+    // 2. The console servers those ports are cabled to (for IP + manufacturer).
+    let mut server_ids: Vec<i64> = ports_by_device
+        .values()
+        .flatten()
+        .filter_map(|p| p.server.as_ref().map(|(id, _)| *id))
+        .collect();
+    server_ids.sort_unstable();
+    server_ids.dedup();
+    let mut servers: std::collections::HashMap<i64, NetBoxConsoleServerRef> = std::collections::HashMap::new();
+    for raw in netbox_fetch_by_ids(&client, &req.url, &req.token, "/dcim/devices/", "id", &server_ids).await? {
+        if let Some(server) = parse_console_server(&raw) {
+            servers.insert(server.id, server);
+        }
+    }
+
+    // 3. One verdict per requested device.
+    let empty: Vec<ParsedConsolePort> = vec![];
+    let results = req
+        .device_ids
+        .iter()
+        .map(|id| resolve_console_access(*id, ports_by_device.get(id).unwrap_or(&empty), &servers))
+        .collect();
+    Ok(Json(results))
 }
 
 /// GET /netbox-sources/:id/devices — list all devices for a saved NetBox source.
@@ -11946,6 +12195,100 @@ pub async fn local_run_python(
 
     Ok(Sse::new(ReceiverStream::new(rx))
         .keep_alive(KeepAlive::default()))
+}
+
+#[cfg(test)]
+mod netbox_console_access_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn port(device_id: i64, cf: serde_json::Value, cabled: bool) -> serde_json::Value {
+        let mut v = json!({
+            "id": 1, "name": "console", "device": {"id": device_id, "name": "edge"},
+            "custom_fields": {"device_console": cf},
+        });
+        if cabled {
+            v["connected_endpoints_type"] = json!("dcim.consoleserverport");
+            v["connected_endpoints"] = json!([{"id": 9, "name": "port07", "device": {"id": 500, "name": "oob-den1"}}]);
+        }
+        v
+    }
+
+    #[test]
+    fn parses_cabled_port_with_tcp_port() {
+        let p = parse_console_port(&port(7, json!(3007), true)).unwrap();
+        assert_eq!(p.device_id, 7);
+        assert_eq!(p.server, Some((500, "oob-den1".to_string())));
+        assert_eq!(p.tcp_port, Ok(3007));
+        // String-typed custom fields are accepted too.
+        let p = parse_console_port(&port(7, json!("2007"), true)).unwrap();
+        assert_eq!(p.tcp_port, Ok(2007));
+    }
+
+    #[test]
+    fn legacy_singular_connected_endpoint_is_accepted() {
+        let mut v = port(7, json!(3007), false);
+        v["connected_endpoint_type"] = json!("dcim.consoleserverport");
+        v["connected_endpoint"] = json!({"id": 9, "device": {"id": 500, "name": "oob-den1"}});
+        let p = parse_console_port(&v).unwrap();
+        assert_eq!(p.server, Some((500, "oob-den1".to_string())));
+    }
+
+    #[test]
+    fn interface_cable_is_not_a_console_server() {
+        let mut v = port(7, json!(3007), true);
+        v["connected_endpoints_type"] = json!("dcim.interface");
+        assert_eq!(parse_console_port(&v).unwrap().server, None);
+    }
+
+    #[test]
+    fn custom_field_validation() {
+        assert!(parse_console_port(&port(7, json!(null), true)).unwrap().tcp_port.unwrap_err().contains("no `device_console`"));
+        assert!(parse_console_port(&port(7, json!(0), true)).unwrap().tcp_port.is_err());
+        assert!(parse_console_port(&port(7, json!(70000), true)).unwrap().tcp_port.is_err());
+        assert!(parse_console_port(&port(7, json!("abc"), true)).unwrap().tcp_port.is_err());
+    }
+
+    #[test]
+    fn console_server_host_prefers_primary_ip4_then_oob_and_strips_cidr() {
+        let s = parse_console_server(&json!({
+            "id": 500, "name": "oob-den1",
+            "primary_ip4": {"address": "10.9.0.5/24"}, "oob_ip": {"address": "192.0.2.1/32"},
+            "device_type": {"manufacturer": {"slug": "Opengear"}},
+        })).unwrap();
+        assert_eq!(s.host.as_deref(), Some("10.9.0.5"));
+        assert_eq!(s.manufacturer_slug.as_deref(), Some("opengear"));
+        let s = parse_console_server(&json!({"id": 501, "name": "ts", "primary_ip4": null, "oob_ip": {"address": "192.0.2.1/32"}})).unwrap();
+        assert_eq!(s.host.as_deref(), Some("192.0.2.1"));
+        let s = parse_console_server(&json!({"id": 502, "name": "ts"})).unwrap();
+        assert_eq!(s.host, None);
+    }
+
+    #[test]
+    fn resolution_picks_usable_port_and_reports_reasons() {
+        let mut servers = std::collections::HashMap::new();
+        servers.insert(500, NetBoxConsoleServerRef { id: 500, name: "oob-den1".into(), host: Some("10.9.0.5".into()), manufacturer_slug: Some("opengear".into()) });
+        servers.insert(501, NetBoxConsoleServerRef { id: 501, name: "ts-noip".into(), host: None, manufacturer_slug: None });
+
+        let usable = parse_console_port(&port(7, json!(3007), true)).unwrap();
+        let uncabled = parse_console_port(&port(7, json!(3007), false)).unwrap();
+        let no_cf = parse_console_port(&port(7, json!(null), true)).unwrap();
+
+        let r = resolve_console_access(7, &[uncabled.clone(), usable.clone()], &servers);
+        assert_eq!(r.tcp_port, Some(3007));
+        assert_eq!(r.console_server.as_ref().and_then(|s| s.host.clone()).as_deref(), Some("10.9.0.5"));
+        assert_eq!(r.skip_reason, None);
+
+        assert_eq!(resolve_console_access(7, &[], &servers).skip, Some(ConsoleSkip::NoConsolePort));
+        assert_eq!(resolve_console_access(7, &[uncabled], &servers).skip, Some(ConsoleSkip::NotCabled));
+        assert_eq!(resolve_console_access(7, &[no_cf], &servers).skip, Some(ConsoleSkip::NoTcpPort));
+
+        let mut no_ip = usable;
+        no_ip.server = Some((501, "ts-noip".into()));
+        let r = resolve_console_access(7, &[no_ip], &servers);
+        assert_eq!(r.skip, Some(ConsoleSkip::ServerNoIp));
+        assert!(r.skip_reason.unwrap().contains("ts-noip"));
+    }
 }
 
 #[cfg(test)]

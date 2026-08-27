@@ -17,6 +17,8 @@ interface WorkspaceCodeEditorProps {
   isModified: boolean
   onModifiedChange: (modified: boolean) => void
   onRunFile?: (filePath: string) => void
+  /** True when this editor is the visible one in the active workspace tab. */
+  isActive: boolean
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -51,6 +53,7 @@ export default function WorkspaceCodeEditor({
   fileOps,
   onModifiedChange,
   onRunFile,
+  isActive,
 }: WorkspaceCodeEditorProps) {
   const [initialContent, setInitialContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -146,18 +149,15 @@ export default function WorkspaceCodeEditor({
     })
   }, [overlord])
 
-  // Window-level Cmd+S capture for when Monaco doesn't have focus
+  // File → Save / Cmd+S when Monaco doesn't have focus: App dispatches
+  // `netstacks:save-document` for the active tab; only the visible editor of
+  // the active workspace tab answers (one save path, no global key grab).
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's' && editorRef.current) {
-        e.preventDefault()
-        e.stopPropagation()
-        editorRef.current.getAction('workspace-save')?.run()
-      }
-    }
-    window.addEventListener('keydown', handler, true)
-    return () => window.removeEventListener('keydown', handler, true)
-  }, [])
+    if (!isActive) return
+    const handler = () => { editorRef.current?.getAction('workspace-save')?.run() }
+    window.addEventListener('netstacks:save-document', handler)
+    return () => window.removeEventListener('netstacks:save-document', handler)
+  }, [isActive])
 
   if (loading) {
     return <div className="workspace-empty-state"><div>Loading...</div></div>

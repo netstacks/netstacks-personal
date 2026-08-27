@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getToolByName } from '../agentTools'
+import { getToolByName, getAvailableTools, TOOL_REGISTRY } from '../agentTools'
 
 describe('document tools cover all categories', () => {
   const cats = ['outputs', 'templates', 'notes', 'backups', 'history', 'troubleshooting', 'mops']
@@ -18,5 +18,19 @@ describe('document tools cover all categories', () => {
     expect(Object.keys(def!.parameters.properties)).toContain('name')
     expect(Object.keys(def!.parameters.properties)).toContain('document_id')
     expect(def!.parameters.required).toEqual([])
+  })
+})
+
+describe('OOB console tools', () => {
+  it('are defined, registered as default-off, and removable via disabled list', () => {
+    for (const name of ['open_console', 'run_console_command']) {
+      expect(getToolByName(name)).toBeTruthy()
+      const entry = TOOL_REGISTRY.find((t) => t.name === name)
+      expect(entry?.category).toBe('console')
+      expect(entry?.defaultDisabled).toBe(true)
+    }
+    const names = (disabled: string[]) => getAvailableTools({ hasSessions: true, hasExecuteCommand: true }, disabled).map((t) => t.name)
+    expect(names([])).toEqual(expect.arrayContaining(['open_console', 'run_console_command']))
+    expect(names(['open_console', 'run_console_command'])).not.toEqual(expect.arrayContaining(['open_console']))
   })
 })

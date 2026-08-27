@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { DEFAULT_DISABLED_TOOLS } from '../lib/agentTools';
 
 // AI provider type (matches api/ai.ts)
 export type AiProviderType = 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'litellm' | 'custom';
@@ -53,6 +54,9 @@ export interface AppSettings {
   // Per-agent-type disabled tools (overrides global when set)
   'ai.disabledTools.autopilot': string[];
   'ai.disabledTools.overlord': string[];
+  // Default-off tools already pushed into the per-mode lists above, so a
+  // user's later re-enable is not undone on the next load
+  'ai.disabledTools.seeded': string[];
   // Bash deny list — extra commands to block (added to built-in deny list)
   'ai.bash.deniedCommands': string[];
 
@@ -161,10 +165,11 @@ const defaultSettings: AppSettings = {
   'ai.overlord.provider': null,
   'ai.overlord.model': null,
 
-  // AI Tools - all enabled by default (empty array = no disabled tools)
+  // AI Tools - enabled by default except the registry's default-off tools
   'ai.disabledTools': [],
-  'ai.disabledTools.autopilot': [],
-  'ai.disabledTools.overlord': ['run_bash'],
+  'ai.disabledTools.autopilot': [...DEFAULT_DISABLED_TOOLS],
+  'ai.disabledTools.overlord': ['run_bash', ...DEFAULT_DISABLED_TOOLS],
+  'ai.disabledTools.seeded': [...DEFAULT_DISABLED_TOOLS],
   'ai.bash.deniedCommands': [],
 
   // AI Context Management - 0 means unlimited
@@ -264,12 +269,32 @@ export function coerceNumericSettings(settings: Record<string, unknown>): AppSet
   return out as unknown as AppSettings;
 }
 
+/**
+ * Tools flagged `defaultDisabled` in the registry start off in every mode
+ * (they are in the defaults above). Settings load as `{...defaults, ...stored}`,
+ * so a new default-off tool would never reach users who already have a stored
+ * list — seed it once per tool and remember that in `ai.disabledTools.seeded`
+ * so re-enabling sticks. Exported for the hook's tests.
+ */
+export function seedDefaultDisabledTools(settings: AppSettings): AppSettings {
+  const seeded = new Set(settings['ai.disabledTools.seeded']);
+  const fresh = DEFAULT_DISABLED_TOOLS.filter((name) => !seeded.has(name));
+  if (fresh.length === 0) return settings;
+  const withFresh = (list: string[]) => [...list, ...fresh.filter((n) => !list.includes(n))];
+  return {
+    ...settings,
+    'ai.disabledTools.autopilot': withFresh(settings['ai.disabledTools.autopilot']),
+    'ai.disabledTools.overlord': withFresh(settings['ai.disabledTools.overlord']),
+    'ai.disabledTools.seeded': [...seeded, ...fresh],
+  };
+}
+
 function loadSettings(): AppSettings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = migrateSettings(JSON.parse(stored));
-      return coerceNumericSettings({ ...defaultSettings, ...parsed });
+      return seedDefaultDisabledTools(coerceNumericSettings({ ...defaultSettings, ...parsed }));
     }
   } catch (e) {
     console.warn('Failed to load settings:', e);

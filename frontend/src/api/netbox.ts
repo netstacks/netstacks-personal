@@ -1,7 +1,9 @@
 // NetBox DCIM API client for topology import
 
 import { getClient, getCurrentMode } from './client';
-import type { CliFlavor } from './sessions';
+import type { CliFlavor, Protocol } from './sessions';
+import { getErrorMessage } from './errors';
+import type { ConsoleProtocolMappings } from './netboxSources';
 import type {
   NetBoxConfig,
   NetBoxDeviceFilter,
@@ -274,6 +276,58 @@ export async function fetchDevices(
     timeout: 300000,
   });
   return devices;
+}
+
+// === Console access (OOB console import) ===
+
+/** The console server a device's console port is cabled to (from NetBox). */
+export interface NetBoxConsoleServerRef {
+  id: number;
+  name: string;
+  /** primary_ip4 → primary_ip → oob_ip, CIDR stripped; null = no IP */
+  host: string | null;
+  manufacturer_slug: string | null;
+}
+
+/** Why NetBox does not describe a usable console path (mirrors the agent's `ConsoleSkip`). */
+export type NetBoxConsoleSkip = 'no_console_port' | 'not_cabled' | 'no_tcp_port' | 'server_no_ip';
+
+/**
+ * Console access resolved by the agent for one device: the console port, the
+ * console server it is cabled to, and the `device_console` custom field (TCP
+ * port). `skip` (+ human-readable `skip_reason`) is set when NetBox does not
+ * describe a usable path.
+ */
+export interface NetBoxConsoleAccess {
+  device_id: number;
+  console_port_name: string | null;
+  tcp_port: number | null;
+  console_server: NetBoxConsoleServerRef | null;
+  skip: NetBoxConsoleSkip | null;
+  skip_reason: string | null;
+}
+
+/** Custom field on NetBox console ports that carries the terminal-server TCP port. */
+export const NETBOX_CONSOLE_PORT_CF = 'device_console';
+
+/** Where the NetBox console-access setup is documented for users. */
+export const NETBOX_CONSOLE_DOCS_URL = 'https://netstacks.net/docs/netbox-console-access';
+
+/**
+ * Resolve console access for the given devices via the agent (one call; the
+ * agent joins console ports → cables → console server devices).
+ */
+export async function fetchConsoleAccess(
+  config: NetBoxConfig,
+  deviceIds: number[],
+): Promise<NetBoxConsoleAccess[]> {
+  if (getCurrentMode() === 'enterprise' || deviceIds.length === 0) return [];
+  const { data } = await getClient().http.post(
+    '/netbox/proxy/console-access',
+    { url: config.url, token: config.token, verify_ssl: config.verify_ssl ?? true, device_ids: deviceIds },
+    { timeout: 300000 },
+  );
+  return data;
 }
 
 /**
@@ -766,6 +820,16 @@ export interface SessionImportCounts {
   create_failed: number;
   /** Existing session count read for dedup (sanity check). */
   existing_sessions: number;
+  /** New sessions created with console access from NetBox. */
+  console_set: number;
+  /** Existing sessions whose console access was updated from NetBox. */
+  console_updated: number;
+  /** Existing sessions whose console access already matched NetBox. */
+  console_unchanged: number;
+  /** Devices with a console port that NetBox could not resolve to a usable path. */
+  console_skipped: number;
+  /** Devices with no console port at all in NetBox. */
+  console_missing: number;
 }
 
 /**
@@ -874,6 +938,52 @@ export interface ImportSourceConfig {
     by_manufacturer: Record<string, CliFlavor>;
     by_platform: Record<string, CliFlavor>;
   };
+  /** Terminal-server login for imported console access (null = none). */
+  consoleProfileId: string | null;
+  consoleProtocolMappings: ConsoleProtocolMappings;
+}
+
+/** Console fields the importer writes on a session. */
+export interface ImportedConsoleFields {
+  console_host: string;
+  console_port: number;
+  console_protocol: Protocol;
+  console_profile_id: string | null;
+}
+
+/** Outcome of turning a NetBox console path into session fields. */
+export type ConsoleResolution =
+  | { fields: ImportedConsoleFields }
+  | { skip: NetBoxConsoleSkip | 'ssh_needs_profile'; reason: string };
+
+/**
+ * Turn a resolved NetBox console path into session fields. Protocol comes
+ * from the source's per-console-server-manufacturer rules (NetBox has no
+ * field for it); the login profile is the source's console profile. An SSH
+ * console with no terminal-server profile is skipped: the agent rejects it
+ * and it could not connect anyway.
+ */
+export function consoleFieldsFromAccess(
+  access: NetBoxConsoleAccess,
+  sourceConfig: Pick<ImportSourceConfig, 'consoleProfileId' | 'consoleProtocolMappings'>,
+): ConsoleResolution {
+  if (access.skip || !access.tcp_port || !access.console_server?.host) {
+    return { skip: access.skip ?? 'server_no_ip', reason: access.skip_reason ?? 'console path incomplete' };
+  }
+  const slug = access.console_server.manufacturer_slug?.toLowerCase();
+  const protocol = (slug && sourceConfig.consoleProtocolMappings.by_manufacturer[slug])
+    || sourceConfig.consoleProtocolMappings.default;
+  if (protocol === 'ssh' && !sourceConfig.consoleProfileId) {
+    return { skip: 'ssh_needs_profile', reason: 'SSH console needs a terminal-server profile on the NetBox source' };
+  }
+  return {
+    fields: {
+      console_host: access.console_server.host,
+      console_port: access.tcp_port,
+      console_protocol: protocol,
+      console_profile_id: sourceConfig.consoleProfileId,
+    },
+  };
 }
 
 /**
@@ -911,6 +1021,10 @@ interface ExistingSession {
   host: string;
   netbox_device_id: number | null;
   netbox_source_id: string | null;
+  console_host: string | null;
+  console_port: number | null;
+  console_protocol: Protocol;
+  console_profile_id: string | null;
 }
 
 /**
@@ -948,11 +1062,13 @@ export async function importDevicesAsSessions(
     netbox_device_id?: number | null;
     netbox_source_id?: string | null;
     cli_flavor?: CliFlavor;
-  }) => Promise<{ id: string }>,
+  } & Partial<ImportedConsoleFields>) => Promise<{ id: string }>,
   createFolderFn: (name: string) => Promise<{ id: string }>,
   listFoldersFn: () => Promise<{ id: string; name: string }[]>,
   sourceConfig: ImportSourceConfig,
-  listSessionsFn?: () => Promise<ExistingSession[]>
+  listSessionsFn?: () => Promise<ExistingSession[]>,
+  /** When given, console access on already-imported sessions is refreshed from NetBox. */
+  updateSessionFn?: (id: string, fields: ImportedConsoleFields) => Promise<unknown>,
 ): Promise<SessionImportResult> {
   const result: SessionImportResult = {
     sessions_created: 0,
@@ -1003,6 +1119,47 @@ export async function importDevicesAsSessions(
     sessionsByNameHost.set(`${session.name}:${session.host}`, session);
   }
 
+  /** Existing session for a device (NetBox id first, then name + host). */
+  const findExisting = (device: NetBoxDevice, host: string): ExistingSession | undefined =>
+    sessionsByNetBoxId.get(`${sourceConfig.sourceId}:${device.id}`) ?? sessionsByNameHost.get(`${device.name}:${host}`);
+  const hostOf = (device: NetBoxDevice): string =>
+    (device.primary_ip!.address || device.primary_ip!.display || '').split('/')[0];
+
+  // Console access from NetBox (console port → cable → console server), one
+  // call for the devices whose result will be used: new sessions, plus
+  // existing ones when a refresh was requested. A lookup failure degrades to
+  // "no console" with a warning rather than aborting the import.
+  const consoleByDevice = new Map<number, NetBoxConsoleAccess>();
+  const consoleDeviceIds = devicesWithIp
+    .filter(d => updateSessionFn || !findExisting(d, hostOf(d)))
+    .map(d => d.id);
+  try {
+    for (const access of await fetchConsoleAccess(config, consoleDeviceIds)) {
+      consoleByDevice.set(access.device_id, access);
+    }
+  } catch (error) {
+    result.warnings.push(`Console access lookup failed (sessions imported without console access): ${getErrorMessage(error)}`);
+  }
+  let consoleSetCount = 0;
+  let consoleUpdatedCount = 0;
+  let consoleUnchangedCount = 0;
+  let consoleSkippedCount = 0;
+  let consoleMissingCount = 0;
+  /** Console fields for a device, or null with the reason recorded once. */
+  const resolveConsole = (device: NetBoxDevice): ImportedConsoleFields | null => {
+    const access = consoleByDevice.get(device.id);
+    if (!access) return null;
+    const resolution = consoleFieldsFromAccess(access, sourceConfig);
+    if ('fields' in resolution) return resolution.fields;
+    if (resolution.skip === 'no_console_port') {
+      consoleMissingCount++;
+    } else {
+      consoleSkippedCount++;
+      result.warnings.push(`Console skipped for ${device.name}: ${resolution.reason}`);
+    }
+    return null;
+  };
+
   // Group devices by site
   const devicesBySite = new Map<string, typeof devicesWithIp>();
   for (const device of devicesWithIp) {
@@ -1038,30 +1195,33 @@ export async function importDevicesAsSessions(
     for (const device of siteDevices) {
       try {
         // Strip CIDR notation from IP (e.g., "192.168.1.1/24" -> "192.168.1.1")
-        // Use address field, fall back to display field
-        const ipValue = device.primary_ip!.address || device.primary_ip!.display || '';
-        const host = ipValue.split('/')[0];
+        const host = hostOf(device);
 
-        // Check for existing session (duplicate detection)
-        let existingSession: ExistingSession | undefined;
-
-        // First, check by NetBox device ID (most reliable for re-syncs)
-        if (sourceConfig) {
-          const netboxKey = `${sourceConfig.sourceId}:${device.id}`;
-          existingSession = sessionsByNetBoxId.get(netboxKey);
-        }
-
-        // Fallback: check by name + host
-        if (!existingSession) {
-          const nameHostKey = `${device.name}:${host}`;
-          existingSession = sessionsByNameHost.get(nameHostKey);
-        }
+        // Duplicate detection: NetBox device id (reliable for re-syncs), then name + host
+        const existingSession = findExisting(device, host);
 
         if (existingSession) {
-          // Session already exists - skip it
+          // Session already exists - skip it, but refresh its console access
+          // from NetBox when asked (the only field set the importer owns on
+          // existing sessions; host/profile/folder are never touched).
           alreadyExistsCount++;
           result.skipped++;
           result.warnings.push(`Skipped ${device.name}: session already exists`);
+          if (updateSessionFn) {
+            const fields = resolveConsole(device);
+            if (fields) {
+              const same = existingSession.console_host === fields.console_host
+                && existingSession.console_port === fields.console_port
+                && existingSession.console_protocol === fields.console_protocol
+                && existingSession.console_profile_id === fields.console_profile_id;
+              if (same) {
+                consoleUnchangedCount++;
+              } else {
+                await updateSessionFn(existingSession.id, fields);
+                consoleUpdatedCount++;
+              }
+            }
+          }
           continue;
         }
 
@@ -1078,6 +1238,7 @@ export async function importDevicesAsSessions(
 
         // Resolve CLI flavor from source's per-manufacturer/per-platform mappings
         const cliFlavor = resolveCliFlavor(device, sourceConfig.cliFlavorMappings);
+        const consoleFields = resolveConsole(device);
 
         await createSessionFn({
           name: device.name,
@@ -1087,19 +1248,13 @@ export async function importDevicesAsSessions(
           netbox_device_id: device.id,
           netbox_source_id: sourceConfig.sourceId,
           cli_flavor: cliFlavor,
+          ...(consoleFields ?? {}),
         });
         result.sessions_created++;
+        if (consoleFields) consoleSetCount++;
       } catch (error) {
         createFailCount++;
-        // Extract the most useful piece of an axios error — the server's response body
-        // when present, otherwise the message. Default toString() is unhelpful.
-        const err = error as { message?: string; response?: { data?: { error?: string } | string } };
-        const responseData = err?.response?.data;
-        const serverMsg =
-          typeof responseData === 'string'
-            ? responseData
-            : responseData?.error ?? err?.message ?? String(error);
-        result.warnings.push(`Failed to create session for ${device.name}: ${serverMsg}`);
+        result.warnings.push(`Failed to create session for ${device.name}: ${getErrorMessage(error)}`);
       }
     }
   }
@@ -1117,10 +1272,16 @@ export async function importDevicesAsSessions(
     folder_failed: folderFailDeviceCount,
     create_failed: createFailCount,
     existing_sessions: existingSessions.length,
+    console_set: consoleSetCount,
+    console_updated: consoleUpdatedCount,
+    console_unchanged: consoleUnchangedCount,
+    console_skipped: consoleSkippedCount,
+    console_missing: consoleMissingCount,
   };
 
   return result;
 }
+
 
 // === IP Address Lookup (for traceroute enrichment) ===
 

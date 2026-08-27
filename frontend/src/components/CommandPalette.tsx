@@ -7,7 +7,8 @@ import {
   type Command as RegistryCommand,
 } from '../commands'
 import './CommandPalette.css'
-import { isMac, displayShortcut } from '../hooks/useKeyboard'
+import { isMac, displayShortcut, useKeybindings } from '../hooks/useKeyboard'
+import { currentAcceleratorForCommand } from '../commands/keybindingLinks'
 import { searchEntities, type SearchHit } from '../api/search'
 
 /**
@@ -49,7 +50,7 @@ function rowFromRegistry(cmd: RegistryCommand, onClose: () => void): Row {
     id: `cmd:${cmd.id}`,
     label: cmd.label,
     category: cmd.category,
-    shortcut: cmd.accelerator,
+    shortcut: currentAcceleratorForCommand(cmd.id, cmd.accelerator),
     description: cmd.description,
     enabled,
     run: () => {
@@ -90,6 +91,8 @@ function fmtShortcut(acc: string | undefined): string | undefined {
 }
 
 export default function CommandPalette({ isOpen, onClose, commands, onNavigate }: CommandPaletteProps) {
+  // Re-render when the user rebinds a shortcut so row hints stay current.
+  useKeybindings()
   const [search, setSearch] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [hits, setHits] = useState<SearchHit[]>([])

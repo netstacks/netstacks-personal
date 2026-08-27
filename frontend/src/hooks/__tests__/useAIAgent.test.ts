@@ -1,3 +1,4 @@
+import { computeStateSummary } from '../../lib/aiLiveContext';
 import { describe, it, expect } from 'vitest';
 import {
   sanitizeToolName,
@@ -8,8 +9,7 @@ import {
   completeToolResults,
   skippedToolResults,
   NEEDS_APPROVAL,
-  type ToolNameMap,
-} from '../useAIAgent';
+  type ToolNameMap, consolePromptBlockReason } from '../useAIAgent';
 import { validateReadOnlyCommands } from '../../lib/readOnlyFilter';
 
 describe('sanitizeToolName — per-instance map, collision-safe truncation', () => {
@@ -68,6 +68,35 @@ describe('resolveCommandList / describeToolCall — command vs commands[] (NS-AI
     expect(describeToolCall('write_file', { filepath: '/etc/x', content: 'abc' })).toBe('write_file /etc/x (3 chars)');
     expect(describeToolCall('patch_file', { filepath: '/etc/x', sed_expression: 's/a/b/' })).toBe('patch_file /etc/x: s/a/b/');
     expect(describeToolCall('lookup_dns', { hostname: 'example.com' })).toBe('lookup_dns(hostname=example.com)');
+    expect(describeToolCall('run_console_command', { commands: ['show ver'] })).toBe('[console] show ver');
+    expect(describeToolCall('open_console', { session_id: 's1' })).toBe('open_console s1');
+  });
+});
+
+describe('console tools', () => {
+  it('are gated behind approval in ask mode', () => {
+    expect(NEEDS_APPROVAL.has('open_console')).toBe(true);
+    expect(NEEDS_APPROVAL.has('run_console_command')).toBe(true);
+    const req = buildApprovalRequest(
+      { id: 'c1', name: 'run_console_command', input: { session_id: 's1', commands: ['show ver', 'configure terminal'] } },
+      () => 'cisco-ios' as const,
+    );
+    expect(req.validation.allowed).toBe(false);
+    expect(buildApprovalRequest({ id: 'c2', name: 'open_console', input: { session_id: 's1' } }, () => undefined).validation.allowed).toBe(true);
+  });
+
+  it('only types into an exec/shell prompt', () => {
+    const at = (tail: string) => consolePromptBlockReason(computeStateSummary(`banner\n${tail}`, 'auto'));
+    expect(at('edge-1#')).toBeNull();
+    expect(at('edge-1>')).toBeNull();
+    expect(at('user@host:~$')).toBeNull();
+    expect(at('[edge@ts ~]$')).toBeNull();
+    expect(consolePromptBlockReason(computeStateSummary('', 'auto'))).toMatch(/CLI prompt/);
+    expect(at('Username:')).toMatch(/waiting on a prompt/);
+    expect(at('Password: ')).toMatch(/waiting on a prompt/);
+    expect(at('rommon 1 >')).toMatch(/boot loader/);
+    expect(at('edge-1(config-if)#')).toMatch(/configuration mode/);
+    expect(at('Building configuration...')).toMatch(/CLI prompt/);
   });
 });
 

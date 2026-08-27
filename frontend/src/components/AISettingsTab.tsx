@@ -2308,7 +2308,12 @@ export default function AISettingsTab() {
                           onChange={() => toggleTool(tool.name)}
                         />
                         <div className="ai-tool-info">
-                          <span className="ai-tool-name">{tool.name}</span>
+                          <span className="ai-tool-name">
+                            {tool.name}
+                            {tool.defaultDisabled && (
+                              <span className="ai-tool-default-off" title="Starts disabled; enable it here to let the AI use it">off by default</span>
+                            )}
+                          </span>
                           <span className="ai-tool-description">{tool.shortDescription}</span>
                         </div>
                       </label>

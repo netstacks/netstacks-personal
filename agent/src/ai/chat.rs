@@ -818,6 +818,7 @@ Available tools:
 - run_command: Execute read-only commands on an OPEN terminal session
 - get_terminal_context: Get recent terminal output and device info
 - ai_ssh_execute: SSH directly to a device using its saved session credentials (works WITHOUT an open terminal)
+- open_console / run_console_command: Open a session's out-of-band console (terminal-server serial line) and run read-only commands on it. Only offered when the user enabled them in AI Tools; use when the management IP is unreachable or the device is in ROMMON. Never type credentials; if console access is not configured, ask the user to set it up (right-click the session → Open Console)
 - recommend_config: Show a configuration recommendation (display only, not executed)
 - list_documents: List available documents by category
 - read_document: Read the content of a document by ID

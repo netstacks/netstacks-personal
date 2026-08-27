@@ -141,6 +141,23 @@ pub struct Session {
     /// SFTP starting directory override (null = use cli_flavor default)
     #[serde(default)]
     pub sftp_start_path: Option<String>,
+    // OOB console access: terminal server exposing this device's serial line.
+    /// Terminal / console server host (null = no console access configured)
+    #[serde(default)]
+    pub console_host: Option<String>,
+    /// TCP port on the terminal server mapped to this device's serial line
+    #[serde(default)]
+    pub console_port: Option<u16>,
+    /// Protocol used to reach the terminal server port (ssh or telnet)
+    #[serde(default)]
+    pub console_protocol: Protocol,
+    /// Credential profile for the terminal-server login (optional; a
+    /// reverse-telnet line without a password needs none)
+    #[serde(default)]
+    pub console_profile_id: Option<String>,
+    /// Enable legacy SSH algorithms for the terminal server
+    #[serde(default)]
+    pub console_legacy_ssh: bool,
 }
 
 fn default_auto_reconnect() -> bool {
@@ -178,6 +195,14 @@ pub enum Protocol {
 
 
 impl Protocol {
+    /// Parse a stored protocol string; anything but "telnet" is SSH.
+    pub fn from_db(value: Option<&str>) -> Self {
+        match value {
+            Some("telnet") => Protocol::Telnet,
+            _ => Protocol::Ssh,
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Protocol::Ssh => "ssh",
@@ -267,6 +292,23 @@ pub struct NewSession {
     /// SFTP starting directory override
     #[serde(default)]
     pub sftp_start_path: Option<String>,
+    // OOB console access: terminal server exposing this device's serial line.
+    /// Terminal / console server host (null = no console access configured)
+    #[serde(default)]
+    pub console_host: Option<String>,
+    /// TCP port on the terminal server mapped to this device's serial line
+    #[serde(default)]
+    pub console_port: Option<u16>,
+    /// Protocol used to reach the terminal server port (ssh or telnet)
+    #[serde(default)]
+    pub console_protocol: Protocol,
+    /// Credential profile for the terminal-server login (optional; a
+    /// reverse-telnet line without a password needs none)
+    #[serde(default)]
+    pub console_profile_id: Option<String>,
+    /// Enable legacy SSH algorithms for the terminal server
+    #[serde(default)]
+    pub console_legacy_ssh: bool,
     // Session-specific terminal settings. These existed on `Session` and
     // `UpdateSession` but not here, so the create dialog's values were
     // silently dropped and only an edit could persist them (NS-SESS-3).
@@ -344,6 +386,15 @@ pub struct UpdateSession {
     /// SFTP starting directory override (Option<Option<>> to allow clearing)
     #[serde(default, deserialize_with = "double_option")]
     pub sftp_start_path: Option<Option<String>>,
+    // OOB console access (Option<Option<>> fields allow clearing)
+    #[serde(default, deserialize_with = "double_option")]
+    pub console_host: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub console_port: Option<Option<u16>>,
+    pub console_protocol: Option<Protocol>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub console_profile_id: Option<Option<String>>,
+    pub console_legacy_ssh: Option<bool>,
 }
 
 /// Request to create a new folder
@@ -676,6 +727,17 @@ pub struct ExportSession {
     // Port forwarding (Phase 06.3)
     #[serde(default)]
     pub port_forwards: Vec<PortForward>,
+    // OOB console access (console profile matched by name on import)
+    #[serde(default)]
+    pub console_host: Option<String>,
+    #[serde(default)]
+    pub console_port: Option<u16>,
+    #[serde(default)]
+    pub console_protocol: Protocol,
+    #[serde(default)]
+    pub console_profile_name: Option<String>,
+    #[serde(default)]
+    pub console_legacy_ssh: bool,
 }
 
 /// Folder data for export
@@ -1058,6 +1120,29 @@ pub struct CliFlavorMappings {
     pub by_platform: std::collections::HashMap<String, CliFlavor>,
 }
 
+/// Console protocol mappings for a NetBox source: which protocol reaches a
+/// console server's serial-line TCP ports, keyed by the console server's
+/// manufacturer slug, with a fallback default. NetBox has no field for this.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsoleProtocolMappings {
+    #[serde(default)]
+    pub default: Protocol,
+    /// Map of console-server manufacturer slug -> protocol
+    #[serde(default)]
+    pub by_manufacturer: std::collections::HashMap<String, Protocol>,
+}
+
+impl Default for ConsoleProtocolMappings {
+    /// Ships the two conventions almost every OOB network uses: Opengear
+    /// direct SSH ports (3000+N) and Cisco async reverse-telnet (2000+N).
+    fn default() -> Self {
+        let mut by_manufacturer = std::collections::HashMap::new();
+        by_manufacturer.insert("opengear".to_string(), Protocol::Ssh);
+        by_manufacturer.insert("cisco".to_string(), Protocol::Telnet);
+        Self { default: Protocol::Ssh, by_manufacturer }
+    }
+}
+
 /// Sync filters for NetBox import (legacy, single-value)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncFilters {
@@ -1104,6 +1189,11 @@ pub struct NetBoxSource {
     pub cli_flavor_mappings: CliFlavorMappings,
     #[serde(default)]
     pub device_filters: Option<DeviceFilters>,
+    /// Credential profile for terminal-server logins on imported console access
+    #[serde(default)]
+    pub console_profile_id: Option<String>,
+    #[serde(default)]
+    pub console_protocol_mappings: ConsoleProtocolMappings,
     pub last_sync_at: Option<DateTime<Utc>>,
     pub last_sync_filters: Option<SyncFilters>,
     pub last_sync_result: Option<SyncResult>,
@@ -1124,6 +1214,10 @@ pub struct NewNetBoxSource {
     pub cli_flavor_mappings: CliFlavorMappings,
     #[serde(default)]
     pub device_filters: Option<DeviceFilters>,
+    #[serde(default)]
+    pub console_profile_id: Option<String>,
+    #[serde(default)]
+    pub console_protocol_mappings: ConsoleProtocolMappings,
 }
 
 /// Request to update a NetBox source (all fields optional for partial updates)
@@ -1136,6 +1230,9 @@ pub struct UpdateNetBoxSource {
     pub default_profile_id: Option<Option<String>>,
     pub profile_mappings: Option<ProfileMappings>,
     pub cli_flavor_mappings: Option<CliFlavorMappings>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub console_profile_id: Option<Option<String>>,
+    pub console_protocol_mappings: Option<ConsoleProtocolMappings>,
     /// Device filters for import (multi-select)
     #[serde(default, deserialize_with = "double_option")]
     pub device_filters: Option<Option<DeviceFilters>>,
@@ -3779,6 +3876,9 @@ mod tests {
         assert_eq!(d.role, Some(None));
         let n: UpdateNetBoxSource = serde_json::from_str(r#"{"default_profile_id":null}"#).unwrap();
         assert_eq!(n.default_profile_id, Some(None));
+        let n: UpdateNetBoxSource = serde_json::from_str(r#"{"console_profile_id":null}"#).unwrap();
+        assert_eq!(n.console_profile_id, Some(None));
+        assert_eq!(n.console_protocol_mappings, None);
         let tn: UpdateTunnel = serde_json::from_str(r#"{"remote_port":null}"#).unwrap();
         assert_eq!(tn.remote_port, Some(None));
         let g: UpdateGroupRequest = serde_json::from_str(r#"{"topology_id":null}"#).unwrap();

@@ -22,6 +22,8 @@ interface WorkspaceEditorAreaProps {
   onMarkModified: (id: string, modified: boolean) => void
   onRunFile: (filePath: string) => void
   onCollapse?: () => void
+  /** Whether the owning workspace tab is the app's active tab. */
+  isActive: boolean
 }
 
 export default function WorkspaceEditorArea({
@@ -35,6 +37,7 @@ export default function WorkspaceEditorArea({
   onMarkModified,
   onRunFile,
   onCollapse,
+  isActive,
 }: WorkspaceEditorAreaProps) {
   const [previewTabs, setPreviewTabs] = useState<Set<string>>(new Set())
   const [tabContextMenu, setTabContextMenu] = useState<{ position: { x: number; y: number }; items: MenuItem[] } | null>(null)
@@ -135,6 +138,7 @@ export default function WorkspaceEditorArea({
             isModified={tab.isModified || false}
             onModifiedChange={(modified) => onMarkModified(tab.id, modified)}
             onRunFile={onRunFile}
+            isActive={isActive}
           />
         )
       case 'browser':

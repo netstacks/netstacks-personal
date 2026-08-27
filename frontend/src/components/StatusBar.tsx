@@ -5,6 +5,7 @@ import { useAgentTasksStore } from '../hooks/useAgentTasks'
 import ContextMenu from './ContextMenu'
 import { useContextMenu } from '../hooks/useContextMenu'
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
+import { useKeybindings, formatShortcut, getPlatformBinding } from '../hooks/useKeyboard'
 import {
   type StatusBarSettings,
   loadStatusBarSettings,
@@ -245,6 +246,9 @@ export default function StatusBar({
   scratchpadMinimized = false,
   onOpenAgentRun,
 }: StatusBarProps) {
+  // Shortcut hints follow the user's keybindings (Settings → Keyboard).
+  const keybindings = useKeybindings()
+  const hint = (action: keyof typeof keybindings) => formatShortcut(getPlatformBinding(keybindings[action]))
   const remoteHost = useMemo(() => getRemoteAgentHost(), [])
   // Persistent agent handle: count running agent tasks straight from the store
   // (a primitive selector — safe). The item only appears while > 0.
@@ -665,7 +669,7 @@ export default function StatusBar({
             <button
               className="status-bar-item status-bar-item-btn status-bar-troubleshoot-start"
               onClick={onStartTroubleshootingSession}
-              title="Start Troubleshooting Session (Cmd+Shift+T)"
+              title={`Start Troubleshooting Session (${hint('startTroubleshooting')})`}
             >
               {Icons.record}
               <span>Troubleshoot</span>
@@ -732,21 +736,21 @@ export default function StatusBar({
             <button
               className="status-bar-item status-bar-item-btn status-bar-quicklook-btn"
               onClick={() => onQuickLook('notes')}
-              title="Quick Look: Notes (Cmd+Shift+N)"
+              title={`Quick Look: Notes (${hint('quickLookNotes')})`}
             >
               {Icons.notes}
             </button>
             <button
               className="status-bar-item status-bar-item-btn status-bar-quicklook-btn"
               onClick={() => onQuickLook('templates')}
-              title="Quick Look: Templates (Cmd+Shift+T)"
+              title={`Quick Look: Templates (${hint('quickLookTemplates')})`}
             >
               {Icons.templates}
             </button>
             <button
               className="status-bar-item status-bar-item-btn status-bar-quicklook-btn"
               onClick={() => onQuickLook('outputs')}
-              title="Quick Look: Outputs (Cmd+Shift+O)"
+              title={`Quick Look: Outputs (${hint('quickLookOutputs')})`}
             >
               {Icons.outputs}
             </button>
@@ -866,7 +870,7 @@ export default function StatusBar({
           >
             {Icons.aiActive}
             <span>Overlord</span>
-            {settings.showKeyboardShortcuts && <kbd>I</kbd>}
+            {settings.showKeyboardShortcuts && <kbd>{hint('aiChat')}</kbd>}
           </button>
         )}
         {onOpenAgentRun && agentRunningCount > 0 && (
@@ -885,23 +889,23 @@ export default function StatusBar({
             className={`status-bar-item status-bar-item-btn${scratchpadMinimized ? ' has-indicator' : ''}`}
             onClick={onOpenScratchpad}
             title={scratchpadMinimized
-              ? 'Scratchpad — minimized buffer (Cmd+Shift+J to restore)'
-              : 'Scratchpad (Cmd+Shift+J) — quick notes'}
+              ? `Scratchpad — minimized buffer (${hint('scratchpadOpen')} to restore)`
+              : `Scratchpad (${hint('scratchpadOpen')}) — quick notes`}
           >
             {Icons.notes}
             <span>Scratch</span>
             {scratchpadMinimized && <span className="status-bar-indicator-dot" aria-hidden="true" />}
-            {settings.showKeyboardShortcuts && <kbd>J</kbd>}
+            {settings.showKeyboardShortcuts && <kbd>{hint('scratchpadOpen')}</kbd>}
           </button>
         )}
         {settings.showCommandPalette && (
           <button
             className="status-bar-item status-bar-item-btn"
             onClick={onOpenCommandPalette}
-            title="Command Palette (Cmd+Shift+P)"
+            title={`Command Palette (${hint('commandPalette')})`}
           >
             {Icons.command}
-            {settings.showKeyboardShortcuts && <kbd>P</kbd>}
+            {settings.showKeyboardShortcuts && <kbd>{hint('commandPalette')}</kbd>}
           </button>
         )}
         {settings.showSettings && (

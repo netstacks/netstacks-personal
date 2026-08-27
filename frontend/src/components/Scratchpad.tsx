@@ -15,6 +15,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import ScratchpadEditor, { saveScratchpadContent, scratchpadTarget } from './ScratchpadEditor'
 import type { WorkspaceConfig } from '../types/workspace'
 import './Scratchpad.css'
+import { useShortcut } from '../hooks/useKeyboard'
 
 interface ScratchpadProps {
   open: boolean
@@ -49,6 +50,7 @@ function defaultRect(): Rect {
 }
 
 export default function Scratchpad(props: ScratchpadProps) {
+  const saveShortcut = useShortcut('saveDocument')
   const {
     open, minimized, maximized, content, onContentChange,
     onMinimize, onToggleMaximize, onPopToTab, onClose, activeWorkspace,
@@ -197,7 +199,7 @@ export default function Scratchpad(props: ScratchpadProps) {
             className="scratchpad-btn scratchpad-btn-primary"
             onClick={() => { void handleSaveClick() }}
             disabled={saving}
-            title="Save (Cmd/Ctrl+S)"
+            title={`Save (${saveShortcut})`}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

@@ -79,11 +79,13 @@ import type { QuickActionResult, ApiResource } from './types/quickAction'
 import ApiResourceDialog from './components/ApiResourceDialog'
 import type { GlobalSnippet } from './api/snippets'
 import { useMultiSend } from './hooks/useMultiSend'
-import { useKeyboard, displayShortcut } from './hooks/useKeyboard'
+import { useKeyboard, formatShortcut, loadKeybindingsFromBackend } from './hooks/useKeyboard'
+import { defaultAccelerator } from './commands/keybindingLinks'
 import { OVERLORD_OPEN_AI_POPUP_EVENT, type OverlordOpenAIPopupDetail } from './hooks/useMonacoOverlord'
 import { TabSelectionProvider, useTabSelection } from './hooks/useTabSelection'
 import { useEnrichment } from './hooks/useEnrichment'
-import { listSessions, getSession, type Session } from './api/sessions'
+import { listSessions, getSession, hasConsoleAccess, type Session, type TabProtocol } from './api/sessions'
+import { ConsoleIcon } from './components/icons/ConsoleIcon'
 import { type EnterpriseSession, getSessionDefinition } from './api/enterpriseSessions'
 import { type DeviceSummary } from './api/enterpriseDevices'
 import { listProfiles, type CredentialProfile } from './api/profiles'
@@ -185,7 +187,8 @@ interface Tab {
   chatPrompt?: string
   // Terminal-specific
   sessionId?: string
-  protocol?: 'ssh' | 'telnet'
+  /** `console` = OOB console tab riding the session's terminal server. */
+  protocol?: TabProtocol
   cliFlavor?: CliFlavor
   terminalTheme?: string | null
   fontSize?: number | null
@@ -276,6 +279,11 @@ interface Tab {
 // Type guard helpers
 function isTerminalTab(tab: Tab): boolean {
   return tab.type === 'terminal'
+}
+
+/** A terminal tab attached to a session's OOB console rather than the device itself. */
+function isConsoleTab(tab: Tab): boolean {
+  return tab.type === 'terminal' && tab.protocol === 'console'
 }
 
 function isDocumentTab(tab: Tab): boolean {
@@ -882,6 +890,9 @@ function AppContent() {
 
   // Session settings dialog state (for tab/terminal context menu)
   const [sessionSettingsSession, setSessionSettingsSession] = useState<Session | null>(null)
+  // Set when the dialog was opened via "Open Console" on a tab whose session
+  // has no console access yet: opens on the Console tab with Save & Open Console.
+  const [sessionSettingsConsoleIntent, setSessionSettingsConsoleIntent] = useState(false)
   // Track session updates from terminal context menu to sync with SessionPanel
   const [externalSessionUpdate, setExternalSessionUpdate] = useState<Session | null>(null)
 
@@ -999,8 +1010,10 @@ function AppContent() {
     broadcast
   } = useMultiSend()
 
-  // Keyboard shortcuts hook
+  // Keyboard shortcuts hook (shared store — Settings edits apply live)
   const keyboard = useKeyboard()
+  // The agent copy is the profile's source of truth for custom bindings.
+  useEffect(() => { void loadKeybindingsFromBackend() }, [])
 
   // Tab multi-selection (Phase 25)
   const {
@@ -1254,6 +1267,8 @@ function AppContent() {
         // keyed on. tab.id is a runtime id (ssh-<uuid>-<ts>); memory is stored
         // under the saved id, so the AI side panel must look it up by this.
         savedSessionId: tab.sessionId || tab.enterpriseSessionDefinitionId,
+        // Console tabs are addressed by run_console_command, never run_command.
+        protocol: tab.protocol,
       }))
   }, [tabs])
 
@@ -4947,16 +4962,17 @@ def main(command: str = "show version"):
     setDiscoveryModalOpen(true)
   }, [tabs])
 
-  // Handle SSH session connection
-  const handleSSHConnect = useCallback((session: Session) => {
-    // Check if there's an existing disconnected tab for this session
-    // Use tabsRef to avoid dependency on tabs which would cause callback recreation
+  // Open (or reconnect) a terminal tab for a saved session. `console` opens
+  // the session's OOB console instead of the device itself; console and SSH
+  // tabs are independent, so each kind only reuses a disconnected tab of its
+  // own kind.
+  const openSessionTab = useCallback((session: Session, console: boolean) => {
     const existingTab = tabsRef.current.find(t =>
       t.sessionId === session.id &&
       t.type === 'terminal' &&
+      (t.protocol === 'console') === console &&
       (t.status === 'disconnected' || t.status === 'error')
     )
-
     if (existingTab) {
       // Reconnect the existing tab
       const handle = terminalRefs.current.get(existingTab.id)
@@ -4967,16 +4983,15 @@ def main(command: str = "show version"):
       }
     }
 
-    // Create a new tab
-    const newId = `ssh-${session.id}-${Date.now()}`
+    const newId = `${console ? 'console' : 'ssh'}-${session.id}-${Date.now()}`
     const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
     const newTab: Tab = {
       id: newId,
       type: 'terminal',
-      title: session.name,
+      title: console ? `${session.name} — console` : session.name,
       sessionId: session.id,
-      profileId: session.profile_id,
-      protocol: session.protocol || 'ssh',
+      profileId: console ? (session.console_profile_id || session.profile_id) : session.profile_id,
+      protocol: console ? 'console' : (session.protocol || 'ssh'),
       cliFlavor: session.cli_flavor,
       terminalTheme,
       fontSize,
@@ -4989,8 +5004,41 @@ def main(command: str = "show version"):
     }
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newId)
-    // Session info is passed through tab.sessionId - Terminal handles SSH connection via WebSocket
-  }, [getEffectiveFontSettings])
+    // Session info is passed through tab.sessionId - Terminal handles the connection via WebSocket
+  }, [getEffectiveFontSettings, setActiveTabId, setTabs])
+
+  // Handle SSH session connection
+  const handleSSHConnect = useCallback((session: Session) => openSessionTab(session, false), [openSessionTab])
+
+  // Open an OOB console tab for a session (always separate from the SSH tab —
+  // console and SSH side by side is the point during an incident).
+  const handleOpenConsole = useCallback((session: Session) => {
+    if (!hasConsoleAccess(session)) {
+      showToast(`No console access configured for ${session.name}`, 'error')
+      return
+    }
+    openSessionTab(session, true)
+  }, [openSessionTab])
+
+  // "Open Console" from a tab: open the console if configured, else the
+  // settings dialog on the Console tab.
+  const handleOpenConsoleFromTab = useCallback(async (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId)
+    closeContextMenu()
+    if (!tab?.sessionId) return
+    try {
+      const session = await getSession(tab.sessionId)
+      if (hasConsoleAccess(session)) {
+        handleOpenConsole(session)
+      } else {
+        setSessionSettingsConsoleIntent(true)
+        setSessionSettingsSession(session)
+      }
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Failed to load session for console'), 'error')
+    }
+  }, [tabs, closeContextMenu, handleOpenConsole, setSessionSettingsConsoleIntent, setSessionSettingsSession])
+
 
   // Register MOP wizard "open session" callback so clicking a device in the
   // execution dashboard opens its terminal tab and minimizes the wizard
@@ -5387,7 +5435,7 @@ def main(command: str = "show version"):
       id: 'new-terminal',
       label: 'New Terminal',
       category: 'Terminal',
-      shortcut: 'Cmd+T',
+      shortcut: formatShortcut(keyboard.getBinding('newTerminal')),
       action: createTerminal
     },
     {
@@ -5412,7 +5460,7 @@ def main(command: str = "show version"):
       id: 'open-settings',
       label: 'Open Settings',
       category: 'Preferences',
-      shortcut: 'Cmd+,',
+      shortcut: formatShortcut(keyboard.getBinding('settings')),
       action: () => openSettingsTab()
     },
     {
@@ -5425,21 +5473,21 @@ def main(command: str = "show version"):
       id: 'toggle-sidebar',
       label: 'View: Toggle Sidebar',
       category: 'View',
-      shortcut: 'Cmd+B',
+      shortcut: formatShortcut(keyboard.getBinding('toggleSidebar')),
       action: () => setSidebarOpen(prev => !prev)
     },
     {
       id: 'quick-connect',
       label: 'Quick Connect',
       category: 'Sessions',
-      shortcut: 'Cmd+Shift+Q',
+      shortcut: formatShortcut(keyboard.getBinding('quickConnect')),
       action: () => setQuickConnectOpen(true)
     },
     {
       id: 'ai-chat',
       label: 'AI: Open Chat',
       category: 'AI',
-      shortcut: 'Cmd+I',
+      shortcut: formatShortcut(keyboard.getBinding('aiChat')),
       action: () => setAiChatOpen(true)
     },
     {
@@ -5452,7 +5500,7 @@ def main(command: str = "show version"):
       id: 'ai-overlay',
       label: 'AI: Open Chat Tab',
       category: 'AI',
-      shortcut: 'Cmd+Shift+A',
+      shortcut: formatShortcut(keyboard.getBinding('aiOverlay')),
       action: () => {
         // Open the full chat-session tab (replaces the old floating overlay).
         handleOpenAIChatTab()
@@ -5471,7 +5519,7 @@ def main(command: str = "show version"):
       id: 'ai-generate-script',
       label: 'AI: Generate Script',
       category: 'AI',
-      shortcut: 'Cmd+Shift+G',
+      shortcut: formatShortcut(keyboard.getBinding('aiGenerateScript')),
       action: () => setAiScriptGeneratorOpen(true)
     },
     {
@@ -5485,7 +5533,7 @@ def main(command: str = "show version"):
       id: 'start-troubleshooting',
       label: 'Start Troubleshooting Session',
       category: 'Sessions',
-      shortcut: 'Cmd+Shift+K',
+      shortcut: formatShortcut(keyboard.getBinding('startTroubleshooting')),
       action: () => {
         if (!isTroubleshootingActive) {
           setTroubleshootingDialogOpen(true)
@@ -5554,7 +5602,8 @@ def main(command: str = "show version"):
     if (!activeTabId) return false
     const activeTab = tabs.find(t => t.id === activeTabId)
     if (!activeTab) return false
-    const savable = isDocumentTab(activeTab) || isScriptTab(activeTab) || isMopTab(activeTab) || activeTab.type === 'sftp-editor'
+    const savable = isDocumentTab(activeTab) || isScriptTab(activeTab) || isMopTab(activeTab)
+      || activeTab.type === 'sftp-editor' || activeTab.type === 'workspace' || activeTab.type === 'config-template'
     if (!savable) return false
 
     const event = new CustomEvent('netstacks:save-document', { detail: { tabId: activeTabId } })
@@ -5677,9 +5726,24 @@ def main(command: str = "show version"):
   }, [tabs, activeTabId])
 
   // AI Agent: Open a saved session (create terminal tab and connect)
+  // AI Agent: open a saved session's OOB console (open_console tool). The AI
+  // cannot configure console access — an unconfigured session is an error it
+  // relays to the user.
+  const handleAgentOpenConsole = useCallback(async (sessionId: string): Promise<void> => {
+    if (isEnterprise) {
+      throw new Error('Console access is not available for controller-managed sessions')
+    }
+    const session = await getSession(sessionId)
+    if (!hasConsoleAccess(session)) {
+      throw new Error(`No console access configured for ${session.name}. The user can set it up: right-click the session → Open Console.`)
+    }
+    handleOpenConsole(session)
+  }, [isEnterprise, handleOpenConsole])
+
   const handleAgentOpenSession = useCallback(async (sessionId: string): Promise<void> => {
-    // Check if session is already open
-    const existingTab = tabs.find(t => t.sessionId === sessionId && t.type === 'terminal')
+    // Check if session is already open (a console tab for the same session
+    // does not count — open_session means the device's own SSH/Telnet)
+    const existingTab = tabs.find(t => t.sessionId === sessionId && t.type === 'terminal' && !isConsoleTab(t))
     if (existingTab) {
       // Just switch to it
       setActiveTabId(existingTab.id)
@@ -5981,6 +6045,28 @@ def main(command: str = "show version"):
     keyboard.registerAction('quickLookTemplates', () => showDocsCategory('templates'))
     keyboard.registerAction('quickLookOutputs', () => showDocsCategory('outputs'))
     keyboard.registerAction('scratchpadOpen', () => handleOpenScratchpad())
+    // Menu-backed actions: on macOS the native accelerator fires these; on
+    // Windows/Linux (HTML menu bar) this is the only key path they have.
+    keyboard.registerAction('newSession', () => { void dispatchCommand('file.new-session', getActiveContext()) })
+    keyboard.registerAction('newDocument', () => { void dispatchCommand('file.new-document', getActiveContext()) })
+    keyboard.registerAction('zoomIn', () => { void dispatchCommand('view.zoom-in', getActiveContext()) })
+    keyboard.registerAction('zoomOut', () => { void dispatchCommand('view.zoom-out', getActiveContext()) })
+    keyboard.registerAction('zoomReset', () => { void dispatchCommand('view.zoom-reset', getActiveContext()) })
+    keyboard.registerAction('toggleAiChatPanel', () => { void dispatchCommand('ai.toggle-chat', getActiveContext()) })
+    keyboard.registerAction('closeAllTabs', () => { void dispatchCommand('window.close-all-tabs', getActiveContext()) })
+    keyboard.registerAction('reopenClosedTab', () => { void dispatchCommand('window.reopen-closed-tab', getActiveContext()) })
+    // Terminal: Save Output to Docs for the active terminal tab
+    keyboard.registerAction('saveTerminalOutput', () => {
+      const handle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined
+      if (!handle) return false
+      handle.openSaveToDocs()
+    })
+    // Scripts: Run the active script tab; any other tab passes the chord through
+    keyboard.registerAction('runScript', () => {
+      const activeTab = tabs.find(t => t.id === activeTabId)
+      if (!activeTab || !isScriptTab(activeTab)) return false
+      window.dispatchEvent(new CustomEvent('netstacks:run-script', { detail: { tabId: activeTab.id } }))
+    })
 
     return () => {
       keyboard.unregisterAction('newTerminal')
@@ -6006,6 +6092,16 @@ def main(command: str = "show version"):
       keyboard.unregisterAction('groupSelectedTabs')
       keyboard.unregisterAction('saveTabsAsGroup')
       keyboard.unregisterAction('scratchpadOpen')
+      keyboard.unregisterAction('newSession')
+      keyboard.unregisterAction('newDocument')
+      keyboard.unregisterAction('zoomIn')
+      keyboard.unregisterAction('zoomOut')
+      keyboard.unregisterAction('zoomReset')
+      keyboard.unregisterAction('toggleAiChatPanel')
+      keyboard.unregisterAction('closeAllTabs')
+      keyboard.unregisterAction('reopenClosedTab')
+      keyboard.unregisterAction('saveTerminalOutput')
+      keyboard.unregisterAction('runScript')
     }
   }, [keyboard, createTerminal, closeTerminal, activeTabId, tabs, selectedSessionIds, handleBulkConnect, handleSaveActiveDocument, handleOpenAIChatFromTerminal, isTroubleshootingActive, reconnectActiveTerminal, openTerminalFind, handleOpenAIChatTab, handleGroupSelectedTabs, handleSaveCurrentAsGroup, showDocsCategory])
 
@@ -6019,22 +6115,22 @@ def main(command: str = "show version"):
   // File ----------------------------------------------------------
   useCommand({
     id: 'file.new-session', label: 'New Session', category: 'file',
-    accelerator: 'CmdOrCtrl+N',
+    accelerator: defaultAccelerator('newSession'),
     run: () => setQuickConnectOpen(true),
   })
   useCommand({
     id: 'file.new-terminal', label: 'New Terminal Tab', category: 'file',
-    accelerator: 'CmdOrCtrl+T',
+    accelerator: defaultAccelerator('newTerminal'),
     run: () => createTerminal(),
   })
   useCommand({
     id: 'file.new-document', label: 'New Document', category: 'file',
-    accelerator: 'CmdOrCtrl+Shift+N',
+    accelerator: defaultAccelerator('newDocument'),
     run: () => handleNewDocument('notes'),
   })
   useCommand({
     id: 'file.quick-connect', label: 'Quick Connect…', category: 'file',
-    accelerator: 'CmdOrCtrl+Shift+Q',
+    accelerator: defaultAccelerator('quickConnect'),
     run: () => setQuickConnectOpen(true),
   })
   useCommand({
@@ -6071,7 +6167,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'file.save', label: 'Save', category: 'file',
-    accelerator: 'CmdOrCtrl+S',
+    accelerator: defaultAccelerator('saveDocument'),
     // Enabled only when an editable tab is active. handleSaveActiveDocument
     // is itself a no-op for non-editable tab types, but greying out the
     // menu communicates that intentionally.
@@ -6084,7 +6180,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'file.close-tab', label: 'Close Tab', category: 'file',
-    accelerator: 'CmdOrCtrl+W',
+    accelerator: defaultAccelerator('closeTab'),
     when: (ctx) => ctx.activeTabId !== null,
     run: () => {
       if (activeTabId) closeTerminal(activeTabId)
@@ -6094,14 +6190,14 @@ def main(command: str = "show version"):
   // App / global -------------------------------------------------
   useCommand({
     id: 'app.settings', label: 'Settings…', category: 'view',
-    accelerator: 'CmdOrCtrl+,',
+    accelerator: defaultAccelerator('settings'),
     run: () => openSettingsTab(),
   })
 
   // Edit ----------------------------------------------------------
   useCommand({
     id: 'edit.find', label: 'Find…', category: 'edit',
-    accelerator: 'CmdOrCtrl+F',
+    accelerator: defaultAccelerator('findInTerminal'),
     // Find targets the active terminal's handle, so only makes sense
     // when one is focused.
     when: (ctx) => ctx.activeTabType === 'terminal',
@@ -6111,27 +6207,27 @@ def main(command: str = "show version"):
   // View ----------------------------------------------------------
   useCommand({
     id: 'view.command-palette', label: 'Command Palette…', category: 'view',
-    accelerator: 'CmdOrCtrl+Shift+P',
+    accelerator: defaultAccelerator('commandPalette'),
     run: () => setCommandPaletteOpen(true),
   })
   useCommand({
     id: 'view.toggle-sidebar', label: 'Toggle Sidebar', category: 'view',
-    accelerator: 'CmdOrCtrl+B',
+    accelerator: defaultAccelerator('toggleSidebar'),
     run: () => setSidebarOpen(prev => !prev),
   })
   useCommand({
     id: 'view.toggle-ai-panel', label: 'Toggle AI Panel', category: 'view',
-    accelerator: 'CmdOrCtrl+I',
+    accelerator: defaultAccelerator('aiChat'),
     run: () => toggleAiPanel(),
   })
   useCommand({
     id: 'view.zoom-reset', label: 'Actual Size', category: 'view',
-    accelerator: 'CmdOrCtrl+0',
+    accelerator: defaultAccelerator('zoomReset'),
     run: () => { document.body.style.zoom = '1' },
   })
   useCommand({
     id: 'view.zoom-in', label: 'Zoom In', category: 'view',
-    accelerator: 'CmdOrCtrl+=',
+    accelerator: defaultAccelerator('zoomIn'),
     run: () => {
       const current = parseFloat(document.body.style.zoom || '1')
       document.body.style.zoom = String(Math.min(current + 0.1, 2))
@@ -6139,7 +6235,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'view.zoom-out', label: 'Zoom Out', category: 'view',
-    accelerator: 'CmdOrCtrl+-',
+    accelerator: defaultAccelerator('zoomOut'),
     run: () => {
       const current = parseFloat(document.body.style.zoom || '1')
       document.body.style.zoom = String(Math.max(current - 0.1, 0.5))
@@ -6149,7 +6245,7 @@ def main(command: str = "show version"):
   // Session -------------------------------------------------------
   useCommand({
     id: 'session.reconnect', label: 'Reconnect', category: 'session',
-    accelerator: 'CmdOrCtrl+Shift+R',
+    accelerator: defaultAccelerator('reconnect'),
     // Reconnect only makes sense on a terminal that's in an
     // interruptible state. Greying it out for documents/topology is
     // the whole point of context-aware menus.
@@ -6162,7 +6258,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'session.toggle-multi-send', label: 'Toggle Multi-Send', category: 'session',
-    accelerator: 'CmdOrCtrl+Shift+M',
+    accelerator: defaultAccelerator('toggleMultiSend'),
     when: (ctx) => ctx.activeTabType === 'terminal',
     run: () => {
       if (activeTabId) toggleMultiSend(activeTabId)
@@ -6170,7 +6266,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'session.connect-selected', label: 'Connect Selected Sessions', category: 'session',
-    accelerator: 'CmdOrCtrl+Shift+Return',
+    accelerator: defaultAccelerator('connectSelectedSessions'),
     when: (ctx) => ctx.selectionCount > 0,
     run: () => {
       if (selectedSessionIds.length > 0) handleBulkConnect(selectedSessionIds)
@@ -6178,7 +6274,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'session.start-troubleshooting', label: 'Start Troubleshooting…', category: 'session',
-    accelerator: 'CmdOrCtrl+Shift+K',
+    accelerator: defaultAccelerator('startTroubleshooting'),
     // Predicate doesn't read isTroubleshootingActive from context yet
     // (would require plumbing it through ActiveContext). For now the
     // dialog-open handler is the gate.
@@ -6190,7 +6286,7 @@ def main(command: str = "show version"):
   // Window --------------------------------------------------------
   useCommand({
     id: 'window.next-tab', label: 'Show Next Tab', category: 'window',
-    accelerator: 'CmdOrCtrl+Shift+]',
+    accelerator: defaultAccelerator('nextTab'),
     // Disable when there's only one (or zero) tabs — there's nowhere
     // to navigate to.
     when: () => tabs.length > 1,
@@ -6203,7 +6299,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'window.previous-tab', label: 'Show Previous Tab', category: 'window',
-    accelerator: 'CmdOrCtrl+Shift+[',
+    accelerator: defaultAccelerator('previousTab'),
     when: () => tabs.length > 1,
     run: () => {
       if (tabs.length > 1 && activeTabId) {
@@ -6256,7 +6352,7 @@ def main(command: str = "show version"):
   useCommand({
     id: 'tools.scratchpad', label: 'Scratchpad…', category: 'tools',
     description: 'Open a quick-notes scratchpad. Saves to the active workspace, or to Docs › Notes.',
-    accelerator: 'CmdOrCtrl+Shift+J',
+    accelerator: defaultAccelerator('scratchpadOpen'),
     run: () => handleOpenScratchpad(),
   })
 
@@ -6277,7 +6373,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'ai.toggle-chat', label: 'Toggle AI Assistant', category: 'ai',
-    accelerator: 'CmdOrCtrl+J',
+    accelerator: defaultAccelerator('toggleAiChatPanel'),
     // Same target state as view.toggle-ai-panel — having both
     // surfaces is intentional ("AI" feels right for an AI menu).
     run: () => toggleAiPanel(),
@@ -6286,7 +6382,7 @@ def main(command: str = "show version"):
   // Window — Tabs submenu -----------------------------------------
   useCommand({
     id: 'window.close-all-tabs', label: 'Close All Tabs', category: 'window',
-    accelerator: 'CmdOrCtrl+Shift+W',
+    accelerator: defaultAccelerator('closeAllTabs'),
     when: () => tabs.length > 0,
     run: () => closeAllTabs(),
   })
@@ -6304,7 +6400,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'window.reopen-closed-tab', label: 'Reopen Closed Tab', category: 'window',
-    accelerator: 'CmdOrCtrl+Shift+T',
+    accelerator: defaultAccelerator('reopenClosedTab'),
     when: () => closedTabs.length > 0,
     run: () => { void reopenLastClosedTab() },
   })
@@ -6671,6 +6767,7 @@ def main(command: str = "show version"):
           getTerminalContext={handleAgentGetTerminalContext}
           liveContextDeps={liveContextDeps}
           onOpenSession={handleAgentOpenSession}
+          onOpenConsole={handleAgentOpenConsole}
           onListDocuments={handleAgentListDocuments}
           onReadDocument={handleAgentReadDocument}
           onSearchDocuments={handleAgentSearchDocuments}
@@ -6896,6 +6993,7 @@ def main(command: str = "show version"):
     } else if (tab.type === 'config-template') {
       return (
         <TemplateDetailTab
+          tabId={tab.id}
           templateId={tab.configTemplateId || ''}
           onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
           onDeleted={() => closeTab(tab.id)}
@@ -7128,7 +7226,7 @@ def main(command: str = "show version"):
             <button
               className="activity-bar-item"
               onClick={() => openSettingsTab()}
-              title={`Settings (${displayShortcut('Cmd+,')})`} data-testid="nav-settings"
+              title={`Settings (${formatShortcut(keyboard.getBinding('settings'))})`} data-testid="nav-settings"
             >
               {Icons.settings}
             </button>
@@ -7162,6 +7260,7 @@ def main(command: str = "show version"):
             {activeView === 'sessions' && !isEnterprise && (
               <SessionPanel
                 onConnect={handleSSHConnect}
+                onOpenConsole={handleOpenConsole}
                 onOpenLocalShell={createTerminal}
                 onBulkConnect={handleBulkConnect}
                 onDisconnect={(sessionIds) => {
@@ -7391,7 +7490,11 @@ def main(command: str = "show version"):
                       style={tab.color ? { '--tab-color': tab.color } as React.CSSProperties : undefined}
                     >
                       {/* Tab icon - terminal, document, topology, or mop based on type */}
-                      {isTerminalTab(tab) ? (
+                      {isConsoleTab(tab) ? (
+                        <span className="tab-icon tab-icon-console" title="Console (out-of-band)">
+                          <ConsoleIcon size={14} strokeWidth={1.5} />
+                        </span>
+                      ) : isTerminalTab(tab) ? (
                         <span className="tab-icon tab-icon-terminal" title="Terminal">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <polyline points="4 17 10 11 4 5" />
@@ -7500,7 +7603,7 @@ def main(command: str = "show version"):
                 {tabs.length === 0 ? (
                   <div className="welcome">
                     <img src={`${import.meta.env.BASE_URL}logo.png`} alt="NetStacks" className="welcome-logo" />
-                    <p className="welcome-hint">Press <kbd>{displayShortcut('Cmd+T')}</kbd> to open a terminal</p>
+                    <p className="welcome-hint">Press <kbd>{formatShortcut(keyboard.getBinding('newTerminal'))}</kbd> to open a terminal</p>
                   </div>
                 ) : (
                   /* Phase 25: Always render all tabs, use CSS for split view layout */
@@ -7791,6 +7894,7 @@ def main(command: str = "show version"):
           getTerminalContext={handleAgentGetTerminalContext}
           liveContextDeps={liveContextDeps}
           onOpenSession={handleAgentOpenSession}
+          onOpenConsole={handleAgentOpenConsole}
           onListDocuments={handleAgentListDocuments}
           onReadDocument={handleAgentReadDocument}
           onSearchDocuments={handleAgentSearchDocuments}
@@ -7891,6 +7995,7 @@ def main(command: str = "show version"):
           getTerminalContext={handleAgentGetTerminalContext}
           liveContextDeps={liveContextDeps}
           onOpenSession={handleAgentOpenSession}
+          onOpenConsole={handleAgentOpenConsole}
           onListDocuments={handleAgentListDocuments}
           onReadDocument={handleAgentReadDocument}
           onSearchDocuments={handleAgentSearchDocuments}
@@ -8250,6 +8355,9 @@ def main(command: str = "show version"):
           onReopenLastClosed={() => reopenLastClosedTab()}
           canReopenClosed={closedTabs.length > 0}
           onSessionSettings={() => handleOpenSessionSettings(contextMenuTabId)}
+          onOpenConsole={tabs.some(t => t.id === contextMenuTabId && isConsoleTab(t))
+            ? undefined
+            : () => handleOpenConsoleFromTab(contextMenuTabId)}
           onOpenDeviceDetails={() => handleOpenDeviceDetailsFromTab(contextMenuTabId)}
           onDiscoverTopology={handleDiscoverTopologyFromGroup}
           selectedTabCount={tabSelectionCount}
@@ -8767,7 +8875,9 @@ def main(command: str = "show version"):
       <SessionSettingsDialog
         isOpen={sessionSettingsSession !== null}
         session={sessionSettingsSession}
-        onClose={() => setSessionSettingsSession(null)}
+        initialTab={sessionSettingsConsoleIntent ? 'console' : undefined}
+        onSaveAndOpenConsole={sessionSettingsConsoleIntent ? handleOpenConsole : undefined}
+        onClose={() => { setSessionSettingsSession(null); setSessionSettingsConsoleIntent(false) }}
         onPreviewFont={(fontSize, fontFamily) => {
           // Live preview font changes on the terminal
           if (sessionSettingsSession) {
@@ -8798,6 +8908,7 @@ def main(command: str = "show version"):
           setExternalSessionUpdate(updatedSession)
           // Close dialog after save
           setSessionSettingsSession(null)
+          setSessionSettingsConsoleIntent(false)
         }}
       />
 

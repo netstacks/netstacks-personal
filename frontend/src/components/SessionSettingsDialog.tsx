@@ -41,9 +41,15 @@ interface SessionSettingsDialogProps {
   defaultFolderId?: string | null;  // Pre-select folder when creating new session
   /** Callback to preview font changes in real-time on the terminal */
   onPreviewFont?: (fontSize: number | null, fontFamily: string | null) => void;
+  /** Tab to show when the dialog opens (default: General). */
+  initialTab?: SessionSettingsTab;
+  /** When set, the dialog was opened from "Open Console" on a session without
+   *  console access: it offers a "Save & Open Console" action that saves and
+   *  then hands the saved session back so the caller can open the console. */
+  onSaveAndOpenConsole?: (session: Session) => void;
 }
 
-type TabName = 'general' | 'ssh' | 'terminal' | 'context' | 'memory';
+export type SessionSettingsTab = 'general' | 'ssh' | 'console' | 'terminal' | 'context' | 'memory';
 
 // Font family options for terminal
 const FONT_FAMILY_OPTIONS = [
@@ -143,8 +149,10 @@ function SessionSettingsDialog({
   onSessionSaved,
   defaultFolderId,
   onPreviewFont,
+  initialTab,
+  onSaveAndOpenConsole,
 }: SessionSettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState<TabName>('general');
+  const [activeTab, setActiveTab] = useState<SessionSettingsTab>('general');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -205,6 +213,12 @@ function SessionSettingsDialog({
 
   // SFTP state
   const [sftpStartPath, setSftpStartPath] = useState<string>('');
+  // OOB console access (terminal server exposing this device's serial line)
+  const [consoleHost, setConsoleHost] = useState('');
+  const [consolePort, setConsolePort] = useState<number | ''>('');
+  const [consoleProtocol, setConsoleProtocol] = useState<Protocol>('ssh');
+  const [consoleProfileId, setConsoleProfileId] = useState<string>('');
+  const [consoleLegacySsh, setConsoleLegacySsh] = useState(false);
 
   // Display state
   const [terminalTheme, setTerminalTheme] = useState<string | null>(null);
@@ -252,6 +266,11 @@ function SessionSettingsDialog({
         setAutoCommands(session.auto_commands || []);
         setNewAutoCommand('');
         setSftpStartPath(session.sftp_start_path || '');
+        setConsoleHost(session.console_host || '');
+        setConsolePort(session.console_port ?? '');
+        setConsoleProtocol(session.console_protocol || 'ssh');
+        setConsoleProfileId(session.console_profile_id || '');
+        setConsoleLegacySsh(session.console_legacy_ssh || false);
       } else {
         // Create mode: reset to defaults
         setName('');
@@ -280,10 +299,15 @@ function SessionSettingsDialog({
         setAutoCommands([]);
         setNewAutoCommand('');
         setSftpStartPath('');
+        setConsoleHost('');
+        setConsolePort('');
+        setConsoleProtocol('ssh');
+        setConsoleProfileId('');
+        setConsoleLegacySsh(false);
       }
 
-      // Reset to first tab and clear errors
-      setActiveTab('general');
+      // Reset to the requested tab and clear errors
+      setActiveTab(initialTab ?? 'general');
       setError(null);
 
       // Load folders, profiles, and jump hosts
@@ -312,7 +336,7 @@ function SessionSettingsDialog({
       // Focus name input after a short delay
       setTimeout(() => nameInputRef.current?.focus(), 50);
     }
-  }, [isOpen, session, defaultFolderId]);
+  }, [isOpen, session, defaultFolderId, initialTab]);
 
   // Dirty-state guard — snapshot the loaded session (or create-mode
   // defaults) and prompt before discarding edits on close.
@@ -340,6 +364,11 @@ function SessionSettingsDialog({
     sftpStartPath: session.sftp_start_path || '',
     terminalTheme: session.terminal_theme || null,
     fontFamily: session.font_family || null,
+    consoleHost: session.console_host || '',
+    consolePort: (session.console_port ?? '') as number | '',
+    consoleProtocol: session.console_protocol || 'ssh',
+    consoleProfileId: session.console_profile_id || '',
+    consoleLegacySsh: session.console_legacy_ssh || false,
   } : {
     name: '', host: '', port: 22, folderId: defaultFolderId || null,
     selectedProfileId: '', protocol: 'ssh' as Protocol, jumpSelection: '',
@@ -349,6 +378,8 @@ function SessionSettingsDialog({
     cliFlavor: 'auto' as CliFlavor, autoCommands: [] as string[],
     sftpStartPath: '', terminalTheme: null as string | null,
     fontFamily: null as string | null,
+    consoleHost: '', consolePort: '' as number | '', consoleProtocol: 'ssh' as Protocol,
+    consoleProfileId: '', consoleLegacySsh: false,
   }, [session, defaultFolderId]);
 
   const currentSnapshot = {
@@ -356,6 +387,7 @@ function SessionSettingsDialog({
     legacySsh, portForwards, autoReconnect, reconnectDelay, scrollbackLines,
     localEcho, fontSizeOverride, cliFlavor, autoCommands, sftpStartPath,
     terminalTheme, fontFamily,
+    consoleHost, consolePort, consoleProtocol, consoleProfileId, consoleLegacySsh,
   };
 
   const { confirmDiscard, reset: resetDirty } = useDirtyGuard(currentSnapshot, {
@@ -363,7 +395,7 @@ function SessionSettingsDialog({
     resetKey: `${session?.id ?? 'new'}:${isOpen ? '1' : '0'}`,
   });
 
-  const handleSave = async () => {
+  const handleSave = async (andOpenConsole = false) => {
     // Validation
     if (!name.trim()) {
       setError('Name is required');
@@ -385,6 +417,26 @@ function SessionSettingsDialog({
       setError('Credential Profile is required');
       setActiveTab('ssh');
       return;
+    }
+    // Console access is all-or-nothing: host + port together, or neither.
+    const consoleHostTrimmed = consoleHost.trim();
+    const consoleConfigured = consoleHostTrimmed !== '' || consolePort !== '' || andOpenConsole;
+    if (consoleConfigured) {
+      if (!consoleHostTrimmed) {
+        setError('Console access needs a terminal server host');
+        setActiveTab('console');
+        return;
+      }
+      if (consolePort === '' || !Number.isInteger(consolePort) || consolePort < 1 || consolePort > 65535) {
+        setError('Console port must be between 1 and 65535');
+        setActiveTab('console');
+        return;
+      }
+      if (consoleProtocol === 'ssh' && !consoleProfileId) {
+        setError('Console access over SSH needs a credential profile for the terminal server login');
+        setActiveTab('console');
+        return;
+      }
     }
 
     setSaving(true);
@@ -415,6 +467,11 @@ function SessionSettingsDialog({
         auto_commands: autoCommands,
         protocol,
         sftp_start_path: sftpStartPath || null,
+        console_host: consoleConfigured ? consoleHostTrimmed : null,
+        console_port: consoleConfigured ? (consolePort as number) : null,
+        console_protocol: consoleProtocol,
+        console_profile_id: consoleConfigured && consoleProfileId ? consoleProfileId : null,
+        console_legacy_ssh: consoleLegacySsh,
       };
 
       let savedSession: Session;
@@ -429,6 +486,7 @@ function SessionSettingsDialog({
       resetDirty();
       onSessionSaved(savedSession);
       onClose();
+      if (andOpenConsole) onSaveAndOpenConsole?.(savedSession);
     } catch (err) {
       setError(getErrorMessage(err, `Failed to ${isEditing ? 'update' : 'create'} session`));
     } finally {
@@ -592,12 +650,13 @@ function SessionSettingsDialog({
   if (!isOpen) return null;
 
   // In create mode, only show General and SSH tabs (others require saved session)
-  const tabs: { id: TabName; label: string; requiresSession?: boolean }[] = [
+  const tabs: { id: SessionSettingsTab; label: string; requiresSession?: boolean }[] = [
     { id: 'general', label: 'General' },
     { id: 'ssh', label: protocol === 'telnet' ? 'Auth' : 'SSH' },
+    { id: 'console', label: 'Console' },
     { id: 'terminal', label: 'Terminal' },
-    ...(hasAITools ? [{ id: 'context' as TabName, label: 'Context', requiresSession: true }] : []),
-    ...(hasAITools ? [{ id: 'memory' as TabName, label: 'Device Memory', requiresSession: true }] : []),
+    ...(hasAITools ? [{ id: 'context' as SessionSettingsTab, label: 'Context', requiresSession: true }] : []),
+    ...(hasAITools ? [{ id: 'memory' as SessionSettingsTab, label: 'Device Memory', requiresSession: true }] : []),
   ];
 
   const availableTabs = tabs.filter(tab => !tab.requiresSession || isEditing);
@@ -973,6 +1032,124 @@ function SessionSettingsDialog({
             </div>
           )}
 
+          {/* Console Tab — OOB console access via a terminal server */}
+          {activeTab === 'console' && (
+            <div className="settings-tab-content">
+              <div className="form-section">
+                <h3>Console Access</h3>
+                <p className="form-hint">
+                  Out-of-band console via a terminal server (Opengear, Cisco async, Avocent, Lantronix, …).
+                  NetStacks connects to the terminal server on the port mapped to this device&apos;s serial
+                  line; the resulting shell is the device console. Leave empty to disable.
+                </p>
+
+                <div className="form-group">
+                  <label htmlFor="console-protocol">Protocol</label>
+                  <select
+                    id="console-protocol"
+                    value={consoleProtocol}
+                    onChange={(e) => setConsoleProtocol(e.target.value as Protocol)}
+                  >
+                    {PROTOCOL_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group" style={{ flex: 3 }}>
+                    <label htmlFor="console-host">Terminal Server</label>
+                    <input
+                      id="console-host"
+                      type="text"
+                      value={consoleHost}
+                      onChange={(e) => setConsoleHost(e.target.value)}
+                      placeholder="oob-site1.example.net or 10.0.0.5"
+                      className="form-input"
+                    />
+                  </div>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label htmlFor="console-port">Port</label>
+                    <input
+                      id="console-port"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={consolePort}
+                      onChange={(e) => setConsolePort(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                      placeholder={consoleProtocol === 'telnet' ? '2001' : '3001'}
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+                <span className="form-hint">
+                  Opengear: serial port N → SSH 3000+N (Telnet 2000+N). Cisco async line N → Telnet 2000+N.
+                </span>
+
+                <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                  <label htmlFor="console-profile">
+                    Terminal Server Credential Profile
+                    {consoleProtocol === 'telnet' && <span className="form-hint"> (optional)</span>}
+                  </label>
+                  <select
+                    id="console-profile"
+                    value={consoleProfileId}
+                    onChange={(e) => setConsoleProfileId(e.target.value)}
+                    className={consoleProtocol === 'ssh' && consoleHost.trim() && !consoleProfileId ? 'error' : ''}
+                  >
+                    <option value="">{consoleProtocol === 'telnet' ? 'None (no login prompt)' : 'Select a profile...'}</option>
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} ({profile.username})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="form-hint">
+                    Login for the terminal server itself, not the device. A jump configured on this
+                    profile is honoured (for OOB networks behind a bastion).
+                    {' · '}
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => setProfileEditorOpen(true)}
+                    >
+                      New profile
+                    </button>
+                  </span>
+                </div>
+
+                {consoleProtocol === 'ssh' && (
+                  <div className="form-group">
+                    <div className="setting-row">
+                      <div>
+                        <label>Legacy SSH Algorithms</label>
+                        <span className="form-hint">
+                          Older terminal-server firmware often needs legacy key exchange and ciphers.
+                        </span>
+                      </div>
+                      <Switch checked={consoleLegacySsh} onChange={setConsoleLegacySsh} label="Legacy SSH Algorithms (console)" />
+                    </div>
+                  </div>
+                )}
+
+                {(consoleHost.trim() || consolePort !== '') && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setConsoleHost('');
+                      setConsolePort('');
+                      setConsoleProfileId('');
+                      setConsoleLegacySsh(false);
+                    }}
+                  >
+                    Clear console access
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Terminal Tab */}
           {activeTab === 'terminal' && (
             <div className="settings-tab-content">
@@ -1190,9 +1367,14 @@ function SessionSettingsDialog({
           <button className="btn-secondary" onClick={handleClose}>
             Cancel
           </button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
+          <button className="btn-primary" onClick={() => handleSave()} disabled={saving}>
             {saving ? 'Saving...' : 'Save'}
           </button>
+          {onSaveAndOpenConsole && (
+            <button className="btn-primary" onClick={() => handleSave(true)} disabled={saving}>
+              {saving ? 'Saving...' : 'Save & Open Console'}
+            </button>
+          )}
         </div>
 
         {/* Inline profile creation (SSH tab shortcut) */}

@@ -68,6 +68,43 @@ export const AGENT_TOOLS: AgentTool[] = [
     }
   },
   {
+    name: 'open_console',
+    description: 'Open the out-of-band CONSOLE of a saved session (serial console via its terminal server, e.g. Opengear or a Cisco async line) in a new console tab. Use when the device is unreachable over its management IP, its SSH tab is disconnected or hung, the device is in ROMMON/boot, or the user explicitly asks for the console. list_sessions shows `console_configured` per session; if false, tell the user to right-click the session → Open Console to set it up (you cannot configure console access).',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+          description: 'The saved session ID (from list_sessions) whose console to open'
+        }
+      },
+      required: ['session_id']
+    }
+  },
+  {
+    name: 'run_console_command',
+    description: 'Execute one or more READ-ONLY commands on an OPEN console tab (serial console via terminal server). Same contract as run_command: pass `command` or `commands` (array, max 10); only show/display/get commands are allowed. The console must be sitting at a CLI prompt — this tool refuses to type into a login prompt, ROMMON, or config mode and never enters credentials. Use open_console first if list_sessions shows `console_connected: false`.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+          description: 'The session ID (saved ID or console tab ID) whose console to run on'
+        },
+        command: {
+          type: 'string',
+          description: 'Single read-only command. Use this OR `commands`, not both.'
+        },
+        commands: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of read-only commands to run sequentially on the console (max 10). Output uses `=== [N] command ===` headers.'
+        }
+      },
+      required: ['session_id']
+    }
+  },
+  {
     name: 'run_command',
     description: 'Execute one or more READ-ONLY commands on an OPEN terminal session. Pass either `command` (single) or `commands` (array, max 10). Only show/display/get commands are allowed; configuration commands are rejected. BATCH MODE runs each command sequentially through the same open terminal — strongly preferred when you have several commands for the same session, both because it avoids per-command tool-turn round trips (each AI tool call = an extra LLM API request and OAuth refresh) and because output stays in temporal order with clear per-command separators.',
     parameters: {
@@ -1640,7 +1677,8 @@ export type ToolCategory =
   | 'agent'
   | 'integrations'
   | 'remote-files'
-  | 'bash';
+  | 'bash'
+  | 'console';
 
 /**
  * Tool registry entry with metadata for UI
@@ -1650,6 +1688,9 @@ export interface ToolRegistryEntry {
   category: ToolCategory;
   description: string;
   shortDescription: string;
+  /** Disabled for every mode until the user turns it on (seeded once into
+   *  `ai.disabledTools.*`; see useSettings). */
+  defaultDisabled?: boolean;
 }
 
 /**
@@ -1720,6 +1761,10 @@ export const TOOL_CATEGORIES: Record<ToolCategory, { label: string; description:
     label: 'Bash / Shell',
     description: 'Execute bash commands on the local system (or jumpbox in enterprise mode). Dangerous commands are blocked by a configurable deny list.',
   },
+  'console': {
+    label: 'OOB Console',
+    description: 'Open a session\'s out-of-band console (terminal server serial line) and type read-only commands into it. Off by default: the AI types into the live device console exactly as you would, and only works through a console tab you can see. It never enters credentials and refuses to act unless the console sits at a CLI prompt.',
+  },
 };
 
 /**
@@ -1736,6 +1781,10 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
 
   // Bash Tools
   { name: 'run_bash', category: 'bash', description: 'Execute bash commands on the local system', shortDescription: 'Run bash' },
+
+  // OOB Console Tools — default off; see TOOL_CATEGORIES.console
+  { name: 'open_console', category: 'console', description: 'Open a session\'s out-of-band console tab via its terminal server', shortDescription: 'Open console', defaultDisabled: true },
+  { name: 'run_console_command', category: 'console', description: 'Execute read-only commands on an open console tab', shortDescription: 'Run console command', defaultDisabled: true },
 
   // Document Tools
   { name: 'list_documents', category: 'documents', description: 'List documents by category', shortDescription: 'List docs' },
@@ -1808,6 +1857,11 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   { name: 'edit_file', category: 'remote-files', description: 'Find and replace text in a remote file', shortDescription: 'Edit file' },
   { name: 'patch_file', category: 'remote-files', description: 'Apply sed substitution to a remote file', shortDescription: 'Patch file' },
 ];
+
+/** Tools that start disabled in every mode until the user enables them. */
+export const DEFAULT_DISABLED_TOOLS: readonly string[] = TOOL_REGISTRY
+  .filter((t) => t.defaultDisabled)
+  .map((t) => t.name);
 
 /**
  * Get all tools grouped by category
@@ -1888,7 +1942,7 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
 
   // Always include session tools - AI should know about them
   // If callbacks aren't available, the hook will return appropriate errors
-  const sessionTools = ['list_sessions', 'open_session', 'run_command', 'get_terminal_context', 'update_topology_device', 'ai_ssh_execute', 'get_ssh_output', 'set_session_cli_flavor'];
+  const sessionTools = ['list_sessions', 'open_session', 'run_command', 'get_terminal_context', 'update_topology_device', 'ai_ssh_execute', 'get_ssh_output', 'set_session_cli_flavor', 'open_console', 'run_console_command'];
   for (const name of sessionTools) {
     const tool = AGENT_TOOLS.find(t => t.name === name);
     if (tool) tools.push(tool);

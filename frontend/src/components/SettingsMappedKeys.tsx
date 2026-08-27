@@ -11,6 +11,8 @@ import { confirmDialog } from './ConfirmDialog';
 import { showToast } from './Toast';
 import { useMode } from '../hooks/useMode';
 import { getErrorMessage } from '../api/errors';
+import { eventToBinding, formatShortcut, findShortcutOwner, parseKeybinding } from '../hooks/useKeyboard';
+import { findDuplicateMappedKey, notifyMappedKeysChanged } from '../lib/mappedKeys';
 import './SettingsMappedKeys.css';
 
 export default function SettingsMappedKeys() {
@@ -47,35 +49,48 @@ export default function SettingsMappedKeys() {
   }, []);
 
   // Key capture handler — used by both add-new and edit-existing flows.
-  // `target` selects which state setter receives the captured combo.
+  // Same chord grammar as the app shortcuts (Cmd and Ctrl are distinct),
+  // so the terminal matcher and the Keyboard settings page agree.
   const handleKeyCapture = useCallback(
     (e: KeyboardEvent, target: 'add' | 'edit') => {
       e.preventDefault();
       e.stopPropagation();
 
-      const parts: string[] = [];
-      if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
-      if (e.altKey) parts.push('Alt');
-      if (e.shiftKey) parts.push('Shift');
-
-      let key = e.key;
-      if (key === ' ') key = 'Space';
-      else if (key.length === 1) key = key.toUpperCase();
-
-      if (!['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
-        parts.push(key);
-        const combo = parts.join('+');
-        if (target === 'add') {
-          setCapturedKeyCombo(combo);
-          setIsCapturingKey(false);
-        } else {
-          setEditCombo(combo);
-          setIsEditCapturing(false);
-        }
+      const combo = eventToBinding(e);
+      if (!combo) return;
+      if (target === 'add') {
+        setCapturedKeyCombo(combo);
+        setIsCapturingKey(false);
+      } else {
+        setEditCombo(combo);
+        setIsEditCapturing(false);
       }
     },
     [],
   );
+
+  /**
+   * Why a chord cannot (or should not) be a mapped key: another mapped key
+   * already uses it, or an app shortcut claims it. App shortcuts are
+   * matched before the terminal sees the key, except single-Ctrl chords
+   * inside the terminal, which are left to it — so those only warn.
+   */
+  const comboProblem = useCallback((combo: string, exceptId?: string): { message: string; blocking: boolean } | null => {
+    if (!combo) return null;
+    const dup = findDuplicateMappedKey(combo, keys, exceptId);
+    if (dup) return { message: `Already mapped to "${dup.is_secret ? '(secret)' : dup.command}"`, blocking: true };
+    const owner = findShortcutOwner(combo);
+    if (owner) {
+      const p = parseKeybinding(combo);
+      const deferredToTerminal = p.ctrl && !p.meta && !p.alt && !p.shift;
+      return deferredToTerminal
+        ? { message: `Also the app shortcut for "${owner.label}" — the terminal wins while it has focus`, blocking: false }
+        : { message: `Used by the app shortcut "${owner.label}", which fires first. Change it in Settings → Keyboard to use this chord here.`, blocking: true };
+    }
+    return null;
+  }, [keys]);
+  const addProblem = comboProblem(capturedKeyCombo);
+  const editProblem = editingId ? comboProblem(editCombo, editingId) : null;
 
   // Attach/detach key listener for capture mode (add or edit)
   useEffect(() => {
@@ -95,7 +110,7 @@ export default function SettingsMappedKeys() {
   }, [isEditCapturing, handleKeyCapture]);
 
   const handleAdd = useCallback(async () => {
-    if (!capturedKeyCombo.trim() || !newCommand.trim()) return;
+    if (!capturedKeyCombo.trim() || !newCommand.trim() || addProblem?.blocking) return;
     try {
       const created = await createMappedKey({
         key_combo: capturedKeyCombo.trim(),
@@ -104,6 +119,7 @@ export default function SettingsMappedKeys() {
         is_secret: newIsSecret,
       });
       setKeys(prev => [...prev, created]);
+      notifyMappedKeysChanged();
       setCapturedKeyCombo('');
       setNewCommand('');
       setNewDescription('');
@@ -112,7 +128,7 @@ export default function SettingsMappedKeys() {
       console.error('Failed to create mapped key:', err);
       showToast(getErrorMessage(err, 'Failed to create mapped key'), 'error');
     }
-  }, [capturedKeyCombo, newCommand, newDescription, newIsSecret]);
+  }, [capturedKeyCombo, newCommand, newDescription, newIsSecret, addProblem]);
 
   const startEdit = useCallback(async (key: MappedKey) => {
     // Secret commands aren't held in the list payload — fetch the plaintext
@@ -144,7 +160,7 @@ export default function SettingsMappedKeys() {
   }, []);
 
   const saveEdit = useCallback(async () => {
-    if (!editingId || !editCombo.trim() || !editCommand.trim()) return;
+    if (!editingId || !editCombo.trim() || !editCommand.trim() || editProblem?.blocking) return;
     try {
       const updated = await updateMappedKey(editingId, {
         key_combo: editCombo.trim(),
@@ -153,12 +169,13 @@ export default function SettingsMappedKeys() {
         is_secret: editIsSecret,
       });
       setKeys((prev) => prev.map((k) => (k.id === editingId ? updated : k)));
+      notifyMappedKeysChanged();
       cancelEdit();
     } catch (err) {
       console.error('Failed to update mapped key:', err);
       showToast(getErrorMessage(err, 'Failed to update mapped key'), 'error');
     }
-  }, [editingId, editCombo, editCommand, editDescription, editIsSecret, cancelEdit]);
+  }, [editingId, editCombo, editCommand, editDescription, editIsSecret, cancelEdit, editProblem]);
 
   const toggleReveal = useCallback(async (key: MappedKey) => {
     if (revealedId === key.id) {
@@ -186,6 +203,7 @@ export default function SettingsMappedKeys() {
     try {
       await deleteMappedKey(id);
       setKeys(prev => prev.filter(k => k.id !== id));
+      notifyMappedKeysChanged();
     } catch (err) {
       console.error('Failed to delete mapped key:', err);
     }
@@ -202,7 +220,7 @@ export default function SettingsMappedKeys() {
           <span className="mapped-keys-section-title">Keyboard Shortcuts</span>
         </div>
         <div className="mapped-keys-section-description">
-          Define keyboard shortcuts that send commands to the terminal. These apply to all sessions.
+          Define keyboard shortcuts that send commands to the terminal. These apply to all sessions and take effect in open terminals immediately.
         </div>
 
         {keys.length === 0 && (
@@ -219,7 +237,7 @@ export default function SettingsMappedKeys() {
                 return (
                   <div key={key.id} className="mapped-keys-item">
                     <div className="mapped-keys-item-main">
-                      <span className="mapped-keys-combo">{key.key_combo}</span>
+                      <span className="mapped-keys-combo" title={key.key_combo}>{formatShortcut(key.key_combo)}</span>
                       <span className="mapped-keys-arrow">&rarr;</span>
                       {key.is_secret ? (
                         <>
@@ -269,8 +287,11 @@ export default function SettingsMappedKeys() {
                         className={`mk-capture-btn ${isEditCapturing ? 'capturing' : ''}`}
                         onClick={() => setIsEditCapturing(true)}
                       >
-                        {isEditCapturing ? 'Press a key combo…' : editCombo || 'Click to capture'}
+                        {isEditCapturing ? 'Press a key combo…' : (editCombo ? formatShortcut(editCombo) : 'Click to capture')}
                       </button>
+                      {editProblem && (
+                        <span className={`mk-combo-problem${editProblem.blocking ? ' blocking' : ''}`}>{editProblem.message}</span>
+                      )}
                     </div>
                     <input
                       type={editIsSecret ? 'password' : 'text'}
@@ -292,7 +313,7 @@ export default function SettingsMappedKeys() {
                       type="button"
                       className="mk-add-btn"
                       onClick={saveEdit}
-                      disabled={!editCombo || !editCommand.trim()}
+                      disabled={!editCombo || !editCommand.trim() || !!editProblem?.blocking}
                       title="Save"
                     >
                       ✓
@@ -339,7 +360,7 @@ export default function SettingsMappedKeys() {
               >
                 {isCapturingKey
                   ? 'Press a key combo...'
-                  : capturedKeyCombo || 'Click to capture key'}
+                  : (capturedKeyCombo ? formatShortcut(capturedKeyCombo) : 'Click to capture key')}
               </button>
               {capturedKeyCombo && !isCapturingKey && (
                 <button
@@ -350,6 +371,9 @@ export default function SettingsMappedKeys() {
                 >
                   &times;
                 </button>
+              )}
+              {addProblem && (
+                <span className={`mk-combo-problem${addProblem.blocking ? ' blocking' : ''}`}>{addProblem.message}</span>
               )}
             </div>
             <input
@@ -369,7 +393,7 @@ export default function SettingsMappedKeys() {
               type="button"
               className="mk-add-btn"
               onClick={handleAdd}
-              disabled={!capturedKeyCombo || !newCommand.trim()}
+              disabled={!capturedKeyCombo || !newCommand.trim() || !!addProblem?.blocking}
               title="Add shortcut"
             >
               +

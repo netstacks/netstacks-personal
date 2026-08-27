@@ -250,6 +250,7 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
               height: state.terminalPanelCollapsed && !showOutput ? '100%' : undefined,
             }}>
               <WorkspaceEditorArea
+                isActive={isActive}
                 innerTabs={state.innerTabs}
                 activeInnerTabId={state.activeInnerTabId}
                 workspaceRoot={state.rootPath}

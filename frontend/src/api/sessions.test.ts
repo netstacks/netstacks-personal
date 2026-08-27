@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { csvToExportData, planSortOrder, SORT_ORDER_STEP } from './sessions';
+import { csvToExportData, generateExampleCSV, sessionsToCSV, CSV_HEADER, planSortOrder, SORT_ORDER_STEP, type Session } from './sessions';
+import type { CredentialProfile } from './profiles';
 
 const sib = (id: string, sort_order: number) => ({ id, sort_order });
 
@@ -50,6 +51,49 @@ describe('planSortOrder', () => {
 });
 
 describe('csvToExportData', () => {
+  it('imports console access columns and round-trips the example template', () => {
+    const { data, warnings } = csvToExportData(generateExampleCSV());
+    expect(warnings).toEqual([]);
+    expect(data.sessions).toHaveLength(4);
+    const [r1, s1, fw, srv] = data.sessions;
+    expect(r1.console_host).toBe('oob-lab.example.net');
+    expect(r1.console_port).toBe(3001);
+    expect(r1.console_protocol).toBe('ssh');
+    expect(r1.console_profile_name).toBe('opengear-admin');
+    expect(r1.console_legacy_ssh).toBe(false);
+    expect(s1.console_legacy_ssh).toBe(true);
+    expect(fw.console_protocol).toBe('telnet');
+    expect(fw.console_profile_name).toBeNull();
+    expect(srv.console_host).toBeNull();
+    expect(srv.console_port).toBeNull();
+  });
+
+  it('drops a half-configured console pair with a warning', () => {
+    const { data, warnings } = csvToExportData(
+      'name,host,console_host,console_port\nr1,10.0.0.1,oob.example,\nr2,10.0.0.2,,3001',
+    );
+    expect(warnings).toHaveLength(2);
+    expect(data.sessions.every(s => s.console_host === null && s.console_port === null)).toBe(true);
+  });
+
+  it('exports console columns that import back identically', () => {
+    const profile = { id: 'p1', name: 'default' } as CredentialProfile;
+    const oob = { id: 'p2', name: 'opengear-admin' } as CredentialProfile;
+    const session = {
+      id: 's1', name: 'edge-1', host: '10.1.1.1', port: 22, folder_id: null, profile_id: 'p1',
+      console_host: 'oob.example', console_port: 3007, console_protocol: 'ssh',
+      console_profile_id: 'p2', console_legacy_ssh: true,
+    } as Session;
+    const csv = sessionsToCSV([session], [], [profile, oob]);
+    expect(csv.split('\n')[0]).toBe(CSV_HEADER);
+    const { data } = csvToExportData(csv);
+    expect(data.sessions[0]).toMatchObject({
+      name: 'edge-1', profile_name: 'default',
+      console_host: 'oob.example', console_port: 3007, console_protocol: 'ssh',
+      console_profile_name: 'opengear-admin', console_legacy_ssh: true,
+    });
+  });
+
   it('emits port_forwards so the agent ExportSession deserializes', () => {
     const { data, warnings } = csvToExportData('name,host,port,folder,profile\nr1,10.0.0.1,22,Lab,default');
     expect(warnings).toEqual([]);

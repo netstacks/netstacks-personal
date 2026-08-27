@@ -114,6 +114,7 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), DbError> {
     migrate_changes_nullable_session_id(pool).await?;
     migrate_mop_executions_new_columns(pool).await?;
     migrate_sftp_start_path(pool).await?;
+    migrate_console_access(pool).await?;
     migrate_custom_commands_quick_actions(pool).await?;
     migrate_mop_execution_steps_sources(pool).await?;
     migrate_ai_engineer_profile(pool).await?;
@@ -691,6 +692,20 @@ async fn migrate_credential_profiles_table(pool: &SqlitePool) -> Result<(), DbEr
             .execute(pool)
             .await
             .map_err(|e| DbError::Migration(format!("Failed to add cli_flavor_mappings column: {}", e)))?;
+    }
+
+    // Console access import settings (terminal-server profile + protocol mappings)
+    if !column_exists(pool, "netbox_sources", "console_profile_id").await? {
+        sqlx::query("ALTER TABLE netbox_sources ADD COLUMN console_profile_id TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL")
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to add console_profile_id column: {}", e)))?;
+    }
+    if !column_exists(pool, "netbox_sources", "console_protocol_mappings").await? {
+        sqlx::query("ALTER TABLE netbox_sources ADD COLUMN console_protocol_mappings TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to add console_protocol_mappings column: {}", e)))?;
     }
 
     Ok(())
@@ -2269,6 +2284,27 @@ async fn migrate_sftp_start_path(pool: &SqlitePool) -> Result<(), DbError> {
     Ok(())
 }
 
+/// OOB console access columns on sessions (terminal server host/port/protocol,
+/// credential profile for the terminal-server login, legacy SSH flag).
+async fn migrate_console_access(pool: &SqlitePool) -> Result<(), DbError> {
+    let columns: [(&str, &str); 5] = [
+        ("console_host", "TEXT"),
+        ("console_port", "INTEGER"),
+        ("console_protocol", "TEXT DEFAULT 'ssh'"),
+        ("console_profile_id", "TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL"),
+        ("console_legacy_ssh", "INTEGER NOT NULL DEFAULT 0"),
+    ];
+    for (name, decl) in columns {
+        if !column_exists(pool, "sessions", name).await? {
+            sqlx::query(&format!("ALTER TABLE sessions ADD COLUMN {} {}", name, decl))
+                .execute(pool)
+                .await
+                .map_err(|e| DbError::Migration(format!("Failed to add {} column: {}", name, e)))?;
+        }
+    }
+    Ok(())
+}
+
 /// Add action_type, quick_action_id, quick_action_variable columns to custom_commands table
 async fn migrate_custom_commands_quick_actions(pool: &SqlitePool) -> Result<(), DbError> {
     if !column_exists(pool, "custom_commands", "action_type").await? {
@@ -2850,6 +2886,8 @@ async fn migrate_centralize_api_resources(pool: &SqlitePool) -> Result<(), DbErr
             profile_mappings TEXT,
             cli_flavor_mappings TEXT,
             device_filters TEXT,
+            console_profile_id TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL,
+            console_protocol_mappings TEXT,
             last_sync_at TEXT,
             last_sync_filters TEXT,
             last_sync_result TEXT,

@@ -5,17 +5,21 @@ import {
   fetchSites,
   fetchRoles,
   importDevicesAsSessions,
+  NETBOX_CONSOLE_PORT_CF,
+  NETBOX_CONSOLE_DOCS_URL,
   type NetBoxSite,
   type NetBoxRole,
   type SessionImportResult,
   type ImportSourceConfig,
 } from '../api/netbox';
 import type { NetBoxConfig } from '../types/topology';
-import { createSession, createFolder, listFolders, listSessions } from '../api/sessions';
+import { createSession, createFolder, listFolders, listSessions, updateSession } from '../api/sessions';
+import { openExternalUrl } from '../lib/openExternal';
 import {
   listNetBoxSources,
   getNetBoxSourceConnection,
   markSyncComplete,
+  DEFAULT_CONSOLE_PROTOCOL_MAPPINGS,
   type NetBoxSource,
   type DeviceFilters,
 } from '../api/netboxSources';
@@ -43,6 +47,7 @@ type WarningCategory =
   | 'no_profile'
   | 'folder_failed'
   | 'create_failed'
+  | 'console_skipped'
   | 'other';
 
 const WARNING_CATEGORY_LABELS: Record<WarningCategory, string> = {
@@ -51,6 +56,7 @@ const WARNING_CATEGORY_LABELS: Record<WarningCategory, string> = {
   no_profile: 'No credential profile mapped',
   folder_failed: 'Folder creation failed',
   create_failed: 'Backend rejected session',
+  console_skipped: 'Console access not resolvable in NetBox',
   other: 'Other',
 };
 
@@ -60,6 +66,7 @@ function classifyWarning(w: string): WarningCategory {
   if (w.startsWith('Skipped ') && w.endsWith(': no credential profile configured')) return 'no_profile';
   if (w.startsWith('Failed to create folder ')) return 'folder_failed';
   if (w.startsWith('Failed to create session for ')) return 'create_failed';
+  if (w.startsWith('Console skipped for ')) return 'console_skipped';
   return 'other';
 }
 
@@ -70,6 +77,7 @@ function groupWarnings(warnings: string[]): Record<WarningCategory, string[]> {
     no_profile: [],
     folder_failed: [],
     create_failed: [],
+    console_skipped: [],
     other: [],
   };
   for (const w of warnings) groups[classifyWarning(w)].push(w);
@@ -91,6 +99,11 @@ function buildReportText(result: SessionImportResult): string {
     lines.push(`  Folder creation failed: ${c.folder_failed}`);
     lines.push(`  Backend rejected:     ${c.create_failed}`);
     lines.push(`  Existing sessions in DB: ${c.existing_sessions}`);
+    lines.push(`  Console access set:   ${c.console_set}`);
+    lines.push(`  Console access updated: ${c.console_updated}`);
+    lines.push(`  Console unchanged:    ${c.console_unchanged}`);
+    lines.push(`  Console not resolvable: ${c.console_skipped}`);
+    lines.push(`  No console port in NetBox: ${c.console_missing}`);
   } else {
     lines.push(`  Created: ${result.sessions_created}`);
     lines.push(`  Folders: ${result.folders_created}`);
@@ -146,7 +159,7 @@ function ImportReport({ result }: ImportReportProps) {
   // Category visibility: only show non-empty categories so a clean import
   // doesn't get a wall of "0" rows.
   const visibleCategories: WarningCategory[] = (
-    ['already_exists', 'no_primary_ip', 'no_profile', 'folder_failed', 'create_failed', 'other'] as const
+    ['already_exists', 'no_primary_ip', 'no_profile', 'folder_failed', 'create_failed', 'console_skipped', 'other'] as const
   ).filter((cat) => groups[cat].length > 0);
 
   return (
@@ -179,6 +192,15 @@ function ImportReport({ result }: ImportReportProps) {
           </div>
           <div className="result-breakdown-row">
             <span>Existing sessions in DB</span><span>{c.existing_sessions}</span>
+          </div>
+          <div className="result-breakdown-row">
+            <span>Console access set (new sessions)</span><span>{c.console_set}</span>
+          </div>
+          <div className="result-breakdown-row">
+            <span>Console access updated (existing)</span><span>{c.console_updated}</span>
+          </div>
+          <div className="result-breakdown-row">
+            <span>Console not resolvable / no console port</span><span>{c.console_skipped} / {c.console_missing}</span>
           </div>
         </div>
       )}
@@ -295,6 +317,10 @@ function NetBoxImportDialog({
   const [selectedSite, setSelectedSite] = useState<string>('');
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [manualProfileId, setManualProfileId] = useState('');
+
+  // Refresh console access on already-imported sessions (the only thing the
+  // importer changes on existing sessions).
+  const [updateExistingConsole, setUpdateExistingConsole] = useState(true);
 
   // UI state
   const [step, setStep] = useState<Step>('source');
@@ -472,12 +498,16 @@ function NetBoxImportDialog({
               by_manufacturer: {},
               by_platform: {},
             },
+            consoleProfileId: selectedSource.console_profile_id,
+            consoleProtocolMappings: selectedSource.console_protocol_mappings,
           }
         : {
             sourceId: 'manual-import',
             defaultProfileId: manualProfileId,
             profileMappings: { by_site: {}, by_role: {} },
             cliFlavorMappings: { by_manufacturer: {}, by_platform: {} },
+            consoleProfileId: null,
+            consoleProtocolMappings: DEFAULT_CONSOLE_PROTOCOL_MAPPINGS,
           };
 
       // Build filters - use saved device_filters if available, otherwise use manual selection
@@ -505,6 +535,7 @@ function NetBoxImportDialog({
         listFolders,
         sourceConfig,
         listSessions, // Pass listSessions for duplicate detection
+        updateExistingConsole ? updateSession : undefined,
       );
 
       setImportResult(result);
@@ -527,7 +558,7 @@ function NetBoxImportDialog({
             filters: syncFilters,
             result: {
               sessions_created: result.sessions_created,
-              sessions_updated: 0, // Not tracking updates yet
+              sessions_updated: result.counts?.console_updated ?? 0,
               skipped: result.skipped,
             },
           });
@@ -536,7 +567,7 @@ function NetBoxImportDialog({
         }
       }
 
-      if (result.sessions_created > 0) {
+      if (result.sessions_created > 0 || (result.counts?.console_updated ?? 0) > 0) {
         // Notify parent to refresh
         onImportComplete();
       }
@@ -729,6 +760,35 @@ function NetBoxImportDialog({
               <div className="netbox-connection-status">
                 <span className="status-icon success">{Icons.check}</span>
                 <span>Connected to {sourceMode === 'saved' && selectedSource ? selectedSource.name : url}</span>
+              </div>
+
+              {/* Console access (OOB) import options */}
+              <div className="netbox-saved-filters">
+                <label>Console Access</label>
+                <label className="netbox-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={updateExistingConsole}
+                    onChange={(e) => setUpdateExistingConsole(e.target.checked)}
+                    disabled={isLoading}
+                  />
+                  <span>Update console access on already-imported sessions</span>
+                </label>
+                <span className="netbox-hint">
+                  Console access is read from NetBox when a device&apos;s console port is cabled to a
+                  console server and carries the <code>{NETBOX_CONSOLE_PORT_CF}</code> custom field (TCP port).
+                  {sourceMode === 'saved'
+                    ? ' Terminal-server login and SSH/Telnet rules come from the source settings.'
+                    : ' Manual imports have no terminal-server login, so only Telnet consoles (e.g. Cisco async lines) are imported; use a saved source for SSH consoles such as Opengear.'}
+                  {' '}
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => { void openExternalUrl(NETBOX_CONSOLE_DOCS_URL); }}
+                  >
+                    NetBox setup guide
+                  </button>
+                </span>
               </div>
 
               {/* Show saved device filters if present */}

@@ -27,7 +27,7 @@ import { friendlyAiError } from '../api/aiErrors';
 import { getTopologyTools, executeTopologyTool, isTopologyTool, type TopologyAICallbacks } from '../lib/topologyAITools';
 import type { SessionContextEntry } from '../api/ai';
 import type { NetBoxNeighbor } from '../api/netbox';
-import { buildLiveContext, stripLiveContext, computeStateSummary, shouldGuardCommand, type LiveContextDeps } from '../lib/aiLiveContext';
+import { buildLiveContext, stripLiveContext, computeStateSummary, shouldGuardCommand, type LiveContextDeps, type WorkspaceStateSummary } from '../lib/aiLiveContext';
 import { listNetBoxSources } from '../api/netboxSources';
 import {
   listLibreNmsSources,
@@ -59,7 +59,7 @@ import {
   createRecommendationMessage,
   type ConfigRecommendation,
 } from '../api/agent';
-import { listSessions as apiListSessions, listFolders as apiListFolders, updateSession as apiUpdateSession, createSession, createFolder, type CliFlavor, type Session, type Folder } from '../api/sessions';
+import { listSessions as apiListSessions, listFolders as apiListFolders, updateSession as apiUpdateSession, createSession, createFolder, type CliFlavor, type Session, type Folder, hasConsoleAccess, type TabProtocol } from '../api/sessions';
 import { listProfiles } from '../api/profiles';
 import { confirmDialog } from '../components/ConfirmDialog';
 import { listEnterpriseSessionDefinitions, listUserFolders as apiListUserFolders } from '../api/enterpriseSessions';
@@ -142,11 +142,51 @@ export interface CumulativeTokenUsage {
 
 // Session info for the agent
 export interface AgentSession {
+  /** Runtime terminal tab id */
   id: string;
   name: string;
   host?: string;
   connected: boolean;
   cliFlavor?: CliFlavor;
+  /** Saved session id the tab was opened from (what list_sessions returns) */
+  savedSessionId?: string;
+  /** `console` = OOB console tab; run_command refuses these, run_console_command requires them */
+  protocol?: TabProtocol;
+}
+
+/** Match a tool's `session_id` against a tab id or its saved session id. */
+function sessionMatches(s: AgentSession, sessionId: string): boolean {
+  return s.id === sessionId || s.savedSessionId === sessionId;
+}
+
+/** The terminal text inside a `getTerminalContext` JSON payload. */
+function terminalTextFromContext(contextJson: string): string {
+  try {
+    return (JSON.parse(contextJson) as { recentOutput?: string }).recentOutput ?? '';
+  } catch {
+    return contextJson;
+  }
+}
+
+/**
+ * A console may be sitting at a login prompt, in ROMMON, or in config mode
+ * from the last person. Only an exec/enable/shell prompt is safe to type
+ * into; returns the reason to refuse, or null when the summary says it is.
+ */
+export function consolePromptBlockReason(summary: WorkspaceStateSummary): string | null {
+  if (summary.blockedPrompt) {
+    return `Console is waiting on a prompt ("${summary.blockedPrompt}"). The AI never enters credentials or answers prompts — ask the user to handle it on the console tab first.`;
+  }
+  switch (summary.mode) {
+    case 'boot':
+      return 'Console is at a boot loader (ROMMON/loader) prompt. Ask the user to bring the device to an exec prompt first.';
+    case 'configuration':
+      return `Console is in configuration mode${summary.editContext ? ` (${summary.editContext})` : ''}. Ask the user to return to an exec prompt first.`;
+    case 'unknown':
+      return 'Console does not look like it is at a CLI prompt — press Enter in the console tab to get one, then retry.';
+    default:
+      return null;
+  }
 }
 
 // Change control analysis parameters (Phase 15)
@@ -272,6 +312,8 @@ export interface UseAIAgentOptions {
   onExecuteCommand?: (sessionId: string, command: string) => Promise<string>;
   getTerminalContext?: (sessionId: string, lines?: number, sinceOffset?: number) => Promise<string>;
   onOpenSession?: (sessionId: string) => Promise<void>;
+  /** Open a saved session's OOB console tab (rejects when none is configured) */
+  onOpenConsole?: (sessionId: string) => Promise<void>;
   liveContextDeps?: LiveContextDeps;
 
   // Permission mode (ask/auto/yolo) - defaults to 'auto'
@@ -426,6 +468,7 @@ export function unsanitizeToolName(name: string, map: ToolNameMap): string {
 // gated tool historically; the others bypassed the approval gate entirely.
 export const NEEDS_APPROVAL: ReadonlySet<string> = new Set([
   'run_command', 'ai_ssh_execute', 'run_bash', 'write_file', 'edit_file', 'patch_file',
+  'open_console', 'run_console_command',
 ]);
 
 /**
@@ -447,6 +490,10 @@ export function describeToolCall(toolName: string, input: Record<string, unknown
   switch (toolName) {
     case 'run_command':
       return resolveCommandList(input).join('\n');
+    case 'run_console_command':
+      return resolveCommandList(input).map(c => `[console] ${c}`).join('\n');
+    case 'open_console':
+      return `open_console ${str('session_id')}`;
     case 'ai_ssh_execute':
       return resolveCommandList(input).map(c => `[ssh] ${c}`).join('\n');
     case 'run_bash':
@@ -532,10 +579,16 @@ export function buildApprovalRequest(
   const command = describeToolCall(name, input);
   switch (name) {
     case 'run_command':
+    case 'run_console_command':
     case 'ai_ssh_execute':
       return {
         id, name, command, sessionId,
         validation: validateReadOnlyCommands(resolveCommandList(input), resolveFlavor(sessionId)),
+      };
+    case 'open_console':
+      return {
+        id, name, command, sessionId,
+        validation: { allowed: true, command },
       };
     case 'run_bash':
       return {
@@ -672,6 +725,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onExecuteCommand,
     getTerminalContext,
     onOpenSession,
+    onOpenConsole,
     liveContextDeps,
     permissionMode = 'auto' as PermissionMode,
     provider,
@@ -1044,6 +1098,137 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     if (!availableToolNames.has(toolName)) {
       return { content: `Tool not available: ${toolName}`, is_error: true };
     }
+    /**
+     * Shared body of run_command / run_console_command: resolve the command
+     * list, run the live-context collision guard and the backend read-only
+     * filter, disable paging per flavor, then type into the open tab.
+     */
+    const runCommandsInTerminal = async (session: AgentSession, prefetched?: WorkspaceStateSummary): Promise<ToolResult> => {
+      const singleCommand = input.command as string | undefined;
+      const commandList = input.commands as string[] | undefined;
+      const tabId = session.id;
+      const flavor: CliFlavor = sessionFlavorOverridesRef.current.get(tabId) ?? session.cliFlavor ?? 'auto';
+      if (!onExecuteCommand) {
+        return { content: 'Command execution not available', is_error: true };
+      }
+
+      // Resolve to a Vec<string>. Mutually-exclusive command/commands;
+      // matches the ai_ssh_execute contract.
+      let commands: string[];
+      if (singleCommand && commandList) {
+        return { content: 'Use either `command` or `commands`, not both.', is_error: true };
+      } else if (commandList && commandList.length > 0) {
+        if (commandList.length > 10) {
+          return { content: '`commands` array must have at most 10 entries.', is_error: true };
+        }
+        commands = commandList;
+      } else if (singleCommand) {
+        commands = [singleCommand];
+      } else {
+        return { content: 'Either `command` or `commands` is required.', is_error: true };
+      }
+
+      // Pre-flight collision guard: fail OPEN (log + continue) since the
+      // read-only filter below already fails closed. Blocks mode-exit/commit
+      // in dirty config sessions and refuses to auto-answer interactive prompts.
+      // The console path reads the buffer once for its prompt check and hands
+      // the summary in.
+      let summary = prefetched;
+      if (!summary && getTerminalContext) {
+        try {
+          summary = computeStateSummary(terminalTextFromContext(await getTerminalContext(tabId, 120)), flavor);
+        } catch (err) {
+          logger.warn('[run_command] live-context guard skipped', err);
+        }
+      }
+      if (summary) {
+        for (const c of commands) {
+          const reason = shouldGuardCommand(summary, c, flavor);
+          if (reason) return { content: reason, is_error: true };
+        }
+      }
+
+      // Read-only enforcement for the PTY path. `run_command` writes straight
+      // to the open terminal, bypassing the backend SSH CommandFilter, so we
+      // ask the backend's authoritative, config-mode-aware gate to vet every
+      // command before touching the live device. (Client-side filtering was
+      // removed in EXEC-002 to avoid a stale local flag; this restores the
+      // check server-side instead.) Fail CLOSED — never run if we can't verify.
+      //
+      // Enterprise mode governs config-mode + enforcement on the Controller,
+      // so the local /ai/command-check isn't the authority there; skip it.
+      const isEnterpriseMode = useCapabilitiesStore.getState().isEnterprise?.() ?? false;
+      if (!isEnterpriseMode) {
+        try {
+          const verdict = await checkAiCommands(commands);
+          if (!verdict.allowed) {
+            return {
+              content:
+                `Command rejected by read-only filter: ${verdict.reason ?? 'not permitted'} — ` +
+                `\`${verdict.rejected_command ?? ''}\`. ` +
+                `Enable AI Config Mode to allow configuration changes.`,
+              is_error: true,
+            };
+          }
+        } catch (err) {
+          return {
+            content: `Could not verify command safety; refusing to run on the live session: ${getErrorMessage(err)}`,
+            is_error: true,
+          };
+        }
+      }
+
+      // Disable paging for AI-executed commands so output doesn't block.
+      // Only applied when the session's flavor is explicitly Linux or
+      // Juniper. For 'auto' (and every other vendor), do nothing — the
+      // AI's system prompt tells it to probe + call set_session_cli_flavor
+      // first, then issue the platform's own paging-disable command.
+      const wrapForPaging = (cmd: string): string => {
+        if (flavor === 'linux') {
+          return `PAGER=cat SYSTEMD_PAGER= GIT_PAGER=cat LESS=-FRX ${cmd}`;
+        }
+        if (flavor === 'juniper' && !cmd.includes('| no-more')) {
+          return `${cmd} | no-more`;
+        }
+        return cmd;
+      };
+
+      // Single-command path keeps the legacy return shape (raw output string).
+      if (commands.length === 1) {
+        try {
+          const output = await onExecuteCommand(tabId, wrapForPaging(commands[0]));
+          return { content: stripAnsi(output), is_error: false };
+        } catch (err) {
+          return {
+            content: `Command failed: ${getErrorMessage(err)}`,
+            is_error: true,
+          };
+        }
+      }
+
+      // Batch path: run each command sequentially in the open terminal,
+      // assemble per-command sections with `=== [N] command ===` headers
+      // so the AI can read it as one stream and still know which output
+      // belongs to which command.
+      const sections: string[] = [];
+      let anyFailed = false;
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        let sectionBody: string;
+        try {
+          sectionBody = stripAnsi(await onExecuteCommand(tabId, wrapForPaging(cmd)));
+        } catch (err) {
+          anyFailed = true;
+          sectionBody = `[error] ${getErrorMessage(err)}`;
+        }
+        sections.push(`=== [${i + 1}] ${cmd} ===\n${sectionBody}`);
+      }
+      return {
+        content: sections.join('\n\n'),
+        is_error: anyFailed,
+      };
+    };
+
     switch (toolName) {
       case 'list_sessions': {
         const filter = input.filter as string | undefined;
@@ -1051,8 +1236,15 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         const isEnterprise = getCurrentMode() === 'enterprise';
 
         try {
-          // Build open sessions lookup for connected status
-          const openSessionIds = new Set(sessions.filter(s => s.connected).map(s => s.id));
+          // Build open sessions lookup for connected status. Tabs carry the
+          // saved session id they were opened from; console tabs count
+          // separately so the AI knows which tool applies.
+          const openSessionIds = new Set(
+            sessions.filter(s => s.connected && s.protocol !== 'console').map(s => s.savedSessionId ?? s.id),
+          );
+          const openConsoleIds = new Set(
+            sessions.filter(s => s.connected && s.protocol === 'console').map(s => s.savedSessionId ?? s.id),
+          );
 
           let enrichedSessions: Array<{
             id: string;
@@ -1063,6 +1255,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
             cli_flavor: string;
             last_connected?: string | null;
             active_connections?: number;
+            /** OOB console access is set up (open_console works) */
+            console_configured?: boolean;
+            /** A console tab is open and connected (run_console_command works) */
+            console_connected?: boolean;
           }>;
 
           if (isEnterprise) {
@@ -1140,6 +1336,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
               connected: openSessionIds.has(s.id),
               cli_flavor: s.cli_flavor || 'auto',
               last_connected: s.last_connected_at,
+              console_configured: hasConsoleAccess(s),
+              console_connected: openConsoleIds.has(s.id),
             }));
           }
 
@@ -1240,136 +1438,74 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
       case 'run_command': {
         const sessionId = input.session_id as string;
-        const singleCommand = input.command as string | undefined;
-        const commandList = input.commands as string[] | undefined;
-
-        const session = sessions.find(s => s.id === sessionId);
+        const session = sessions.find(s => sessionMatches(s, sessionId) && s.protocol !== 'console')
+          ?? sessions.find(s => sessionMatches(s, sessionId));
         if (!session) {
           return { content: `Session ${sessionId} not found`, is_error: true };
+        }
+        if (session.protocol === 'console') {
+          return { content: `${session.name} is a console tab — use run_console_command for it.`, is_error: true };
         }
         if (!session.connected) {
           return { content: `Session ${session.name} is not connected`, is_error: true };
         }
-        if (!onExecuteCommand) {
-          return { content: 'Command execution not available', is_error: true };
-        }
+        return runCommandsInTerminal(session);
+      }
 
-        // Resolve to a Vec<string>. Mutually-exclusive command/commands;
-        // matches the ai_ssh_execute contract.
-        let commands: string[];
-        if (singleCommand && commandList) {
-          return { content: 'Use either `command` or `commands`, not both.', is_error: true };
-        } else if (commandList && commandList.length > 0) {
-          if (commandList.length > 10) {
-            return { content: '`commands` array must have at most 10 entries.', is_error: true };
-          }
-          commands = commandList;
-        } else if (singleCommand) {
-          commands = [singleCommand];
-        } else {
-          return { content: 'Either `command` or `commands` is required.', is_error: true };
+      case 'open_console': {
+        const sessionId = input.session_id as string;
+        if (!onOpenConsole) {
+          return {
+            content: 'Console opening not available from this context. The user can right-click the session → Open Console.',
+            is_error: true,
+          };
         }
-
-        // Pre-flight collision guard: fail OPEN (log + continue) since the
-        // read-only filter below already fails closed. Blocks mode-exit/commit
-        // in dirty config sessions and refuses to auto-answer interactive prompts.
-        if (getTerminalContext) {
-          try {
-            const buf = await getTerminalContext(sessionId, 120);
-            const flavorForGuard: CliFlavor =
-              sessionFlavorOverridesRef.current.get(sessionId) ?? session.cliFlavor ?? 'auto';
-            const summary = computeStateSummary(buf, flavorForGuard);
-            for (const c of commands) {
-              const reason = shouldGuardCommand(summary, c, flavorForGuard);
-              if (reason) return { content: reason, is_error: true };
-            }
-          } catch (err) {
-            logger.warn('[run_command] live-context guard skipped', err);
-          }
+        // Accept a tab id too: resolve it to the saved session the tab came from.
+        const tab = sessions.find(s => sessionMatches(s, sessionId));
+        const savedId = tab?.savedSessionId ?? sessionId;
+        const alreadyOpen = sessions.find(s => s.protocol === 'console' && s.savedSessionId === savedId && s.connected);
+        if (alreadyOpen) {
+          return { content: `Console for ${alreadyOpen.name} is already open (tab id ${alreadyOpen.id}). Use run_console_command.`, is_error: false };
         }
-
-        // Read-only enforcement for the PTY path. `run_command` writes straight
-        // to the open terminal, bypassing the backend SSH CommandFilter, so we
-        // ask the backend's authoritative, config-mode-aware gate to vet every
-        // command before touching the live device. (Client-side filtering was
-        // removed in EXEC-002 to avoid a stale local flag; this restores the
-        // check server-side instead.) Fail CLOSED — never run if we can't verify.
-        //
-        // Enterprise mode governs config-mode + enforcement on the Controller,
-        // so the local /ai/command-check isn't the authority there; skip it.
-        const isEnterpriseMode = useCapabilitiesStore.getState().isEnterprise?.() ?? false;
-        if (!isEnterpriseMode) {
-          try {
-            const verdict = await checkAiCommands(commands);
-            if (!verdict.allowed) {
-              return {
-                content:
-                  `Command rejected by read-only filter: ${verdict.reason ?? 'not permitted'} — ` +
-                  `\`${verdict.rejected_command ?? ''}\`. ` +
-                  `Enable AI Config Mode to allow configuration changes.`,
-                is_error: true,
-              };
-            }
-          } catch (err) {
-            return {
-              content: `Could not verify command safety; refusing to run on the live session: ${getErrorMessage(err)}`,
-              is_error: true,
-            };
-          }
+        try {
+          await onOpenConsole(savedId);
+          return {
+            content: 'Console tab opened. It may take a moment to connect; use list_sessions to check `console_connected`, then run_console_command.',
+            is_error: false,
+          };
+        } catch (err) {
+          return { content: `Error opening console: ${getErrorMessage(err)}`, is_error: true };
         }
+      }
 
-        // Disable paging for AI-executed commands so output doesn't block.
-        // Only applied when the session's flavor is explicitly Linux or
-        // Juniper. For 'auto' (and every other vendor), do nothing — the
-        // AI's system prompt tells it to probe + call set_session_cli_flavor
-        // first, then issue the platform's own paging-disable command.
-        const flavor: CliFlavor = sessionFlavorOverridesRef.current.get(sessionId)
-          ?? session.cliFlavor
-          ?? 'auto';
-        const wrapForPaging = (cmd: string): string => {
-          if (flavor === 'linux') {
-            return `PAGER=cat SYSTEMD_PAGER= GIT_PAGER=cat LESS=-FRX ${cmd}`;
-          }
-          if (flavor === 'juniper' && !cmd.includes('| no-more')) {
-            return `${cmd} | no-more`;
-          }
-          return cmd;
-        };
-
-        // Single-command path keeps the legacy return shape (raw output string).
-        if (commands.length === 1) {
-          try {
-            const output = await onExecuteCommand(sessionId, wrapForPaging(commands[0]));
-            return { content: stripAnsi(output), is_error: false };
-          } catch (err) {
-            return {
-              content: `Command failed: ${getErrorMessage(err)}`,
-              is_error: true,
-            };
-          }
+      case 'run_console_command': {
+        const sessionId = input.session_id as string;
+        const session = sessions.find(s => s.protocol === 'console' && sessionMatches(s, sessionId));
+        if (!session) {
+          return {
+            content: `No open console tab for session ${sessionId}. Call open_console first (list_sessions shows console_configured / console_connected).`,
+            is_error: true,
+          };
         }
-
-        // Batch path: run each command sequentially in the open terminal,
-        // assemble per-command sections with `=== [N] command ===` headers
-        // so the AI can read it as one stream and still know which output
-        // belongs to which command.
-        const sections: string[] = [];
-        let anyFailed = false;
-        for (let i = 0; i < commands.length; i++) {
-          const cmd = commands[i];
-          let sectionBody: string;
-          try {
-            sectionBody = stripAnsi(await onExecuteCommand(sessionId, wrapForPaging(cmd)));
-          } catch (err) {
-            anyFailed = true;
-            sectionBody = `[error] ${getErrorMessage(err)}`;
-          }
-          sections.push(`=== [${i + 1}] ${cmd} ===\n${sectionBody}`);
+        if (!session.connected) {
+          return { content: `Console ${session.name} is not connected`, is_error: true };
         }
-        return {
-          content: sections.join('\n\n'),
-          is_error: anyFailed,
-        };
+        // Prompt sanity check: only type into an exec/shell prompt. Fail CLOSED
+        // — a console is the last line of defence and may be mid-login. The
+        // same summary then feeds the collision guard (one buffer read).
+        if (!getTerminalContext) {
+          return { content: 'Terminal context not available; refusing to type into a console blind.', is_error: true };
+        }
+        let summary: WorkspaceStateSummary;
+        try {
+          const flavor: CliFlavor = sessionFlavorOverridesRef.current.get(session.id) ?? session.cliFlavor ?? 'auto';
+          summary = computeStateSummary(terminalTextFromContext(await getTerminalContext(session.id, 120)), flavor);
+        } catch (err) {
+          return { content: `Could not read the console: ${getErrorMessage(err)}`, is_error: true };
+        }
+        const blocked = consolePromptBlockReason(summary);
+        if (blocked) return { content: blocked, is_error: true };
+        return runCommandsInTerminal(session, summary);
       }
 
       case 'ai_ssh_execute': {
@@ -1518,7 +1654,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         const lines = (input.lines as number) || 50;
         const sinceOffset = input.since_offset as number | undefined;
 
-        const session = sessions.find(s => s.id === sessionId);
+        const session = sessions.find(s => sessionMatches(s, sessionId));
         if (!session) {
           return { content: `Session ${sessionId} not found`, is_error: true };
         }
@@ -1535,6 +1671,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
               sessionId,
               sessionName: session.name,
               cliFlavor: session.cliFlavor || 'auto',
+              ...(session.protocol === 'console' ? { console: true } : {}),
               ...parsed,
             }, null, 2),
             is_error: false,
@@ -3062,7 +3199,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         // output (the terminal transcript); other tools get a compact row.
         const sessionId = typeof toolUse.input.session_id === 'string' ? toolUse.input.session_id : '';
         const session = sessions.find(s => s.id === sessionId);
-        if (toolUse.name === 'run_command') {
+        if (toolUse.name === 'run_command' || toolUse.name === 'run_console_command') {
           addMessage(createCommandResultMessage(
             describeToolCall(toolUse.name, toolUse.input),
             result.content,

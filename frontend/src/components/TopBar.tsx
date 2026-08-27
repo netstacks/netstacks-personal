@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import './TopBar.css'
+import { useShortcut } from '../hooks/useKeyboard'
 
 export interface TopBarProps {
   platform: 'macos' | 'windows' | 'linux'
@@ -24,6 +25,8 @@ export default function TopBar({
   menuSlot,
   windowControlsSlot,
 }: TopBarProps) {
+  const paletteShortcut = useShortcut('commandPalette')
+  const sidebarShortcut = useShortcut('toggleSidebar')
   const isMac = platform === 'macos'
   return (
     <div className={`topbar ${isMac ? 'is-macos' : ''}`} data-testid="topbar">
@@ -39,7 +42,7 @@ export default function TopBar({
           className="command-center"
           data-testid="command-center"
           onClick={onOpenCommandCenter}
-          title="Search everything (⌘⇧P)"
+          title={`Search everything (${paletteShortcut})`}
         >
           <span className="command-center-icon" aria-hidden>⌕</span>
           <span className="command-center-text">{searchPlaceholder}</span>
@@ -54,7 +57,7 @@ export default function TopBar({
           data-testid="toggle-sidebar-btn"
           aria-pressed={sidebarOpen}
           onClick={onToggleSidebar}
-          title="Toggle Sidebar (⌘B)"
+          title={`Toggle Sidebar (${sidebarShortcut})`}
         >
           <span aria-hidden>▌</span>
         </button>

@@ -309,3 +309,14 @@
   font-size: 11px;
   opacity: 0.7;
 }
+
+/* Duplicate / app-shortcut conflict hint under the capture button */
+.mk-combo-problem {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-warning, #f59e0b);
+}
+.mk-combo-problem.blocking {
+  color: var(--color-error, #ef4444);
+}

@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react'
+import { useShortcut } from '../hooks/useKeyboard'
 import ScratchpadEditor, { saveScratchpadContent, scratchpadTarget } from './ScratchpadEditor'
 import type { WorkspaceConfig } from '../types/workspace'
 import './Scratchpad.css'
@@ -18,6 +19,7 @@ interface ScratchpadTabProps {
 }
 
 export default function ScratchpadTab({ initialContent, activeWorkspace, onClose }: ScratchpadTabProps) {
+  const saveShortcut = useShortcut('saveDocument')
   const [content, setContent] = useState(initialContent)
   const [saving, setSaving] = useState(false)
   const target = scratchpadTarget(activeWorkspace)
@@ -44,7 +46,7 @@ export default function ScratchpadTab({ initialContent, activeWorkspace, onClose
             className="scratchpad-btn scratchpad-btn-primary"
             onClick={() => { void handleSave() }}
             disabled={saving}
-            title="Save (Cmd/Ctrl+S)"
+            title={`Save (${saveShortcut})`}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

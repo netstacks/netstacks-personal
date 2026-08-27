@@ -9,13 +9,15 @@ import {
   type ProfileMappings,
   type CliFlavorMappings,
   type DeviceFilters,
+  DEFAULT_CONSOLE_PROTOCOL_MAPPINGS,
+  type ConsoleProtocolMappings,
 } from '../api/netboxSources';
 import { getApiResource } from '../api/quickActions';
 import type { ApiResource } from '../types/quickAction';
 import { listProfiles, type CredentialProfile } from '../api/profiles';
 import AskAiHelp from './AskAiHelp';
 import AITabInput from './AITabInput';
-import { CLI_FLAVOR_OPTIONS, type CliFlavor } from '../api/sessions';
+import { CLI_FLAVOR_OPTIONS, PROTOCOL_OPTIONS, type CliFlavor, type Protocol } from '../api/sessions';
 import {
   fetchSites,
   fetchRoles,
@@ -84,6 +86,15 @@ interface FlavorMappingRow {
   key: string;
   flavor: CliFlavor;
 }
+
+interface ConsoleProtocolRow {
+  rid: string;
+  key: string;
+  protocol: Protocol;
+}
+
+const consoleRowsFromMappings = (m: ConsoleProtocolMappings): ConsoleProtocolRow[] =>
+  Object.entries(m.by_manufacturer).map(([key, protocol]) => ({ rid: crypto.randomUUID(), key, protocol }));
 
 interface MultiSelectOption {
   value: string;
@@ -197,6 +208,13 @@ export default function NetBoxSourceDialog({
   const [manufacturerFlavorMappings, setManufacturerFlavorMappings] = useState<FlavorMappingRow[]>([]);
   const [platformFlavorMappings, setPlatformFlavorMappings] = useState<FlavorMappingRow[]>([]);
 
+  // Console access import: terminal-server login + protocol per console-server manufacturer
+  const [consoleProfileId, setConsoleProfileId] = useState<string>('');
+  const [consoleDefaultProtocol, setConsoleDefaultProtocol] = useState<Protocol>(DEFAULT_CONSOLE_PROTOCOL_MAPPINGS.default);
+  const [consoleProtocolRows, setConsoleProtocolRows] = useState<ConsoleProtocolRow[]>(
+    () => consoleRowsFromMappings(DEFAULT_CONSOLE_PROTOCOL_MAPPINGS),
+  );
+
   // Test connection state
   const [testing, setTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState<boolean | null>(null);
@@ -234,6 +252,7 @@ export default function NetBoxSourceDialog({
     name, apiResourceId, defaultProfileId,
     siteMappings, roleMappings,
     manufacturerFlavorMappings, platformFlavorMappings,
+    consoleProfileId, consoleDefaultProtocol, consoleProtocolRows,
     filterSites, filterRoles, filterManufacturers, filterPlatforms,
     filterStatuses, filterTags,
   };
@@ -301,6 +320,12 @@ export default function NetBoxSourceDialog({
         setManufacturerFlavorMappings(mfrFlavorRows);
         setPlatformFlavorMappings(platformFlavorRows);
 
+        // Load console access settings
+        const consoleMappings = source.console_protocol_mappings ?? DEFAULT_CONSOLE_PROTOCOL_MAPPINGS;
+        setConsoleProfileId(source.console_profile_id || '');
+        setConsoleDefaultProtocol(consoleMappings.default);
+        setConsoleProtocolRows(consoleRowsFromMappings(consoleMappings));
+
         // Load device filters
         const filters = source.device_filters;
         setFilterSites(filters?.sites || []);
@@ -329,6 +354,9 @@ export default function NetBoxSourceDialog({
         setRoleMappings([]);
         setManufacturerFlavorMappings([]);
         setPlatformFlavorMappings([]);
+        setConsoleProfileId('');
+        setConsoleDefaultProtocol(DEFAULT_CONSOLE_PROTOCOL_MAPPINGS.default);
+        setConsoleProtocolRows(consoleRowsFromMappings(DEFAULT_CONSOLE_PROTOCOL_MAPPINGS));
         setFilterSites([]);
         setFilterRoles([]);
         setFilterManufacturers([]);
@@ -559,6 +587,17 @@ export default function NetBoxSourceDialog({
         }
       }
 
+      // Build console protocol mappings
+      const consoleProtocolMappings: ConsoleProtocolMappings = {
+        default: consoleDefaultProtocol,
+        by_manufacturer: {},
+      };
+      for (const row of consoleProtocolRows) {
+        if (row.key) {
+          consoleProtocolMappings.by_manufacturer[row.key.trim().toLowerCase()] = row.protocol;
+        }
+      }
+
       // Build device filters
       const deviceFilters: DeviceFilters = {
         sites: filterSites,
@@ -583,6 +622,8 @@ export default function NetBoxSourceDialog({
           profile_mappings: profileMappings,
           cli_flavor_mappings: cliFlavorMappings,
           device_filters: hasDeviceFilters ? deviceFilters : null,
+          console_profile_id: consoleProfileId || null,
+          console_protocol_mappings: consoleProtocolMappings,
         });
       } else {
         // Create new source
@@ -593,6 +634,8 @@ export default function NetBoxSourceDialog({
           profile_mappings: profileMappings,
           cli_flavor_mappings: cliFlavorMappings,
           device_filters: hasDeviceFilters ? deviceFilters : null,
+          console_profile_id: consoleProfileId || null,
+          console_protocol_mappings: consoleProtocolMappings,
         });
       }
 
@@ -650,6 +693,22 @@ export default function NetBoxSourceDialog({
       ...(field === 'key' ? { key: value } : { flavor: value as CliFlavor }),
     };
     setManufacturerFlavorMappings(updated);
+  };
+
+  // Console protocol mapping handlers (console-server manufacturer slug → ssh/telnet)
+  const handleAddConsoleProtocolRow = () => {
+    setConsoleProtocolRows([...consoleProtocolRows, { rid: crypto.randomUUID(), key: '', protocol: consoleDefaultProtocol }]);
+  };
+  const handleRemoveConsoleProtocolRow = (index: number) => {
+    setConsoleProtocolRows(consoleProtocolRows.filter((_, i) => i !== index));
+  };
+  const handleUpdateConsoleProtocolRow = (index: number, field: 'key' | 'protocol', value: string) => {
+    const updated = [...consoleProtocolRows];
+    updated[index] = {
+      ...updated[index],
+      ...(field === 'key' ? { key: value } : { protocol: value as Protocol }),
+    };
+    setConsoleProtocolRows(updated);
   };
 
   const handleAddPlatformFlavorMapping = () => {
@@ -1033,6 +1092,115 @@ export default function NetBoxSourceDialog({
                       <button
                         className="mapping-delete"
                         onClick={() => handleRemovePlatformFlavorMapping(index)}
+                        title="Remove"
+                      >
+                        {Icons.trash}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Console Access (OOB) */}
+          <div className="form-section">
+            <h3>Console Access</h3>
+            <div className="form-hint-block">
+              When a device&apos;s console port is cabled to a console server in NetBox and the console port
+              carries the <code>device_console</code> custom field (TCP port), the importer sets console
+              access on the session. NetBox has no field for the protocol, so it is chosen here by the
+              console server&apos;s manufacturer.
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="console-profile">Terminal Server Profile</label>
+              <select
+                id="console-profile"
+                value={consoleProfileId}
+                onChange={(e) => setConsoleProfileId(e.target.value)}
+              >
+                <option value="">No terminal-server login (telnet lines without a password)</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <span className="form-hint">Login for the console server itself (Opengear admin, etc.), not the device.</span>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="console-default-protocol">Default Console Protocol</label>
+              <select
+                id="console-default-protocol"
+                value={consoleDefaultProtocol}
+                onChange={(e) => setConsoleDefaultProtocol(e.target.value as Protocol)}
+              >
+                {PROTOCOL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mapping-group">
+              <div className="mapping-header">
+                <span>By Console Server Manufacturer</span>
+                <button
+                  className="btn-icon-small"
+                  onClick={handleAddConsoleProtocolRow}
+                  title="Add console server manufacturer rule"
+                >
+                  {Icons.plus}
+                </button>
+              </div>
+
+              {consoleProtocolRows.length === 0 ? (
+                <div className="mapping-empty">No manufacturer rules — the default protocol applies to every console server.</div>
+              ) : (
+                <div className="mapping-list">
+                  {consoleProtocolRows.map((row, index) => (
+                    <div key={row.rid} className="mapping-row">
+                      {sitesLoaded && manufacturers.length > 0 ? (
+                        <select
+                          value={row.key}
+                          onChange={(e) => handleUpdateConsoleProtocolRow(index, 'key', e.target.value)}
+                          className="mapping-key-select"
+                        >
+                          <option value="">Select manufacturer...</option>
+                          {!manufacturers.some((m) => m.slug === row.key) && row.key && (
+                            <option value={row.key}>{row.key}</option>
+                          )}
+                          {manufacturers.map((m) => (
+                            <option key={m.slug} value={m.slug}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={row.key}
+                          onChange={(e) => handleUpdateConsoleProtocolRow(index, 'key', e.target.value)}
+                          placeholder="Manufacturer slug (e.g. opengear)"
+                          className="mapping-key-input"
+                        />
+                      )}
+                      <span className="mapping-arrow">→</span>
+                      <select
+                        value={row.protocol}
+                        onChange={(e) => handleUpdateConsoleProtocolRow(index, 'protocol', e.target.value)}
+                        className="mapping-profile-select"
+                      >
+                        {PROTOCOL_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="mapping-delete"
+                        onClick={() => handleRemoveConsoleProtocolRow(index)}
                         title="Remove"
                       >
                         {Icons.trash}

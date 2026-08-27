@@ -5,10 +5,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   KEYBOARD_ACTIONS,
+  KEYBOARD_CATEGORIES,
   type KeyboardAction,
+  type KeybindingConflict,
   type UseKeyboardReturn,
   eventToBinding,
-  getPlatformBinding,
+  formatShortcut,
   isMac,
 } from '../hooks/useKeyboard'
 import './KeyboardSettings.css'
@@ -17,48 +19,40 @@ interface KeyboardSettingsProps {
   keyboard: UseKeyboardReturn
 }
 
-// Group actions by category
-function groupByCategory(actions: typeof KEYBOARD_ACTIONS) {
-  const groups: Record<string, typeof KEYBOARD_ACTIONS> = {}
-
-  for (const action of actions) {
-    if (!groups[action.category]) {
-      groups[action.category] = []
-    }
-    groups[action.category].push(action)
-  }
-
-  return groups
-}
-
-// Category display order
-const CATEGORY_ORDER = ['Terminal', 'Navigation', 'View', 'AI', 'Scripts']
-
 export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
   const [search, setSearch] = useState('')
   const [editingAction, setEditingAction] = useState<KeyboardAction | null>(null)
   const [pendingBinding, setPendingBinding] = useState<string>('')
-  const [conflict, setConflict] = useState<KeyboardAction | null>(null)
+  const [conflict, setConflict] = useState<KeybindingConflict | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Filter actions by search
+  // Filter actions by search (label, category, or the current chord)
   const filteredActions = useMemo(() => {
     if (!search.trim()) return KEYBOARD_ACTIONS
 
     const searchLower = search.toLowerCase()
     return KEYBOARD_ACTIONS.filter(
-      action =>
-        action.label.toLowerCase().includes(searchLower) ||
-        action.category.toLowerCase().includes(searchLower) ||
-        keyboard.getBinding(action.id).toLowerCase().includes(searchLower)
+      a =>
+        a.label.toLowerCase().includes(searchLower) ||
+        a.category.toLowerCase().includes(searchLower) ||
+        keyboard.getBinding(a.id).toLowerCase().includes(searchLower) ||
+        formatShortcut(keyboard.getBinding(a.id)).toLowerCase().includes(searchLower)
     )
   }, [search, keyboard])
 
-  // Group filtered actions
+  // Every category is listed, so no action can be hidden by the grouping.
   const groupedActions = useMemo(() => {
-    return groupByCategory(filteredActions)
+    return KEYBOARD_CATEGORIES
+      .map(category => ({ category, actions: filteredActions.filter(a => a.category === category) }))
+      .filter(g => g.actions.length > 0)
   }, [filteredActions])
+
+  const stopEditing = useCallback(() => {
+    setEditingAction(null)
+    setPendingBinding('')
+    setConflict(null)
+  }, [])
 
   // Handle clicking edit on an action
   const handleEdit = useCallback((actionId: KeyboardAction) => {
@@ -77,9 +71,7 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
 
       // Escape cancels editing
       if (e.key === 'Escape') {
-        setEditingAction(null)
-        setPendingBinding('')
-        setConflict(null)
+        stopEditing()
         return
       }
 
@@ -88,16 +80,13 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
       if (!binding) return
 
       setPendingBinding(binding)
-
-      // Check for conflicts
-      const conflictAction = keyboard.findConflict(editingAction, binding)
-      setConflict(conflictAction)
+      setConflict(keyboard.findConflict(editingAction, binding))
     }
 
     // Add listener in capture phase
     document.addEventListener('keydown', handleKeyDown, { capture: true })
     return () => document.removeEventListener('keydown', handleKeyDown, { capture: true })
-  }, [editingAction, keyboard])
+  }, [editingAction, keyboard, stopEditing])
 
   // Focus input when editing
   useEffect(() => {
@@ -106,67 +95,26 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
     }
   }, [editingAction])
 
-  // Save binding
+  // Save binding — a conflicting chord is refused: only one of the two
+  // actions would ever fire, silently.
   const handleSave = useCallback(() => {
-    if (editingAction && pendingBinding) {
+    if (editingAction && pendingBinding && !conflict) {
       keyboard.setBinding(editingAction, pendingBinding)
-      keyboard.saveToBackend().catch(console.error)
     }
-    setEditingAction(null)
-    setPendingBinding('')
-    setConflict(null)
-  }, [editingAction, pendingBinding, keyboard])
+    stopEditing()
+  }, [editingAction, pendingBinding, conflict, keyboard, stopEditing])
 
-  // Cancel editing
-  const handleCancel = useCallback(() => {
-    setEditingAction(null)
-    setPendingBinding('')
-    setConflict(null)
-  }, [])
-
-  // Reset single binding
   const handleReset = useCallback((actionId: KeyboardAction) => {
     keyboard.resetBinding(actionId)
-    keyboard.saveToBackend().catch(console.error)
   }, [keyboard])
 
-  // Reset all bindings
   const handleResetAll = useCallback(() => {
     keyboard.resetAllToDefaults()
-    keyboard.saveToBackend().catch(console.error)
   }, [keyboard])
 
-  // Get display binding for an action
-  const getDisplayBinding = useCallback((actionId: KeyboardAction) => {
-    const binding = keyboard.getBinding(actionId)
-    // Format for display (replace Cmd with symbol on Mac)
-    if (isMac()) {
-      return binding
-        .replace(/Cmd\+/g, '\u2318')
-        .replace(/Shift\+/g, '\u21E7')
-        .replace(/Alt\+/g, '\u2325')
-        .replace(/Ctrl\+/g, '\u2303')
-    }
-    return binding
-  }, [keyboard])
-
-  // Check if binding is customized
-  const isCustomized = useCallback((actionId: KeyboardAction) => {
-    const actionInfo = KEYBOARD_ACTIONS.find(a => a.id === actionId)
-    if (!actionInfo) return false
-
-    const current = keyboard.getBinding(actionId)
-    const defaultBinding = getPlatformBinding(actionInfo.defaultBinding)
-
-    return current !== defaultBinding
-  }, [keyboard])
-
-  // Get conflict action label
-  const getConflictLabel = useCallback((actionId: KeyboardAction | null) => {
-    if (!actionId) return ''
-    const action = KEYBOARD_ACTIONS.find(a => a.id === actionId)
-    return action?.label || actionId
-  }, [])
+  const modifierTip = isMac()
+    ? <span>Tip: combine <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>⌥</kbd> <kbd>⌃</kbd> with a key. Changes apply immediately and update the menu bar.</span>
+    : <span>Tip: combine Ctrl, Shift, Alt with a key. Changes apply immediately.</span>
 
   return (
     <div className="keyboard-settings">
@@ -186,46 +134,48 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
       </div>
 
       <div className="keyboard-settings-content">
-        {Object.keys(groupedActions).length === 0 ? (
+        {groupedActions.length === 0 ? (
           <div className="keyboard-empty">No shortcuts found</div>
         ) : (
-          CATEGORY_ORDER.filter(cat => groupedActions[cat]?.length > 0).map(category => (
+          groupedActions.map(({ category, actions }) => (
             <div key={category} className="keyboard-category">
               <h3 className="keyboard-category-title">{category}</h3>
               <div className="keyboard-action-list">
-                {groupedActions[category].map(action => (
+                {actions.map(a => (
                   <div
-                    key={action.id}
-                    className={`keyboard-action-item ${editingAction === action.id ? 'editing' : ''}`}
+                    key={a.id}
+                    className={`keyboard-action-item ${editingAction === a.id ? 'editing' : ''}`}
                   >
-                    <div className="keyboard-action-label">{action.label}</div>
+                    <div className="keyboard-action-label">{a.label}</div>
                     <div className="keyboard-action-binding">
-                      {editingAction === action.id ? (
+                      {editingAction === a.id ? (
                         <div className="keyboard-edit-mode">
                           <input
                             ref={inputRef}
                             type="text"
                             className="keyboard-binding-input"
-                            value={pendingBinding || 'Press keys...'}
+                            value={pendingBinding ? formatShortcut(pendingBinding) : 'Press keys...'}
                             readOnly
                             onKeyDown={(e) => e.preventDefault()}
                           />
                           {conflict && (
                             <div className="keyboard-conflict">
-                              Conflicts with: {getConflictLabel(conflict)}
+                              {conflict.action
+                                ? `Already used by "${conflict.label}" — change that shortcut first.`
+                                : `Reserved for "${conflict.label}".`}
                             </div>
                           )}
                           <div className="keyboard-edit-actions">
                             <button
                               className="keyboard-btn keyboard-btn-save"
                               onClick={handleSave}
-                              disabled={!pendingBinding}
+                              disabled={!pendingBinding || !!conflict}
                             >
                               Save
                             </button>
                             <button
                               className="keyboard-btn keyboard-btn-cancel"
-                              onClick={handleCancel}
+                              onClick={stopEditing}
                             >
                               Cancel
                             </button>
@@ -233,21 +183,21 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
                         </div>
                       ) : (
                         <>
-                          <kbd className={`keyboard-kbd ${isCustomized(action.id) ? 'customized' : ''}`}>
-                            {getDisplayBinding(action.id)}
+                          <kbd className={`keyboard-kbd ${keyboard.isCustomized(a.id) ? 'customized' : ''}`}>
+                            {formatShortcut(keyboard.getBinding(a.id))}
                           </kbd>
                           <div className="keyboard-action-buttons">
                             <button
                               className="keyboard-btn keyboard-btn-edit"
-                              onClick={() => handleEdit(action.id)}
+                              onClick={() => handleEdit(a.id)}
                             >
                               Edit
                             </button>
-                            {isCustomized(action.id) && (
+                            {keyboard.isCustomized(a.id) && (
                               <button
                                 className="keyboard-btn keyboard-btn-reset"
-                                onClick={() => handleReset(action.id)}
-                                title="Reset to default"
+                                onClick={() => handleReset(a.id)}
+                                title={`Reset to default (${formatShortcut(isMac() ? a.defaultBinding.mac : a.defaultBinding.windows)})`}
                               >
                                 Reset
                               </button>
@@ -265,13 +215,7 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
       </div>
 
       <div className="keyboard-settings-footer">
-        <div className="keyboard-hint">
-          {isMac() ? (
-            <span>Tip: Use <kbd>\u2318</kbd> <kbd>\u21E7</kbd> <kbd>\u2325</kbd> modifier keys</span>
-          ) : (
-            <span>Tip: Use Ctrl, Shift, Alt modifier keys</span>
-          )}
-        </div>
+        <div className="keyboard-hint">{modifierTip}</div>
       </div>
     </div>
   )

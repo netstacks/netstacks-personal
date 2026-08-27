@@ -1,18 +1,29 @@
 /**
- * Keyboard shortcuts hook - manages customizable keybindings
+ * Keyboard shortcuts — customizable app-level keybindings.
+ *
+ * The bindings live in ONE module-level store shared by every `useKeyboard()`
+ * instance (App's dispatcher, the Settings editor, tooltips), persisted to
+ * localStorage and mirrored to the agent (`/settings/keybindings`) so a
+ * rebind takes effect immediately everywhere and follows the user's profile.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { getClient } from '../api/client'
 
 // Action identifiers for all keyboard shortcuts
 export type KeyboardAction =
   | 'newTerminal'
+  | 'newSession'
+  | 'newDocument'
   | 'closeTab'
+  | 'closeAllTabs'
+  | 'reopenClosedTab'
   | 'quickConnect'
   | 'commandPalette'
   | 'findInTerminal'
+  | 'saveTerminalOutput'
   | 'aiChat'
+  | 'toggleAiChatPanel'
   | 'aiGenerateScript'
   | 'toggleSidebar'
   | 'nextTab'
@@ -20,11 +31,15 @@ export type KeyboardAction =
   | 'toggleMultiSend'
   | 'reconnect'
   | 'settings'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
   | 'connectSelectedSessions'
   | 'quickLookNotes'
   | 'quickLookTemplates'
   | 'quickLookOutputs'
   | 'saveDocument'
+  | 'runScript'
   | 'startTroubleshooting'
   | 'aiOverlay'
   | 'scratchpadOpen'
@@ -37,85 +52,129 @@ export interface PlatformKeybinding {
   windows: string
 }
 
+export type KeyboardCategory = 'Terminal' | 'Navigation' | 'View' | 'Sessions' | 'AI' | 'Documents'
+
 // Human-readable action info
 export interface KeyboardActionInfo {
   id: KeyboardAction
   label: string
-  category: 'Terminal' | 'Navigation' | 'AI' | 'Scripts' | 'View' | 'Sessions'
+  category: KeyboardCategory
   defaultBinding: PlatformKeybinding
 }
 
+/** `mac: Cmd+X` / `windows: Ctrl+X` — the shape almost every default takes. */
+const both = (chord: string): PlatformKeybinding => ({ mac: `Cmd+${chord}`, windows: `Ctrl+${chord}` })
+
 // Default keybindings configuration
 export const DEFAULT_KEYBINDINGS: Record<KeyboardAction, PlatformKeybinding> = {
-  newTerminal: { mac: 'Cmd+T', windows: 'Ctrl+T' },
-  closeTab: { mac: 'Cmd+W', windows: 'Ctrl+W' },
-  quickConnect: { mac: 'Cmd+Shift+Q', windows: 'Ctrl+Shift+Q' },
-  commandPalette: { mac: 'Cmd+Shift+P', windows: 'Ctrl+Shift+P' },
-  findInTerminal: { mac: 'Cmd+F', windows: 'Ctrl+F' },
-  aiChat: { mac: 'Cmd+I', windows: 'Ctrl+I' },
-  aiGenerateScript: { mac: 'Cmd+Shift+G', windows: 'Ctrl+Shift+G' },
-  toggleSidebar: { mac: 'Cmd+B', windows: 'Ctrl+B' },
-  nextTab: { mac: 'Cmd+Shift+]', windows: 'Ctrl+Shift+]' },
-  previousTab: { mac: 'Cmd+Shift+[', windows: 'Ctrl+Shift+[' },
-  toggleMultiSend: { mac: 'Cmd+Shift+M', windows: 'Ctrl+Shift+M' },
-  reconnect: { mac: 'Cmd+Shift+R', windows: 'Ctrl+Shift+R' },
-  settings: { mac: 'Cmd+,', windows: 'Ctrl+,' },
-  connectSelectedSessions: { mac: 'Cmd+Shift+Enter', windows: 'Ctrl+Shift+Enter' },
-  // Quick Look chords must not collide with native menu accelerators
-  // (Cmd+Shift+N = New Document, Cmd+Shift+T = Reopen Closed Tab).
-  quickLookNotes: { mac: 'Cmd+Shift+E', windows: 'Ctrl+Shift+E' },
-  quickLookTemplates: { mac: 'Cmd+Shift+L', windows: 'Ctrl+Shift+L' },
-  quickLookOutputs: { mac: 'Cmd+Shift+U', windows: 'Ctrl+Shift+U' },
-  saveDocument: { mac: 'Cmd+S', windows: 'Ctrl+S' },
-  startTroubleshooting: { mac: 'Cmd+Shift+K', windows: 'Ctrl+Shift+K' },
-  aiOverlay: { mac: 'Cmd+Shift+A', windows: 'Ctrl+Shift+A' },
-  scratchpadOpen: { mac: 'Cmd+Shift+J', windows: 'Ctrl+Shift+J' },
-  groupSelectedTabs: { mac: 'Cmd+G', windows: 'Ctrl+G' },
-  // Cmd+Shift+G belongs to aiGenerateScript — the old raw window listener
-  // for save-as-group used the same chord and never fired.
-  saveTabsAsGroup: { mac: 'Cmd+Shift+D', windows: 'Ctrl+Shift+D' },
+  newTerminal: both('T'),
+  newSession: both('N'),
+  newDocument: both('Shift+N'),
+  closeTab: both('W'),
+  closeAllTabs: both('Shift+W'),
+  reopenClosedTab: both('Shift+T'),
+  quickConnect: both('Shift+Q'),
+  commandPalette: both('Shift+P'),
+  findInTerminal: both('F'),
+  saveTerminalOutput: both('Shift+S'),
+  aiChat: both('I'),
+  toggleAiChatPanel: both('J'),
+  aiGenerateScript: both('Shift+G'),
+  toggleSidebar: both('B'),
+  nextTab: both('Shift+]'),
+  previousTab: both('Shift+['),
+  toggleMultiSend: both('Shift+M'),
+  reconnect: both('Shift+R'),
+  settings: both(','),
+  zoomIn: both('='),
+  zoomOut: both('-'),
+  zoomReset: both('0'),
+  connectSelectedSessions: both('Shift+Enter'),
+  // Quick Look chords must not collide with New Document (Cmd+Shift+N) or
+  // Reopen Closed Tab (Cmd+Shift+T).
+  quickLookNotes: both('Shift+E'),
+  quickLookTemplates: both('Shift+L'),
+  quickLookOutputs: both('Shift+U'),
+  saveDocument: both('S'),
+  runScript: both('Enter'),
+  startTroubleshooting: both('Shift+K'),
+  aiOverlay: both('Shift+A'),
+  scratchpadOpen: both('Shift+J'),
+  groupSelectedTabs: both('G'),
+  // Cmd+Shift+G belongs to aiGenerateScript.
+  saveTabsAsGroup: both('Shift+D'),
 }
 
-// Action metadata for UI display
+const action = (id: KeyboardAction, label: string, category: KeyboardCategory): KeyboardActionInfo =>
+  ({ id, label, category, defaultBinding: DEFAULT_KEYBINDINGS[id] })
+
+/** Action metadata for UI display, in the order the Keyboard settings page shows them. */
 export const KEYBOARD_ACTIONS: KeyboardActionInfo[] = [
   // Terminal
-  { id: 'newTerminal', label: 'New Terminal', category: 'Terminal', defaultBinding: DEFAULT_KEYBINDINGS.newTerminal },
-  { id: 'closeTab', label: 'Close Tab', category: 'Terminal', defaultBinding: DEFAULT_KEYBINDINGS.closeTab },
-  { id: 'reconnect', label: 'Reconnect Session', category: 'Terminal', defaultBinding: DEFAULT_KEYBINDINGS.reconnect },
-  { id: 'toggleMultiSend', label: 'Toggle Multi-Send', category: 'Terminal', defaultBinding: DEFAULT_KEYBINDINGS.toggleMultiSend },
+  action('newTerminal', 'New Terminal', 'Terminal'),
+  action('closeTab', 'Close Tab', 'Terminal'),
+  action('reconnect', 'Reconnect Session', 'Terminal'),
+  action('toggleMultiSend', 'Toggle Multi-Send', 'Terminal'),
+  action('findInTerminal', 'Find in Terminal', 'Terminal'),
+  action('saveTerminalOutput', 'Save Terminal Output to Docs', 'Terminal'),
 
   // Navigation
-  { id: 'commandPalette', label: 'Command Palette', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.commandPalette },
-  { id: 'toggleSidebar', label: 'Toggle Sidebar', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.toggleSidebar },
-  { id: 'nextTab', label: 'Next Tab', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.nextTab },
-  { id: 'previousTab', label: 'Previous Tab', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.previousTab },
-  { id: 'quickConnect', label: 'Quick Connect', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.quickConnect },
-  { id: 'findInTerminal', label: 'Find in Terminal', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.findInTerminal },
-  { id: 'settings', label: 'Open Settings', category: 'View', defaultBinding: DEFAULT_KEYBINDINGS.settings },
+  action('commandPalette', 'Command Palette', 'Navigation'),
+  action('toggleSidebar', 'Toggle Sidebar', 'Navigation'),
+  action('nextTab', 'Next Tab', 'Navigation'),
+  action('previousTab', 'Previous Tab', 'Navigation'),
+  action('closeAllTabs', 'Close All Tabs', 'Navigation'),
+  action('reopenClosedTab', 'Reopen Closed Tab', 'Navigation'),
+  action('groupSelectedTabs', 'Group Selected Tabs', 'Navigation'),
+  action('saveTabsAsGroup', 'Save Tabs as Group', 'Navigation'),
 
-  // AI
-  { id: 'aiChat', label: 'AI Assistant', category: 'AI', defaultBinding: DEFAULT_KEYBINDINGS.aiChat },
-  { id: 'aiGenerateScript', label: 'AI Generate Script', category: 'AI', defaultBinding: DEFAULT_KEYBINDINGS.aiGenerateScript },
-  { id: 'aiOverlay', label: 'AI: Open Chat Tab', category: 'AI', defaultBinding: DEFAULT_KEYBINDINGS.aiOverlay },
+  // View
+  action('settings', 'Open Settings', 'View'),
+  action('zoomIn', 'Zoom In', 'View'),
+  action('zoomOut', 'Zoom Out', 'View'),
+  action('zoomReset', 'Actual Size', 'View'),
+  action('quickLookNotes', 'Quick Look: Notes', 'View'),
+  action('quickLookTemplates', 'Quick Look: Templates', 'View'),
+  action('quickLookOutputs', 'Quick Look: Outputs', 'View'),
+  action('scratchpadOpen', 'Open Scratchpad', 'View'),
 
   // Sessions
-  { id: 'connectSelectedSessions', label: 'Connect Selected Sessions', category: 'Sessions', defaultBinding: DEFAULT_KEYBINDINGS.connectSelectedSessions },
+  action('newSession', 'New Session', 'Sessions'),
+  action('quickConnect', 'Quick Connect', 'Sessions'),
+  action('connectSelectedSessions', 'Connect Selected Sessions', 'Sessions'),
+  action('startTroubleshooting', 'Start Troubleshooting Session', 'Sessions'),
+
+  // AI
+  action('aiChat', 'AI Assistant', 'AI'),
+  action('toggleAiChatPanel', 'Toggle AI Chat Panel', 'AI'),
+  action('aiOverlay', 'AI: Open Chat Tab', 'AI'),
+  action('aiGenerateScript', 'AI Generate Script', 'AI'),
 
   // Documents
-  { id: 'saveDocument', label: 'Save Document', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.saveDocument },
-  { id: 'quickLookNotes', label: 'Quick Look: Notes', category: 'View', defaultBinding: DEFAULT_KEYBINDINGS.quickLookNotes },
-  { id: 'quickLookTemplates', label: 'Quick Look: Templates', category: 'View', defaultBinding: DEFAULT_KEYBINDINGS.quickLookTemplates },
-  { id: 'quickLookOutputs', label: 'Quick Look: Outputs', category: 'View', defaultBinding: DEFAULT_KEYBINDINGS.quickLookOutputs },
+  action('newDocument', 'New Document', 'Documents'),
+  action('saveDocument', 'Save Document', 'Documents'),
+  action('runScript', 'Run Script', 'Documents'),
+]
 
-  // Troubleshooting (Phase 26)
-  { id: 'startTroubleshooting', label: 'Start Troubleshooting Session', category: 'Sessions', defaultBinding: DEFAULT_KEYBINDINGS.startTroubleshooting },
+/** Category display order for the settings page — every category, so no action can be hidden. */
+export const KEYBOARD_CATEGORIES: KeyboardCategory[] = ['Terminal', 'Navigation', 'View', 'Sessions', 'AI', 'Documents']
 
-  // Scratchpad
-  { id: 'scratchpadOpen', label: 'Open Scratchpad', category: 'View', defaultBinding: DEFAULT_KEYBINDINGS.scratchpadOpen },
-
-  // Tab groups
-  { id: 'groupSelectedTabs', label: 'Group Selected Tabs', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.groupSelectedTabs },
-  { id: 'saveTabsAsGroup', label: 'Save Tabs as Group', category: 'Navigation', defaultBinding: DEFAULT_KEYBINDINGS.saveTabsAsGroup },
+/**
+ * Chords the app cannot give away: tab switching and the platform's own
+ * edit/window keys. Offered to the editor so a rebind never silently loses.
+ */
+export const RESERVED_SHORTCUTS: { binding: PlatformKeybinding; label: string }[] = [
+  ...Array.from({ length: 9 }, (_, i) => ({ binding: both(String(i + 1)), label: `Go to Tab ${i + 1}` })),
+  { binding: both('Alt+N'), label: 'New Window' },
+  { binding: both('C'), label: 'Copy' },
+  { binding: both('V'), label: 'Paste' },
+  { binding: both('X'), label: 'Cut' },
+  { binding: both('A'), label: 'Select All' },
+  { binding: both('Z'), label: 'Undo' },
+  { binding: both('Shift+Z'), label: 'Redo' },
+  { binding: { mac: 'Cmd+Q', windows: 'Alt+F4' }, label: 'Quit' },
+  { binding: { mac: 'Cmd+H', windows: 'Ctrl+Shift+C' }, label: isMac() ? 'Hide NetStacks' : 'Copy (terminal)' },
+  { binding: { mac: 'Cmd+M', windows: 'Ctrl+Shift+V' }, label: isMac() ? 'Minimize' : 'Paste (terminal)' },
 ]
 
 // Detect platform
@@ -148,8 +207,24 @@ export function displayShortcut(s: string): string {
     .join('+')
 }
 
+/**
+ * Format a binding for display: mac glyphs (⌘⇧S) on macOS, `Ctrl+Shift+S`
+ * words elsewhere. Used by every tooltip/menu that shows a shortcut.
+ */
+export function formatShortcut(binding: string): string {
+  if (!binding) return ''
+  if (!isMac()) return displayShortcut(binding)
+  const p = parseKeybinding(binding)
+  const key = p.key === 'enter' ? '⏎' : p.key === 'esc' ? '⎋' : p.key === 'space' ? '␣' : p.key.length === 1 ? p.key.toUpperCase() : capitalize(p.key)
+  return `${p.ctrl ? '⌃' : ''}${p.alt ? '⌥' : ''}${p.shift ? '⇧' : ''}${p.meta ? '⌘' : ''}${key}`
+}
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
 // Storage key
 const STORAGE_KEY = 'netstacks-keybindings'
+/** Agent settings key (`/settings/:key`) the overrides are mirrored to. */
+const BACKEND_SETTING_KEY = 'keybindings'
 
 // Parse a keybinding string into components
 export function parseKeybinding(binding: string): {
@@ -167,8 +242,36 @@ export function parseKeybinding(binding: string): {
     shift: parts.some(p => p === 'Shift'),
     alt: parts.some(p => p === 'Alt'),
     meta: parts.some(p => p === 'Cmd' || p === 'Meta'),
-    key: key.toLowerCase(),
+    key: normalizeKeyName(key),
   }
+}
+
+/** Key-name aliases accepted in bindings, folded to one lowercase spelling. */
+const KEY_ALIASES: Record<string, string> = {
+  return: 'enter',
+  escape: 'esc',
+  ' ': 'space',
+  arrowup: 'up',
+  arrowdown: 'down',
+  arrowleft: 'left',
+  arrowright: 'right',
+  del: 'delete',
+  ins: 'insert',
+}
+
+function normalizeKeyName(key: string): string {
+  const lower = key.toLowerCase()
+  return KEY_ALIASES[lower] ?? lower
+}
+
+/**
+ * Canonical spelling of a binding (`Ctrl+Alt+Shift+Cmd+key`), so two
+ * strings that mean the same chord compare equal regardless of modifier
+ * order, `Meta` vs `Cmd`, or key aliases (`Enter` vs `Return`).
+ */
+export function canonicalBinding(binding: string): string {
+  const p = parseKeybinding(binding)
+  return [p.ctrl && 'Ctrl', p.alt && 'Alt', p.shift && 'Shift', p.meta && 'Cmd', p.key].filter(Boolean).join('+')
 }
 
 // Convert a keyboard event to a binding string
@@ -227,28 +330,7 @@ export function matchesBinding(e: KeyboardEvent, binding: string): boolean {
   if (parsed.shift !== e.shiftKey) return false
   if (parsed.alt !== e.altKey) return false
 
-  // Check key
-  const eventKey = e.key.toLowerCase()
-  const bindingKey = parsed.key.toLowerCase()
-
-  // Handle special key mappings
-  const keyMappings: Record<string, string[]> = {
-    'enter': ['enter'],
-    'esc': ['escape'],
-    'space': [' '],
-    'up': ['arrowup'],
-    'down': ['arrowdown'],
-    'left': ['arrowleft'],
-    'right': ['arrowright'],
-    '[': ['['],
-    ']': [']'],
-  }
-
-  if (keyMappings[bindingKey]) {
-    return keyMappings[bindingKey].includes(eventKey)
-  }
-
-  return eventKey === bindingKey
+  return normalizeKeyName(e.key) === parsed.key
 }
 
 // Get the platform-appropriate binding from a PlatformKeybinding
@@ -294,15 +376,164 @@ export function shouldDeferToTarget(target: EventTarget | null, binding: string)
   return isTextEntryTarget(el) && modifierCount === 1
 }
 
+// ── Shared store ───────────────────────────────────────────────────────
+
+export type CustomKeybindings = Partial<Record<KeyboardAction, PlatformKeybinding>>
+export type Keybindings = Record<KeyboardAction, PlatformKeybinding>
+
+/** Keep only well-formed overrides for actions that still exist. */
+function sanitizeCustomBindings(raw: unknown): CustomKeybindings {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: CustomKeybindings = {}
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(id in DEFAULT_KEYBINDINGS)) continue
+    const v = value as Partial<PlatformKeybinding> | undefined
+    if (!v || typeof v !== 'object') continue
+    const def = DEFAULT_KEYBINDINGS[id as KeyboardAction]
+    out[id as KeyboardAction] = {
+      mac: typeof v.mac === 'string' && v.mac ? v.mac : def.mac,
+      windows: typeof v.windows === 'string' && v.windows ? v.windows : def.windows,
+    }
+  }
+  return out
+}
+
+function readStoredBindings(): CustomKeybindings {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? sanitizeCustomBindings(JSON.parse(stored)) : {}
+  } catch (err) {
+    console.error('Failed to load keybindings from localStorage:', err)
+    return {}
+  }
+}
+
+const listeners = new Set<() => void>()
+let customBindings: CustomKeybindings = readStoredBindings()
+let bindingsSnapshot: Keybindings = { ...DEFAULT_KEYBINDINGS, ...customBindings }
+
+function commitBindings(next: CustomKeybindings, persist: boolean): void {
+  customBindings = next
+  bindingsSnapshot = { ...DEFAULT_KEYBINDINGS, ...next }
+  if (persist) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    } catch (err) {
+      console.error('Failed to save keybindings to localStorage:', err)
+    }
+  }
+  listeners.forEach(l => l())
+}
+
+// Another window (pop-out terminal, second main window) rebinding a key
+// writes the same localStorage key — pick it up without a restart.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY) commitBindings(readStoredBindings(), false)
+  })
+}
+
+export function subscribeKeybindings(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+/** Every action's binding (defaults with the user's overrides applied). */
+export function getKeybindings(): Keybindings {
+  return bindingsSnapshot
+}
+
+/** Current platform binding for an action — usable outside React (terminal, menus). */
+export function getCurrentBinding(actionId: KeyboardAction): string {
+  return getPlatformBinding(bindingsSnapshot[actionId])
+}
+
+export function setKeybinding(actionId: KeyboardAction, bindingStr: string): void {
+  const platform = isMac() ? 'mac' : 'windows'
+  const current = customBindings[actionId] ?? DEFAULT_KEYBINDINGS[actionId]
+  commitBindings({ ...customBindings, [actionId]: { ...current, [platform]: bindingStr } }, true)
+}
+
+export function resetKeybinding(actionId: KeyboardAction): void {
+  const next = { ...customBindings }
+  delete next[actionId]
+  commitBindings(next, true)
+}
+
+export function resetAllKeybindings(): void {
+  commitBindings({}, true)
+}
+
+export function isKeybindingCustomized(actionId: KeyboardAction): boolean {
+  return canonicalBinding(getCurrentBinding(actionId)) !== canonicalBinding(getPlatformBinding(DEFAULT_KEYBINDINGS[actionId]))
+}
+
+/** What a chord is already used by: another action, or a reserved app/system key. */
+export interface KeybindingConflict {
+  action?: KeyboardAction
+  label: string
+}
+
+/** The action or reserved key that currently owns a chord, if any. */
+export function findShortcutOwner(bindingStr: string): KeybindingConflict | null {
+  const wanted = canonicalBinding(bindingStr)
+  const owner = KEYBOARD_ACTIONS.find(info => canonicalBinding(getCurrentBinding(info.id)) === wanted)
+  if (owner) return { action: owner.id, label: owner.label }
+  const reserved = RESERVED_SHORTCUTS.find(r => canonicalBinding(getPlatformBinding(r.binding)) === wanted)
+  return reserved ? { label: reserved.label } : null
+}
+
+/** Like `findShortcutOwner`, ignoring the action being edited. */
+export function findKeybindingConflict(actionId: KeyboardAction, bindingStr: string): KeybindingConflict | null {
+  const owner = findShortcutOwner(bindingStr)
+  return owner?.action === actionId ? null : owner
+}
+
+/** Mirror the overrides to the agent so they follow the user's profile. */
+export async function saveKeybindingsToBackend(): Promise<void> {
+  try {
+    await getClient().http.put(`/settings/${BACKEND_SETTING_KEY}`, customBindings)
+  } catch (err) {
+    console.error('Failed to save keybindings to backend:', err)
+  }
+}
+
+/**
+ * Load the overrides stored on the agent. The agent copy is the profile's
+ * source of truth: when it has bindings they replace the local cache; an
+ * empty/absent agent copy leaves whatever is cached locally.
+ */
+export async function loadKeybindingsFromBackend(): Promise<void> {
+  try {
+    const { data } = await getClient().http.get(`/settings/${BACKEND_SETTING_KEY}`)
+    if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      commitBindings(sanitizeCustomBindings(data), true)
+    }
+  } catch (err) {
+    console.error('Failed to load keybindings from backend:', err)
+  }
+}
+
+/** React subscription to the current bindings. */
+export function useKeybindings(): Keybindings {
+  return useSyncExternalStore(subscribeKeybindings, getKeybindings, getKeybindings)
+}
+
+/** Display label for an action's current binding (re-renders on rebind). */
+export function useShortcut(actionId: KeyboardAction): string {
+  const bindings = useKeybindings()
+  return formatShortcut(getPlatformBinding(bindings[actionId]))
+}
+
 // Hook return type
 export interface UseKeyboardReturn {
   // Current bindings (custom overrides merged with defaults)
-  bindings: Record<KeyboardAction, PlatformKeybinding>
+  bindings: Keybindings
 
   // Get the current binding for an action
   getBinding: (action: KeyboardAction) => string
 
-  // Set a custom binding for an action
+  // Set a custom binding for an action (persists locally and to the agent)
   setBinding: (action: KeyboardAction, binding: string) => void
 
   // Reset a single action to default
@@ -311,8 +542,11 @@ export interface UseKeyboardReturn {
   // Reset all bindings to defaults
   resetAllToDefaults: () => void
 
-  // Check if a binding has a conflict with another action
-  findConflict: (action: KeyboardAction, binding: string) => KeyboardAction | null
+  // Whether the action's binding differs from its default
+  isCustomized: (action: KeyboardAction) => boolean
+
+  // Check if a binding conflicts with another action or a reserved key
+  findConflict: (action: KeyboardAction, binding: string) => KeybindingConflict | null
 
   // Register an action handler. A handler may return `false` to decline the
   // event — the key then passes through untouched (no preventDefault) so a
@@ -321,112 +555,47 @@ export interface UseKeyboardReturn {
 
   // Unregister an action handler
   unregisterAction: (action: KeyboardAction) => void
-
-  // Save bindings to backend
-  saveToBackend: () => Promise<void>
-
-  // Load bindings from backend
-  loadFromBackend: () => Promise<void>
 }
 
 export function useKeyboard(): UseKeyboardReturn {
-  // Custom bindings (only stores overrides)
-  const [customBindings, setCustomBindings] = useState<Partial<Record<KeyboardAction, PlatformKeybinding>>>({})
+  const bindings = useKeybindings()
 
-  // Action handlers
+  // Action handlers registered by this instance
   const handlersRef = useRef<Partial<Record<KeyboardAction, KeyboardActionHandler>>>({})
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) {
-        setCustomBindings(JSON.parse(stored))
-      }
-    } catch (err) {
-      console.error('Failed to load keybindings from localStorage:', err)
-    }
+  const getBinding = useCallback((actionId: KeyboardAction): string => getPlatformBinding(bindings[actionId]), [bindings])
+
+  const setBinding = useCallback((actionId: KeyboardAction, bindingStr: string) => {
+    setKeybinding(actionId, bindingStr)
+    void saveKeybindingsToBackend()
   }, [])
 
-  // Save to localStorage when bindings change
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(customBindings))
-    } catch (err) {
-      console.error('Failed to save keybindings to localStorage:', err)
-    }
-  }, [customBindings])
-
-  // Merge custom bindings with defaults
-  const bindings: Record<KeyboardAction, PlatformKeybinding> = {
-    ...DEFAULT_KEYBINDINGS,
-    ...customBindings,
-  }
-
-  // Get binding for an action
-  const getBinding = useCallback((action: KeyboardAction): string => {
-    const binding = bindings[action] || DEFAULT_KEYBINDINGS[action]
-    return getPlatformBinding(binding)
-  }, [bindings])
-
-  // Set a custom binding
-  const setBinding = useCallback((action: KeyboardAction, bindingStr: string) => {
-    const platform = isMac() ? 'mac' : 'windows'
-    const otherPlatform = isMac() ? 'windows' : 'mac'
-
-    setCustomBindings(prev => ({
-      ...prev,
-      [action]: {
-        ...DEFAULT_KEYBINDINGS[action],
-        ...prev[action],
-        [platform]: bindingStr,
-        // Keep the other platform binding
-        [otherPlatform]: prev[action]?.[otherPlatform] || DEFAULT_KEYBINDINGS[action][otherPlatform],
-      },
-    }))
+  const resetBinding = useCallback((actionId: KeyboardAction) => {
+    resetKeybinding(actionId)
+    void saveKeybindingsToBackend()
   }, [])
 
-  // Reset a single binding
-  const resetBinding = useCallback((action: KeyboardAction) => {
-    setCustomBindings(prev => {
-      const next = { ...prev }
-      delete next[action]
-      return next
-    })
-  }, [])
-
-  // Reset all bindings
   const resetAllToDefaults = useCallback(() => {
-    setCustomBindings({})
+    resetAllKeybindings()
+    void saveKeybindingsToBackend()
   }, [])
 
-  // Find conflict with another action
-  const findConflict = useCallback((action: KeyboardAction, bindingStr: string): KeyboardAction | null => {
-    const bindingLower = bindingStr.toLowerCase()
+  // `bindings` in the deps keeps these in step with the store for callers that memoize on them.
+  const isCustomized = useCallback((actionId: KeyboardAction) => isKeybindingCustomized(actionId), [bindings]) // eslint-disable-line react-hooks/exhaustive-deps
+  const findConflict = useCallback(
+    (actionId: KeyboardAction, bindingStr: string) => findKeybindingConflict(actionId, bindingStr),
+    [bindings], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
-    for (const [key, value] of Object.entries(bindings)) {
-      if (key === action) continue
-
-      const currentBinding = getPlatformBinding(value).toLowerCase()
-      if (currentBinding === bindingLower) {
-        return key as KeyboardAction
-      }
-    }
-
-    return null
-  }, [bindings])
-
-  // Register action handler
-  const registerAction = useCallback((action: KeyboardAction, handler: KeyboardActionHandler) => {
-    handlersRef.current[action] = handler
+  const registerAction = useCallback((actionId: KeyboardAction, handler: KeyboardActionHandler) => {
+    handlersRef.current[actionId] = handler
   }, [])
 
-  // Unregister action handler
-  const unregisterAction = useCallback((action: KeyboardAction) => {
-    delete handlersRef.current[action]
+  const unregisterAction = useCallback((actionId: KeyboardAction) => {
+    delete handlersRef.current[actionId]
   }, [])
 
-  // Global keydown handler
+  // Global keydown handler — only instances that registered handlers do work.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't steal shortcuts from Monaco editors. The capture-phase
@@ -437,24 +606,17 @@ export function useKeyboard(): UseKeyboardReturn {
       const target = e.target as HTMLElement | null
       if (target?.closest?.('.monaco-editor')) return
 
-      // Check each registered action
-      for (const [action, handler] of Object.entries(handlersRef.current)) {
+      for (const [actionId, handler] of Object.entries(handlersRef.current)) {
         if (!handler) continue
-
-        const binding = bindings[action as KeyboardAction]
-        if (!binding) continue
-
-        const platformBinding = getPlatformBinding(binding)
-
-        if (matchesBinding(e, platformBinding)) {
-          // xterm (readline Ctrl+W/T/…) and text inputs own single-modifier
-          // chords — never steal them from the focused element.
-          if (shouldDeferToTarget(e.target, platformBinding)) return
-          if (handler() === false) return
-          e.preventDefault()
-          e.stopPropagation()
-          return
-        }
+        const platformBinding = getPlatformBinding(bindings[actionId as KeyboardAction])
+        if (!matchesBinding(e, platformBinding)) continue
+        // xterm (readline Ctrl+W/T/…) and text inputs own single-modifier
+        // chords — never steal them from the focused element.
+        if (shouldDeferToTarget(e.target, platformBinding)) return
+        if (handler() === false) return
+        e.preventDefault()
+        e.stopPropagation()
+        return
       }
     }
 
@@ -463,36 +625,15 @@ export function useKeyboard(): UseKeyboardReturn {
     return () => document.removeEventListener('keydown', handleKeyDown, { capture: true })
   }, [bindings])
 
-  // Backend sync functions
-  const saveToBackend = useCallback(async () => {
-    try {
-      await getClient().http.put('/settings/keybindings', customBindings)
-    } catch (err) {
-      console.error('Failed to save keybindings to backend:', err)
-    }
-  }, [customBindings])
-
-  const loadFromBackend = useCallback(async () => {
-    try {
-      const { data } = await getClient().http.get('/settings/keybindings')
-      if (data && typeof data === 'object') {
-        setCustomBindings(data)
-      }
-    } catch (err) {
-      console.error('Failed to load keybindings from backend:', err)
-    }
-  }, [])
-
   return {
     bindings,
     getBinding,
     setBinding,
     resetBinding,
     resetAllToDefaults,
+    isCustomized,
     findConflict,
     registerAction,
     unregisterAction,
-    saveToBackend,
-    loadFromBackend,
   }
 }

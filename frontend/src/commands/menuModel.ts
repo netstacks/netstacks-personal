@@ -46,7 +46,8 @@ export const MENU_MODEL: MenuSection[] = [
   { title: 'Tools', entries: [
     cmd('tools.quick-actions'), cmd('tools.snippets'), cmd('tools.mapped-keys'), sep,
     cmd('tools.vault'), cmd('tools.host-keys'), sep,
-    cmd('tools.recordings'), cmd('tools.session-logs'), cmd('tools.layouts'),
+    cmd('tools.recordings'), cmd('tools.session-logs'), cmd('tools.layouts'), sep,
+    cmd('tools.scratchpad'),
   ]},
   { title: 'AI', entries: [
     cmd('ai.toggle-chat'), sep,

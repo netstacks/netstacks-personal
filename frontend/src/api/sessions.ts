@@ -20,6 +20,8 @@ export const CLI_FLAVOR_OPTIONS: { value: CliFlavor; label: string }[] = [
 
 // Connection protocol
 export type Protocol = 'ssh' | 'telnet';
+/** What a terminal tab is connected as: the session's own protocol, or its OOB console. */
+export type TabProtocol = Protocol | 'console';
 
 export const PROTOCOL_OPTIONS: { value: Protocol; label: string }[] = [
   { value: 'ssh', label: 'SSH' },
@@ -87,6 +89,17 @@ export interface Session {
   auto_commands: string[];
   // SFTP starting directory override
   sftp_start_path: string | null;
+  // OOB console access: terminal server exposing this device's serial line.
+  console_host: string | null;
+  console_port: number | null;
+  console_protocol: Protocol;
+  console_profile_id: string | null;
+  console_legacy_ssh: boolean;
+}
+
+/** True when the session has a terminal server host + port configured. */
+export function hasConsoleAccess(session: Pick<Session, 'console_host' | 'console_port'>): boolean {
+  return !!session.console_host && !!session.console_port;
 }
 
 // === Jump Hosts (Global Proxy Configuration) ===
@@ -181,6 +194,12 @@ export interface NewSession {
   auto_commands?: string[];
   // SFTP starting directory override
   sftp_start_path?: string | null;
+  // OOB console access
+  console_host?: string | null;
+  console_port?: number | null;
+  console_protocol?: Protocol;
+  console_profile_id?: string | null;
+  console_legacy_ssh?: boolean;
 }
 
 export interface UpdateSessionData {
@@ -219,6 +238,12 @@ export interface UpdateSessionData {
   auto_commands?: string[];
   // SFTP starting directory override
   sftp_start_path?: string | null;
+  // OOB console access
+  console_host?: string | null;
+  console_port?: number | null;
+  console_protocol?: Protocol;
+  console_profile_id?: string | null;
+  console_legacy_ssh?: boolean;
 }
 
 export interface VaultStatus {
@@ -409,6 +434,12 @@ export interface ExportSession {
   jump_host_name: string | null;
   // Port forwarding (Phase 06.3)
   port_forwards: PortForward[];
+  // OOB console access (console profile referenced by name)
+  console_host?: string | null;
+  console_port?: number | null;
+  console_protocol?: Protocol;
+  console_profile_name?: string | null;
+  console_legacy_ssh?: boolean;
 }
 
 export interface ExportFolder {
@@ -622,6 +653,10 @@ function parseCSVLine(line: string): string[] {
   return fields;
 }
 
+/** CSV column order for session export and the example template. Import is
+ *  header-driven, so any subset/order of these columns is accepted. */
+export const CSV_HEADER = 'name,host,port,folder,profile,console_host,console_port,console_protocol,console_profile,console_legacy_ssh';
+
 /** Convert sessions to CSV string for export */
 export function sessionsToCSV(
   sessions: Session[],
@@ -631,21 +666,27 @@ export function sessionsToCSV(
   const folderMap = new Map(folders.map(f => [f.id, f.name]));
   const profileMap = new Map(profiles.map(p => [p.id, p.name]));
 
-  const header = 'name,host,port,folder,profile';
   const rows = sessions.map(s => {
     const folderName = s.folder_id ? (folderMap.get(s.folder_id) || '') : '';
     const profileName = profileMap.get(s.profile_id) || '';
+    const c = hasConsoleAccess(s) ? s : null;
     return [
       escapeCSV(s.name),
       escapeCSV(s.host),
       String(s.port),
       escapeCSV(folderName),
       escapeCSV(profileName),
+      escapeCSV(c?.console_host ?? ''),
+      c ? String(c.console_port) : '',
+      c?.console_protocol ?? '',
+      escapeCSV(c?.console_profile_id ? (profileMap.get(c.console_profile_id) || '') : ''),
+      c?.console_legacy_ssh ? 'true' : '',
     ].join(',');
   });
 
-  return [header, ...rows].join('\n');
+  return [CSV_HEADER, ...rows].join('\n');
 }
+
 
 /** Parse CSV text and convert to ExportData format for import */
 export function csvToExportData(csvText: string): { data: ExportData; warnings: string[] } {
@@ -662,6 +703,11 @@ export function csvToExportData(csvText: string): { data: ExportData; warnings: 
   const portIdx = headerFields.indexOf('port');
   const folderIdx = headerFields.indexOf('folder');
   const profileIdx = headerFields.indexOf('profile');
+  const consoleHostIdx = headerFields.indexOf('console_host');
+  const consolePortIdx = headerFields.indexOf('console_port');
+  const consoleProtocolIdx = headerFields.indexOf('console_protocol');
+  const consoleProfileIdx = headerFields.indexOf('console_profile');
+  const consoleLegacyIdx = headerFields.indexOf('console_legacy_ssh');
 
   if (nameIdx === -1 || hostIdx === -1) {
     throw new Error('CSV must contain "name" and "host" columns');
@@ -672,25 +718,53 @@ export function csvToExportData(csvText: string): { data: ExportData; warnings: 
 
   for (let i = 1; i < lines.length; i++) {
     const fields = parseCSVLine(lines[i]);
-    const name = fields[nameIdx]?.trim() || '';
-    const host = fields[hostIdx]?.trim() || '';
+    /** Trimmed cell for a header index, '' when the column is absent. */
+    const col = (idx: number): string => (idx >= 0 ? fields[idx]?.trim() ?? '' : '');
+    const name = col(nameIdx);
+    const host = col(hostIdx);
 
     if (!name || !host) {
       warnings.push(`Row ${i + 1}: skipped — missing name or host`);
       continue;
     }
 
-    const portStr = portIdx >= 0 ? fields[portIdx]?.trim() : '';
+    const portStr = col(portIdx);
     const port = portStr ? parseInt(portStr, 10) : 22;
     if (isNaN(port) || port < 1 || port > 65535) {
       warnings.push(`Row ${i + 1}: invalid port "${portStr}", using 22`);
     }
 
-    const folderName = folderIdx >= 0 ? fields[folderIdx]?.trim() || null : null;
-    const profileName = profileIdx >= 0 ? fields[profileIdx]?.trim() || null : null;
+    const folderName = col(folderIdx) || null;
+    const profileName = col(profileIdx) || null;
 
     if (folderName) {
       folderNames.add(folderName);
+    }
+
+    // Console access: host + port are a pair; a half-filled pair is dropped
+    // with a warning rather than guessed (the agent rejects half-configs).
+    const consoleHost = col(consoleHostIdx);
+    const consolePortStr = col(consolePortIdx);
+    const consolePort = consolePortStr ? parseInt(consolePortStr, 10) : NaN;
+    const console: Pick<ExportSession, 'console_host' | 'console_port' | 'console_protocol' | 'console_profile_name' | 'console_legacy_ssh'> = {
+      console_host: null,
+      console_port: null,
+      console_protocol: 'ssh',
+      console_profile_name: null,
+      console_legacy_ssh: false,
+    };
+    if (consoleHost && consolePort >= 1 && consolePort <= 65535) {
+      const protoRaw = col(consoleProtocolIdx).toLowerCase() || 'ssh';
+      if (protoRaw !== 'ssh' && protoRaw !== 'telnet') {
+        warnings.push(`Row ${i + 1}: unknown console_protocol "${protoRaw}", using ssh`);
+      }
+      console.console_host = consoleHost;
+      console.console_port = consolePort;
+      console.console_protocol = protoRaw === 'telnet' ? 'telnet' : 'ssh';
+      console.console_profile_name = col(consoleProfileIdx) || null;
+      console.console_legacy_ssh = ['true', '1', 'yes'].includes(col(consoleLegacyIdx).toLowerCase());
+    } else if (consoleHost || consolePortStr) {
+      warnings.push(`Row ${i + 1}: console access needs both console_host and a valid console_port (1-65535); ignored`);
     }
 
     exportSessions.push({
@@ -710,6 +784,7 @@ export function csvToExportData(csvText: string): { data: ExportData; warnings: 
       snippets: [],
       jump_host_name: null,
       port_forwards: [],
+      ...console,
     });
   }
 
@@ -732,10 +807,15 @@ export function csvToExportData(csvText: string): { data: ExportData; warnings: 
 /** Generate example CSV template */
 export function generateExampleCSV(): string {
   return [
-    'name,host,port,folder,profile',
-    'router-1,192.168.1.1,22,Lab,default',
-    'switch-1,192.168.1.2,22,Lab,default',
-    'firewall-1,10.0.0.1,22,,default',
+    CSV_HEADER,
+    // Console columns are optional. console_host/console_port point at the
+    // terminal server line for the device; console_profile is the terminal
+    // server login (optional for telnet); console_legacy_ssh = true for old
+    // terminal-server firmware.
+    'router-1,192.168.1.1,22,Lab,default,oob-lab.example.net,3001,ssh,opengear-admin,',
+    'switch-1,192.168.1.2,22,Lab,default,oob-lab.example.net,3002,ssh,opengear-admin,true',
+    'firewall-1,10.0.0.1,22,,default,10.0.0.250,2003,telnet,,',
+    'server-1,10.0.0.20,22,,default,,,,,',
   ].join('\n');
 }
 

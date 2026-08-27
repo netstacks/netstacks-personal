@@ -117,6 +117,7 @@ Available tools:
 - list_sessions: Get available terminal sessions
 - run_command: Execute read-only commands on a session
 - get_terminal_context: Get recent terminal output and device info
+- open_console / run_console_command: Open a session's out-of-band console and run read-only commands on it (only when the user enabled them in AI Tools; use when the device is unreachable over its management IP)
 - recommend_config: Show a configuration recommendation (display only, not executed)
 - list_documents: List available documents by category
 - read_document: Read the content of a document by ID

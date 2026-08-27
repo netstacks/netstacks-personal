@@ -440,20 +440,6 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
     })
   }, [dropTargetTabId, dropPosition])
 
-  // Keyboard shortcut for multi-send toggle
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+Shift+M - Toggle multi-send on active tab
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
-        e.preventDefault()
-        toggleMultiSend(activeTabId)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeTabId, toggleMultiSend])
-
   // Get tabs not in any group
   const ungroupedTabs = tabs.filter(t => !t.groupId)
 

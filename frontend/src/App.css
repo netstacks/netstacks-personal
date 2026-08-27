@@ -874,6 +874,11 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   color: var(--color-primary);
 }
 
+/* OOB console tab icon — violet, matching the console pill in the terminal */
+.tab-icon-console {
+  color: #a78bfa;
+}
+
 /* Multi-send indicator - chain link icon */
 .tab-multisend-indicator {
   display: flex;

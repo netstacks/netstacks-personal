@@ -524,18 +524,16 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
     return () => window.removeEventListener('netstacks:save-document', handleSaveEvent);
   }, [tabId, handleSave]);
 
-  // Cmd+Enter to run
+  // Run Script (Cmd+Enter): App dispatches `netstacks:run-script` for the
+  // active script tab, so the chord only runs the script the user is on.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleRun();
-      }
+    const onRun = (e: Event) => {
+      const { tabId: target } = (e as CustomEvent<{ tabId: string }>).detail;
+      if (tabId && target === tabId) handleRun();
     };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleRun]);
+    window.addEventListener('netstacks:run-script', onRun);
+    return () => window.removeEventListener('netstacks:run-script', onRun);
+  }, [tabId, handleRun]);
 
   const renderDeviceResult = (result: DeviceResult) => {
     const isExpanded = expandedDevices.has(result.device_id);

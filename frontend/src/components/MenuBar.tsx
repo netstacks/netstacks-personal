@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { MENU_MODEL, type MenuEntry } from '../commands/menuModel'
 import { useCommandStore, dispatchCommand, getActiveContext } from '../commands'
-import { displayShortcut } from '../hooks/useKeyboard'
+import { currentAcceleratorForCommand } from '../commands/keybindingLinks'
+import { displayShortcut, useKeybindings } from '../hooks/useKeyboard'
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import './MenuBar.css'
 
@@ -25,6 +26,8 @@ async function runPredefined(action: string) {
 }
 
 export default function MenuBar() {
+  // Re-render when the user rebinds a shortcut so accelerators stay current.
+  useKeybindings()
   const [open, setOpen] = useState<string | null>(null)
   const commands = useCommandStore(s => s.commands)
   const barRef = useRef<HTMLDivElement>(null)
@@ -52,11 +55,12 @@ export default function MenuBar() {
     const c = commands.get(entry.commandId)
     if (!c) return null
     const enabled = c.when ? c.when(getActiveContext()) : true
+    const accel = currentAcceleratorForCommand(c.id, c.accelerator)
     return (
       <button key={i} type="button" className="menu-item" disabled={!enabled}
         onClick={() => { setOpen(null); void dispatchCommand(entry.commandId, getActiveContext()) }}>
         <span className="menu-item-label">{c.label}</span>
-        {c.accelerator && <span className="menu-item-accel">{displayShortcut(c.accelerator)}</span>}
+        {accel && <span className="menu-item-accel">{displayShortcut(accel)}</span>}
       </button>
     )
   }

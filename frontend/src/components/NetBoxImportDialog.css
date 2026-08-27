@@ -215,6 +215,20 @@
   cursor: not-allowed;
 }
 
+.netbox-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.netbox-checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
 .netbox-hint {
   font-size: 10px;
   color: var(--color-text-secondary);

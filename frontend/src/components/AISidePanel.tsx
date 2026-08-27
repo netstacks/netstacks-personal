@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type PointerEvent as ReactPointerEvent } from 'react'
 import './AISidePanel.css'
+import { useShortcut } from '../hooks/useKeyboard'
 import MarkdownViewer from './MarkdownViewer'
 import ContextMenu from './ContextMenu'
 import type { MenuItem } from './ContextMenu'
@@ -13,6 +14,7 @@ import { listAiConversations, getAiConversation, createAiConversation, updateAiC
 import type { PermissionMode } from '../api/agent'
 import { type AgentType, AGENT_TYPES, PERMISSION_MODES } from '../lib/aiModes'
 import { useModeNames } from '../hooks/useModeNames'
+import type { TabProtocol } from '../api/sessions'
 import type { CliFlavor } from '../api/sessions'
 import type { Document, DocumentCategory } from '../api/docs'
 import type { SessionContextEntry, AiProviderType } from '../api/ai'
@@ -60,6 +62,8 @@ interface AISidePanelProps {
     cliFlavor?: CliFlavor
     /** Saved session-definition id — the key device memory/context is stored under. */
     savedSessionId?: string
+    /** `console` = OOB console tab */
+    protocol?: TabProtocol
   }>
   /** Callback when command needs to be executed - runs in the terminal so user can see it */
   onExecuteCommand?: (sessionId: string, command: string) => Promise<string>
@@ -69,6 +73,8 @@ interface AISidePanelProps {
   liveContextDeps?: LiveContextDeps
   /** Callback to open a saved session (opens terminal tab and connects) */
   onOpenSession?: (sessionId: string) => Promise<void>
+  /** Callback to open a saved session's OOB console tab */
+  onOpenConsole?: (sessionId: string) => Promise<void>
   /** Callback to list documents by category */
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>
   /** Callback to read document content by ID */
@@ -183,6 +189,7 @@ const AISidePanel = ({
   getTerminalContext,
   liveContextDeps,
   onOpenSession,
+  onOpenConsole,
   onListDocuments,
   onReadDocument,
   onSearchDocuments,
@@ -219,6 +226,7 @@ const AISidePanel = ({
   onPromptCapture,
   onManagePrompts,
 }: AISidePanelProps) => {
+  const aiChatShortcut = useShortcut('aiChat')
   // Full-window chat-session tab vs docked side panel.
   const isTab = variant === 'tab'
   const assistantName = useAssistantName()
@@ -327,6 +335,8 @@ const AISidePanel = ({
       name: s.name,
       connected: s.connected ?? true,
       cliFlavor: s.cliFlavor,
+      savedSessionId: s.savedSessionId,
+      protocol: s.protocol,
     })),
     [availableSessions]
   )
@@ -521,6 +531,7 @@ const AISidePanel = ({
     getTerminalContext,
     liveContextDeps,
     onOpenSession,
+    onOpenConsole,
     permissionMode,
     // Pass selected provider/model to the hook
     provider: selectedProvider,
@@ -720,13 +731,32 @@ const AISidePanel = ({
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Auto-size the input to its content (within reason — caps at ~9 lines, then
-  // scrolls). Runs whenever the text changes (typing, pasting, clearing).
-  useEffect(() => {
+  // scrolls). The panel stays mounted while closed/collapsed at zero width,
+  // where the placeholder wraps into many lines and scrollHeight balloons —
+  // so a hidden box is never measured, and the size is recomputed when the
+  // panel becomes visible or its width changes, not only when the text does.
+  const resizeInput = useCallback(() => {
     const el = inputRef.current
-    if (!el) return
+    if (!el || el.clientWidth === 0) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(180, el.scrollHeight)}px`
-  }, [input])
+  }, [])
+  const panelVisible = isOpen && !isCollapsed
+  useEffect(() => {
+    resizeInput()
+  }, [input, panelVisible, resizeInput])
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let lastWidth = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return
+      lastWidth = el.clientWidth
+      resizeInput()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [resizeInput])
 
   // Update isPinned when default setting changes
   useEffect(() => {
@@ -1344,7 +1374,7 @@ const AISidePanel = ({
           <button
             className="ai-side-panel-btn"
             onClick={onClose}
-            title="Close (Cmd+I)"
+            title={`Close (${aiChatShortcut})`}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
               <line x1="18" y1="6" x2="6" y2="18" />

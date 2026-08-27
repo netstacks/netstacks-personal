@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback, useState, useLayoutEffect } from 'react'
 import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition'
 import './TabContextMenu.css'
-import { displayShortcut } from '../hooks/useKeyboard'
+import { ConsoleIcon } from './icons/ConsoleIcon'
+import { useShortcut } from '../hooks/useKeyboard'
 
 export interface TabGroup {
   id: string
@@ -36,6 +37,8 @@ interface TabContextMenuProps {
   /** Whether a recently-closed tab is available to reopen. */
   canReopenClosed?: boolean
   onSessionSettings?: () => void
+  /** Open (or set up) the OOB console for this tab's session */
+  onOpenConsole?: () => void
   /** Split this terminal with a new one to the right (horizontal) */
   onSplitRight?: () => void
   /** Split this terminal with a new one below (vertical) */
@@ -93,7 +96,9 @@ export default function TabContextMenu({
   onOpenDeviceDetails,
   onShareSession,
   onDeployRemoteAgent,
+  onOpenConsole,
 }: TabContextMenuProps) {
+  const groupShortcut = useShortcut('groupSelectedTabs')
   const { ref: menuRef, style: menuStyle } = useClampedMenuPosition(position)
   const [showGroupSubmenu, setShowGroupSubmenu] = useState(false)
   const [showNewGroupPrompt, setShowNewGroupPrompt] = useState(false)
@@ -273,7 +278,7 @@ export default function TabContextMenu({
                   </svg>
                 </span>
                 Group Selected Tabs ({selectedTabCount})
-                <span className="tab-context-menu-shortcut">{displayShortcut('⌘G')}</span>
+                <span className="tab-context-menu-shortcut">{groupShortcut}</span>
               </button>
             </>
           )}
@@ -317,6 +322,15 @@ export default function TabContextMenu({
                 </svg>
               </span>
               Session Settings
+            </button>
+          )}
+
+          {sessionId && onOpenConsole && (
+            <button className="tab-context-menu-item" onClick={() => { onOpenConsole(); onClose(); }}>
+              <span className="tab-context-menu-icon">
+                <ConsoleIcon />
+              </span>
+              Open Console
             </button>
           )}
 

@@ -9,7 +9,8 @@ export const LIVE_CONTEXT_START = '[LIVE WORKSPACE STATE'
 export const LIVE_CONTEXT_END = '<<<END LIVE WORKSPACE STATE>>>'
 
 export interface WorkspaceStateSummary {
-  mode: 'operational' | 'configuration' | 'shell' | 'unknown'
+  /** `boot` = ROMMON / loader / GRUB prompt (seen on OOB consoles) */
+  mode: 'operational' | 'configuration' | 'shell' | 'boot' | 'unknown'
   editContext: string | null      // e.g. "[edit]" for Junos, "(config-if)" for Cisco
   uncommittedChanges: boolean | null // null = unknown/not applicable
   blockedPrompt: string | null    // the interactive prompt text the session waits on
@@ -44,13 +45,19 @@ function nonEmptyLines(buffer: string): string[] {
 
 function detectBlockedPrompt(lines: string[]): string | null {
   const last = lines[lines.length - 1] ?? ''
-  const patterns = [/\[yes,no\]/i, /\[confirm\]/i, /\(y\/n\)/i, /--\s*more\s*--/i, /password:\s*$/i, /are you sure/i]
+  const patterns = [
+    /\[yes,no\]/i, /\[confirm\]/i, /\(y\/n\)/i, /--\s*more\s*--/i, /are you sure/i,
+    // Login prompts: the AI never answers these (consoles often sit here).
+    /(user\s?name|login|password|passcode):?\s*$/i,
+  ]
   return patterns.some((re) => re.test(last)) ? last.trim() : null
 }
 
 function detectMode(lines: string[], flavor: CliFlavor): { mode: WorkspaceStateSummary['mode']; editContext: string | null } {
   const tail = lines.slice(-12)
   const joined = tail.join('\n')
+  // Boot loaders (ROMMON, loader, GRUB) — reachable only over a console.
+  if (/^(rommon\s*\d*\s*>|loader\s*>|grub>)/i.test(tail[tail.length - 1] ?? '')) return { mode: 'boot', editContext: null }
   if (flavor === 'linux') return { mode: 'shell', editContext: null }
   if (flavor === 'juniper') {
     if (/\[edit[^\]]*\]/.test(joined)) {
@@ -68,7 +75,7 @@ function detectMode(lines: string[], flavor: CliFlavor): { mode: WorkspaceStateS
     if (/>\s*$/.test(lastLine)) return { mode: 'operational', editContext: null }
   }
   const lastLine = tail[tail.length - 1] ?? ''
-  if (/[>#$]\s*$/.test(lastLine)) return { mode: 'operational', editContext: null }
+  if (/[>#$%\]]\s*$/.test(lastLine)) return { mode: 'operational', editContext: null }
   return { mode: 'unknown', editContext: null }
 }
 

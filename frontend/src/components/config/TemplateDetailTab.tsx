@@ -21,6 +21,8 @@ import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
 interface TemplateDetailTabProps {
+  /** Owning tab id — File → Save / Cmd+S arrive as `netstacks:save-document` with this id. */
+  tabId: string
   templateId: string
   onTitleChange?: (title: string) => void
   onDeleted?: () => void
@@ -50,6 +52,7 @@ function getMonacoLanguage(format: string): string {
 }
 
 export default function TemplateDetailTab({
+  tabId,
   templateId,
   onTitleChange,
   onDeleted,
@@ -265,17 +268,15 @@ export default function TemplateDetailTab({
     document.addEventListener('mouseup', onMouseUp)
   }, [editorWidth])
 
-  // Keyboard shortcuts
+  // File → Save / Cmd+S: App dispatches `netstacks:save-document` for the
+  // active tab (single save path — no raw Cmd+S listener here).
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault()
-        handleSave()
-      }
+    const onSave = (e: Event) => {
+      if ((e as CustomEvent<{ tabId: string }>).detail.tabId === tabId) handleSave()
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleSave])
+    window.addEventListener('netstacks:save-document', onSave)
+    return () => window.removeEventListener('netstacks:save-document', onSave)
+  }, [tabId, handleSave])
 
   if (loading) {
     return (

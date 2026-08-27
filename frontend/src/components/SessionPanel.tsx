@@ -27,9 +27,11 @@ import {
   sessionsToCSV,
   csvToExportData,
   generateExampleCSV,
+  hasConsoleAccess,
 } from '../api/sessions';
 import { listProfiles } from '../api/profiles';
 import SessionSettingsDialog from './SessionSettingsDialog';
+import { ConsoleIcon } from './icons/ConsoleIcon';
 import BroadcastCommandDialog from './BroadcastCommandDialog';
 import GroupsPanel from './GroupsPanel';
 import { useSessionSelection, SessionSelectionProvider } from '../hooks/useSessionSelection';
@@ -80,6 +82,8 @@ interface SessionPanelProps {
   onOpenTopology?: (topologyId: string) => void;
   getTabTitle?: (tabIdOrSessionId: string) => string;
   onOpenRemoteWindow?: (sessionId: string) => void;
+  /** Open an OOB console tab for a session that has console access configured. */
+  onOpenConsole?: (session: Session) => void;
 }
 
 // Icons
@@ -147,6 +151,7 @@ const Icons = {
       <line x1="12" y1="19" x2="20" y2="19" />
     </svg>
   ),
+  console: <ConsoleIcon />,
   newTab: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
@@ -288,6 +293,7 @@ function SessionPanelContent({
   onOpenTopology,
   getTabTitle,
   onOpenRemoteWindow,
+  onOpenConsole,
 }: SessionPanelProps) {
   const formatName = useHostnameFormatter()
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -300,6 +306,9 @@ function SessionPanelContent({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [defaultFolderId, setDefaultFolderId] = useState<string | null>(null);
+  // "Open Console" on a session without console access opens the settings
+  // dialog on the Console tab with a Save & Open Console action.
+  const [dialogConsoleIntent, setDialogConsoleIntent] = useState(false);
   const [sessionContextMenu, setSessionContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folderId: string } | null>(null);
   const { ref: sessionMenuRef, style: sessionMenuStyle } = useClampedMenuPosition(sessionContextMenu);
@@ -538,6 +547,22 @@ function SessionPanelContent({
   const handleDisconnectSession = (sessionId: string) => {
     onDisconnect?.([sessionId]);
     setSessionContextMenu(null);
+  };
+
+  // Console access is configured → open it; otherwise take the user straight
+  // to the Console settings tab so the next right-click is one step.
+  const handleOpenConsole = (sessionId: string) => {
+    setSessionContextMenu(null);
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    if (hasConsoleAccess(session)) {
+      onOpenConsole?.(session);
+      return;
+    }
+    setEditingSession(session);
+    setDefaultFolderId(null);
+    setDialogConsoleIntent(true);
+    setDialogOpen(true);
   };
 
   const isSessionConnected = useCallback(
@@ -1098,6 +1123,13 @@ function SessionPanelContent({
     handleDragEnd();
   }, [isDragging, dropTarget, handleDragEnd, executeDrop]);
 
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setEditingSession(null);
+    setDefaultFolderId(null);
+    setDialogConsoleIntent(false);
+  };
+
   const handleSessionSaved = (session: Session) => {
     if (editingSession) {
       // Update existing session
@@ -1108,16 +1140,10 @@ function SessionPanelContent({
     }
     // Notify parent to update open tabs with new session data
     onSessionUpdated?.(session);
-    setDialogOpen(false);
-    setEditingSession(null);
-    setDefaultFolderId(null);
+    closeDialog();
   };
 
-  const handleDialogClose = () => {
-    setDialogOpen(false);
-    setEditingSession(null);
-    setDefaultFolderId(null);
-  };
+  const handleDialogClose = closeDialog;
 
   const handleNewSession = () => {
     setEditingSession(null);
@@ -1371,6 +1397,11 @@ function SessionPanelContent({
             {isFavorite(session.id) ? Icons.starFilled : Icons.star}
           </button>
           <span className="session-item-name">{formatName(session.name)}</span>
+          {hasConsoleAccess(session) && (
+            <span className="session-item-console" title={`Console: ${session.console_host}:${session.console_port}`}>
+              {Icons.console}
+            </span>
+          )}
           <button
             className="session-connect-btn"
             onClick={(e) => {
@@ -1479,6 +1510,9 @@ function SessionPanelContent({
     );
   };
 
+  // Session the right-click menu is open for (drives the console + remote-window items).
+  const ctxSession = sessionContextMenu ? sessions.find(s => s.id === sessionContextMenu.sessionId) : undefined;
+
   return (
     <div className="session-panel" data-testid="session-panel">
       {/* Sub-tab navigation (Phase 25) */}
@@ -1555,7 +1589,7 @@ function SessionPanelContent({
             <button
               className="session-panel-btn icon-only"
               onClick={handleDownloadExampleCSV}
-              title="Download Example CSV Template"
+              title="Download Example CSV Template (columns: name, host, port, folder, profile, console_host, console_port, console_protocol, console_profile, console_legacy_ssh)"
             >
               {Icons.duplicate}
             </button>
@@ -1642,6 +1676,11 @@ function SessionPanelContent({
                               {Icons.starFilled}
                             </button>
                             <span className="session-item-name">{formatName(session.name)}</span>
+                            {hasConsoleAccess(session) && (
+                              <span className="session-item-console" title={`Console: ${session.console_host}:${session.console_port}`}>
+                                {Icons.console}
+                              </span>
+                            )}
                             <button
                               className="session-connect-btn"
                               onClick={(e) => {
@@ -1928,6 +1967,18 @@ function SessionPanelContent({
             {Icons.newTab}
             <span>Connect in New Tab</span>
           </button>
+          {onOpenConsole && (
+            <button
+              className="context-menu-item"
+              onClick={() => handleOpenConsole(sessionContextMenu.sessionId)}
+              title={ctxSession && hasConsoleAccess(ctxSession)
+                ? `Console via ${ctxSession.console_host}:${ctxSession.console_port} (${ctxSession.console_protocol.toUpperCase()})`
+                : 'Set up out-of-band console access for this device'}
+            >
+              {Icons.console}
+              <span>{ctxSession && hasConsoleAccess(ctxSession) ? 'Open Console' : 'Open Console...'}</span>
+            </button>
+          )}
           {isSessionConnected(sessionContextMenu.sessionId) && onDisconnect && (
             <button
               className="context-menu-item"
@@ -1949,7 +2000,7 @@ function SessionPanelContent({
             <span>{isFavorite(sessionContextMenu.sessionId) ? 'Remove from Favorites' : 'Add to Favorites'}</span>
           </button>
           {(() => {
-            const sess = sessions.find(s => s.id === sessionContextMenu.sessionId)
+            const sess = ctxSession
             if (sess && sess.protocol === 'ssh' && (sess.cli_flavor === 'linux' || sess.cli_flavor === 'auto') && onOpenRemoteWindow) {
               return (
                 <>
@@ -2085,6 +2136,8 @@ function SessionPanelContent({
         onClose={handleDialogClose}
         onSessionSaved={handleSessionSaved}
         defaultFolderId={defaultFolderId}
+        initialTab={dialogConsoleIntent ? 'console' : undefined}
+        onSaveAndOpenConsole={dialogConsoleIntent ? onOpenConsole : undefined}
       />
 
       {/* Broadcast Command Dialog */}

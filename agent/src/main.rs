@@ -1077,6 +1077,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/netbox/proxy/devices/count", post(api::netbox_proxy_count_devices))
         .route("/netbox/proxy/devices", post(api::netbox_proxy_devices))
         .route("/netbox/proxy/ip-addresses", post(api::netbox_proxy_ip_addresses))
+        .route("/netbox/proxy/console-access", post(api::netbox_proxy_console_access))
         // LibreNMS Sources (Phase 22)
         .route(
             "/librenms-sources",

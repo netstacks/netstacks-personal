@@ -810,6 +810,9 @@
 .ai-side-panel-messages {
   flex: 1;
   overflow-y: auto;
+  /* Never scroll sideways: a long unbreakable token (JSON error, URL) must
+     wrap inside its bubble, not widen the column and clip every bubble. */
+  overflow-x: hidden;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -819,6 +822,9 @@
 .ai-side-panel-message {
   display: flex;
   flex-direction: column;
+  /* Flex items default to min-width:auto (content width) — allow shrinking. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ai-side-panel-message.message-user {
@@ -836,12 +842,13 @@
 
 .ai-side-panel-message-content {
   max-width: 90%;
+  min-width: 0;
   padding: 10px 12px;
   border-radius: 12px;
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ai-side-panel-message.message-user .ai-side-panel-message-content {
@@ -863,6 +870,9 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: rgba(0, 136, 255, 0.08);
   border: 1px solid rgba(0, 136, 255, 0.2);
   border-radius: 8px;
@@ -967,11 +977,14 @@
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
+  max-width: 100%;
+  min-width: 0;
   background: rgba(241, 76, 76, 0.1);
   border: 1px solid rgba(241, 76, 76, 0.2);
   border-radius: 8px;
   color: var(--color-error);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .ai-side-panel-error svg {

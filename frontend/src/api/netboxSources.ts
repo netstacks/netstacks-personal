@@ -2,6 +2,7 @@
 
 import { getClient, getCurrentMode } from './client';
 import type { CliFlavor } from '../types/enrichment';
+import type { Protocol } from './sessions';
 
 // Profile mappings for NetBox source (maps site/role slugs to profile IDs)
 export interface ProfileMappings {
@@ -15,6 +16,21 @@ export interface CliFlavorMappings {
   by_manufacturer: Record<string, CliFlavor>;
   by_platform: Record<string, CliFlavor>;
 }
+
+// Console protocol mappings: how a console server's serial-line TCP ports are
+// reached, keyed by the console server's manufacturer slug, with a default.
+// NetBox has no field for this, so it lives on the source.
+export interface ConsoleProtocolMappings {
+  default: Protocol;
+  by_manufacturer: Record<string, Protocol>;
+}
+
+/** Mirrors the agent's `ConsoleProtocolMappings::default()` — Opengear direct
+ *  SSH ports (3000+N) and Cisco async reverse-telnet (2000+N). */
+export const DEFAULT_CONSOLE_PROTOCOL_MAPPINGS: ConsoleProtocolMappings = {
+  default: 'ssh',
+  by_manufacturer: { opengear: 'ssh', cisco: 'telnet' },
+};
 
 // Legacy sync filters (single value, used for last_sync_filters)
 export interface SyncFilters {
@@ -48,6 +64,9 @@ export interface NetBoxSource {
   profile_mappings: ProfileMappings;
   cli_flavor_mappings: CliFlavorMappings;
   device_filters: DeviceFilters | null;  // Multi-select filters for import
+  // Console access import: terminal-server login profile + protocol rules
+  console_profile_id: string | null;
+  console_protocol_mappings: ConsoleProtocolMappings;
   last_sync_at: string | null;
   last_sync_filters: SyncFilters | null;
   last_sync_result: SyncResult | null;
@@ -63,6 +82,8 @@ export interface NewNetBoxSource {
   profile_mappings?: ProfileMappings;
   cli_flavor_mappings?: CliFlavorMappings;
   device_filters?: DeviceFilters | null;
+  console_profile_id?: string | null;
+  console_protocol_mappings?: ConsoleProtocolMappings;
 }
 
 // Request to update a NetBox source (all fields optional for partial updates)
@@ -73,6 +94,8 @@ export interface UpdateNetBoxSource {
   profile_mappings?: ProfileMappings;
   cli_flavor_mappings?: CliFlavorMappings;
   device_filters?: DeviceFilters | null;
+  console_profile_id?: string | null;
+  console_protocol_mappings?: ConsoleProtocolMappings;
 }
 
 // List all NetBox sources

@@ -13,7 +13,8 @@ use tokio::sync::mpsc;
 use subtle::ConstantTimeEq;
 
 use crate::api::AppState;
-use crate::models::{AuthType, PortForward};
+use crate::models::{AuthType, CredentialProfile, PortForward, ProfileCredential, Protocol};
+use futures::stream::{SplitSink, SplitStream};
 use crate::terminal::{SshJump, SshSessionOptions, SshTarget, TerminalManager, TerminalMessage, TerminalSession};
 use crate::guard_probe::{probe_session_facts, ProbeSpec};
 use crate::ssh::{SshAuth, SshConfig};
@@ -53,6 +54,9 @@ enum ProbeSkipped {
     JumpHost,
     /// Agent-auth / interactive-only sessions leave nothing to log in with.
     NoCredentials,
+    /// A serial line is single-occupant: a second login to the same
+    /// terminal-server port would steal or block the user's console.
+    Console,
 }
 
 impl ProbeSkipped {
@@ -62,6 +66,7 @@ impl ProbeSkipped {
             ProbeSkipped::NoCredentials => {
                 "no stored password or key to open the probe connection with; facts stay unknown"
             }
+            ProbeSkipped::Console => "probe connection not opened on console sessions; facts stay unknown",
         }
     }
 }
@@ -204,6 +209,7 @@ fn build_guard_runtime(
     query: &WsQuery,
     params: &SshParams,
     notices: mpsc::UnboundedSender<TerminalMessage>,
+    console: bool,
 ) -> Option<GuardRuntime> {
     let host = params.host.as_str();
     if !matches!(query.guard.as_deref(), Some("1") | Some("true")) {
@@ -240,7 +246,11 @@ fn build_guard_runtime(
     Some(GuardRuntime {
         guard: Arc::new(StdMutex::new(LiveGuard::new(&device, platform, mode))),
         notices,
-        probe: probe_spec_for(params, &device).map(Arc::new),
+        probe: if console {
+            Err(ProbeSkipped::Console)
+        } else {
+            probe_spec_for(params, &device).map(Arc::new)
+        },
         tasks: Arc::new(StdMutex::new(GuardTasks::default())),
     })
 }
@@ -384,6 +394,9 @@ pub enum ConnectionType {
     Local,
     Ssh,
     Telnet,
+    /// OOB console: SSH or Telnet to the terminal-server port stored on the
+    /// saved session (`console_*` fields). Requires `session_id`.
+    Console,
 }
 
 /// Messages from client to server
@@ -406,6 +419,10 @@ pub enum ServerMessage {
         /// frontend to render the "via X" pill.
         #[serde(skip_serializing_if = "Option::is_none")]
         via_jump: Option<String>,
+        /// `host:port` of the terminal server for OOB console sessions —
+        /// `None` for ordinary sessions. Rendered as a "console" pill.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        via_console: Option<String>,
     },
     _Disconnected { reason: String },
     Error { data: String },
@@ -444,6 +461,7 @@ pub async fn terminal_ws(
             ConnectionType::Local => handle_local_terminal(socket, state.terminal_manager, initial_cols, initial_rows).await,
             ConnectionType::Ssh => handle_ssh_terminal(socket, query, state.terminal_manager, state.app_state).await,
             ConnectionType::Telnet => handle_telnet_terminal(socket, query, state.terminal_manager, state.app_state).await,
+            ConnectionType::Console => handle_console_terminal(socket, query, state.terminal_manager, state.app_state).await,
         }
     })
     .into_response()
@@ -485,15 +503,54 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
     let ssh_params = match get_ssh_params_with_vault(&query, &app_state).await {
         Ok(params) => params,
         Err(e) => {
-            let msg = ServerMessage::Error { data: e };
-            let _ = ws_tx
-                .send(Message::Text(serde_json::to_string(&msg)
-                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
-                .await;
+            send_ws_error(&mut ws_tx, e).await;
             return;
         }
     };
 
+    run_ssh_terminal(ws_tx, ws_rx, query, manager, app_state, ssh_params, None).await;
+}
+
+/// Send a `ServerMessage::Error` to the client (best-effort).
+async fn send_ws_error(ws_tx: &mut SplitSink<WebSocket, Message>, data: String) {
+    let msg = ServerMessage::Error { data };
+    let _ = ws_tx
+        .send(Message::Text(serde_json::to_string(&msg)
+            .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
+        .await;
+}
+
+/// Delay before the console wake CR (§3.2 of docs/console-access-design.md).
+const CONSOLE_WAKE_DELAY_MS: u64 = 300;
+
+/// A serial line shows nothing until it sees input, so nudge it with one CR
+/// shortly after the transport is up. Console path only — on a device shell
+/// an unsolicited CR would just litter the scrollback.
+fn spawn_console_wake(manager: &Arc<TerminalManager>, session_id: &str) {
+    let manager = manager.clone();
+    let session_id = session_id.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(CONSOLE_WAKE_DELAY_MS)).await;
+        if let Some(session) = manager.get_session(&session_id).await {
+            if let Err(e) = session.write("\r").await {
+                tracing::debug!("Console wake CR failed for {}: {}", session_id, e);
+            }
+        }
+    });
+}
+
+/// Run an interactive SSH terminal with already-resolved parameters.
+/// Shared by the SSH path and the OOB console path (`console` set).
+async fn run_ssh_terminal(
+    mut ws_tx: SplitSink<WebSocket, Message>,
+    ws_rx: SplitStream<WebSocket>,
+    query: WsQuery,
+    manager: Arc<TerminalManager>,
+    app_state: Arc<AppState>,
+    ssh_params: SshParams,
+    // `host:port` of the terminal server when this is an OOB console session
+    console_label: Option<String>,
+) {
     let host_for_log = ssh_params.host.clone();
 
     // Create channel for PTY output
@@ -501,7 +558,7 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
 
     // Session Guard (opt-in via query). Shares the PTY output channel so
     // hold notices ride the same WebSocket writer as terminal output.
-    let guard = build_guard_runtime(&query, &ssh_params, pty_tx.clone());
+    let guard = build_guard_runtime(&query, &ssh_params, pty_tx.clone(), console_label.is_some());
 
     // Clone port forwards before passing to create_ssh_session (which moves them)
     let session_port_forwards = ssh_params.port_forwards.clone();
@@ -615,6 +672,7 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
     let connected_msg = ServerMessage::Connected {
         session_id: query.session_id.clone(),
         via_jump: ssh_params.jump_display_name.clone(),
+        via_console: console_label.clone(),
     };
     if ws_tx
         .send(Message::Text(serde_json::to_string(&connected_msg)
@@ -625,7 +683,14 @@ async fn handle_ssh_terminal(socket: WebSocket, query: WsQuery, manager: Arc<Ter
         return;
     }
 
-    let log_label = format!("SSH session to {}", host_for_log);
+    if console_label.is_some() {
+        spawn_console_wake(&manager, &session_id);
+    }
+
+    let log_label = match &console_label {
+        Some(label) => format!("Console session via {}", label),
+        None => format!("SSH session to {}", host_for_log),
+    };
 
     // Execute auto commands if configured (Phase: auto commands on connect)
     // We need to wait for the shell to be ready before sending commands
@@ -1002,6 +1067,44 @@ struct SshParams {
     keepalive_interval: u32,
 }
 
+impl SshParams {
+    /// Target + login + jump hop from a resolved profile. Per-session extras
+    /// (`port_forwards`, `auto_commands`, `legacy_ssh`) start empty/off and
+    /// are set by the caller.
+    fn from_profile(
+        host: String,
+        port: u16,
+        profile: &CredentialProfile,
+        profile_id: String,
+        auth: ProfileSshAuth,
+        jump: JumpFields,
+    ) -> Self {
+        SshParams {
+            host,
+            port,
+            username: profile.username.clone(),
+            password: auth.password,
+            key_path: auth.key_path,
+            key_passphrase: auth.key_passphrase,
+            jump_host_id_effective: jump.host_id_effective,
+            jump_session_id_effective: jump.session_id_effective,
+            jump_display_name: jump.display_name,
+            jump_host: jump.host,
+            jump_port: jump.port,
+            jump_username: jump.username,
+            jump_password: jump.password,
+            jump_key_path: jump.key_path,
+            jump_key_passphrase: jump.key_passphrase,
+            jump_legacy_ssh: jump.legacy_ssh,
+            port_forwards: Vec::new(),
+            profile_id,
+            auto_commands: Vec::new(),
+            legacy_ssh: false,
+            keepalive_interval: profile.keepalive_interval,
+        }
+    }
+}
+
 /// Get SSH parameters with vault credential lookup
 ///
 /// If session_id is provided and no password/key is in query params,
@@ -1021,59 +1124,8 @@ async fn get_ssh_params_with_vault(query: &WsQuery, app_state: &Arc<AppState>) -
                     let profile_id = &session.profile_id;
                     tracing::debug!("Looking up profile for profile_id={}", profile_id);
 
-                    // Get the profile
-                    let profile = match app_state.provider.get_profile(profile_id).await {
-                        Ok(p) => p,
-                        Err(e) => {
-                            return Err(format!("Failed to get profile: {}", e));
-                        }
-                    };
-
-                    // Get profile credential from vault
-                    let credential = match app_state.provider.get_profile_credential(profile_id).await {
-                        Ok(Some(pc)) => {
-                            tracing::debug!("Found profile credential, has_password={}", pc.password.is_some());
-                            Some(pc)
-                        }
-                        Ok(None) => {
-                            tracing::debug!("No profile credential found");
-                            None
-                        }
-                        Err(crate::providers::ProviderError::VaultLocked) => {
-                            return Err("Vault is locked. Go to Settings > Security to unlock.".to_string());
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to get profile credential: {}", e);
-                            None
-                        }
-                    };
-
-                    // Build params based on profile auth_type and credential
-                    let (password, key_path, key_passphrase) = match profile.auth_type {
-                        AuthType::Password => {
-                            let password = credential
-                                .as_ref()
-                                .and_then(|c| c.password.clone())
-                                .or_else(|| query.password.clone());
-
-                            if password.is_none() {
-                                return Err("No password stored. Edit profile to add password, then unlock vault in Settings > Security.".to_string());
-                            }
-                            (password, None, None)
-                        }
-                        AuthType::Key => {
-                            let key_path = profile.key_path.clone()
-                                .or_else(|| query.key_path.clone());
-
-                            if key_path.is_none() {
-                                return Err("No key path found in profile or query params".to_string());
-                            }
-                            let key_passphrase = credential
-                                .as_ref()
-                                .and_then(|c| c.key_passphrase.clone());
-                            (None, key_path, key_passphrase)
-                        }
-                    };
+                    let (profile, credential) = load_profile_and_credential(profile_id, app_state).await?;
+                    let auth = ssh_auth_from_profile(&profile, credential.as_ref(), query)?;
 
                     let auto_commands = if session.auto_commands.is_empty() {
                         profile.auto_commands.clone()
@@ -1092,67 +1144,13 @@ async fn get_ssh_params_with_vault(query: &WsQuery, app_state: &Arc<AppState>) -
                         profile.jump_host_id.as_deref(),
                         profile.jump_session_id.as_deref(),
                     );
-                    let jump_resolution = resolve_effective_jump(
-                        session_level,
-                        profile_level,
-                        &app_state.provider,
-                    ).await?;
+                    let jump = resolve_jump_fields(session_level, profile_level, app_state).await?;
 
-                    let (jump_host_id_effective, jump_session_id_effective, jump_display_name,
-                         jump_host, jump_port, jump_username,
-                         jump_password, jump_key_path, jump_key_passphrase, jump_legacy_ssh) =
-                        if let Some(r) = jump_resolution {
-                            let (jp_pw, jp_kpath, jp_kpass) = match r.profile.auth_type {
-                                AuthType::Password => (
-                                    r.credential.as_ref().and_then(|c| c.password.clone()),
-                                    None, None,
-                                ),
-                                AuthType::Key => (
-                                    None,
-                                    r.profile.key_path.clone(),
-                                    r.credential.as_ref().and_then(|c| c.key_passphrase.clone()),
-                                ),
-                            };
-                            let (jh_id, js_id) = match &r.source {
-                                JumpSource::JumpHost { id, .. } => (Some(id.clone()), None),
-                                JumpSource::Session { id, .. } => (None, Some(id.clone())),
-                            };
-                            (
-                                jh_id, js_id,
-                                Some(r.source.display_name().to_string()),
-                                Some(r.host.clone()),
-                                Some(r.port),
-                                Some(r.profile.username.clone()),
-                                jp_pw, jp_kpath, jp_kpass,
-                                false, // jump_legacy_ssh — no profile field for it yet
-                            )
-                        } else {
-                            (None, None, None, None, None, None, None, None, None, false)
-                        };
-
-                    return Ok(SshParams {
-                        host: session.host,
-                        port: session.port,
-                        username: profile.username.clone(),
-                        password,
-                        key_path,
-                        key_passphrase,
-                        jump_host_id_effective,
-                        jump_session_id_effective,
-                        jump_display_name,
-                        jump_host,
-                        jump_port,
-                        jump_username,
-                        jump_password,
-                        jump_key_path,
-                        jump_key_passphrase,
-                        jump_legacy_ssh,
-                        port_forwards: session.port_forwards,
-                        profile_id: session.profile_id,
-                        auto_commands,
-                        legacy_ssh: session.legacy_ssh,
-                        keepalive_interval: profile.keepalive_interval,
-                    });
+                    let mut params = SshParams::from_profile(session.host, session.port, &profile, session.profile_id, auth, jump);
+                    params.port_forwards = session.port_forwards;
+                    params.auto_commands = auto_commands;
+                    params.legacy_ssh = session.legacy_ssh;
+                    return Ok(params);
                 }
                 Err(e) => {
                     // If a session_id was provided but not found, return error
@@ -1166,6 +1164,129 @@ async fn get_ssh_params_with_vault(query: &WsQuery, app_state: &Arc<AppState>) -
     // Fallback: build params from query params (for quick connect without saved session)
     // This only runs if session_id was NOT provided
     get_ssh_params(query)
+}
+
+/// Load a credential profile and its vault secret. A locked vault is a
+/// user-facing error; a missing secret is not (key auth may need none).
+async fn load_profile_and_credential(
+    profile_id: &str,
+    app_state: &Arc<AppState>,
+) -> Result<(CredentialProfile, Option<ProfileCredential>), String> {
+    let profile = app_state
+        .provider
+        .get_profile(profile_id)
+        .await
+        .map_err(|e| format!("Failed to get profile: {}", e))?;
+
+    let credential = match app_state.provider.get_profile_credential(profile_id).await {
+        Ok(Some(pc)) => {
+            tracing::debug!("Found profile credential, has_password={}", pc.password.is_some());
+            Some(pc)
+        }
+        Ok(None) => {
+            tracing::debug!("No profile credential found");
+            None
+        }
+        Err(crate::providers::ProviderError::VaultLocked) => {
+            return Err("Vault is locked. Go to Settings > Security to unlock.".to_string());
+        }
+        Err(e) => {
+            tracing::warn!("Failed to get profile credential: {}", e);
+            None
+        }
+    };
+
+    Ok((profile, credential))
+}
+
+/// SSH auth material derived from a profile + vault secret, with the
+/// quick-connect query params as a fallback source.
+struct ProfileSshAuth {
+    password: Option<String>,
+    key_path: Option<String>,
+    key_passphrase: Option<String>,
+}
+
+fn ssh_auth_from_profile(
+    profile: &CredentialProfile,
+    credential: Option<&ProfileCredential>,
+    query: &WsQuery,
+) -> Result<ProfileSshAuth, String> {
+    match profile.auth_type {
+        AuthType::Password => {
+            let password = credential
+                .and_then(|c| c.password.clone())
+                .or_else(|| query.password.clone());
+
+            if password.is_none() {
+                return Err("No password stored. Edit profile to add password, then unlock vault in Settings > Security.".to_string());
+            }
+            Ok(ProfileSshAuth { password, key_path: None, key_passphrase: None })
+        }
+        AuthType::Key => {
+            let key_path = profile.key_path.clone()
+                .or_else(|| query.key_path.clone());
+
+            if key_path.is_none() {
+                return Err("No key path found in profile or query params".to_string());
+            }
+            let key_passphrase = credential.and_then(|c| c.key_passphrase.clone());
+            Ok(ProfileSshAuth { password: None, key_path, key_passphrase })
+        }
+    }
+}
+
+/// Resolved jump-hop parameters for `SshParams`; all `None` / `false` for
+/// a direct connection.
+#[derive(Default)]
+struct JumpFields {
+    host_id_effective: Option<String>,
+    session_id_effective: Option<String>,
+    display_name: Option<String>,
+    host: Option<String>,
+    port: Option<u16>,
+    username: Option<String>,
+    password: Option<String>,
+    key_path: Option<String>,
+    key_passphrase: Option<String>,
+    legacy_ssh: bool,
+}
+
+async fn resolve_jump_fields(
+    session_level: JumpRef,
+    profile_level: JumpRef,
+    app_state: &Arc<AppState>,
+) -> Result<JumpFields, String> {
+    let Some(r) = resolve_effective_jump(session_level, profile_level, &app_state.provider).await? else {
+        return Ok(JumpFields::default());
+    };
+    let (password, key_path, key_passphrase) = match r.profile.auth_type {
+        AuthType::Password => (
+            r.credential.as_ref().and_then(|c| c.password.clone()),
+            None, None,
+        ),
+        AuthType::Key => (
+            None,
+            r.profile.key_path.clone(),
+            r.credential.as_ref().and_then(|c| c.key_passphrase.clone()),
+        ),
+    };
+    let (host_id_effective, session_id_effective) = match &r.source {
+        JumpSource::JumpHost { id, .. } => (Some(id.clone()), None),
+        JumpSource::Session { id, .. } => (None, Some(id.clone())),
+    };
+    Ok(JumpFields {
+        host_id_effective,
+        session_id_effective,
+        display_name: Some(r.source.display_name().to_string()),
+        host: Some(r.host.clone()),
+        port: Some(r.port),
+        username: Some(r.profile.username.clone()),
+        password,
+        key_path,
+        key_passphrase,
+        legacy_ssh: false, // no profile field for it yet
+    })
 }
 
 /// Where the jump came from — flavors error messages and lets the UI
@@ -1395,23 +1516,7 @@ async fn get_telnet_params_with_vault(
             .await
             .map_err(|e| format!("Failed to get session: {}", e))?;
 
-        let profile = provider
-            .get_profile(&session.profile_id)
-            .await
-            .map_err(|e| format!("Failed to get profile: {}", e))?;
-
-        let credential = match provider.get_profile_credential(&session.profile_id).await {
-            Ok(Some(pc)) => Some(pc),
-            Ok(None) => None,
-            Err(crate::providers::ProviderError::VaultLocked) => {
-                return Err("Vault is locked. Go to Settings > Security to unlock.".to_string());
-            }
-            Err(e) => {
-                tracing::warn!("Failed to get profile credential: {}", e);
-                None
-            }
-        };
-
+        let (profile, credential) = load_profile_and_credential(&session.profile_id, app_state).await?;
         let password = credential.and_then(|c| c.password);
 
         let auto_commands = if session.auto_commands.is_empty() {
@@ -1444,15 +1549,26 @@ async fn handle_telnet_terminal(
     let telnet_params = match get_telnet_params_with_vault(&query, &app_state).await {
         Ok(params) => params,
         Err(e) => {
-            let msg = ServerMessage::Error { data: format!("Failed to get Telnet params: {}", e) };
-            let _ = ws_tx
-                .send(Message::Text(serde_json::to_string(&msg)
-                    .unwrap_or_else(|e| { tracing::error!("Serialization failed: {}", e); r#"{"error":"serialization failed"}"#.to_string() })))
-                .await;
+            send_ws_error(&mut ws_tx, format!("Failed to get Telnet params: {}", e)).await;
             return;
         }
     };
 
+    run_telnet_terminal(ws_tx, ws_rx, query, manager, app_state, telnet_params, None).await;
+}
+
+/// Run an interactive Telnet terminal with already-resolved parameters.
+/// Shared by the Telnet path and the OOB console path (`console` set).
+async fn run_telnet_terminal(
+    mut ws_tx: SplitSink<WebSocket, Message>,
+    ws_rx: SplitStream<WebSocket>,
+    query: WsQuery,
+    manager: Arc<TerminalManager>,
+    app_state: Arc<AppState>,
+    telnet_params: TelnetParams,
+    // `host:port` of the terminal server when this is an OOB console session
+    console_label: Option<String>,
+) {
     let host_for_log = telnet_params.host.clone();
 
     let (pty_tx, pty_rx) = mpsc::unbounded_channel();
@@ -1496,6 +1612,7 @@ async fn handle_telnet_terminal(
     let connected_msg = ServerMessage::Connected {
         session_id: query.session_id.clone(),
         via_jump: None,
+        via_console: console_label.clone(),
     };
     if ws_tx
         .send(Message::Text(serde_json::to_string(&connected_msg)
@@ -1506,7 +1623,14 @@ async fn handle_telnet_terminal(
         return;
     }
 
-    let log_label = format!("Telnet session to {}", host_for_log);
+    if console_label.is_some() {
+        spawn_console_wake(&manager, &session_id);
+    }
+
+    let log_label = match &console_label {
+        Some(label) => format!("Console session via {}", label),
+        None => format!("Telnet session to {}", host_for_log),
+    };
 
     if !telnet_params.auto_commands.is_empty() {
         run_terminal_session_with_auto_commands(
@@ -1515,6 +1639,113 @@ async fn handle_telnet_terminal(
         ).await;
     } else {
         run_terminal_session(ws_tx, ws_rx, pty_rx, &session_id, &manager, &log_label, None).await;
+    }
+}
+
+// === OOB console ===
+
+/// Resolved parameters for an OOB console connection.
+enum ConsoleParams {
+    /// Boxed: `SshParams` is ~400 bytes vs ~100 for telnet (clippy::large_enum_variant).
+    Ssh(Box<SshParams>),
+    Telnet(TelnetParams),
+}
+
+const NO_CONSOLE_CONFIGURED: &str = "No console access configured for this session";
+
+/// Handle OOB console connections: SSH or Telnet to the terminal-server
+/// port stored on the saved session. The resulting shell *is* the device's
+/// serial console, so no second hop is involved.
+async fn handle_console_terminal(
+    socket: WebSocket,
+    query: WsQuery,
+    manager: Arc<TerminalManager>,
+    app_state: Arc<AppState>,
+) {
+    let (mut ws_tx, ws_rx) = socket.split();
+
+    match get_console_params(&query, &app_state).await {
+        Ok((ConsoleParams::Ssh(params), label)) => {
+            run_ssh_terminal(ws_tx, ws_rx, query, manager, app_state, *params, Some(label)).await
+        }
+        Ok((ConsoleParams::Telnet(params), label)) => {
+            run_telnet_terminal(ws_tx, ws_rx, query, manager, app_state, params, Some(label)).await
+        }
+        Err(e) => send_ws_error(&mut ws_tx, e).await,
+    }
+}
+
+/// Build console parameters from the saved session's `console_*` fields;
+/// returns them with the `host:port` label of the terminal server.
+///
+/// The session's own `auto_commands` and port forwards are deliberately not
+/// applied: they assume the device prompt, but a console may be sitting at a
+/// login prompt, in ROMMON, or on a half-typed line from the last person.
+async fn get_console_params(
+    query: &WsQuery,
+    app_state: &Arc<AppState>,
+) -> Result<(ConsoleParams, String), String> {
+    let session_id = query
+        .session_id
+        .as_deref()
+        .ok_or_else(|| "Console access requires a saved session".to_string())?;
+    let session = app_state
+        .provider
+        .get_session(session_id)
+        .await
+        .map_err(|e| format!("Session '{}' not found: {}", session_id, e))?;
+
+    let host = session
+        .console_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|h| !h.is_empty());
+    let (host, port) = match (host, session.console_port) {
+        (Some(h), Some(p)) if p > 0 => (h.to_string(), p),
+        _ => return Err(NO_CONSOLE_CONFIGURED.to_string()),
+    };
+    let label = format!("{}:{}", host, port);
+
+    match session.console_protocol {
+        Protocol::Ssh => {
+            let profile_id = session.console_profile_id.clone().ok_or_else(|| {
+                "Console access over SSH needs a credential profile for the terminal server login. Edit the session's Console settings.".to_string()
+            })?;
+            let (profile, credential) = load_profile_and_credential(&profile_id, app_state).await?;
+            let auth = ssh_auth_from_profile(&profile, credential.as_ref(), query)?;
+            // Only the console profile's jump default applies — the OOB
+            // network is reached independently of the device's own path.
+            let profile_level = JumpRef::from_pair(
+                profile.jump_host_id.as_deref(),
+                profile.jump_session_id.as_deref(),
+            );
+            let jump = resolve_jump_fields(JumpRef::None, profile_level, app_state).await?;
+
+            let mut params = SshParams::from_profile(host, port, &profile, profile_id, auth, jump);
+            params.legacy_ssh = session.console_legacy_ssh;
+            Ok((ConsoleParams::Ssh(Box::new(params)), label))
+        }
+        Protocol::Telnet => {
+            // A reverse-telnet line may have no login at all; the profile
+            // is optional and, when present, only supplies username/password.
+            let (username, password) = match session.console_profile_id.as_deref() {
+                Some(pid) => {
+                    let (profile, credential) = load_profile_and_credential(pid, app_state).await?;
+                    (Some(profile.username), credential.and_then(|c| c.password))
+                }
+                None => (None, None),
+            };
+            Ok((
+                ConsoleParams::Telnet(TelnetParams {
+                    host,
+                    port,
+                    username,
+                    password,
+                    auto_commands: Vec::new(),
+                }),
+                label,
+            ))
+        }
     }
 }
 
@@ -2405,6 +2636,9 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            console_host: None, console_port: None,
+            console_protocol: crate::models::Protocol::Ssh, console_profile_id: None,
+            console_legacy_ssh: false,
             auto_reconnect: true,
             reconnect_delay: 5,
             scrollback_lines: 10000,
@@ -2485,6 +2719,9 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            console_host: None, console_port: None,
+            console_protocol: crate::models::Protocol::Ssh, console_profile_id: None,
+            console_legacy_ssh: false,
             auto_reconnect: true,
             reconnect_delay: 5,
             scrollback_lines: 10000,
@@ -2523,6 +2760,9 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            console_host: None, console_port: None,
+            console_protocol: crate::models::Protocol::Ssh, console_profile_id: None,
+            console_legacy_ssh: false,
             auto_reconnect: true,
             reconnect_delay: 5,
             scrollback_lines: 10000,
@@ -2636,6 +2876,9 @@ mod resolve_effective_jump_tests {
             port_forwards: vec![], auto_commands: vec![],
             legacy_ssh: false, protocol: crate::models::Protocol::Ssh,
             sftp_start_path: None,
+            console_host: None, console_port: None,
+            console_protocol: crate::models::Protocol::Ssh, console_profile_id: None,
+            console_legacy_ssh: false,
             auto_reconnect: true,
             reconnect_delay: 5,
             scrollback_lines: 10000,

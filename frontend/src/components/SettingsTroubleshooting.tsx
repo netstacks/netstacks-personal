@@ -6,7 +6,7 @@ import {
 } from '../api/troubleshootingSettings';
 import type { TroubleshootingSettings } from '../types/troubleshooting';
 import './SettingsTroubleshooting.css';
-import { displayShortcut } from '../hooks/useKeyboard'
+import { useShortcut } from '../hooks/useKeyboard'
 import Switch from './Switch';
 
 const TIMEOUT_MIN = 1;
@@ -19,6 +19,7 @@ const TIMEOUT_MAX = 120;
  * inactivity timeout, auto-save, and AI conversation capture.
  */
 export default function SettingsTroubleshooting() {
+  const troubleshootShortcut = useShortcut('startTroubleshooting')
   const [settings, setSettings] = useState<TroubleshootingSettings>(
     getTroubleshootingSettings()
   );
@@ -145,7 +146,7 @@ export default function SettingsTroubleshooting() {
             </p>
             <p>
               Start a session from the status bar or use the keyboard shortcut{' '}
-              <kbd>{displayShortcut('Cmd+Shift+T')}</kbd>.
+              <kbd>{troubleshootShortcut}</kbd>.
             </p>
           </div>
         </div>

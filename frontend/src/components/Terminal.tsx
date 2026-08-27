@@ -41,14 +41,15 @@ import SessionContextPopup from './SessionContextPopup'
 import { useSessionContext } from '../hooks/useSessionContext'
 import type { SessionContext as SessionContextType } from '../types/sessionContext'
 // getWsUrl replaced by getClient().wsUrlWithAuth()
-import { getSession, listSessions } from '../api/sessions'
+import { getSession, listSessions, type TabProtocol } from '../api/sessions'
 import { listMappedKeys, revealMappedKey, type MappedKey } from '../api/mappedKeys'
 import { listCustomCommands, type CustomCommand } from '../api/customCommands'
 import { executeQuickAction } from '../api/quickActions'
 import { runScript, runScriptStream, analyzeScript, getScript, type ScriptStreamEvent } from '../api/scripts'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { TracerouteParser } from '../lib/tracerouteParser'
-import { displayShortcut } from '../hooks/useKeyboard'
+import { formatShortcut, getCurrentBinding, matchesBinding } from '../hooks/useKeyboard'
+import { findMappedKey, MAPPED_KEYS_CHANGED_EVENT } from '../lib/mappedKeys'
 import { CommandWarningDialog } from './CommandWarningDialog'
 import { GuardHoldDialog, type GuardHoldData } from './GuardHoldDialog'
 import { CommandWarningIndicator } from './CommandWarningIndicator'
@@ -72,6 +73,8 @@ interface TerminalMessage {
    *  Connected messages — `undefined` for direct connections. Drives the
    *  top-right "via {jumpName}" pill. */
   via_jump?: string
+  /** `host:port` of the terminal server for OOB console sessions. */
+  via_console?: string
 }
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'error'
@@ -80,8 +83,9 @@ interface TerminalProps {
   id: string
   /** Session ID for SSH connection (if not provided, opens local terminal) */
   sessionId?: string
-  /** Connection protocol (ssh or telnet, default ssh) */
-  protocol?: 'ssh' | 'telnet'
+  /** Connection protocol (ssh, telnet, or console — OOB console via the
+   *  session's terminal server; default ssh) */
+  protocol?: TabProtocol
   /** Session name for AI context */
   sessionName?: string
   /** CLI flavor for AI command suggestions */
@@ -176,6 +180,8 @@ export interface TerminalHandle {
   reconnect: () => void
   /** Open the in-terminal find bar (Edit → Find / Cmd+F) */
   openSearch: () => void
+  /** Open the Save Output to Docs dialog (Cmd+Shift+S) */
+  openSaveToDocs: () => void
 }
 
 const DEFAULT_RECONNECT_DELAY = 5
@@ -378,6 +384,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Display name of the resolved jump for THIS connection (sent on Connected).
   // Drives the top-right "via {jumpName}" pill. `null` for direct connections.
   const [viaJumpName, setViaJumpName] = useState<string | null>(null)
+  // Terminal-server endpoint for OOB console sessions (sent on Connected).
+  const [viaConsole, setViaConsole] = useState<string | null>(null)
 
   // Find bar state
   const [showFindBar, setShowFindBar] = useState(false)
@@ -494,10 +502,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     return () => { cancelled = true }
   }, [sessionId, isEnterpriseMode, enterpriseTargetHost])
 
-  // Fetch global mapped keys
+  // Fetch global mapped keys, and refetch when Settings changes them so an
+  // open terminal picks up new/edited chords without a reconnect.
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
+    const load = async () => {
       try {
         const keys = await listMappedKeys()
         if (cancelled) return
@@ -506,8 +515,14 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         logger.debug('Could not fetch mapped keys:', err)
         profileMappedKeysRef.current = []
       }
-    })()
-    return () => { cancelled = true }
+    }
+    void load()
+    const onChanged = () => { void load() }
+    window.addEventListener(MAPPED_KEYS_CHANGED_EVENT, onChanged)
+    return () => {
+      cancelled = true
+      window.removeEventListener(MAPPED_KEYS_CHANGED_EVENT, onChanged)
+    }
   }, [])
 
   // Fetch custom commands for right-click menu
@@ -779,7 +794,10 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     },
     openSearch: (): void => {
       setShowFindBar(true)
-    }
+    },
+    openSaveToDocs: (): void => {
+      openSaveToDocsDialogRef.current()
+    },
   }), [sessionId])
 
   const handleResize = useCallback(() => {
@@ -1313,6 +1331,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
             setCountdown(reconnectDelayRef.current)
             // Capture the resolved jump for the "via X" pill (null = direct).
             setViaJumpName(typeof msg.via_jump === 'string' ? msg.via_jump : null)
+            setViaConsole(typeof msg.via_console === 'string' ? msg.via_console : null)
             // Re-send the actual terminal size now that the DOM is laid out.
             // The initial size in the WS query string can be stale because
             // fit() runs synchronously before measurement is complete; if the
@@ -2321,6 +2340,40 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // (plain Ctrl+C still sends SIGINT as a terminal must).
     terminal.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
+      // Mapped keys run here, ahead of xterm's own keydown, so the raw chord
+      // never reaches the device alongside the mapped command. Works in all
+      // modes: standalone (wsRef), enterprise, jumpbox.
+      const canSendMappedKey = profileMappedKeysRef.current.length > 0 && (
+        wsRef.current?.readyState === WebSocket.OPEN ||
+        enterpriseSendDataRef.current !== null ||
+        jumpboxSendDataRef.current !== null
+      )
+      const mapped = canSendMappedKey ? findMappedKey(e, profileMappedKeysRef.current) : undefined
+      if (mapped) {
+        e.preventDefault()
+        const sendCommand = (cmd: string) => {
+          const commandWithEnter = cmd + '\r'
+          if (enterpriseSendDataRef.current) {
+            enterpriseSendDataRef.current(commandWithEnter)
+          } else if (jumpboxSendDataRef.current) {
+            jumpboxSendDataRef.current(commandWithEnter)
+          } else if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'Input', data: commandWithEnter }))
+          }
+        }
+        if (mapped.is_secret) {
+          // The secret's plaintext is never held in memory — fetch it on
+          // demand. Requires the vault unlocked (403 VAULT_LOCKED otherwise).
+          revealMappedKey(mapped.id)
+            .then(sendCommand)
+            .catch(() => {
+              showToast('Vault is locked — unlock the app to use this shortcut', 'warning')
+            })
+        } else {
+          sendCommand(mapped.command)
+        }
+        return false
+      }
       const key = e.key.toLowerCase()
       const ctrlShift = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey
       const isCopy = (ctrlShift && key === 'c')
@@ -2407,84 +2460,15 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       })
     }
 
-    // Handle keyboard shortcuts for find, capture, and profile mapped keys
+    // Terminal-local keys: find (the app shortcut is deferred to xterm for
+    // single-Ctrl chords, so it is matched here against the live binding)
+    // and capture-mode keys. Mapped keys are handled in xterm's custom key
+    // handler above; Save Output to Docs is an app shortcut.
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check profile mapped keys first
-      // Works in all modes: standalone (wsRef), enterprise (enterpriseSendDataRef), jumpbox (jumpboxSendDataRef)
-      const canSendMappedKey = profileMappedKeysRef.current.length > 0 && (
-        wsRef.current?.readyState === WebSocket.OPEN ||
-        enterpriseSendDataRef.current !== null ||
-        jumpboxSendDataRef.current !== null
-      )
-      if (canSendMappedKey) {
-        // Build the key combo from the event
-        const parts: string[] = []
-        if (e.ctrlKey || e.metaKey) parts.push('Ctrl')
-        if (e.altKey) parts.push('Alt')
-        if (e.shiftKey) parts.push('Shift')
-
-        // Get the key name
-        let key = e.key
-        if (key === ' ') key = 'Space'
-        else if (key.length === 1) key = key.toUpperCase()
-        // Keep function keys, arrow keys, etc. as-is
-
-        // Don't check if only modifier pressed
-        if (!['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
-          parts.push(key)
-          const keyCombo = parts.join('+')
-
-          // Check if this key combo matches any mapped key
-          const matchedKey = profileMappedKeysRef.current.find(
-            mk => mk.key_combo.toLowerCase() === keyCombo.toLowerCase()
-          )
-
-          if (matchedKey) {
-            e.preventDefault()
-            e.stopPropagation()
-
-            const sendCommand = (cmd: string) => {
-              const commandWithEnter = cmd + '\r'
-              // Send via the appropriate transport
-              if (enterpriseSendDataRef.current) {
-                enterpriseSendDataRef.current(commandWithEnter)
-              } else if (jumpboxSendDataRef.current) {
-                jumpboxSendDataRef.current(commandWithEnter)
-              } else if (wsRef.current?.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({ type: 'Input', data: commandWithEnter }))
-              }
-            }
-
-            if (matchedKey.is_secret) {
-              // The secret's plaintext is never held in memory — fetch it on
-              // demand. Requires the vault unlocked (403 VAULT_LOCKED otherwise).
-              revealMappedKey(matchedKey.id)
-                .then(sendCommand)
-                .catch(() => {
-                  showToast('Vault is locked — unlock the app to use this shortcut', 'warning')
-                })
-            } else {
-              sendCommand(matchedKey.command)
-            }
-            return
-          }
-        }
-      }
-
-      // Cmd+F or Ctrl+F - Open find bar
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      if (matchesBinding(e, getCurrentBinding('findInTerminal'))) {
         e.preventDefault()
         e.stopPropagation()
         setShowFindBar(true)
-        return
-      }
-
-      // Cmd+Shift+S or Ctrl+Shift+S - Open Save to Docs dialog
-      // (e.key is 'S' when Shift is held, so compare case-insensitively)
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        e.stopPropagation()
-        openSaveToDocsDialogRef.current()
         return
       }
 
@@ -3660,7 +3644,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     {
       id: 'save-to-docs',
       label: 'Save Output to Docs...',
-      shortcut: displayShortcut('⇧⌘S'),
+      shortcut: formatShortcut(getCurrentBinding('saveTerminalOutput')),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -3782,10 +3766,19 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       {/* Jump badge — shows the resolved jump (host or session) for SSH
           connections that went through one. Stacks below the Controller
           pill when both are present so they don't overlap. */}
+      {viaConsole && (
+        <div
+          className="terminal-console-badge"
+          style={isEnterpriseMode ? { top: 36 } : undefined}
+          title={`Out-of-band console via terminal server ${viaConsole}`}
+        >
+          console {viaConsole}
+        </div>
+      )}
       {viaJumpName && (
         <div
           className="terminal-jump-badge"
-          style={isEnterpriseMode ? { top: 36 } : undefined}
+          style={isEnterpriseMode || viaConsole ? { top: 36 } : undefined}
           title={`Connected through jump: ${viaJumpName}`}
         >
           via {viaJumpName}

@@ -15,7 +15,7 @@ import {
 import ContextMenu from './ContextMenu';
 import { useContextMenu } from '../hooks/useContextMenu';
 import './GroupsPanel.css';
-import { displayShortcut } from '../hooks/useKeyboard'
+import { useShortcut } from '../hooks/useKeyboard'
 
 export interface GroupsPanelProps {
   liveGroupId: string | null;
@@ -39,6 +39,7 @@ export interface GroupsPanelProps {
 }
 
 export default function GroupsPanel(props: GroupsPanelProps) {
+  const saveGroupShortcut = useShortcut('saveTabsAsGroup')
   const {
     liveGroupId,
     onLaunchGroup,
@@ -158,7 +159,7 @@ export default function GroupsPanel(props: GroupsPanelProps) {
         <button
           className="groups-save-current"
           onClick={onSaveCurrentAsGroup}
-          title={`Save all currently open tabs as a new group (${displayShortcut('⌘⇧G')})`}
+          title={`Save all currently open tabs as a new group (${saveGroupShortcut})`}
         >
           ＋ Save current
         </button>

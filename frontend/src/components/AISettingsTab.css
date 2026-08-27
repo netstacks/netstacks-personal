@@ -1294,6 +1294,17 @@
   color: var(--color-text-primary);
 }
 
+.ai-tool-default-off {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-family: var(--font-family);
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.15);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+}
+
 .ai-tool-description {
   font-size: 11px;
   color: var(--color-text-secondary);

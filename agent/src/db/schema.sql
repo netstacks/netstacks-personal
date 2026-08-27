@@ -54,7 +54,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- Auto commands on connect
     auto_commands TEXT,  -- JSON array of commands to run on connect
     -- SFTP starting directory override
-    sftp_start_path TEXT
+    sftp_start_path TEXT,
+    -- OOB console access (terminal server / console server exposing this
+    -- device's serial line over SSH or Telnet). All nullable; "configured"
+    -- means console_host AND console_port are set.
+    console_host TEXT,
+    console_port INTEGER,
+    console_protocol TEXT DEFAULT 'ssh',
+    console_profile_id TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL,
+    console_legacy_ssh INTEGER NOT NULL DEFAULT 0
 );
 
 -- Encrypted credential vault
@@ -206,6 +214,8 @@ CREATE TABLE IF NOT EXISTS netbox_sources (
     profile_mappings TEXT,  -- JSON: { by_site: {slug: profile_id}, by_role: {slug: profile_id} }
     cli_flavor_mappings TEXT,  -- JSON: { by_manufacturer: {slug: flavor}, by_platform: {slug: flavor} }
     device_filters TEXT,    -- JSON: { sites: [], roles: [], manufacturers: [], platforms: [], statuses: [], tags: [] }
+    console_profile_id TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL,
+    console_protocol_mappings TEXT,  -- JSON: { default: 'ssh'|'telnet', by_manufacturer: {slug: protocol} }
     last_sync_at TEXT,
     last_sync_filters TEXT,  -- JSON: { site: string?, role: string? }
     last_sync_result TEXT,   -- JSON: { sessions_created: i32, sessions_updated: i32, skipped: i32 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './AIScriptGenerator.css';
+import { useShortcut } from '../hooks/useKeyboard'
 import { generateScript, createScript, type Script } from '../api/scripts';
 
 import { getErrorMessage } from '../api/errors'
@@ -62,6 +63,7 @@ const EXAMPLE_PROMPTS = [
 ];
 
 function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptGeneratorProps) {
+  const generateShortcut = useShortcut('aiGenerateScript');
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
   const [generatedScript, setGeneratedScript] = useState<string | null>(null);
@@ -70,7 +72,7 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
   const [saving, setSaving] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Handle Cmd+Shift+G to open
+  // Close on Escape (opening is the aiGenerateScript app shortcut)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Close on Escape
@@ -285,7 +287,7 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
 
         <div className="ai-generator-footer">
           <span className="ai-generator-hint">
-            Press <kbd>Cmd+Shift+G</kbd> anywhere to open this dialog
+            Press <kbd>{generateShortcut}</kbd> anywhere to open this dialog
           </span>
         </div>
       </div>
