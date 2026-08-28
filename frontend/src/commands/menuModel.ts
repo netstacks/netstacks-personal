@@ -9,7 +9,7 @@ export type MenuEntry =
   | { kind: 'separator' }
   | { kind: 'predefined'; action:
       | 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'
-      | 'fullscreen' | 'minimize' | 'maximize' }
+      | 'fullscreen' | 'minimize' | 'maximize' | 'exit' }
 
 export interface MenuSection { title: string; entries: MenuEntry[] }
 
@@ -24,7 +24,8 @@ export const MENU_MODEL: MenuSection[] = [
     cmd('file.quick-connect'), sep,
     cmd('file.save'), sep,
     cmd('file.close-tab'), sep,
-    cmd('app.settings'),
+    cmd('app.settings'), sep,
+    pre('exit'),
   ]},
   { title: 'Edit', entries: [
     pre('undo'), pre('redo'), sep,

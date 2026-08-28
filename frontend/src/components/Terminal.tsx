@@ -911,9 +911,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     onError: (message) => {
       console.error('[Enterprise SSH] Error:', message)
       if (terminalRef.current) {
-        // Check for common auth failures
-        if (message.toLowerCase().includes('auth')) {
-          terminalRef.current.writeln(`\r\n\x1b[31mAuthentication failed — check credentials with your administrator\x1b[0m\r\n`)
+        // Only a genuine SSH auth rejection gets the credentials hint, and the
+        // server's own text is kept so a host-key / vault / authorization
+        // error is never misreported as a bad device password.
+        if (/authentication failed/i.test(message)) {
+          terminalRef.current.writeln(`\r\n\x1b[31m${message}\x1b[0m\r\n\x1b[31mCheck the session's credentials with your administrator\x1b[0m\r\n`)
         } else {
           terminalRef.current.writeln(`\r\n\x1b[31mError: ${message}\x1b[0m\r\n`)
         }

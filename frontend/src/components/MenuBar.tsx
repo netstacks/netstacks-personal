@@ -9,6 +9,7 @@ import './MenuBar.css'
 const PREDEFINED_LABEL: Record<string, string> = {
   undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste',
   selectAll: 'Select All', fullscreen: 'Toggle Full Screen', minimize: 'Minimize', maximize: 'Zoom',
+  exit: 'Exit',
 }
 
 async function runPredefined(action: string) {
@@ -22,6 +23,9 @@ async function runPredefined(action: string) {
       const w = (await import('@tauri-apps/api/window')).getCurrentWindow()
       const on = await w.isFullscreen(); await w.setFullscreen(!on); return
     }
+    // Same path as the title-bar X: close-requested → App's NS-APP-12
+    // prompt about live sessions / unsaved edits → destroy.
+    case 'exit': (await import('@tauri-apps/api/window')).getCurrentWindow().close(); return
   }
 }
 
