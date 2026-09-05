@@ -40,7 +40,9 @@ impl AiError {
         let msg = format!("HTTP {}: {}", status, body.as_ref());
         match status {
             reqwest::StatusCode::TOO_MANY_REQUESTS => AiError::RateLimited,
-            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => AiError::Unauthorized(msg),
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+                AiError::Unauthorized(msg)
+            }
             reqwest::StatusCode::BAD_REQUEST
             | reqwest::StatusCode::NOT_FOUND
             | reqwest::StatusCode::UNPROCESSABLE_ENTITY => AiError::BadRequest(msg),
@@ -64,9 +66,9 @@ pub struct DeviceContext {
     #[serde(rename = "type")]
     pub device_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub platform: Option<String>,     // "IOS-XE", "NX-OS", "Junos"
+    pub platform: Option<String>, // "IOS-XE", "NX-OS", "Junos"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub vendor: Option<String>,       // "Cisco", "Juniper", "Arista"
+    pub vendor: Option<String>, // "Cisco", "Juniper", "Arista"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub primary_ip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,7 +111,7 @@ pub struct TerminalContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recent_output: Option<String>,  // Last ~50 lines
+    pub recent_output: Option<String>, // Last ~50 lines
 }
 
 /// Session context entry - tribal knowledge about a device (Phase 14)
@@ -257,7 +259,12 @@ fn build_model_action_url(base_url: &str, model: &str, default_action: &str) -> 
     if model.contains(':') {
         format!("{}/{}", base_url.trim_end_matches('/'), model)
     } else {
-        format!("{}/{}:{}", base_url.trim_end_matches('/'), model, default_action)
+        format!(
+            "{}/{}:{}",
+            base_url.trim_end_matches('/'),
+            model,
+            default_action
+        )
     }
 }
 
@@ -282,10 +289,13 @@ fn build_model_stream_url(base_url: &str, model: &str, default_stream_action: &s
     }
 }
 
-fn default_verify_ssl() -> bool { true }
+fn default_verify_ssl() -> bool {
+    true
+}
 
+// Keep in sync with frontend/src/lib/aiModelDefaults.ts (NS-AI-40).
 fn default_anthropic_model() -> String {
-    "claude-3-5-sonnet-20241022".to_string()
+    "claude-opus-5".to_string()
 }
 
 fn default_openai_model() -> String {
@@ -301,7 +311,7 @@ fn default_ollama_url() -> String {
 }
 
 fn default_openrouter_model() -> String {
-    "anthropic/claude-3.5-sonnet".to_string()
+    "anthropic/claude-sonnet-5".to_string()
 }
 
 fn default_litellm_model() -> String {
@@ -488,7 +498,12 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: String, model: Option<String>, base_url: Option<String>, verify_ssl: bool) -> Result<Self, AiError> {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
         let effective_url = base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string());
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
@@ -633,9 +648,7 @@ pub struct AnthropicUsage {
 #[serde(tag = "type")]
 enum AnthropicStreamEvent {
     #[serde(rename = "message_start")]
-    MessageStart {
-        message: AnthropicStreamMessage,
-    },
+    MessageStart { message: AnthropicStreamMessage },
     #[serde(rename = "content_block_start")]
     ContentBlockStart {
         index: usize,
@@ -734,7 +747,11 @@ fn build_system_prompt(
         prof.compile_for_feature(feature, max_chars)
     } else {
         // No profile yet: use default with safety rules
-        format!("{}\n\n{}", super::safety::SAFETY_RULES, DEFAULT_SYSTEM_PROMPT)
+        format!(
+            "{}\n\n{}",
+            super::safety::SAFETY_RULES,
+            DEFAULT_SYSTEM_PROMPT
+        )
     };
 
     prompt.push_str("\n\n");
@@ -764,8 +781,10 @@ fn build_system_prompt(
         if let Some(conn) = &ctx.connection {
             prompt.push_str(&format!(
                 "Connection: {} ({}) <-> {} ({})\n",
-                conn.source_device.name, conn.source_interface,
-                conn.target_device.name, conn.target_interface
+                conn.source_device.name,
+                conn.source_interface,
+                conn.target_device.name,
+                conn.target_interface
             ));
             prompt.push_str(&format!("Link status: {}\n", conn.status));
             if let Some(protocols) = &conn.protocols {
@@ -791,7 +810,10 @@ fn build_system_prompt(
                 prompt.push_str(&format!("Device hostname: {}\n", hostname));
             }
             if let Some(output) = &term.recent_output {
-                prompt.push_str(&format!("\nRecent terminal output:\n```\n{}\n```\n", output));
+                prompt.push_str(&format!(
+                    "\nRecent terminal output:\n```\n{}\n```\n",
+                    output
+                ));
             }
         }
 
@@ -836,6 +858,31 @@ fn build_system_prompt(
     prompt
 }
 
+/// System prompt actually sent to the model: the profile/safety prompt from
+/// `build_system_prompt`, followed by any `system` messages the caller put in
+/// `messages` (task instructions and output contracts from MOP AI actions,
+/// AI Pilot, onboarding, …).
+///
+/// Every provider used to either drop the caller's system messages
+/// (Anthropic / OpenAI-format) or drop the profile prompt in favour of them
+/// (Gemini / Vertex). The first left MOP calls with no instructions at all —
+/// "explain this command" reached the model as a bare command string — and
+/// the second lost the engineer persona and device context. Both halves are
+/// needed, in this order: persona and safety rules first, task last.
+fn compose_system_prompt(messages: &[ChatMessage], context: &Option<AiContext>) -> String {
+    let mut prompt = build_system_prompt(context, None);
+    let client_system: Vec<&str> = messages
+        .iter()
+        .filter(|m| m.role == "system")
+        .map(|m| m.content.trim())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if !client_system.is_empty() {
+        prompt = format!("{}\n\n{}", prompt.trim_end(), client_system.join("\n\n"));
+    }
+    prompt
+}
+
 #[async_trait]
 impl AiProvider for AnthropicProvider {
     async fn chat_completion(
@@ -845,7 +892,7 @@ impl AiProvider for AnthropicProvider {
     ) -> Result<String, AiError> {
         tracing::debug!("Anthropic request to {}", self.base_url);
         // Build system prompt with enhanced context
-        let system_prompt = build_system_prompt(&context, None);
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         // Convert messages to Anthropic format (filter out system messages, use them in system prompt)
         let anthropic_messages: Vec<AnthropicMessage> = messages
@@ -896,9 +943,10 @@ impl AiProvider for AnthropicProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: AnthropicResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: AnthropicResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -938,15 +986,24 @@ impl AiProvider for AnthropicProvider {
                 content: match m.content {
                     AgentContent::Text(text) => AnthropicAgentContent::Text(text),
                     AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
-                        blocks.into_iter().map(|b| match b {
-                            AgentContentBlock::Text { text } => ContentBlock::Text { text },
-                            AgentContentBlock::ToolUse { id, name, input } => {
-                                ContentBlock::ToolUse { id, name, input }
-                            }
-                            AgentContentBlock::ToolResult { tool_use_id, content, is_error } => {
-                                ContentBlock::ToolResult { tool_use_id, content, is_error }
-                            }
-                        }).collect()
+                        blocks
+                            .into_iter()
+                            .map(|b| match b {
+                                AgentContentBlock::Text { text } => ContentBlock::Text { text },
+                                AgentContentBlock::ToolUse { id, name, input } => {
+                                    ContentBlock::ToolUse { id, name, input }
+                                }
+                                AgentContentBlock::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                    is_error,
+                                } => ContentBlock::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                    is_error,
+                                },
+                            })
+                            .collect(),
                     ),
                 },
             })
@@ -984,7 +1041,11 @@ impl AiProvider for AnthropicProvider {
 
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            tracing::error!("Anthropic agent_chat error: HTTP {} - {}", status, &error_text);
+            tracing::error!(
+                "Anthropic agent_chat error: HTTP {} - {}",
+                status,
+                &error_text
+            );
             return Err(AiError::from_http_status(status, error_text));
         }
 
@@ -993,16 +1054,23 @@ impl AiProvider for AnthropicProvider {
         })?;
 
         // Convert Anthropic response to generic format
-        let content: Vec<AgentContentBlock> = api_response.content
+        let content: Vec<AgentContentBlock> = api_response
+            .content
             .into_iter()
             .map(|b| match b {
                 ContentBlock::Text { text } => AgentContentBlock::Text { text },
                 ContentBlock::ToolUse { id, name, input } => {
                     AgentContentBlock::ToolUse { id, name, input }
                 }
-                ContentBlock::ToolResult { tool_use_id, content, is_error } => {
-                    AgentContentBlock::ToolResult { tool_use_id, content, is_error }
-                }
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => AgentContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                },
             })
             .collect();
 
@@ -1035,8 +1103,9 @@ impl AiProvider for AnthropicProvider {
             .map(|m| {
                 let content = match m.content {
                     AgentContent::Text(text) => serde_json::Value::String(text),
-                    AgentContent::Blocks(blocks) => serde_json::json!(
-                        blocks.into_iter().map(|b| match b {
+                    AgentContent::Blocks(blocks) => serde_json::json!(blocks
+                        .into_iter()
+                        .map(|b| match b {
                             AgentContentBlock::Text { text } => serde_json::json!({
                                 "type": "text",
                                 "text": text,
@@ -1047,19 +1116,25 @@ impl AiProvider for AnthropicProvider {
                                 "name": name,
                                 "input": input,
                             }),
-                            AgentContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => {
                                 let mut v = serde_json::json!({
                                     "type": "tool_result",
                                     "tool_use_id": tool_use_id,
                                     "content": content,
                                 });
                                 if let Some(err) = is_error {
-                                    v.as_object_mut().unwrap().insert("is_error".to_string(), serde_json::json!(err));
+                                    v.as_object_mut()
+                                        .unwrap()
+                                        .insert("is_error".to_string(), serde_json::json!(err));
                                 }
                                 v
                             }
-                        }).collect::<Vec<_>>()
-                    ),
+                        })
+                        .collect::<Vec<_>>()),
                 };
                 serde_json::json!({
                     "role": m.role,
@@ -1075,11 +1150,15 @@ impl AiProvider for AnthropicProvider {
             "messages": anthropic_messages,
         });
         if !system_prompt.is_empty() {
-            body.as_object_mut().unwrap().insert("system".to_string(), serde_json::json!(system_prompt));
+            body.as_object_mut()
+                .unwrap()
+                .insert("system".to_string(), serde_json::json!(system_prompt));
         }
         if let Some(t) = tools {
             if !t.is_empty() {
-                body.as_object_mut().unwrap().insert("tools".to_string(), serde_json::json!(t));
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("tools".to_string(), serde_json::json!(t));
             }
         }
 
@@ -1247,7 +1326,12 @@ pub struct OpenAIProvider {
 }
 
 impl OpenAIProvider {
-    pub fn new(api_key: String, model: Option<String>, base_url: Option<String>, verify_ssl: bool) -> Result<Self, AiError> {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .danger_accept_invalid_certs(!verify_ssl)
@@ -1326,7 +1410,10 @@ impl OpenAIProvider {
     /// Get the auth token — from OAuth2 token manager if configured, otherwise static API key.
     async fn get_auth_token(&self) -> Result<String, AiError> {
         if let Some(ref oauth2) = self.oauth2 {
-            oauth2.get_token().await.map_err(|e| AiError::RequestFailed(e.to_string()))
+            oauth2
+                .get_token()
+                .await
+                .map_err(|e| AiError::RequestFailed(e.to_string()))
         } else {
             Ok(self.api_key.clone())
         }
@@ -1336,7 +1423,11 @@ impl OpenAIProvider {
     /// NOTE: do not set Content-Type here — `.json(&body)` already sets it.
     /// Setting it twice causes reqwest to emit a duplicate Content-Type header,
     /// which Apigee/Vertex rejects with a Pydantic body-validation error.
-    fn apply_headers(&self, mut request: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
+    fn apply_headers(
+        &self,
+        mut request: reqwest::RequestBuilder,
+        token: &str,
+    ) -> reqwest::RequestBuilder {
         request = request.header("Authorization", format!("Bearer {}", token));
         for (key, value) in &self.custom_headers {
             request = request.header(key.as_str(), value.as_str());
@@ -1662,9 +1753,13 @@ struct OpenAIStreamFunction {
 /// Send an HTTP request with OAuth2 token invalidation on 401.
 /// Shared helper for both OpenAI and Gemini formats.
 impl OpenAIProvider {
-    async fn send_request(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response, AiError> {
+    async fn send_request(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, AiError> {
         let token = self.get_auth_token().await?;
-        let response = self.apply_headers(request, &token)
+        let response = self
+            .apply_headers(request, &token)
             .send()
             .await
             .map_err(|e| {
@@ -1696,16 +1791,13 @@ impl OpenAIProvider {
     }
 
     /// Gemini/Vertex AI chat completion.
-    async fn gemini_chat_completion(&self, messages: Vec<ChatMessage>, context: Option<AiContext>) -> Result<String, AiError> {
-        // Collect system messages from input (may include AI Engineer Profile personality)
-        let system_messages: Vec<&ChatMessage> = messages.iter().filter(|m| m.role == "system").collect();
-
-        // Use system messages from input if present, otherwise build a default
-        let system_prompt = if !system_messages.is_empty() {
-            system_messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n\n")
-        } else {
-            build_system_prompt(&context, None)
-        };
+    async fn gemini_chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        // Profile/safety prompt plus the caller's own system messages.
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         // Inject system prompt into the first user message instead of as a separate
         // user/model pair (prevents the model from re-introducing itself every turn)
@@ -1719,8 +1811,14 @@ impl OpenAIProvider {
         let mut system_injected = false;
 
         for m in &messages {
-            if m.role == "system" { continue; }
-            let role = if m.role == "assistant" { "model".to_string() } else { "user".to_string() };
+            if m.role == "system" {
+                continue;
+            }
+            let role = if m.role == "assistant" {
+                "model".to_string()
+            } else {
+                "user".to_string()
+            };
             let text = if !system_injected && role == "user" {
                 system_injected = true;
                 format!("{}{}", system_context, m.content)
@@ -1747,20 +1845,32 @@ impl OpenAIProvider {
         // gateways that route differently per action).
         let url = build_model_action_url(&self.base_url, &self.model, "generateContent");
 
-        let response = self.send_request(self.client.post(&url).json(&request)).await?;
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
 
         let response_text = response.text().await.map_err(|e| {
             AiError::InvalidResponse(format!("Failed to read Gemini response body: {}", e))
         })?;
 
-        tracing::debug!("Gemini raw response: {}", &response_text[..response_text.len().min(500)]);
+        tracing::debug!(
+            "Gemini raw response: {}",
+            &response_text[..response_text.len().min(500)]
+        );
 
         let api_response: GeminiResponse = serde_json::from_str(&response_text).map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse Gemini response: {} — body: {}", e, &response_text[..response_text.len().min(200)]))
+            AiError::InvalidResponse(format!(
+                "Failed to parse Gemini response: {} — body: {}",
+                e,
+                &response_text[..response_text.len().min(200)]
+            ))
         })?;
 
         if let Some(error) = api_response.error {
-            return Err(AiError::RequestFailed(format!("Gemini error {}: {}", error.code, error.message)));
+            return Err(AiError::RequestFailed(format!(
+                "Gemini error {}: {}",
+                error.code, error.message
+            )));
         }
 
         // Extract text from candidates[0].content.parts[0].text
@@ -1772,7 +1882,10 @@ impl OpenAIProvider {
             .and_then(|p| p.into_iter().next())
             .and_then(|p| p.text)
             .ok_or_else(|| {
-                tracing::error!("Gemini response had no content. Raw: {}", &response_text[..response_text.len().min(500)]);
+                tracing::error!(
+                    "Gemini response had no content. Raw: {}",
+                    &response_text[..response_text.len().min(500)]
+                );
                 AiError::InvalidResponse("No content in Gemini response".to_string())
             })
     }
@@ -1787,14 +1900,25 @@ impl OpenAIProvider {
     ) -> Result<AgentResponse, AiError> {
         // Convert Anthropic-style tool definitions to Gemini functionDeclarations
         let gemini_tools = tools.map(|tools| {
-            let declarations: Vec<GeminiFunctionDeclaration> = tools.into_iter().map(|t| {
-                GeminiFunctionDeclaration {
-                    name: t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    description: t.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            let declarations: Vec<GeminiFunctionDeclaration> = tools
+                .into_iter()
+                .map(|t| GeminiFunctionDeclaration {
+                    name: t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     parameters: t.get("input_schema").cloned(),
-                }
-            }).collect();
-            vec![GeminiToolDefinition { function_declarations: declarations }]
+                })
+                .collect();
+            vec![GeminiToolDefinition {
+                function_declarations: declarations,
+            }]
         });
 
         // Inject system prompt into the first user message instead of as a separate
@@ -1811,7 +1935,8 @@ impl OpenAIProvider {
 
         // Build a map of tool_use_id → function_name from the conversation history
         // so we can fill in the correct name in FunctionResponse
-        let mut tool_id_to_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut tool_id_to_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for m in &messages {
             if let AgentContent::Blocks(blocks) = &m.content {
                 for block in blocks {
@@ -1826,7 +1951,11 @@ impl OpenAIProvider {
         for m in messages {
             match m.content {
                 AgentContent::Text(text) => {
-                    let role = if m.role == "assistant" { "model" } else { "user" };
+                    let role = if m.role == "assistant" {
+                        "model"
+                    } else {
+                        "user"
+                    };
                     // Inject system context into the first user message
                     let final_text = if !system_injected && role == "user" {
                         system_injected = true;
@@ -1849,13 +1978,14 @@ impl OpenAIProvider {
                             AgentContentBlock::ToolUse { id: _, name, input } => {
                                 // Assistant's function call
                                 parts.push(GeminiRequestPart::FunctionCall {
-                                    function_call: GeminiFunctionCall {
-                                        name,
-                                        args: input,
-                                    },
+                                    function_call: GeminiFunctionCall { name, args: input },
                                 });
                             }
-                            AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
                                 // Look up function name from the tool call
                                 let fn_name = tool_id_to_name
                                     .get(&tool_use_id)
@@ -1871,15 +2001,26 @@ impl OpenAIProvider {
                         }
                     }
                     if !parts.is_empty() {
-                        let role = if m.role == "assistant" { "model" } else { "user" };
-                        contents.push(GeminiContent { role: role.to_string(), parts });
+                        let role = if m.role == "assistant" {
+                            "model"
+                        } else {
+                            "user"
+                        };
+                        contents.push(GeminiContent {
+                            role: role.to_string(),
+                            parts,
+                        });
                     }
                 }
             }
         }
 
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = GeminiRequest {
             contents,
@@ -1891,26 +2032,41 @@ impl OpenAIProvider {
         };
 
         let url = build_model_action_url(&self.base_url, &self.model, "generateContent");
-        let response = self.send_request(self.client.post(&url).json(&request)).await?;
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
 
         let response_text = response.text().await.map_err(|e| {
             AiError::InvalidResponse(format!("Failed to read Gemini response: {}", e))
         })?;
 
-        tracing::debug!("Gemini agent raw response: {}", &response_text[..response_text.len().min(500)]);
+        tracing::debug!(
+            "Gemini agent raw response: {}",
+            &response_text[..response_text.len().min(500)]
+        );
 
         let api_response: GeminiResponse = serde_json::from_str(&response_text).map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse Gemini response: {} — body: {}", e, &response_text[..response_text.len().min(200)]))
+            AiError::InvalidResponse(format!(
+                "Failed to parse Gemini response: {} — body: {}",
+                e,
+                &response_text[..response_text.len().min(200)]
+            ))
         })?;
 
         if let Some(error) = api_response.error {
-            return Err(AiError::RequestFailed(format!("Gemini error {}: {}", error.code, error.message)));
+            return Err(AiError::RequestFailed(format!(
+                "Gemini error {}: {}",
+                error.code, error.message
+            )));
         }
 
         // Extract content blocks from response (text and/or function calls)
-        let candidate = api_response.candidates
+        let candidate = api_response
+            .candidates
             .and_then(|c| c.into_iter().next())
-            .ok_or_else(|| AiError::InvalidResponse("No candidates in Gemini response".to_string()))?;
+            .ok_or_else(|| {
+                AiError::InvalidResponse("No candidates in Gemini response".to_string())
+            })?;
 
         let finish_reason = candidate.finish_reason.clone();
         let mut content: Vec<AgentContentBlock> = Vec::new();
@@ -1935,13 +2091,20 @@ impl OpenAIProvider {
         }
 
         if content.is_empty() {
-            tracing::error!("Gemini agent response had no content. Raw: {}", &response_text[..response_text.len().min(500)]);
-            return Err(AiError::InvalidResponse("No content in Gemini agent response".to_string()));
+            tracing::error!(
+                "Gemini agent response had no content. Raw: {}",
+                &response_text[..response_text.len().min(500)]
+            );
+            return Err(AiError::InvalidResponse(
+                "No content in Gemini agent response".to_string(),
+            ));
         }
 
         // Map finish_reason to stop_reason
         // If there are tool calls, don't signal end_turn — the tool loop must continue
-        let has_tool_calls = content.iter().any(|c| matches!(c, AgentContentBlock::ToolUse { .. }));
+        let has_tool_calls = content
+            .iter()
+            .any(|c| matches!(c, AgentContentBlock::ToolUse { .. }));
         let stop_reason = finish_reason.map(|r| match r.as_str() {
             "STOP" if has_tool_calls => "tool_use".to_string(),
             "STOP" => "end_turn".to_string(),
@@ -1955,7 +2118,11 @@ impl OpenAIProvider {
             total_tokens: Some(u.prompt_token_count + u.candidates_token_count),
         });
 
-        Ok(AgentResponse { content, stop_reason, usage })
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
     }
 
     /// Anthropic-on-Vertex chat completion. Uses `:rawPredict` action and the
@@ -1965,18 +2132,17 @@ impl OpenAIProvider {
         messages: Vec<ChatMessage>,
         context: Option<AiContext>,
     ) -> Result<String, AiError> {
-        let system_messages: Vec<&ChatMessage> = messages.iter().filter(|m| m.role == "system").collect();
-        let system_prompt = if !system_messages.is_empty() {
-            system_messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n\n")
-        } else {
-            build_system_prompt(&context, None)
-        };
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         let anthropic_messages: Vec<AnthropicMessage> = messages
             .into_iter()
             .filter(|m| m.role != "system")
             .map(|m| AnthropicMessage {
-                role: if m.role == "user" { "user".to_string() } else { "assistant".to_string() },
+                role: if m.role == "user" {
+                    "user".to_string()
+                } else {
+                    "assistant".to_string()
+                },
                 content: m.content,
             })
             .collect();
@@ -1989,19 +2155,25 @@ impl OpenAIProvider {
         };
 
         let url = build_model_action_url(&self.base_url, &self.model, "rawPredict");
-        let response = self.send_request(self.client.post(&url).json(&request)).await?;
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
 
         let response_text = response.text().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to read Vertex Anthropic response body: {}", e))
-        })?;
-
-        let api_response: AnthropicResponse = serde_json::from_str(&response_text).map_err(|e| {
             AiError::InvalidResponse(format!(
-                "Failed to parse Vertex Anthropic response: {} — body: {}",
-                e,
-                &response_text[..response_text.len().min(200)]
+                "Failed to read Vertex Anthropic response body: {}",
+                e
             ))
         })?;
+
+        let api_response: AnthropicResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AiError::InvalidResponse(format!(
+                    "Failed to parse Vertex Anthropic response: {} — body: {}",
+                    e,
+                    &response_text[..response_text.len().min(200)]
+                ))
+            })?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -2013,8 +2185,16 @@ impl OpenAIProvider {
         api_response
             .content
             .into_iter()
-            .find_map(|c| if c.content_type == "text" { c.text } else { None })
-            .ok_or_else(|| AiError::InvalidResponse("No text content in Vertex Anthropic response".to_string()))
+            .find_map(|c| {
+                if c.content_type == "text" {
+                    c.text
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                AiError::InvalidResponse("No text content in Vertex Anthropic response".to_string())
+            })
     }
 
     /// Anthropic-on-Vertex agent chat with full tool support.
@@ -2042,35 +2222,51 @@ impl OpenAIProvider {
                 let content = match m.content {
                     AgentContent::Text(text) => AnthropicAgentContent::Text(text),
                     AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
-                        blocks.into_iter().map(agent_block_to_anthropic_block).collect(),
+                        blocks
+                            .into_iter()
+                            .map(agent_block_to_anthropic_block)
+                            .collect(),
                     ),
                 };
-                AnthropicAgentMessage { role: m.role, content }
+                AnthropicAgentMessage {
+                    role: m.role,
+                    content,
+                }
             })
             .collect();
 
         let request = VertexAnthropicAgentRequest {
             anthropic_version: "vertex-2023-10-16".to_string(),
             max_tokens,
-            system: if system_prompt.is_empty() { None } else { Some(system_prompt) },
+            system: if system_prompt.is_empty() {
+                None
+            } else {
+                Some(system_prompt)
+            },
             messages: anthropic_messages,
             tools: tools.filter(|t| !t.is_empty()),
             stream: None,
         };
 
         let url = build_model_action_url(&self.base_url, &self.model, "rawPredict");
-        let response = self.send_request(self.client.post(&url).json(&request)).await?;
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
         let response_text = response.text().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to read Vertex Anthropic agent response: {}", e))
-        })?;
-
-        let api_response: AnthropicAgentResponse = serde_json::from_str(&response_text).map_err(|e| {
             AiError::InvalidResponse(format!(
-                "Failed to parse Vertex Anthropic agent response: {} — body: {}",
-                e,
-                &response_text[..response_text.len().min(400)]
+                "Failed to read Vertex Anthropic agent response: {}",
+                e
             ))
         })?;
+
+        let api_response: AnthropicAgentResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AiError::InvalidResponse(format!(
+                    "Failed to parse Vertex Anthropic agent response: {} — body: {}",
+                    e,
+                    &response_text[..response_text.len().min(400)]
+                ))
+            })?;
 
         let content: Vec<AgentContentBlock> = api_response
             .content
@@ -2111,17 +2307,27 @@ impl OpenAIProvider {
                 let content = match m.content {
                     AgentContent::Text(text) => AnthropicAgentContent::Text(text),
                     AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
-                        blocks.into_iter().map(agent_block_to_anthropic_block).collect(),
+                        blocks
+                            .into_iter()
+                            .map(agent_block_to_anthropic_block)
+                            .collect(),
                     ),
                 };
-                AnthropicAgentMessage { role: m.role, content }
+                AnthropicAgentMessage {
+                    role: m.role,
+                    content,
+                }
             })
             .collect();
 
         let request = VertexAnthropicAgentRequest {
             anthropic_version: "vertex-2023-10-16".to_string(),
             max_tokens,
-            system: if system_prompt.is_empty() { None } else { Some(system_prompt) },
+            system: if system_prompt.is_empty() {
+                None
+            } else {
+                Some(system_prompt)
+            },
             messages: anthropic_messages,
             tools: tools.filter(|t| !t.is_empty()),
             stream: Some(true),
@@ -2261,14 +2467,25 @@ impl OpenAIProvider {
         // Build the same request shape as the non-streaming gemini_agent_chat,
         // including the tool-id-to-name map needed to fill FunctionResponse.
         let gemini_tools = tools.map(|tools| {
-            let declarations: Vec<GeminiFunctionDeclaration> = tools.into_iter().map(|t| {
-                GeminiFunctionDeclaration {
-                    name: t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    description: t.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            let declarations: Vec<GeminiFunctionDeclaration> = tools
+                .into_iter()
+                .map(|t| GeminiFunctionDeclaration {
+                    name: t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     parameters: t.get("input_schema").cloned(),
-                }
-            }).collect();
-            vec![GeminiToolDefinition { function_declarations: declarations }]
+                })
+                .collect();
+            vec![GeminiToolDefinition {
+                function_declarations: declarations,
+            }]
         });
 
         let system_context = format!(
@@ -2278,7 +2495,8 @@ impl OpenAIProvider {
             system_prompt
         );
 
-        let mut tool_id_to_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut tool_id_to_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for m in &messages {
             if let AgentContent::Blocks(blocks) = &m.content {
                 for block in blocks {
@@ -2294,7 +2512,11 @@ impl OpenAIProvider {
         for m in messages {
             match m.content {
                 AgentContent::Text(text) => {
-                    let role = if m.role == "assistant" { "model" } else { "user" };
+                    let role = if m.role == "assistant" {
+                        "model"
+                    } else {
+                        "user"
+                    };
                     let final_text = if !system_injected && role == "user" {
                         system_injected = true;
                         format!("{}{}", system_context, text)
@@ -2310,12 +2532,23 @@ impl OpenAIProvider {
                     let mut parts: Vec<GeminiRequestPart> = Vec::new();
                     for block in blocks {
                         match block {
-                            AgentContentBlock::Text { text } => parts.push(GeminiRequestPart::Text { text }),
-                            AgentContentBlock::ToolUse { id: _, name, input } => parts.push(GeminiRequestPart::FunctionCall {
-                                function_call: GeminiFunctionCall { name, args: input },
-                            }),
-                            AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
-                                let fn_name = tool_id_to_name.get(&tool_use_id).cloned().unwrap_or_else(|| "unknown".to_string());
+                            AgentContentBlock::Text { text } => {
+                                parts.push(GeminiRequestPart::Text { text })
+                            }
+                            AgentContentBlock::ToolUse { id: _, name, input } => {
+                                parts.push(GeminiRequestPart::FunctionCall {
+                                    function_call: GeminiFunctionCall { name, args: input },
+                                })
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                let fn_name = tool_id_to_name
+                                    .get(&tool_use_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| "unknown".to_string());
                                 parts.push(GeminiRequestPart::FunctionResponse {
                                     function_response: GeminiFunctionResponse {
                                         name: fn_name,
@@ -2326,15 +2559,26 @@ impl OpenAIProvider {
                         }
                     }
                     if !parts.is_empty() {
-                        let role = if m.role == "assistant" { "model" } else { "user" };
-                        contents.push(GeminiContent { role: role.to_string(), parts });
+                        let role = if m.role == "assistant" {
+                            "model"
+                        } else {
+                            "user"
+                        };
+                        contents.push(GeminiContent {
+                            role: role.to_string(),
+                            parts,
+                        });
                     }
                 }
             }
         }
 
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
         let request = GeminiRequest {
             contents,
             generation_config: Some(GeminiGenerationConfig {
@@ -2348,7 +2592,8 @@ impl OpenAIProvider {
         // without it the response is a streamed JSON array which is harder to
         // parse incrementally. The action belongs in the URL; build_model_stream_url
         // also maps a pinned `:generateContent` to `:streamGenerateContent`.
-        let base_action_url = build_model_stream_url(&self.base_url, &self.model, "streamGenerateContent");
+        let base_action_url =
+            build_model_stream_url(&self.base_url, &self.model, "streamGenerateContent");
         let url = if base_action_url.contains('?') {
             format!("{}&alt=sse", base_action_url)
         } else {
@@ -2473,7 +2718,11 @@ impl OpenAIProvider {
         options: Option<AgentChatOptions>,
     ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
@@ -2482,7 +2731,9 @@ impl OpenAIProvider {
             temperature: Some(temperature),
             tools: anthropic_tools_to_openai(tools),
             stream: Some(true),
-            stream_options: Some(OpenAIStreamOptions { include_usage: true }),
+            stream_options: Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
         };
 
         let url = format!("{}/chat/completions", self.base_url);
@@ -2510,7 +2761,15 @@ fn agent_block_to_anthropic_block(b: AgentContentBlock) -> ContentBlock {
     match b {
         AgentContentBlock::Text { text } => ContentBlock::Text { text },
         AgentContentBlock::ToolUse { id, name, input } => ContentBlock::ToolUse { id, name, input },
-        AgentContentBlock::ToolResult { tool_use_id, content, is_error } => ContentBlock::ToolResult { tool_use_id, content, is_error },
+        AgentContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        },
     }
 }
 
@@ -2520,7 +2779,15 @@ fn anthropic_block_to_agent_block(b: ContentBlock) -> AgentContentBlock {
     match b {
         ContentBlock::Text { text } => AgentContentBlock::Text { text },
         ContentBlock::ToolUse { id, name, input } => AgentContentBlock::ToolUse { id, name, input },
-        ContentBlock::ToolResult { tool_use_id, content, is_error } => AgentContentBlock::ToolResult { tool_use_id, content, is_error },
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => AgentContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        },
     }
 }
 
@@ -2573,13 +2840,18 @@ fn agent_messages_to_openai_compat(
                                     call_type: "function".to_string(),
                                     function: OpenAIFunctionCall {
                                         name,
-                                        arguments: serde_json::to_string(&input).unwrap_or_default(),
+                                        arguments: serde_json::to_string(&input)
+                                            .unwrap_or_default(),
                                     },
                                 }]),
                                 tool_call_id: None,
                             });
                         }
-                        AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
+                        AgentContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            ..
+                        } => {
                             out.push(OpenAIAgentMessage {
                                 role: "tool".to_string(),
                                 content: Some(content),
@@ -2601,15 +2873,29 @@ fn agent_messages_to_openai_compat(
 /// completions tool format.
 fn anthropic_tools_to_openai(tools: Option<Vec<serde_json::Value>>) -> Option<Vec<OpenAITool>> {
     tools.map(|tools| {
-        tools.into_iter().map(|t| {
-            let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let description = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let parameters = t.get("input_schema").cloned();
-            OpenAITool {
-                tool_type: "function".to_string(),
-                function: OpenAIFunction { name, description, parameters },
-            }
-        }).collect()
+        tools
+            .into_iter()
+            .map(|t| {
+                let name = t
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let description = t
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let parameters = t.get("input_schema").cloned();
+                OpenAITool {
+                    tool_type: "function".to_string(),
+                    function: OpenAIFunction {
+                        name,
+                        description,
+                        parameters,
+                    },
+                }
+            })
+            .collect()
     })
 }
 
@@ -2810,11 +3096,13 @@ impl AiProvider for OpenAIProvider {
             return self.gemini_chat_completion(messages, context).await;
         }
         if self.api_format == ApiFormat::VertexAnthropic {
-            return self.vertex_anthropic_chat_completion(messages, context).await;
+            return self
+                .vertex_anthropic_chat_completion(messages, context)
+                .await;
         }
 
         // Build system prompt with enhanced context
-        let system_prompt = build_system_prompt(&context, None);
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         // Convert messages to OpenAI format
         let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
@@ -2840,11 +3128,14 @@ impl AiProvider for OpenAIProvider {
 
         let url = format!("{}/chat/completions", self.base_url);
 
-        let response = self.send_request(self.client.post(&url).json(&request)).await?;
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
 
-        let api_response: OpenAIResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -2872,24 +3163,42 @@ impl AiProvider for OpenAIProvider {
     ) -> Result<AgentResponse, AiError> {
         // Gemini format: native function calling support
         if self.api_format == ApiFormat::Gemini {
-            return self.gemini_agent_chat(system_prompt, messages, tools, options).await;
+            return self
+                .gemini_agent_chat(system_prompt, messages, tools, options)
+                .await;
         }
         // Vertex Anthropic: full tool support via dedicated agent path.
         if self.api_format == ApiFormat::VertexAnthropic {
-            return self.vertex_anthropic_agent_chat(system_prompt, messages, tools, options).await;
+            return self
+                .vertex_anthropic_agent_chat(system_prompt, messages, tools, options)
+                .await;
         }
 
         // Convert Anthropic-style tools to OpenAI format
         let openai_tools: Option<Vec<OpenAITool>> = tools.map(|tools| {
-            tools.into_iter().map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let description = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let parameters = t.get("input_schema").cloned();
-                OpenAITool {
-                    tool_type: "function".to_string(),
-                    function: OpenAIFunction { name, description, parameters },
-                }
-            }).collect()
+            tools
+                .into_iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
         });
 
         // Convert generic messages to OpenAI format
@@ -2932,13 +3241,18 @@ impl AiProvider for OpenAIProvider {
                                         call_type: "function".to_string(),
                                         function: OpenAIFunctionCall {
                                             name,
-                                            arguments: serde_json::to_string(&input).unwrap_or_default(),
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
                                         },
                                     }]),
                                     tool_call_id: None,
                                 });
                             }
-                            AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
                                 openai_messages.push(OpenAIAgentMessage {
                                     role: "tool".to_string(),
                                     content: Some(content),
@@ -2953,7 +3267,11 @@ impl AiProvider for OpenAIProvider {
         }
 
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
@@ -2967,11 +3285,14 @@ impl AiProvider for OpenAIProvider {
 
         let url = format!("{}/chat/completions", self.base_url);
 
-        let response = self.send_request(self.client.post(&url).json(&request)).await?;
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
 
-        let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIAgentResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -2982,7 +3303,10 @@ impl AiProvider for OpenAIProvider {
         }
 
         // Convert OpenAI response to generic format
-        let choice = api_response.choices.into_iter().next()
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
             .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
 
         let mut content: Vec<AgentContentBlock> = Vec::new();
@@ -3008,22 +3332,26 @@ impl AiProvider for OpenAIProvider {
         }
 
         // Map finish_reason to stop_reason
-        let stop_reason = choice.finish_reason.map(|r| {
-            match r.as_str() {
-                "stop" => "end_turn".to_string(),
-                "tool_calls" => "tool_use".to_string(),
-                other => other.to_string(),
-            }
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
         });
 
         // Convert OpenAI usage to generic format
         let usage = api_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens.or(Some(u.prompt_tokens + u.completion_tokens)),
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
         });
 
-        Ok(AgentResponse { content, stop_reason, usage })
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
     }
 
     /// Override the default trait stream impl so every API format uses its
@@ -3065,7 +3393,11 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
-    pub fn new(model: Option<String>, base_url: Option<String>, verify_ssl: bool) -> Result<Self, AiError> {
+    pub fn new(
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120)) // Longer timeout for local models
             .danger_accept_invalid_certs(!verify_ssl)
@@ -3088,7 +3420,7 @@ impl AiProvider for OllamaProvider {
         context: Option<AiContext>,
     ) -> Result<String, AiError> {
         // Build system prompt with enhanced context
-        let system_prompt = build_system_prompt(&context, None);
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         // Convert messages to OpenAI format (Ollama uses OpenAI-compatible API)
         let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
@@ -3142,9 +3474,10 @@ impl AiProvider for OllamaProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3171,12 +3504,17 @@ impl AiProvider for OllamaProvider {
         options: Option<AgentChatOptions>,
     ) -> Result<AgentResponse, AiError> {
         // Try with tools first, fall back to simple chat if model doesn't support tools
-        let result = self.try_agent_chat_with_tools(&system_prompt, &messages, &tools, &options).await;
+        let result = self
+            .try_agent_chat_with_tools(&system_prompt, &messages, &tools, &options)
+            .await;
 
         // If tools aren't supported, fall back to simple chat mode
         if let Err(AiError::RequestFailed(ref msg) | AiError::BadRequest(ref msg)) = result {
             if msg.contains("does not support tools") {
-                tracing::info!("Model {} doesn't support tools, falling back to simple chat", self.model);
+                tracing::info!(
+                    "Model {} doesn't support tools, falling back to simple chat",
+                    self.model
+                );
                 return self.simple_chat_fallback(&system_prompt, &messages).await;
             }
         }
@@ -3197,7 +3535,11 @@ impl AiProvider for OllamaProvider {
         options: Option<AgentChatOptions>,
     ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
         let openai_messages = agent_messages_to_openai_compat(system_prompt, messages);
         let openai_tools = anthropic_tools_to_openai(tools);
 
@@ -3293,15 +3635,29 @@ impl OllamaProvider {
     ) -> Result<AgentResponse, AiError> {
         // Convert Anthropic-style tools to OpenAI format (Ollama uses OpenAI-compatible API)
         let openai_tools: Option<Vec<OpenAITool>> = tools.as_ref().map(|tools| {
-            tools.iter().map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let description = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let parameters = t.get("input_schema").cloned();
-                OpenAITool {
-                    tool_type: "function".to_string(),
-                    function: OpenAIFunction { name, description, parameters },
-                }
-            }).collect()
+            tools
+                .iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
         });
 
         // Convert generic messages to OpenAI format
@@ -3342,13 +3698,18 @@ impl OllamaProvider {
                                         call_type: "function".to_string(),
                                         function: OpenAIFunctionCall {
                                             name: name.clone(),
-                                            arguments: serde_json::to_string(&input).unwrap_or_default(),
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
                                         },
                                     }]),
                                     tool_call_id: None,
                                 });
                             }
-                            AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
                                 openai_messages.push(OpenAIAgentMessage {
                                     role: "tool".to_string(),
                                     content: Some(content.clone()),
@@ -3363,7 +3724,11 @@ impl OllamaProvider {
         }
 
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
@@ -3404,9 +3769,10 @@ impl OllamaProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIAgentResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3417,7 +3783,10 @@ impl OllamaProvider {
         }
 
         // Convert OpenAI response to generic format
-        let choice = api_response.choices.into_iter().next()
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
             .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
 
         let mut content: Vec<AgentContentBlock> = Vec::new();
@@ -3440,22 +3809,26 @@ impl OllamaProvider {
             }
         }
 
-        let stop_reason = choice.finish_reason.map(|r| {
-            match r.as_str() {
-                "stop" => "end_turn".to_string(),
-                "tool_calls" => "tool_use".to_string(),
-                other => other.to_string(),
-            }
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
         });
 
         // Convert Ollama usage to generic format (uses OpenAI-compatible API)
         let usage = api_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens.or(Some(u.prompt_tokens + u.completion_tokens)),
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
         });
 
-        Ok(AgentResponse { content, stop_reason, usage })
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
     }
 
     /// Fallback to simple chat without tools when model doesn't support function calling
@@ -3501,7 +3874,9 @@ impl OllamaProvider {
         let response_text = self.chat_completion(chat_messages, None).await?;
 
         Ok(AgentResponse {
-            content: vec![AgentContentBlock::Text { text: response_text }],
+            content: vec![AgentContentBlock::Text {
+                text: response_text,
+            }],
             stop_reason: Some("end_turn".to_string()),
             usage: None,
         })
@@ -3584,7 +3959,7 @@ impl AiProvider for OpenRouterProvider {
         context: Option<AiContext>,
     ) -> Result<String, AiError> {
         // Build system prompt with enhanced context
-        let system_prompt = build_system_prompt(&context, None);
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         // Convert messages to OpenAI format (OpenRouter uses OpenAI-compatible API)
         let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
@@ -3638,9 +4013,10 @@ impl AiProvider for OpenRouterProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3668,15 +4044,29 @@ impl AiProvider for OpenRouterProvider {
     ) -> Result<AgentResponse, AiError> {
         // Convert Anthropic-style tools to OpenAI format
         let openai_tools: Option<Vec<OpenAITool>> = tools.map(|tools| {
-            tools.into_iter().map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let description = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let parameters = t.get("input_schema").cloned();
-                OpenAITool {
-                    tool_type: "function".to_string(),
-                    function: OpenAIFunction { name, description, parameters },
-                }
-            }).collect()
+            tools
+                .into_iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
         });
 
         // Convert generic messages to OpenAI format
@@ -3717,13 +4107,18 @@ impl AiProvider for OpenRouterProvider {
                                         call_type: "function".to_string(),
                                         function: OpenAIFunctionCall {
                                             name,
-                                            arguments: serde_json::to_string(&input).unwrap_or_default(),
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
                                         },
                                     }]),
                                     tool_call_id: None,
                                 });
                             }
-                            AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
                                 openai_messages.push(OpenAIAgentMessage {
                                     role: "tool".to_string(),
                                     content: Some(content),
@@ -3738,7 +4133,11 @@ impl AiProvider for OpenRouterProvider {
         }
 
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenRouterAgentRequest {
             model: self.model.clone(),
@@ -3780,9 +4179,10 @@ impl AiProvider for OpenRouterProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIAgentResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3793,7 +4193,10 @@ impl AiProvider for OpenRouterProvider {
         }
 
         // Convert OpenAI response to generic format
-        let choice = api_response.choices.into_iter().next()
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
             .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
 
         let mut content: Vec<AgentContentBlock> = Vec::new();
@@ -3816,21 +4219,25 @@ impl AiProvider for OpenRouterProvider {
             }
         }
 
-        let stop_reason = choice.finish_reason.map(|r| {
-            match r.as_str() {
-                "stop" => "end_turn".to_string(),
-                "tool_calls" => "tool_use".to_string(),
-                other => other.to_string(),
-            }
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
         });
 
         let usage = api_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens.or(Some(u.prompt_tokens + u.completion_tokens)),
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
         });
 
-        Ok(AgentResponse { content, stop_reason, usage })
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
     }
 
     /// Native streaming via OpenRouter's OpenAI-compatible chat completions
@@ -3844,7 +4251,11 @@ impl AiProvider for OpenRouterProvider {
         options: Option<AgentChatOptions>,
     ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenRouterAgentRequest {
             model: self.model.clone(),
@@ -3854,7 +4265,9 @@ impl AiProvider for OpenRouterProvider {
             tools: anthropic_tools_to_openai(tools),
             transforms: Some(vec!["middle-out".to_string()]),
             stream: Some(true),
-            stream_options: Some(OpenAIStreamOptions { include_usage: true }),
+            stream_options: Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
         };
 
         let api_key = self.api_key.clone();
@@ -3918,7 +4331,12 @@ pub struct LiteLLMProvider {
 }
 
 impl LiteLLMProvider {
-    pub fn new(model: Option<String>, base_url: Option<String>, api_key: Option<String>, verify_ssl: bool) -> Result<Self, AiError> {
+    pub fn new(
+        model: Option<String>,
+        base_url: Option<String>,
+        api_key: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120)) // Longer timeout for proxied requests
             .danger_accept_invalid_certs(!verify_ssl)
@@ -3942,7 +4360,7 @@ impl AiProvider for LiteLLMProvider {
         context: Option<AiContext>,
     ) -> Result<String, AiError> {
         // Build system prompt with enhanced context
-        let system_prompt = build_system_prompt(&context, None);
+        let system_prompt = compose_system_prompt(&messages, &context);
 
         // Convert messages to OpenAI format
         let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
@@ -4005,9 +4423,10 @@ impl AiProvider for LiteLLMProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -4035,15 +4454,29 @@ impl AiProvider for LiteLLMProvider {
     ) -> Result<AgentResponse, AiError> {
         // Convert Anthropic-style tools to OpenAI format
         let openai_tools: Option<Vec<OpenAITool>> = tools.map(|tools| {
-            tools.into_iter().map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let description = t.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let parameters = t.get("input_schema").cloned();
-                OpenAITool {
-                    tool_type: "function".to_string(),
-                    function: OpenAIFunction { name, description, parameters },
-                }
-            }).collect()
+            tools
+                .into_iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
         });
 
         // Convert generic messages to OpenAI format
@@ -4084,13 +4517,18 @@ impl AiProvider for LiteLLMProvider {
                                         call_type: "function".to_string(),
                                         function: OpenAIFunctionCall {
                                             name,
-                                            arguments: serde_json::to_string(&input).unwrap_or_default(),
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
                                         },
                                     }]),
                                     tool_call_id: None,
                                 });
                             }
-                            AgentContentBlock::ToolResult { tool_use_id, content, .. } => {
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
                                 openai_messages.push(OpenAIAgentMessage {
                                     role: "tool".to_string(),
                                     content: Some(content),
@@ -4105,7 +4543,11 @@ impl AiProvider for LiteLLMProvider {
         }
 
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
@@ -4128,22 +4570,18 @@ impl AiProvider for LiteLLMProvider {
             req_builder = req_builder.header("Authorization", format!("Bearer {}", key));
         }
 
-        let response = req_builder
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    AiError::Timeout
-                } else if e.is_connect() {
-                    AiError::NotConfigured(format!(
-                        "Cannot connect to LiteLLM at {}. Is it running?",
-                        self.base_url
-                    ))
-                } else {
-                    AiError::RequestFailed(e.to_string())
-                }
-            })?;
+        let response = req_builder.json(&request).send().await.map_err(|e| {
+            if e.is_timeout() {
+                AiError::Timeout
+            } else if e.is_connect() {
+                AiError::NotConfigured(format!(
+                    "Cannot connect to LiteLLM at {}. Is it running?",
+                    self.base_url
+                ))
+            } else {
+                AiError::RequestFailed(e.to_string())
+            }
+        })?;
 
         let status = response.status();
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -4155,9 +4593,10 @@ impl AiProvider for LiteLLMProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIAgentResponse = response.json().await.map_err(|e| {
-            AiError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let api_response: OpenAIAgentResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -4168,7 +4607,10 @@ impl AiProvider for LiteLLMProvider {
         }
 
         // Convert OpenAI response to generic format
-        let choice = api_response.choices.into_iter().next()
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
             .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
 
         let mut content: Vec<AgentContentBlock> = Vec::new();
@@ -4191,21 +4633,25 @@ impl AiProvider for LiteLLMProvider {
             }
         }
 
-        let stop_reason = choice.finish_reason.map(|r| {
-            match r.as_str() {
-                "stop" => "end_turn".to_string(),
-                "tool_calls" => "tool_use".to_string(),
-                other => other.to_string(),
-            }
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
         });
 
         let usage = api_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens.or(Some(u.prompt_tokens + u.completion_tokens)),
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
         });
 
-        Ok(AgentResponse { content, stop_reason, usage })
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
     }
 
     /// Native streaming via LiteLLM's OpenAI-compatible chat completions
@@ -4219,7 +4665,11 @@ impl AiProvider for LiteLLMProvider {
         options: Option<AgentChatOptions>,
     ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
         let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
-        let temperature = options.as_ref().and_then(|o| o.temperature).map(|t| t as f32).unwrap_or(0.7);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
 
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
@@ -4228,7 +4678,9 @@ impl AiProvider for LiteLLMProvider {
             temperature: Some(temperature),
             tools: anthropic_tools_to_openai(tools),
             stream: Some(true),
-            stream_options: Some(OpenAIStreamOptions { include_usage: true }),
+            stream_options: Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
         };
 
         let url = format!("{}/chat/completions", self.base_url);
@@ -4322,7 +4774,12 @@ impl AiProvider for MockProvider {
 /// Create an AI provider from configuration
 pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> {
     match config {
-        Some(AiProviderConfig::Anthropic { api_key, model, base_url, verify_ssl }) => {
+        Some(AiProviderConfig::Anthropic {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
             if api_key.is_empty() {
                 Box::new(MockProvider::new())
             } else {
@@ -4335,7 +4792,12 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                 }
             }
         }
-        Some(AiProviderConfig::OpenAI { api_key, model, base_url, verify_ssl }) => {
+        Some(AiProviderConfig::OpenAI {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
             if api_key.is_empty() {
                 Box::new(MockProvider::new())
             } else {
@@ -4348,7 +4810,11 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                 }
             }
         }
-        Some(AiProviderConfig::Ollama { model, base_url, verify_ssl }) => {
+        Some(AiProviderConfig::Ollama {
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
             // Ollama doesn't need an API key
             match OllamaProvider::new(Some(model), Some(base_url), verify_ssl) {
                 Ok(provider) => Box::new(provider),
@@ -4358,7 +4824,12 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                 }
             }
         }
-        Some(AiProviderConfig::OpenRouter { api_key, model, base_url, verify_ssl }) => {
+        Some(AiProviderConfig::OpenRouter {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
             if api_key.is_empty() {
                 Box::new(MockProvider::new())
             } else {
@@ -4371,7 +4842,12 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                 }
             }
         }
-        Some(AiProviderConfig::LiteLLM { model, base_url, api_key, verify_ssl }) => {
+        Some(AiProviderConfig::LiteLLM {
+            model,
+            base_url,
+            api_key,
+            verify_ssl,
+        }) => {
             // LiteLLM doesn't require an API key (depends on proxy config)
             match LiteLLMProvider::new(Some(model), Some(base_url), api_key, verify_ssl) {
                 Ok(provider) => Box::new(provider),
@@ -4381,7 +4857,14 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                 }
             }
         }
-        Some(AiProviderConfig::Custom { api_key, model, base_url, oauth2, api_format, verify_ssl }) => {
+        Some(AiProviderConfig::Custom {
+            api_key,
+            model,
+            base_url,
+            oauth2,
+            api_format,
+            verify_ssl,
+        }) => {
             // Determine API format: explicit setting > model name heuristic > default OpenAI
             let format = match api_format.as_deref() {
                 Some("gemini") => ApiFormat::Gemini,
@@ -4392,12 +4875,22 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
                     let lower_base = base_url.to_lowercase();
                     let lower_model = model.to_lowercase();
                     if (lower_base.contains("vertex") || lower_base.contains("anthropic"))
-                        && (lower_model.starts_with("claude") || lower_model.contains(":rawpredict"))
+                        && (lower_model.starts_with("claude")
+                            || lower_model.contains(":rawpredict"))
                     {
-                        tracing::info!("Auto-detected Vertex Anthropic format from model '{}' / base_url", model);
+                        tracing::info!(
+                            "Auto-detected Vertex Anthropic format from model '{}' / base_url",
+                            model
+                        );
                         ApiFormat::VertexAnthropic
-                    } else if lower_model.contains("gemini") || lower_base.contains("vertexai") || lower_base.contains("vertex-ai") {
-                        tracing::info!("Auto-detected Gemini format from model '{}' / base_url", model);
+                    } else if lower_model.contains("gemini")
+                        || lower_base.contains("vertexai")
+                        || lower_base.contains("vertex-ai")
+                    {
+                        tracing::info!(
+                            "Auto-detected Gemini format from model '{}' / base_url",
+                            model
+                        );
                         ApiFormat::Gemini
                     } else {
                         ApiFormat::OpenAI
@@ -4407,7 +4900,13 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
             tracing::debug!("Custom provider: model={}, format={:?}", model, format);
             if let Some(oauth2_config) = oauth2 {
                 // OAuth2 client_credentials auth — token managed automatically
-                match OpenAIProvider::with_oauth2(model, base_url, oauth2_config, format, verify_ssl) {
+                match OpenAIProvider::with_oauth2(
+                    model,
+                    base_url,
+                    oauth2_config,
+                    format,
+                    verify_ssl,
+                ) {
                     Ok(provider) => Box::new(provider),
                     Err(e) => {
                         tracing::error!("Failed to create OAuth2 custom provider: {}", e);
@@ -4444,9 +4943,59 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
 mod tests {
     use super::*;
 
+    fn msg(role: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+        }
+    }
+
+    /// Regression guard for the MOP "no context" bug: a caller-supplied
+    /// `system` message must survive into the composed system prompt, and
+    /// must not replace the profile/safety prompt.
+    #[test]
+    fn compose_system_prompt_keeps_client_system_messages_after_profile() {
+        let messages = vec![
+            msg("system", "Return ONLY a JSON array of commands."),
+            msg("user", "show ip bgp summary"),
+        ];
+        let prompt = compose_system_prompt(&messages, &None);
+        let base = build_system_prompt(&None, None);
+        assert!(
+            prompt.starts_with(base.trim_end()),
+            "profile/safety prompt must come first"
+        );
+        assert!(
+            prompt.ends_with("Return ONLY a JSON array of commands."),
+            "client system text must be appended last"
+        );
+    }
+
+    #[test]
+    fn compose_system_prompt_without_client_system_is_unchanged() {
+        let messages = vec![msg("user", "hello")];
+        assert_eq!(
+            compose_system_prompt(&messages, &None),
+            build_system_prompt(&None, None)
+        );
+    }
+
+    #[test]
+    fn compose_system_prompt_joins_multiple_and_skips_blank_system_messages() {
+        let messages = vec![
+            msg("system", "First rule."),
+            msg("system", "   "),
+            msg("user", "x"),
+            msg("system", "Second rule."),
+        ];
+        let prompt = compose_system_prompt(&messages, &None);
+        assert!(prompt.ends_with("First rule.\n\nSecond rule."));
+    }
+
     #[test]
     fn test_config_deserialization() {
-        let json = r#"{"provider":"anthropic","api_key":"sk-test","model":"claude-sonnet-4-20250514"}"#;
+        let json =
+            r#"{"provider":"anthropic","api_key":"sk-test","model":"claude-sonnet-4-20250514"}"#;
         let config: AiProviderConfig = serde_json::from_str(json).unwrap();
         match config {
             AiProviderConfig::Anthropic { api_key, model, .. } => {
@@ -4468,7 +5017,11 @@ mod tests {
         // Custom base_url + verify_ssl carried through.
         let json = r#"{"provider":"openrouter","api_key":"k","model":"qwen/qwen3-coder","base_url":"https://localhost:8444/","verify_ssl":false}"#;
         match serde_json::from_str::<AiProviderConfig>(json).unwrap() {
-            AiProviderConfig::OpenRouter { base_url, verify_ssl, .. } => {
+            AiProviderConfig::OpenRouter {
+                base_url,
+                verify_ssl,
+                ..
+            } => {
                 assert_eq!(base_url.as_deref(), Some("https://localhost:8444/"));
                 assert!(!verify_ssl);
             }
@@ -4477,7 +5030,11 @@ mod tests {
         // Absent fields fall back to None base_url + verify_ssl=true (defaults).
         let json = r#"{"provider":"openrouter","api_key":"k","model":"m"}"#;
         match serde_json::from_str::<AiProviderConfig>(json).unwrap() {
-            AiProviderConfig::OpenRouter { base_url, verify_ssl, .. } => {
+            AiProviderConfig::OpenRouter {
+                base_url,
+                verify_ssl,
+                ..
+            } => {
                 assert_eq!(base_url, None);
                 assert!(verify_ssl);
             }
@@ -4488,11 +5045,23 @@ mod tests {
     #[test]
     fn test_openrouter_provider_uses_custom_base_url() {
         // Custom URL is stored with its trailing slash trimmed.
-        let p = OpenRouterProvider::new("k".into(), None, Some("https://localhost:8444/".into()), true).unwrap();
+        let p = OpenRouterProvider::new(
+            "k".into(),
+            None,
+            Some("https://localhost:8444/".into()),
+            true,
+        )
+        .unwrap();
         assert_eq!(p.base_url, "https://localhost:8444");
         // Surrounding whitespace is stripped (a leading space otherwise makes the
         // URL unparseable -> reqwest "builder error").
-        let p = OpenRouterProvider::new("k".into(), None, Some("  https://192.168.50.127:8444/  ".into()), true).unwrap();
+        let p = OpenRouterProvider::new(
+            "k".into(),
+            None,
+            Some("  https://192.168.50.127:8444/  ".into()),
+            true,
+        )
+        .unwrap();
         assert_eq!(p.base_url, "https://192.168.50.127:8444");
         // Whitespace-only falls back to the default endpoint.
         let p = OpenRouterProvider::new("k".into(), None, Some("   ".into()), true).unwrap();
@@ -4514,7 +5083,11 @@ mod tests {
             "https://x/models/claude-sonnet-4-6:streamRawPredict"
         );
         assert_eq!(
-            build_model_stream_url(base, "gemini-2.5-pro:generateContent", "streamGenerateContent"),
+            build_model_stream_url(
+                base,
+                "gemini-2.5-pro:generateContent",
+                "streamGenerateContent"
+            ),
             "https://x/models/gemini-2.5-pro:streamGenerateContent"
         );
         // An already-streaming or custom action is respected.
@@ -4523,7 +5096,10 @@ mod tests {
             "https://x/models/m:streamRawPredict"
         );
         // No action → default streaming action appended; trailing slash trimmed.
-        assert_eq!(build_model_stream_url(base, "m", "streamRawPredict"), "https://x/models/m:streamRawPredict");
+        assert_eq!(
+            build_model_stream_url(base, "m", "streamRawPredict"),
+            "https://x/models/m:streamRawPredict"
+        );
         assert_eq!(
             build_model_stream_url("https://x/models/", "m:rawPredict", "streamRawPredict"),
             "https://x/models/m:streamRawPredict"

@@ -88,6 +88,14 @@ export const MENU_ID_TO_COMMAND: Record<string, string> = {
   'open-host-keys': 'tools.host-keys',
   'open-scratchpad': 'tools.scratchpad',
 
+  // MOP
+  'new-mop': 'file.new-mop',
+  'save-mop': 'mop.save',
+  'mop-start': 'mop.start',
+  'mop-run-next': 'mop.run-next',
+  'mop-abort': 'mop.abort',
+  'mop-complete': 'mop.complete',
+
   // AI
   'open-ai-settings': 'ai.settings',
   'open-mcp-servers': 'ai.mcp-servers',

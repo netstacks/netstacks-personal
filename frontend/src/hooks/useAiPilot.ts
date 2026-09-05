@@ -4,23 +4,33 @@ import { getErrorMessage } from '../api/errors'
  *
  * Provides AI commentary, suggestions, and autonomous execution across
  * four trust levels:
- *   L1 (Observer):    AI provides real-time commentary; user clicks all buttons
- *   L2 (Advisor):     AI proposes next action with rationale; user approves/overrides
- *   L3 (Co-Pilot):    AI runs steps automatically; pauses at phase boundaries for go/no-go
- *   L4 (Autopilot):   AI runs entire MOP end-to-end after explicit plan approval
+ *   L1 (Observer):    AI comments on every step result; user clicks all buttons
+ *   L2 (Advisor):     AI proposes the next action (a real step id / phase); user approves
+ *   L3 (Co-Pilot):    user starts a phase; after a gate the AI approves, the next
+ *                     phase runs automatically; a non-"proceed" gate waits for the user
+ *   L4 (Autopilot):   after explicit plan approval, pre-checks → change → post-checks
+ *                     run back to back, stopping on any failure or any gate that is
+ *                     not "proceed"
  *
  * Confidence-based safety net: if AI confidence drops below threshold,
  * execution pauses for human escalation regardless of trust level.
+ *
+ * Every prompt starts with the MOP context block (plan header, platforms,
+ * steps, execution results) supplied by the workspace through
+ * `AiPilotContextProvider`, so the model knows what it is looking at.
  */
 
-import { useState, useCallback, useRef } from 'react';
-import { sendChatMessage, type ChatMessage } from '../api/ai';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { sendChatMessage, type AiContext, type ChatMessage } from '../api/ai';
+import { extractAiJsonObject, parseAiObject } from '../lib/aiJson';
+import { tailText } from '../lib/mopAiContext';
 import type {
   MopExecutionDevice,
   MopExecutionStep,
   AiAutonomyLevel,
 } from '../types/mop';
 import type { UseMopExecutionReturn } from './useMopExecution';
+import type { PhaseStepType } from '../components/mop/constants';
 
 // AI Pilot commentary entry
 export interface AiCommentary {
@@ -39,7 +49,7 @@ export interface AiSuggestion {
   id: string;
   action: 'execute_step' | 'skip_step' | 'retry_step' | 'run_phase' | 'abort' | 'proceed';
   stepId?: string;
-  phaseType?: 'pre_check' | 'change' | 'post_check';
+  phaseType?: PhaseStepType;
   rationale: string;
   confidence: number;
 }
@@ -64,12 +74,25 @@ export interface AiPilotState {
   escalated: boolean;
   processing: boolean;
   planApproved: boolean; // L4 requires explicit plan approval
+  /** The L3/L4 driver is running phases back to back. */
+  driving: boolean;
+}
+
+/** Where the pilot gets the MOP context it prepends to every prompt. */
+export interface AiPilotContextProvider {
+  /** Latest MOP context block (plan + execution), rendered at prompt time. */
+  getContextBlock: () => string;
+  /** Structured context for the agent-side prompt enrichment. */
+  getAiContext?: () => AiContext | undefined;
 }
 
 // Hook return
 export interface UseAiPilotReturn {
   state: AiPilotState;
   // Control
+  /** Pick the trust level before the execution starts (does not activate). */
+  setLevel: (level: AiAutonomyLevel) => void;
+  /** Activate at the given level — called by the workspace once the execution is running. */
   activate: (level: AiAutonomyLevel) => void;
   deactivate: () => void;
   setConfidenceThreshold: (threshold: number) => void;
@@ -80,10 +103,12 @@ export interface UseAiPilotReturn {
   approveSuggestion: () => Promise<void>;
   dismissSuggestion: () => void;
   // L3: Phase gates
-  evaluatePhaseGate: (phase: string, devices: MopExecutionDevice[], stepsByDevice: Record<string, MopExecutionStep[]>) => Promise<void>;
+  evaluatePhaseGate: (phase: string, devices: MopExecutionDevice[], stepsByDevice: Record<string, MopExecutionStep[]>) => Promise<PhaseGateSummary | null>;
+  /** L3/L4 driver: run `stepType`, evaluate the gate, keep going while the AI says proceed. */
+  runPhaseWithGate: (stepType: PhaseStepType) => Promise<void>;
   approvePhaseGate: () => void;
   rejectPhaseGate: () => void;
-  // L4: Plan approval
+  // L4: Plan approval (starts the autonomous run)
   approvePlan: () => void;
   // Commentary
   clearCommentary: () => void;
@@ -96,7 +121,9 @@ Your role depends on the analysis request:
 - For next action suggestions: recommend the best next step based on current execution state
 - For phase gate evaluation: assess overall phase results and recommend proceed/pause/rollback
 
-Always respond in JSON format matching the requested schema.
+The user message starts with a "## MOP context" block describing the plan, the target platforms and the execution so far. Use the platform to judge whether an output is normal for that vendor.
+
+Always respond with a single JSON object matching the requested schema — no markdown, no prose outside the JSON.
 Be concise. Focus on actionable insights.
 For network commands, recognize common patterns:
 - "show" commands: check for expected entries, missing routes, interface status
@@ -109,18 +136,20 @@ Rate your confidence 0.0-1.0 where:
 - 0.5-0.7 = somewhat uncertain
 - <0.5 = need human review`;
 
-/**
- * Safely parse a JSON AI response and validate that required fields exist.
- * Returns null if parsing fails or required fields are missing.
- */
-function parseAiResponse<T>(json: string, requiredFields: string[]): T | null {
-  try {
-    const parsed = JSON.parse(json);
-    if (requiredFields.every(f => f in parsed)) return parsed as T;
-    return null;
-  } catch {
-    return null;
-  }
+const STEP_OUTPUT_TAIL_CHARS = 4096;
+const GATE_TOTAL_OUTPUT_CHARS = 32768;
+
+const NEXT_PHASE: Record<PhaseStepType, PhaseStepType | null> = {
+  pre_check: 'change',
+  change: 'post_check',
+  post_check: null,
+};
+
+/** Parse a JSON AI response (fences / preamble tolerated) and require the listed string keys. */
+function parseAiResponse<T extends Record<string, unknown>>(text: string, requiredFields: string[]): T | null {
+  const json = extractAiJsonObject(text);
+  if (!json) return null;
+  return parseAiObject<T>(json, requiredFields);
 }
 
 let commentaryIdCounter = 0;
@@ -145,7 +174,15 @@ function createCommentary(
   };
 }
 
-export function useAiPilot(execHook: UseMopExecutionReturn): UseAiPilotReturn {
+/** The pre-check paired with a post-check on the same device (explicit link, else same command). */
+function findPairedPreCheck(step: MopExecutionStep, deviceSteps: MopExecutionStep[]): MopExecutionStep | undefined {
+  if (step.step_type !== 'post_check') return undefined;
+  const linked = deviceSteps.find(s => s.step_type === 'pre_check' && (s.id === step.paired_step_id || s.paired_step_id === step.id));
+  if (linked) return linked;
+  return deviceSteps.find(s => s.step_type === 'pre_check' && s.command === step.command);
+}
+
+export function useAiPilot(execHook: UseMopExecutionReturn, context?: AiPilotContextProvider): UseAiPilotReturn {
   const [state, setState] = useState<AiPilotState>({
     active: false,
     level: 1,
@@ -156,9 +193,50 @@ export function useAiPilot(execHook: UseMopExecutionReturn): UseAiPilotReturn {
     escalated: false,
     processing: false,
     planApproved: false,
+    driving: false,
   });
 
   const abortRef = useRef<AbortController | null>(null);
+  // Latest state / hook / context for the async driver (closures go stale
+  // across awaits). Written after commit so render never touches a ref.
+  const stateRef = useRef(state);
+  const execHookRef = useRef(execHook);
+  const contextRef = useRef(context);
+  useEffect(() => {
+    stateRef.current = state;
+    execHookRef.current = execHook;
+    contextRef.current = context;
+  });
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const contextBlock = useCallback((): string => {
+    try {
+      return contextRef.current?.getContextBlock() ?? '';
+    } catch {
+      return '';
+    }
+  }, []);
+
+  const chat = useCallback(async (system: string, user: string): Promise<string> => {
+    abortRef.current = new AbortController();
+    const messages: ChatMessage[] = [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ];
+    let aiContext: AiContext | undefined;
+    try {
+      aiContext = contextRef.current?.getAiContext?.();
+    } catch {
+      aiContext = undefined;
+    }
+    return sendChatMessage(messages, { context: aiContext, signal: abortRef.current.signal });
+  }, []);
+
+  // Pick a level without activating (the Execute tab's trust-level buttons)
+  const setLevel = useCallback((level: AiAutonomyLevel) => {
+    setState(prev => ({ ...prev, level, planApproved: false }));
+  }, []);
 
   // Activate AI Pilot at specified level
   const activate = useCallback((level: AiAutonomyLevel) => {
@@ -181,6 +259,7 @@ export function useAiPilot(execHook: UseMopExecutionReturn): UseAiPilotReturn {
       phaseGate: null,
       escalated: false,
       processing: false,
+      driving: false,
     }));
   }, []);
 
@@ -199,64 +278,63 @@ export function useAiPilot(execHook: UseMopExecutionReturn): UseAiPilotReturn {
 
   // Helper: check confidence and escalate if needed
   const checkConfidence = useCallback((confidence: number): boolean => {
-    if (confidence < state.confidenceThreshold) {
+    if (confidence < stateRef.current.confidenceThreshold) {
       setState(prev => ({ ...prev, escalated: true }));
       return true; // escalated
     }
     return false;
-  }, [state.confidenceThreshold]);
+  }, []);
 
-  // L1: Analyze step output and provide commentary
+  // L1: Analyze step output, comment, and persist the assessment as ai_feedback
   const analyzeStepOutput = useCallback(async (device: MopExecutionDevice, step: MopExecutionStep) => {
-    if (!state.active) return;
+    if (!stateRef.current.active) return;
 
-    // Reset abort controller for new work
-    abortRef.current = new AbortController();
     setState(prev => ({ ...prev, processing: true }));
     try {
-      const messages: ChatMessage[] = [
-        { role: 'system', content: MOP_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `Analyze this MOP step output. Respond with JSON: { "assessment": "brief assessment", "type": "success|warning|error|info", "confidence": 0.0-1.0 }
+      const system = `${MOP_SYSTEM_PROMPT}
 
-Device: ${device.device_name} (${device.device_host})
+Task: analyze one MOP step result. Respond with JSON: { "assessment": "brief assessment (one or two sentences)", "type": "success|warning|error|info", "confidence": 0.0-1.0 }`;
+      const assertions = step.assertion_results?.length
+        ? `\nAssertions: ${step.assertion_results.map(a => `${a.assertion} ${a.passed ? 'PASS' : 'FAIL'}${a.detail ? ` (${a.detail})` : ''}`).join('; ')}`
+        : '';
+      const user = `${contextBlock()}
+
+## Step to analyze
+Device: ${device.device_name} (${device.device_host})${device.cli_flavor ? ` — CLI flavor: ${device.cli_flavor}` : ''}
 Step type: ${step.step_type}
 Command: ${step.command}
-${step.expected_output ? `Expected: ${step.expected_output}` : ''}
-Status: ${step.status}
+${step.expected_output ? `Expected: ${step.expected_output}\n` : ''}Status: ${step.status}${step.mock_enabled || step.status === 'mocked' ? ' (mocked output)' : ''}${step.error_message ? `\nError: ${step.error_message}` : ''}${assertions}
 Output:
-${step.output || '(no output)'}`,
-        },
-      ];
+${step.output ? tailText(step.output, STEP_OUTPUT_TAIL_CHARS) : '(no output)'}`;
 
-      const response = await sendChatMessage(messages, { signal: abortRef.current?.signal });
+      const response = await chat(system, user);
       // Check if aborted while awaiting
       if (abortRef.current?.signal.aborted) return;
 
-      const parsed = parseAiResponse<{ assessment?: string; type?: string; confidence?: number }>(
-        response,
-        ['assessment'],
-      );
-      if (parsed) {
-        const entry = createCommentary(
-          step.step_type,
-          device.device_name,
-          parsed.assessment || response,
-          (parsed.type as AiCommentary['type']) || 'info',
-          step.command,
-          parsed.confidence,
-        );
-        addCommentary(entry);
+      const parsed = parseAiResponse<{ assessment: string; type?: string; confidence?: number }>(response, ['assessment']);
+      const assessment = parsed?.assessment || response.trim();
+      const entryType: AiCommentary['type'] = parsed && ['success', 'warning', 'error', 'info'].includes(parsed.type || '')
+        ? (parsed.type as AiCommentary['type'])
+        : 'info';
+      addCommentary(createCommentary(step.step_type, device.device_name, assessment, entryType, step.command, parsed?.confidence));
 
-        if (parsed.confidence != null) {
-          checkConfidence(parsed.confidence);
-        }
-      } else {
-        // Non-JSON or missing fields - use as plain commentary
-        addCommentary(createCommentary(step.step_type, device.device_name, response, 'info', step.command));
+      if (parsed?.confidence != null) {
+        checkConfidence(parsed.confidence);
+      }
+
+      // Persist so the output pane / documents show the assessment. The
+      // agent's output endpoint rewrites output+status, so echo them back.
+      try {
+        await execHookRef.current.updateStepOutput(step.id, {
+          output: step.output,
+          status: step.status,
+          ai_feedback: parsed?.confidence != null ? `${assessment} (confidence ${(parsed.confidence * 100).toFixed(0)}%)` : assessment,
+        });
+      } catch (err) {
+        addCommentary(createCommentary(step.step_type, device.device_name, `Could not save AI feedback: ${getErrorMessage(err)}`, 'warning', step.command));
       }
     } catch (err) {
+      if (abortRef.current?.signal.aborted) return;
       addCommentary(createCommentary(
         step.step_type,
         device.device_name,
@@ -267,95 +345,102 @@ ${step.output || '(no output)'}`,
     } finally {
       setState(prev => ({ ...prev, processing: false }));
     }
-  }, [state.active, addCommentary, checkConfidence]);
+  }, [chat, contextBlock, addCommentary, checkConfidence]);
 
-  // L2: Request AI suggestion for next action
+  // L2: Request AI suggestion for next action. Pending step ids are sent so
+  // the returned stepId refers to a real step.
   const requestSuggestion = useCallback(async (
     devices: MopExecutionDevice[],
     stepsByDevice: Record<string, MopExecutionStep[]>,
   ) => {
-    if (!state.active || state.level < 2) return;
+    if (!stateRef.current.active || stateRef.current.level < 2) return;
 
-    // Reset abort controller for new work
-    abortRef.current = new AbortController();
     setState(prev => ({ ...prev, processing: true }));
     try {
-      // Build execution summary
-      const deviceSummaries = devices.map(d => {
-        const steps = stepsByDevice[d.id] || [];
-        const pending = steps.filter(s => s.status === 'pending');
-        const failed = steps.filter(s => s.status === 'failed');
-        const lastCompleted = steps.filter(s => s.status === 'passed' || s.status === 'failed').slice(-1)[0];
+      const knownStepIds = new Set<string>();
+      const deviceSummaries = [...devices]
+        .sort((a, b) => a.device_order - b.device_order)
+        .map(d => {
+          const steps = [...(stepsByDevice[d.id] || [])].sort((a, b) => a.step_order - b.step_order);
+          const pending = steps.filter(s => s.status === 'pending');
+          const failed = steps.filter(s => s.status === 'failed');
+          const lastCompleted = steps.filter(s => s.status === 'passed' || s.status === 'failed' || s.status === 'mocked').slice(-1)[0];
+          const lines = [`Device ${d.device_name} (${d.device_host}): status=${d.status}, ${pending.length} pending, ${failed.length} failed${lastCompleted ? `, last: "${lastCompleted.command}" -> ${lastCompleted.status}` : ''}`];
+          for (const s of failed) {
+            knownStepIds.add(s.id);
+            lines.push(`  failed stepId=${s.id} [${s.step_type}] ${s.command}${s.error_message ? ` — ${s.error_message}` : ''}`);
+          }
+          for (const s of pending.slice(0, 20)) {
+            knownStepIds.add(s.id);
+            lines.push(`  pending stepId=${s.id} [${s.step_type}] ${s.command}`);
+          }
+          if (pending.length > 20) lines.push(`  … ${pending.length - 20} more pending steps`);
+          return lines.join('\n');
+        }).join('\n');
 
-        return `Device ${d.device_name} (${d.device_host}): status=${d.status}, ${pending.length} pending, ${failed.length} failed${lastCompleted ? `, last: "${lastCompleted.command}" -> ${lastCompleted.status}` : ''}`;
-      }).join('\n');
+      const system = `${MOP_SYSTEM_PROMPT}
 
-      const messages: ChatMessage[] = [
-        { role: 'system', content: MOP_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `Based on the current MOP execution state, suggest the best next action. Respond with JSON: { "action": "execute_step|skip_step|retry_step|run_phase|abort|proceed", "stepId": "optional step ID", "phaseType": "optional: pre_check|change|post_check", "rationale": "brief explanation", "confidence": 0.0-1.0 }
+Task: suggest the best next action. Respond with JSON: { "action": "execute_step|skip_step|retry_step|run_phase|abort|proceed", "stepId": "one of the stepId values listed, when the action targets a step", "phaseType": "pre_check|change|post_check when action is run_phase", "rationale": "brief explanation", "confidence": 0.0-1.0 }
+Only use stepId values that appear in the execution state. Prefer run_phase when a whole phase is still pending and the previous phase passed.`;
+      const user = `${contextBlock()}
 
-Execution state:
-${deviceSummaries}`,
-        },
-      ];
+## Execution state (per device, with step ids)
+${deviceSummaries}`;
 
-      const response = await sendChatMessage(messages, { signal: abortRef.current?.signal });
+      const response = await chat(system, user);
       // Check if aborted while awaiting
       if (abortRef.current?.signal.aborted) return;
 
-      const parsed = parseAiResponse<{ action?: string; stepId?: string; phaseType?: string; rationale?: string; confidence?: number }>(
-        response,
-        ['action'],
-      );
+      const parsed = parseAiResponse<{ action: string; stepId?: string; phaseType?: string; rationale?: string; confidence?: number }>(response, ['action']);
       if (parsed) {
+        const stepId = typeof parsed.stepId === 'string' && knownStepIds.has(parsed.stepId) ? parsed.stepId : undefined;
+        const phaseType = (['pre_check', 'change', 'post_check'] as const).find(p => p === parsed.phaseType);
         const suggestion: AiSuggestion = {
           id: `sug-${Date.now()}`,
-          action: (parsed.action as AiSuggestion['action']) || 'proceed',
-          stepId: parsed.stepId,
-          phaseType: parsed.phaseType as AiSuggestion['phaseType'],
+          action: (['execute_step', 'skip_step', 'retry_step', 'run_phase', 'abort', 'proceed'] as const).find(a => a === parsed.action) || 'proceed',
+          stepId,
+          phaseType,
           rationale: parsed.rationale || 'No rationale provided',
-          confidence: parsed.confidence ?? 0.7,
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.7,
         };
-        setState(prev => ({ ...prev, currentSuggestion: suggestion }));
-
-        if (suggestion.confidence < state.confidenceThreshold) {
-          checkConfidence(suggestion.confidence);
+        if ((suggestion.action === 'execute_step' || suggestion.action === 'skip_step' || suggestion.action === 'retry_step') && !stepId) {
+          suggestion.rationale += ' (the AI named a step that does not exist — approve will do nothing; pick the step yourself)';
         }
+        setState(prev => ({ ...prev, currentSuggestion: suggestion }));
+        checkConfidence(suggestion.confidence);
       } else {
         addCommentary(createCommentary('', '', `AI suggestion: ${response}`, 'suggestion'));
       }
     } catch (err) {
+      if (abortRef.current?.signal.aborted) return;
       addCommentary(createCommentary('', '', `Failed to get AI suggestion: ${getErrorMessage(err)}`, 'error'));
     } finally {
       setState(prev => ({ ...prev, processing: false }));
     }
-  }, [state.active, state.level, state.confidenceThreshold, addCommentary, checkConfidence]);
+  }, [chat, contextBlock, addCommentary, checkConfidence]);
 
   // L2: Approve suggestion and execute it
   const approveSuggestion = useCallback(async () => {
-    const suggestion = state.currentSuggestion;
+    const suggestion = stateRef.current.currentSuggestion;
     if (!suggestion) return;
 
     setState(prev => ({ ...prev, currentSuggestion: null }));
 
+    const hook = execHookRef.current;
     try {
       switch (suggestion.action) {
         case 'execute_step':
-          if (suggestion.stepId) await execHook.executeStep(suggestion.stepId);
+        case 'retry_step':
+          if (suggestion.stepId) await hook.executeStep(suggestion.stepId);
           break;
         case 'skip_step':
-          if (suggestion.stepId) await execHook.skipStep(suggestion.stepId);
-          break;
-        case 'retry_step':
-          if (suggestion.stepId) await execHook.executeStep(suggestion.stepId);
+          if (suggestion.stepId) await hook.skipStep(suggestion.stepId);
           break;
         case 'run_phase':
-          if (suggestion.phaseType) await execHook.runPhase(suggestion.phaseType);
+          if (suggestion.phaseType) await hook.runPhase(suggestion.phaseType);
           break;
         case 'abort':
-          await execHook.abortExecution();
+          await hook.abortExecution('AI Pilot suggestion approved');
           break;
         case 'proceed':
           // No specific action - just continue
@@ -364,105 +449,186 @@ ${deviceSummaries}`,
     } catch (err) {
       addCommentary(createCommentary('', '', `Failed to execute suggestion: ${getErrorMessage(err)}`, 'error'));
     }
-  }, [state.currentSuggestion, execHook, addCommentary]);
+  }, [addCommentary]);
 
   // L2: Dismiss suggestion
   const dismissSuggestion = useCallback(() => {
     setState(prev => ({ ...prev, currentSuggestion: null }));
   }, []);
 
-  // L3: Evaluate phase gate (go/no-go)
+  // L3: Evaluate phase gate (go/no-go). Returns the gate (also stored in
+  // state) or null when the AI answered with prose / the call failed.
   const evaluatePhaseGate = useCallback(async (
     phase: string,
     devices: MopExecutionDevice[],
     stepsByDevice: Record<string, MopExecutionStep[]>,
-  ) => {
-    if (!state.active || state.level < 3) return;
+  ): Promise<PhaseGateSummary | null> => {
+    if (!stateRef.current.active || stateRef.current.level < 3) return null;
 
-    // Reset abort controller for new work
-    abortRef.current = new AbortController();
     setState(prev => ({ ...prev, processing: true }));
     try {
-      const deviceResults = devices.map(d => {
-        const steps = stepsByDevice[d.id] || [];
-        const phaseSteps = steps.filter(s => s.step_type === phase);
-        return {
-          name: d.device_name,
-          passed: phaseSteps.filter(s => s.status === 'passed' || s.status === 'mocked').length,
-          failed: phaseSteps.filter(s => s.status === 'failed').length,
-          total: phaseSteps.length,
-          outputs: phaseSteps.map(s => `${s.command}: ${s.status}${s.output ? ` -> ${s.output.slice(0, 200)}` : ''}`).join('\n'),
-        };
-      });
+      let outputBudget = GATE_TOTAL_OUTPUT_CHARS;
+      const renderOutput = (label: string, output: string | undefined): string => {
+        if (!output?.trim()) return `${label}: (no output)`;
+        if (outputBudget <= 0) return `${label}: (omitted — context budget exhausted)`;
+        const cap = Math.min(STEP_OUTPUT_TAIL_CHARS, outputBudget);
+        outputBudget -= Math.min(output.length, cap);
+        return `${label}:\n${tailText(output, cap)}`;
+      };
 
-      const messages: ChatMessage[] = [
-        { role: 'system', content: MOP_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `Evaluate phase gate for "${phase}" phase. Respond with JSON: { "recommendation": "proceed|pause|rollback", "rationale": "brief explanation", "confidence": 0.0-1.0 }
+      const deviceResults = [...devices]
+        .sort((a, b) => a.device_order - b.device_order)
+        .map(d => {
+          const steps = [...(stepsByDevice[d.id] || [])].sort((a, b) => a.step_order - b.step_order);
+          const phaseSteps = steps.filter(s => s.step_type === phase);
+          const outputs = phaseSteps.map(s => {
+            const lines = [`${s.command}: ${s.status}${s.error_message ? ` — ${s.error_message}` : ''}`];
+            if (s.expected_output) lines.push(`expected: ${s.expected_output}`);
+            if (s.assertion_results?.length) {
+              lines.push(`assertions: ${s.assertion_results.map(a => `${a.assertion} ${a.passed ? 'PASS' : 'FAIL'}`).join('; ')}`);
+            }
+            const pre = findPairedPreCheck(s, steps);
+            if (pre) lines.push(renderOutput(`paired pre-check "${pre.command}" output (${pre.status})`, pre.output));
+            lines.push(renderOutput('output', s.output));
+            return lines.join('\n');
+          }).join('\n\n');
+          return {
+            name: d.device_name,
+            passed: phaseSteps.filter(s => s.status === 'passed' || s.status === 'mocked').length,
+            failed: phaseSteps.filter(s => s.status === 'failed').length,
+            total: phaseSteps.length,
+            outputs,
+          };
+        });
 
-Phase results per device:
-${deviceResults.map(d => `${d.name}: ${d.passed}/${d.total} passed, ${d.failed} failed\n${d.outputs}`).join('\n\n')}`,
-        },
-      ];
+      const system = `${MOP_SYSTEM_PROMPT}
 
-      const response = await sendChatMessage(messages, { signal: abortRef.current?.signal });
+Task: evaluate the phase gate after the "${phase}" phase. Respond with JSON: { "recommendation": "proceed|pause|rollback", "rationale": "brief explanation", "confidence": 0.0-1.0 }
+"proceed" means the next phase may run unattended. Post-checks are shown next to their paired pre-check output so you can compare state before and after the change. Any failed step, failed assertion or vendor error message must not get "proceed".`;
+      const user = `${contextBlock()}
+
+## "${phase}" phase results per device
+${deviceResults.map(d => `${d.name}: ${d.passed}/${d.total} passed, ${d.failed} failed\n${d.outputs}`).join('\n\n')}`;
+
+      const response = await chat(system, user);
       // Check if aborted while awaiting
-      if (abortRef.current?.signal.aborted) return;
+      if (abortRef.current?.signal.aborted) return null;
 
-      const parsed = parseAiResponse<{ recommendation?: string; rationale?: string; confidence?: number }>(
-        response,
-        ['recommendation'],
-      );
+      const parsed = parseAiResponse<{ recommendation: string; rationale?: string; confidence?: number }>(response, ['recommendation']);
       if (parsed) {
         const gate: PhaseGateSummary = {
           phase,
           deviceResults: deviceResults.map(d => ({ name: d.name, passed: d.passed, failed: d.failed, total: d.total })),
-          recommendation: (parsed.recommendation as PhaseGateSummary['recommendation']) || 'pause',
+          recommendation: (['proceed', 'pause', 'rollback'] as const).find(r => r === parsed.recommendation) || 'pause',
           rationale: parsed.rationale || 'No rationale provided',
-          confidence: parsed.confidence ?? 0.7,
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.7,
         };
         setState(prev => ({ ...prev, phaseGate: gate }));
-
-        // At L3, auto-proceed if recommendation is 'proceed' and confidence is high enough
-        if (state.level >= 3 && gate.recommendation === 'proceed' && gate.confidence >= state.confidenceThreshold) {
-          addCommentary(createCommentary(phase, '', `Phase gate: ${gate.rationale} (auto-proceeding, confidence: ${(gate.confidence * 100).toFixed(0)}%)`, 'success'));
-          setState(prev => ({ ...prev, phaseGate: null }));
-        } else if (gate.confidence < state.confidenceThreshold) {
-          checkConfidence(gate.confidence);
-        }
-      } else {
-        addCommentary(createCommentary(phase, '', `Phase gate analysis: ${response}`, 'info'));
+        checkConfidence(gate.confidence);
+        return gate;
       }
+      addCommentary(createCommentary(phase, '', `Phase gate analysis: ${response}`, 'info'));
+      return null;
     } catch (err) {
+      if (abortRef.current?.signal.aborted) return null;
       addCommentary(createCommentary(phase, '', `Phase gate evaluation failed: ${getErrorMessage(err)}`, 'error'));
+      return null;
     } finally {
       setState(prev => ({ ...prev, processing: false }));
     }
-  }, [state.active, state.level, state.confidenceThreshold, addCommentary, checkConfidence]);
+  }, [chat, contextBlock, addCommentary, checkConfidence]);
 
-  // L3: Approve phase gate
-  const approvePhaseGate = useCallback(() => {
-    if (state.phaseGate) {
-      addCommentary(createCommentary(state.phaseGate.phase, '', `Phase gate approved by user. Proceeding.`, 'success'));
+  // L3/L4 driver. Runs `startPhase`, evaluates its gate, and keeps going to
+  // the next phase only while the AI answers "proceed" with enough
+  // confidence. Stops (leaving the gate on screen) on any failure, any other
+  // recommendation, an escalation, or when the pilot is deactivated.
+  const driveFrom = useCallback(async (startPhase: PhaseStepType) => {
+    if (stateRef.current.driving) return;
+    setState(prev => ({ ...prev, driving: true, phaseGate: null }));
+    let phase: PhaseStepType | null = startPhase;
+    try {
+      while (phase) {
+        const hook = execHookRef.current;
+        if (!stateRef.current.active || stateRef.current.escalated) break;
+
+        if (hook.state.execution?.status === 'paused') await hook.resumeExecution();
+        const summary = await hook.runPhase(phase);
+        if (!summary) break;
+
+        if (summary.failedDeviceIds.length > 0) {
+          addCommentary(createCommentary(phase, '', `Stopped after ${phase.replace(/_/g, ' ')}: failures on ${summary.failedDeviceIds.length} device${summary.failedDeviceIds.length !== 1 ? 's' : ''}. Review the results before continuing.`, 'warning'));
+          break;
+        }
+
+        const next: PhaseStepType | null = NEXT_PHASE[phase];
+        if (summary.deviceIds.length === 0) {
+          // Nothing to run in this phase — move on without a gate
+          phase = next;
+          continue;
+        }
+
+        // Fresh rows for the gate (state in the closure is stale after the await)
+        const devices = hook.state.devices;
+        const stepsByDevice: Record<string, MopExecutionStep[]> = {};
+        for (const d of devices) stepsByDevice[d.id] = await hook.loadSteps(d.id);
+        const gate = await evaluatePhaseGate(phase, devices, stepsByDevice);
+        if (!gate) break;
+        if (gate.recommendation !== 'proceed' || gate.confidence < stateRef.current.confidenceThreshold) {
+          addCommentary(createCommentary(phase, '', `Phase gate: AI recommends ${gate.recommendation} (${(gate.confidence * 100).toFixed(0)}% confident). Waiting for you.`, gate.recommendation === 'rollback' ? 'error' : 'warning'));
+          break;
+        }
+
+        setState(prev => ({ ...prev, phaseGate: null }));
+        if (next) {
+          addCommentary(createCommentary(phase, '', `Phase gate: ${gate.rationale} — proceeding to ${next.replace(/_/g, ' ')} (${(gate.confidence * 100).toFixed(0)}% confident).`, 'success'));
+        } else {
+          addCommentary(createCommentary(phase, '', `Phase gate: ${gate.rationale} — all phases done. Review the results and complete the execution.`, 'success'));
+        }
+        phase = next;
+      }
+    } catch (err) {
+      addCommentary(createCommentary(phase ?? '', '', `Autonomous run stopped: ${getErrorMessage(err)}`, 'error'));
+    } finally {
+      setState(prev => ({ ...prev, driving: false }));
     }
-    setState(prev => ({ ...prev, phaseGate: null }));
-  }, [state.phaseGate, addCommentary]);
+  }, [evaluatePhaseGate, addCommentary]);
+
+  const runPhaseWithGate = useCallback(async (stepType: PhaseStepType) => {
+    await driveFrom(stepType);
+  }, [driveFrom]);
+
+  // L3: Approve phase gate — at L3/L4 the next phase runs right away
+  const approvePhaseGate = useCallback(() => {
+    const gate = stateRef.current.phaseGate;
+    setState(prev => ({ ...prev, phaseGate: null, escalated: false }));
+    if (!gate) return;
+    addCommentary(createCommentary(gate.phase, '', 'Phase gate approved by user. Proceeding.', 'success'));
+    const next = NEXT_PHASE[gate.phase as PhaseStepType];
+    if (next && stateRef.current.level >= 3 && stateRef.current.active) {
+      void driveFrom(next);
+    }
+  }, [addCommentary, driveFrom]);
 
   // L3: Reject phase gate
   const rejectPhaseGate = useCallback(() => {
-    if (state.phaseGate) {
-      addCommentary(createCommentary(state.phaseGate.phase, '', `Phase gate rejected by user. Execution paused.`, 'warning'));
+    const gate = stateRef.current.phaseGate;
+    if (gate) {
+      addCommentary(createCommentary(gate.phase, '', 'Phase gate rejected by user. Execution paused.', 'warning'));
     }
     setState(prev => ({ ...prev, phaseGate: null }));
-    execHook.pauseExecution();
-  }, [state.phaseGate, addCommentary, execHook]);
+    void execHookRef.current.pauseExecution().catch(err => {
+      addCommentary(createCommentary(gate?.phase ?? '', '', `Failed to pause: ${getErrorMessage(err)}`, 'error'));
+    });
+  }, [addCommentary]);
 
-  // L4: Approve plan for fully autonomous execution
+  // L4: Approve plan → run every phase back to back (each gate must say proceed)
   const approvePlan = useCallback(() => {
     setState(prev => ({ ...prev, planApproved: true }));
-    addCommentary(createCommentary('', '', 'Plan approved for fully autonomous execution.', 'success'));
-  }, [addCommentary]);
+    addCommentary(createCommentary('', '', 'Plan approved. Running pre-checks → change → post-checks; each phase gate must pass before the next phase starts.', 'success'));
+    if (stateRef.current.active && stateRef.current.level >= 4) {
+      void driveFrom('pre_check');
+    }
+  }, [addCommentary, driveFrom]);
 
   // Clear commentary
   const clearCommentary = useCallback(() => {
@@ -471,6 +637,7 @@ ${deviceResults.map(d => `${d.name}: ${d.passed}/${d.total} passed, ${d.failed} 
 
   return {
     state,
+    setLevel,
     activate,
     deactivate,
     setConfidenceThreshold,
@@ -479,6 +646,7 @@ ${deviceResults.map(d => `${d.name}: ${d.passed}/${d.total} passed, ${d.failed} 
     approveSuggestion,
     dismissSuggestion,
     evaluatePhaseGate,
+    runPhaseWithGate,
     approvePhaseGate,
     rejectPhaseGate,
     approvePlan,

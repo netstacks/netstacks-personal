@@ -52,6 +52,7 @@ export const ACTION_LINKS: Partial<Record<KeyboardAction, KeybindingLink>> = {
   reopenClosedTab: { commandId: 'window.reopen-closed-tab', menuId: 'reopen-closed-tab' },
   scratchpadOpen: { commandId: 'tools.scratchpad', menuId: 'open-scratchpad' },
   toggleAiChatPanel: { commandId: 'ai.toggle-chat', menuId: 'toggle-ai-chat' },
+  clipboardHistory: { commandId: 'edit.clipboard-history' },
 }
 
 const COMMAND_TO_ACTION: Record<string, KeyboardAction> = Object.fromEntries(

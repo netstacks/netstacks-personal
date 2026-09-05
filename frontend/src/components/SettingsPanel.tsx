@@ -11,7 +11,6 @@ import EnterpriseProfileSelector from './EnterpriseProfileSelector'
 import PromptsSettingsTab from './PromptsSettingsTab'
 import SnippetsSettingsTab from './SnippetsSettingsTab'
 import CustomCommandsSettingsTab from './CustomCommandsSettingsTab'
-import QuickActionsPanel from './QuickActionsPanel'
 import SettingsHighlighting from './SettingsHighlighting'
 import SettingsEnrichment from './SettingsEnrichment'
 import SettingsDocuments from './SettingsDocuments'
@@ -20,12 +19,12 @@ import StatusBarSettingsPanel from './StatusBarSettings'
 import SettingsMappedKeys from './SettingsMappedKeys'
 import PanelSettingsPanel from './PanelSettings'
 import SettingsTroubleshooting from './SettingsTroubleshooting'
+import ClipboardSettingsTab from './ClipboardSettingsTab'
 import JumpHostsTab from './JumpHostsTab'
 import HostKeysTab from './HostKeysTab'
 import RecordingsTab from './RecordingsTab'
 import LayoutsTab from './LayoutsTab'
 import SessionLogsTab from './SessionLogsTab'
-import ApiResourcesTab from './ApiResourcesTab'
 import WorkspaceSettingsTab from './WorkspaceSettingsTab'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { useSettings, type AppSettings } from '../hooks/useSettings'
@@ -58,13 +57,12 @@ interface Setting {
   step?: number
 }
 
-export type SettingsTab = 'general' | 'ai' | 'aiEngineer' | 'prompts' | 'snippets' | 'customCommands' | 'quickCalls' | 'keyboard' | 'mappedKeys' | 'profiles' | 'jumpHosts' | 'tunnels' | 'highlighting' | 'enrichment' | 'documents' | 'security' | 'hostKeys' | 'recordings' | 'layouts' | 'sessionLogs' | 'integrations' | 'apiResources' | 'troubleshooting' | 'enterprise' | 'account' | 'workspaces'
+export type { SettingsTab } from '../types/settingsTab'
+import type { SettingsTab } from '../types/settingsTab'
 
 interface SettingsPanelProps {
   onSettingChange?: (id: string, value: unknown) => void
   initialTab?: SettingsTab
-  /** Open a Quick Call result as a new "API: <name>" tab. Wired from App.tsx. */
-  onOpenApiResponseTab?: (title: string, result: import('../types/quickAction').QuickActionResult) => void
 }
 
 // Tab keyword registry for cross-tab search
@@ -75,7 +73,6 @@ const TAB_SEARCH_INDEX: { tab: SettingsTab; label: string; keywords: string[] }[
   { tab: 'prompts', label: 'Prompts', keywords: ['prompt', 'custom prompt', 'system prompt'] },
   { tab: 'snippets', label: 'Snippets', keywords: ['snippet', 'text expansion', 'shortcut'] },
   { tab: 'customCommands', label: 'Custom Actions', keywords: ['custom command', 'custom action', 'alias', 'macro', 'script'] },
-  { tab: 'quickCalls', label: 'Quick Calls', keywords: ['quick', 'call', 'api', 'request', 'action', 'endpoint'] },
   { tab: 'keyboard', label: 'Keyboard', keywords: ['keyboard', 'shortcut', 'keybinding', 'hotkey', 'key'] },
   { tab: 'mappedKeys', label: 'Mapped Keys', keywords: ['mapped key', 'key mapping', 'remap'] },
   { tab: 'profiles', label: 'Profiles', keywords: ['profile', 'connection', 'ssh', 'telnet'] },
@@ -90,8 +87,8 @@ const TAB_SEARCH_INDEX: { tab: SettingsTab; label: string; keywords: string[] }[
   { tab: 'layouts', label: 'Layouts', keywords: ['layout', 'tab', 'split', 'arrangement', 'saved'] },
   { tab: 'sessionLogs', label: 'Session Logs', keywords: ['log', 'session', 'capture', 'output', 'transcript'] },
   { tab: 'integrations', label: 'Integrations', keywords: ['integration', 'netbox', 'netstacksCrawler', 'librenms'] },
-  { tab: 'apiResources', label: 'API Resources', keywords: ['api', 'resource', 'quick', 'action', 'endpoint', 'solarwinds', 'prtg', 'http', 'rest'] },
   { tab: 'troubleshooting', label: 'Troubleshooting', keywords: ['troubleshoot', 'recording', 'session', 'capture'] },
+  { tab: 'clipboard', label: 'Clipboard', keywords: ['clipboard', 'clip', 'history', 'paste', 'copy', 'preset', 'transform', 'crlf', 'line ending'] },
   { tab: 'enterprise', label: 'Enterprise', keywords: ['enterprise', 'controller', 'team', 'url', 'connect', 'tls', 'certificate', 'netstacks'] },
   // Account consolidates personal auth: account info + My Credentials + SSH
   // Certificates now live as sections under this single tab (TERM-01), so the
@@ -291,7 +288,7 @@ function SettingsNavItem({ tab, activeTab, setActiveTab, matchingTabs, children 
   )
 }
 
-export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiResponseTab }: SettingsPanelProps) {
+export default function SettingsPanel({ onSettingChange, initialTab }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'general')
 
   // Respond to initialTab changes (e.g. when opened from a popover).
@@ -502,9 +499,6 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
         {hasFeature('local_integrations') && (
         <SettingsNavItem tab="customCommands" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Custom Actions</SettingsNavItem>
         )}
-        {hasFeature('local_integrations') && (
-        <SettingsNavItem tab="quickCalls" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Quick Calls</SettingsNavItem>
-        )}
         <SettingsNavItem tab="keyboard" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Keyboard</SettingsNavItem>
         <SettingsNavItem tab="mappedKeys" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Mapped Keys</SettingsNavItem>
         {!isEnterprise && (
@@ -543,15 +537,14 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
         {!isEnterprise && hasFeature('local_integrations') && (
           <SettingsNavItem tab="integrations" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Integrations</SettingsNavItem>
         )}
-        {hasFeature('local_integrations') && (
-          <SettingsNavItem tab="apiResources" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>API Resources</SettingsNavItem>
-        )}
         {/* Troubleshooting recorder settings are localStorage-only (no controller
             backing), and its sibling local-recording tabs (Recordings, Session
             Logs) are already standalone-only — hide it in enterprise too. */}
         {!isEnterprise && hasFeature('local_session_recording') && (
         <SettingsNavItem tab="troubleshooting" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Troubleshooting</SettingsNavItem>
         )}
+        {/* Clipboard history + paste hygiene — both modes (memory-only history in enterprise). */}
+        <SettingsNavItem tab="clipboard" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Clipboard</SettingsNavItem>
         <SettingsNavItem tab="enterprise" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Enterprise</SettingsNavItem>
         {isEnterprise && (
           <SettingsNavItem tab="account" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Account</SettingsNavItem>
@@ -671,12 +664,6 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
           <CustomCommandsSettingsTab />
         )}
 
-        {/* Quick Calls tab — onOpenApiResponseTab is wired from App.tsx so
-            clicking "Open in tab" on a result actually opens the tab. */}
-        {activeTab === 'quickCalls' && (
-          <QuickActionsPanel onOpenResultTab={onOpenApiResponseTab ?? (() => { /* no-op when host doesn't supply a handler */ })} />
-        )}
-
         {/* Keyboard settings tab */}
         {activeTab === 'keyboard' && (
           <KeyboardSettings keyboard={keyboard} />
@@ -746,14 +733,14 @@ export default function SettingsPanel({ onSettingChange, initialTab, onOpenApiRe
           <IntegrationsTab />
         )}
 
-        {/* API Resources settings tab */}
-        {activeTab === 'apiResources' && (
-          <ApiResourcesTab />
-        )}
-
         {/* Troubleshooting settings tab */}
         {activeTab === 'troubleshooting' && (
           <SettingsTroubleshooting />
+        )}
+
+        {/* Clipboard history + paste hygiene */}
+        {activeTab === 'clipboard' && (
+          <ClipboardSettingsTab />
         )}
 
         {/* Enterprise tab — visible in both modes */}

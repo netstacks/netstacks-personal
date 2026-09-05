@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useMovableRect } from '../hooks/useMovableRect'
 import type { CliFlavor } from '../types/enrichment'
 import { useAIAgent, type AgentMessage } from '../hooks/useAIAgent'
 import type { TopologyAICallbacks } from '../lib/topologyAITools'
@@ -119,20 +120,17 @@ const AIFloatingChat = ({
   useEffect(() => {
     if (!isOpen) {
       setProviderInitialized(false)
+      setInput('')
     }
   }, [isOpen])
 
-  // Drag state
-  const [pos, setPos] = useState(position)
-  const [isDragging, setIsDragging] = useState(false)
-  const dragOffset = useRef({ x: 0, y: 0 })
-
-  // Resize state
-  const [size, setSize] = useState({ width: 340, height: 350 })
-  const sizeRef = useRef(size)
-  useEffect(() => { sizeRef.current = size }, [size])
-  const [isResizing, setIsResizing] = useState(false)
-  const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
+  // Position/size: shared movable-rect mechanics (drag header, corner resize,
+  // viewport clamp). Not persisted — the chat opens where the user clicked.
+  const { rect, gesture, onHeaderMouseDown, onResizeMouseDown, moveTo } = useMovableRect({
+    initial: () => ({ x: position.x, y: position.y, w: 340, h: 350 }),
+    minWidth: 280,
+    minHeight: 200,
+  })
 
   const chatRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -199,14 +197,13 @@ const AIFloatingChat = ({
   // right-click near the bottom/right edge doesn't open the chat off-screen.
   useEffect(() => {
     if (isOpen) {
-      const width = sizeRef.current.width
-      const height = COMPACT_HEIGHT
-      setPos({
-        x: Math.max(VIEWPORT_MARGIN, Math.min(position.x, window.innerWidth - width - VIEWPORT_MARGIN)),
-        y: Math.max(VIEWPORT_MARGIN, Math.min(position.y, window.innerHeight - height - VIEWPORT_MARGIN)),
-      })
+      // Clamp against the rendered (compact) size: the chat opens collapsed.
+      const width = chatRef.current?.offsetWidth || 340
+      moveTo(
+        Math.max(VIEWPORT_MARGIN, Math.min(position.x, window.innerWidth - width - VIEWPORT_MARGIN)),
+        Math.max(VIEWPORT_MARGIN, Math.min(position.y, window.innerHeight - COMPACT_HEIGHT - VIEWPORT_MARGIN)),
+      )
       clearMessages()
-      setInput('')
       // Focus input after a short delay
       const timer = setTimeout(() => inputRef.current?.focus(), 100)
       return () => clearTimeout(timer)
@@ -214,7 +211,7 @@ const AIFloatingChat = ({
     // Closed: stop the loop — auto mode would otherwise keep running tool
     // commands on the terminal after the chat is gone.
     stopAgent()
-  }, [isOpen, position, clearMessages, stopAgent])
+  }, [isOpen, position, clearMessages, stopAgent, moveTo])
 
   // Return focus to the input once the agent finishes a reply
   useEffect(() => {
@@ -246,73 +243,6 @@ const AIFloatingChat = ({
       return () => document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, onClose])
-
-  // Drag handlers
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    setIsDragging(true)
-    dragOffset.current = {
-      x: e.clientX - pos.x,
-      y: e.clientY - pos.y
-    }
-    e.preventDefault()
-  }, [pos])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const width = chatRef.current?.offsetWidth || 300
-      const height = chatRef.current?.offsetHeight || 40
-      setPos({
-        x: Math.max(0, Math.min(window.innerWidth - width, e.clientX - dragOffset.current.x)),
-        y: Math.max(0, Math.min(window.innerHeight - height, e.clientY - dragOffset.current.y))
-      })
-    }
-
-    const handleMouseUp = () => setIsDragging(false)
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isDragging])
-
-  // Resize handlers
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    setIsResizing(true)
-    resizeStart.current = {
-      x: e.clientX,
-      y: e.clientY,
-      width: size.width,
-      height: size.height,
-    }
-    e.preventDefault()
-    e.stopPropagation()
-  }, [size])
-
-  useEffect(() => {
-    if (!isResizing) return
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = e.clientX - resizeStart.current.x
-      const deltaY = e.clientY - resizeStart.current.y
-      setSize({
-        width: Math.max(280, Math.min(600, resizeStart.current.width + deltaX)),
-        height: Math.max(200, Math.min(600, resizeStart.current.height + deltaY)),
-      })
-    }
-
-    const handleMouseUp = () => setIsResizing(false)
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isResizing])
 
   // Handle continue in panel
   const handleContinueInPanel = useCallback(() => {
@@ -378,16 +308,16 @@ const AIFloatingChat = ({
   return (
     <div
       ref={chatRef}
-      className={`ai-floating-chat ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''} ${hasContent ? 'expanded' : 'compact'}`}
+      className={`ai-floating-chat ${gesture === 'move' ? 'dragging' : ''} ${gesture === 'resize' ? 'resizing' : ''} ${hasContent ? 'expanded' : 'compact'}`}
       style={{
-        left: pos.x,
-        top: pos.y,
-        width: hasContent ? size.width : undefined,
-        height: hasContent ? size.height : undefined,
+        left: rect.x,
+        top: rect.y,
+        width: hasContent ? rect.w : undefined,
+        height: hasContent ? rect.h : undefined,
       }}
     >
       {/* Header with drag handle */}
-      <div className="ai-floating-chat-header" onMouseDown={handleDragStart}>
+      <div className="ai-floating-chat-header" onMouseDown={onHeaderMouseDown}>
         <div className="ai-floating-chat-drag-indicator">
           <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
             <circle cx="5" cy="9" r="1.5" />
@@ -499,7 +429,7 @@ const AIFloatingChat = ({
 
       {/* Resize handle */}
       {hasContent && (
-        <div className="ai-floating-chat-resize-handle" onMouseDown={handleResizeStart}>
+        <div className="ai-floating-chat-resize-handle" onMouseDown={onResizeMouseDown}>
           <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10">
             <path d="M22 22H20V20H22V22ZM22 18H20V16H22V18ZM18 22H16V20H18V22ZM22 14H20V12H22V14ZM18 18H16V16H18V18ZM14 22H12V20H14V22Z" />
           </svg>

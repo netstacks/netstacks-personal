@@ -9,7 +9,7 @@
 //! This replaces the broken PTY-based `ssh -J` path that incorrectly
 //! shared the target's credentials across both hops.
 
-use crate::ssh::{ConnectOptions, SshConfig, SshError, approvals::HostKeyApprovalService};
+use crate::ssh::{approvals::HostKeyApprovalService, ConnectOptions, SshConfig, SshError};
 use russh::client::Handle;
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,7 +75,8 @@ pub async fn connect_via_jump_with_keepalive(
 
     // Step 4: Build russh client over the stream and authenticate to target.
     let target_handle =
-        super::connect_and_authenticate_over_stream(target, stream, approvals).await?;
+        super::connect_and_authenticate_over_stream(target, stream, approvals, keepalive_interval)
+            .await?;
 
     // Step 5: The channel keeps a reference to the jump session, so we can
     // drop the jump_handle here. When the caller drops target_handle, the
@@ -87,8 +88,8 @@ pub async fn connect_via_jump_with_keepalive(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::test_utils::*;
+    use super::*;
 
     #[tokio::test]
     async fn connects_through_jump_with_key_then_password() {
@@ -331,16 +332,21 @@ mod tests {
             skip_keyboard_interactive: false,
         };
 
-        let session = crate::ssh::SshSession::connect_via_jump(target, jump, crate::ssh::ShellOptions { cols: 80, rows: 24, ..Default::default() })
-            .await
-            .expect("should connect via jump");
+        let session = crate::ssh::SshSession::connect_via_jump(
+            target,
+            jump,
+            crate::ssh::ShellOptions {
+                cols: 80,
+                rows: 24,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("should connect via jump");
 
         // Read banner from target shell (test server emits "READY\n").
         let data = session.recv().await.unwrap().expect("should receive data");
         let s = String::from_utf8_lossy(&data);
-        assert!(
-            s.contains("READY"),
-            "expected READY banner, got: {s}"
-        );
+        assert!(s.contains("READY"), "expected READY banner, got: {s}");
     }
 }

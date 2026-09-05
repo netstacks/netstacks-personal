@@ -8,9 +8,13 @@
 
 use std::time::Duration;
 
-use netstacks_agent::guard::path::{command_denied, extract_route_interface, extract_route_next_hop, extract_source_ip, ProbeOutputs};
+use netstacks_agent::guard::path::{
+    command_denied, extract_route_interface, extract_route_next_hop, extract_source_ip,
+    ProbeOutputs,
+};
 use netstacks_agent::guard::probe::{
-    assemble_facts, path_commands, route_command, stp_command, FactsSummary, MAX_ROUTE_HOPS, SETUP_COMMANDS, SOURCE_IP_COMMAND,
+    assemble_facts, path_commands, route_command, stp_command, FactsSummary, MAX_ROUTE_HOPS,
+    SETUP_COMMANDS, SOURCE_IP_COMMAND,
 };
 use netstacks_agent::guard::{Known, SessionFacts};
 use russh::{client, Disconnect};
@@ -45,7 +49,10 @@ pub async fn probe_session_facts(spec: &ProbeSpec) -> Result<ProbeOutcome, Strin
             .request_pty(false, "xterm", 200, 100, 0, 0, &[])
             .await
             .map_err(|e| format!("probe pty: {e}"))?;
-        channel.request_shell(false).await.map_err(|e| format!("probe shell: {e}"))?;
+        channel
+            .request_shell(false)
+            .await
+            .map_err(|e| format!("probe shell: {e}"))?;
         wait_for_exec_prompt(&mut channel, PROMPT_TIMEOUT)
             .await
             .map_err(|e| format!("probe: no prompt: {e}"))?;
@@ -62,7 +69,10 @@ pub async fn probe_session_facts(spec: &ProbeSpec) -> Result<ProbeOutcome, Strin
 /// so a credential challenge times out instead of being read as output.
 async fn send(channel: &mut russh::Channel<client::Msg>, cmd: &str) -> Result<String, String> {
     let mut cursor = std::io::Cursor::new(format!("{cmd}\n").into_bytes());
-    channel.data(&mut cursor).await.map_err(|e| format!("probe send `{cmd}`: {e}"))?;
+    channel
+        .data(&mut cursor)
+        .await
+        .map_err(|e| format!("probe send `{cmd}`: {e}"))?;
     let raw = wait_for_exec_prompt(channel, PROMPT_TIMEOUT)
         .await
         .map_err(|e| format!("probe `{cmd}`: {e}"))?;
@@ -74,20 +84,33 @@ async fn send(channel: &mut russh::Channel<client::Msg>, cmd: &str) -> Result<St
     Ok(body)
 }
 
-async fn run_probes(channel: &mut russh::Channel<client::Msg>, device: &str) -> Result<ProbeOutcome, String> {
+async fn run_probes(
+    channel: &mut russh::Channel<client::Msg>,
+    device: &str,
+) -> Result<ProbeOutcome, String> {
     for cmd in SETUP_COMMANDS {
         let reply = send(channel, cmd).await?;
         if command_denied(&reply) {
-            return Err(format!("`{cmd}` was refused on the probe login ({}); paged output would stall the probe", first_line(&reply)));
+            return Err(format!(
+                "`{cmd}` was refused on the probe login ({}); paged output would stall the probe",
+                first_line(&reply)
+            ));
         }
     }
     let users = send(channel, SOURCE_IP_COMMAND).await?;
     if command_denied(&users) {
-        return Err(format!("`{SOURCE_IP_COMMAND}` was refused on the probe login ({})", first_line(&users)));
+        return Err(format!(
+            "`{SOURCE_IP_COMMAND}` was refused on the probe login ({})",
+            first_line(&users)
+        ));
     }
     let source_ip = match extract_source_ip(&users) {
         Known::Known(ip) => ip,
-        Known::Unknown => return Err("could not determine this session's source address from `show users`".to_string()),
+        Known::Unknown => {
+            return Err(
+                "could not determine this session's source address from `show users`".to_string(),
+            )
+        }
     };
 
     let cmds = path_commands(&source_ip);
@@ -116,7 +139,11 @@ async fn run_probes(channel: &mut russh::Channel<client::Msg>, device: &str) -> 
 /// following bare next hops for at most [`MAX_ROUTE_HOPS`] lookups. The
 /// returned text is whatever the last lookup printed; the extractors
 /// decide whether it is `Known`.
-async fn resolve_route(channel: &mut russh::Channel<client::Msg>, source_ip: &str, cef_cmd: &str) -> Result<String, String> {
+async fn resolve_route(
+    channel: &mut russh::Channel<client::Msg>,
+    source_ip: &str,
+    cef_cmd: &str,
+) -> Result<String, String> {
     let cef = send(channel, cef_cmd).await?;
     if !extract_route_interface(&cef).is_unknown() {
         return Ok(cef);
@@ -141,18 +168,24 @@ async fn resolve_route(channel: &mut russh::Channel<client::Msg>, source_ip: &st
 }
 
 fn first_line(text: &str) -> &str {
-    text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
+    text.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ssh::test_utils::{ephemeral_ed25519, start_test_server, ShellScript, TestServerConfig};
+    use crate::ssh::test_utils::{
+        ephemeral_ed25519, start_test_server, ShellScript, TestServerConfig,
+    };
     use crate::ssh::SshAuth;
     use std::sync::Arc;
 
     fn fixture(name: &str) -> String {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/guard/fixtures/ios_xe");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/guard/fixtures/ios_xe");
         std::fs::read_to_string(dir.join(name)).unwrap()
     }
 
@@ -164,7 +197,11 @@ mod tests {
             exec_responder: None,
             eof_before_exit_status: false,
             host_key: ephemeral_ed25519(),
-            shell: Some(ShellScript { prompt: "mgmt-sw-01#".into(), responder: Arc::new(responder) }),
+            shell: Some(ShellScript {
+                prompt: "mgmt-sw-01#".into(),
+                responder: Arc::new(responder),
+                raw_responder: None,
+            }),
         })
         .await;
         ProbeSpec {
@@ -199,8 +236,12 @@ mod tests {
         assert_eq!(out.summary.ingress_vlan, Some(10));
         assert_eq!(out.summary.object_count, 6);
         assert_eq!(out.facts.stp_has_alternate.value, Known::Known(false));
-        let Known::Known(set) = &out.facts.path_objects.value else { panic!() };
-        assert!(set.iter().any(|o| o.to_string() == "iface:mgmt-sw-01:GigabitEthernet1/0/24"));
+        let Known::Known(set) = &out.facts.path_objects.value else {
+            panic!()
+        };
+        assert!(set
+            .iter()
+            .any(|o| o.to_string() == "iface:mgmt-sw-01:GigabitEthernet1/0/24"));
     }
 
     #[tokio::test]
@@ -209,7 +250,9 @@ mod tests {
             "show users" => fixture("show_users.txt"),
             "show ip cef 10.20.4.55" => "% Invalid input detected at '^' marker.\n".to_string(),
             "show ip route 10.20.4.55" => fixture("ip_route_routed_port.txt"),
-            c if c.starts_with("show spanning-tree") => panic!("STP must not be probed for routed ingress"),
+            c if c.starts_with("show spanning-tree") => {
+                panic!("STP must not be probed for routed ingress")
+            }
             _ => String::new(),
         })
         .await;
@@ -225,14 +268,19 @@ mod tests {
             "show users" => fixture("show_users.txt"),
             "show ip cef 10.20.4.55" => fixture("ip_cef_nexthop.txt"),
             "show interfaces trunk" => fixture("interfaces_trunk.txt"),
-            c if c.starts_with("show ip route") => panic!("RIB walk must not run when CEF names the interface: {c}"),
+            c if c.starts_with("show ip route") => {
+                panic!("RIB walk must not run when CEF names the interface: {c}")
+            }
             "show spanning-tree vlan 100" => fixture("spanning_tree_vlan10_no_alt.txt"),
             _ => String::new(),
         })
         .await;
         let out = probe_session_facts(&spec).await.unwrap();
         assert_eq!(out.summary.ingress_vlan, Some(100));
-        assert_eq!(out.summary.ingress.as_deref(), Some("svi:mgmt-sw-01:Vlan100"));
+        assert_eq!(
+            out.summary.ingress.as_deref(),
+            Some("svi:mgmt-sw-01:Vlan100")
+        );
     }
 
     #[tokio::test]
@@ -250,7 +298,11 @@ mod tests {
         let out = probe_session_facts(&spec).await.unwrap();
         assert_eq!(out.summary.ingress_vlan, Some(100));
         assert_eq!(out.facts.stp_has_alternate.value, Known::Known(true));
-        assert!(out.facts.path_objects.source.starts_with("show ip cef 10.20.4.55"));
+        assert!(out
+            .facts
+            .path_objects
+            .source
+            .starts_with("show ip cef 10.20.4.55"));
     }
 
     #[tokio::test]
@@ -269,7 +321,10 @@ mod tests {
         })
         .await;
         let out = probe_session_facts(&spec).await.unwrap();
-        assert_eq!(lookups.load(std::sync::atomic::Ordering::SeqCst), MAX_ROUTE_HOPS);
+        assert_eq!(
+            lookups.load(std::sync::atomic::Ordering::SeqCst),
+            MAX_ROUTE_HOPS
+        );
         assert!(out.facts.path_objects.value.is_unknown());
         assert_eq!(out.summary.ingress, None);
     }
@@ -293,23 +348,41 @@ mod tests {
             "show users" => fixture("show_users.txt"),
             "show ip cef 10.20.4.55" => fixture("ip_cef_attached.txt"),
             "show interfaces trunk" => fixture("interfaces_trunk.txt"),
-            "show running-config | section line vty" => "Command authorization failed.\n".to_string(),
+            "show running-config | section line vty" => {
+                "Command authorization failed.\n".to_string()
+            }
             "show running-config | include aaa" => fixture("run_aaa.txt"),
             _ => String::new(),
         })
         .await;
         let out = probe_session_facts(&spec).await.unwrap();
         assert!(out.facts.path_objects.value.is_unknown());
-        assert_eq!(out.summary.to_string(), "session path unknown (source 10.20.4.55)");
+        assert_eq!(
+            out.summary.to_string(),
+            "session path unknown (source 10.20.4.55)"
+        );
     }
 
     #[test]
     fn exec_prompt_never_matches_a_credential_challenge() {
         use crate::ssh::is_exec_prompt;
-        for ok in ["mgmt-sw-01#", "banner text\r\nmgmt-sw-01>", "sw(config-if)#", "RP/0/RSP0/CPU0:xr#  "] {
+        for ok in [
+            "mgmt-sw-01#",
+            "banner text\r\nmgmt-sw-01>",
+            "sw(config-if)#",
+            "RP/0/RSP0/CPU0:xr#  ",
+        ] {
             assert!(is_exec_prompt(ok), "{ok:?}");
         }
-        for bad in ["Password:", "mgmt-sw-01#\r\nPassword:", "Username: ", "Serial number:", "", "#", "some words #"] {
+        for bad in [
+            "Password:",
+            "mgmt-sw-01#\r\nPassword:",
+            "Username: ",
+            "Serial number:",
+            "",
+            "#",
+            "some words #",
+        ] {
             assert!(!is_exec_prompt(bad), "{bad:?}");
         }
     }

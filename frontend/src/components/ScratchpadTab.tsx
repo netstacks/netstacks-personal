@@ -54,7 +54,7 @@ export default function ScratchpadTab({ initialContent, activeWorkspace, onClose
       </div>
       <div className="scratchpad-body">
         <ScratchpadEditor
-          value={content}
+          initialValue={content}
           onChange={setContent}
           activeWorkspace={activeWorkspace}
           onSaved={onClose}

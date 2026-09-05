@@ -129,6 +129,12 @@ export interface QuickActionResult {
    *  (e.g. only the base URL was reached because no Test Path is set). Rendered
    *  as a warning (amber) instead of success (green). */
   warning?: string | null
+  /** Raw response body as text when it was NOT valid JSON (e.g. an HTML login page). */
+  raw_text?: string | null
+  /** Response Content-Type, surfaced with raw_text for diagnosing non-JSON. */
+  content_type?: string | null
+  /** Response headers as received; secret-looking values redacted to last 4 chars. */
+  response_headers?: Array<[string, string]> | null
 }
 
 export interface ExecuteInlineRequest {

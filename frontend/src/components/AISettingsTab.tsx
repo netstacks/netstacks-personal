@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ANTHROPIC_MODELS, MODEL_PLACEHOLDER, SUGGESTED_MODEL } from '../lib/aiModelDefaults';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { getClient, isClientInitialized } from '../api/client';
 import { providerRequirements } from './aiProviderValidation';
@@ -1157,27 +1158,15 @@ export default function AISettingsTab() {
   };
 
   // Get placeholder text for model input based on provider
-  const getModelPlaceholder = (providerType: AiProviderType): string => {
-    switch (providerType) {
-      case 'anthropic': return 'claude-sonnet-4-20250514';
-      case 'openai': return 'gpt-4o';
-      case 'openrouter': return 'anthropic/claude-sonnet-4';
-      case 'ollama': return 'llama3.2';
-      case 'litellm': return 'gpt-4o';
-      default: return 'model-name';
-    }
-  };
+  const getModelPlaceholder = (providerType: AiProviderType): string =>
+    SUGGESTED_MODEL[providerType] || 'model-name';
 
   // Get hint text for model input based on provider
   const getModelHint = (providerType: AiProviderType): string => {
-    switch (providerType) {
-      case 'anthropic': return 'e.g., claude-sonnet-4-20250514, claude-haiku-4-5-20251001';
-      case 'openai': return 'e.g., gpt-4o, gpt-4o-mini, o1-preview';
-      case 'openrouter': return 'e.g., anthropic/claude-sonnet-4, openai/gpt-4o';
-      case 'ollama': return 'Run "ollama list" to see available models';
-      case 'litellm': return 'Model name configured in your LiteLLM proxy';
-      default: return '';
-    }
+    // Local/proxy providers get a how-to instead of example model IDs.
+    if (providerType === 'ollama') return 'Run "ollama list" to see available models';
+    if (providerType === 'litellm') return 'Model name configured in your LiteLLM proxy';
+    return MODEL_PLACEHOLDER[providerType] ?? '';
   };
 
   // Get the default provider label for "Use Default" dropdown option
@@ -2452,7 +2441,7 @@ export default function AISettingsTab() {
                 onChange={(e) => updateSetting('ai.overlord.model', e.target.value || null)}
                 placeholder="Use default model"
               />
-              <span className="form-hint">e.g., claude-sonnet-4-20250514 for better analysis quality</span>
+              <span className="form-hint">e.g., {ANTHROPIC_MODELS.opus} for better analysis quality</span>
             </div>
           </div>
         </div>

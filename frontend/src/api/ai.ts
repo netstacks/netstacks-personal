@@ -2,6 +2,7 @@
 
 // Import topology types for context
 import type { DeviceType, DeviceStatus, ConnectionStatus, ProtocolSession } from '../types/topology';
+import { sharedAsync } from '../lib/inflight'
 import type { CliFlavor } from '../types/enrichment';
 import type { AgentType } from '../lib/aiModes';
 import axios from 'axios';
@@ -603,6 +604,20 @@ export class AiNotConfiguredError extends Error {
     super(message);
     this.name = 'AiNotConfiguredError';
   }
+}
+
+/** One wording for every "no provider yet" banner. */
+export const AI_NOT_CONFIGURED_MESSAGE = 'AI not configured. Add your API key in Settings > AI.';
+
+/**
+ * User-facing message for a failed AI call: the shared not-configured
+ * wording, otherwise the error's own message (or `fallback`).
+ */
+export function describeAiError(err: unknown, fallback: string): string {
+  if (err instanceof AiNotConfiguredError) return AI_NOT_CONFIGURED_MESSAGE;
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err) return err;
+  return fallback;
 }
 
 // AI status response from Controller (enterprise mode)
@@ -1317,9 +1332,9 @@ export async function setAgentOperatingGuide(prompt: string | null): Promise<voi
 
 // --- Topology prompt (ai.topology_prompt) ---
 
-export async function getTopologyPrompt(): Promise<string | null> {
+export const getTopologyPrompt = sharedAsync('ai:topologyPrompt', async (): Promise<string | null> => {
   return getPromptSetting('ai.topology_prompt');
-}
+})
 
 export async function setTopologyPrompt(prompt: string | null): Promise<void> {
   return setPromptSetting('ai.topology_prompt', prompt);
@@ -1380,13 +1395,13 @@ export function decideModePromptMigration(
 /**
  * Batch-load prompt overrides for all agent types.
  */
-export async function getAllModePrompts(): Promise<Record<string, string | null>> {
+export const getAllModePrompts = sharedAsync('ai:modePrompts', async (): Promise<Record<string, string | null>> => {
   const agentTypes: AgentType[] = ['autopilot', 'overlord'];
   const values = await Promise.all(agentTypes.map(m => getModePrompt(m)));
   const result: Record<string, string | null> = {};
   agentTypes.forEach((k, i) => { result[k] = values[i]; });
   return result;
-}
+})
 
 // ============================================
 // AI Memory API

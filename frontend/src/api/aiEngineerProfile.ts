@@ -1,6 +1,7 @@
 // API client for AI Engineer Profile (standalone + enterprise modes)
 
 import { getClient, getCurrentMode } from './client';
+import { sharedAsync } from '../lib/inflight'
 import { getErrorMessage } from './errors';
 
 export interface AiEngineerProfile {
@@ -105,13 +106,13 @@ async function fetchAiProfile(): Promise<AiEngineerProfile | null> {
   return data.profile ?? null;
 }
 
-export async function getAiProfile(): Promise<AiEngineerProfile | null> {
+export const getAiProfile = sharedAsync('ai:profile', async (): Promise<AiEngineerProfile | null> => {
   try {
     return await fetchAiProfile();
   } catch {
     return null;
   }
-}
+})
 
 const DEFAULT_PROFILE: AiEngineerProfile = {
   id: 1,
@@ -171,7 +172,7 @@ export async function resetAiProfile(): Promise<void> {
   await getClient().http.delete('/ai/profile');
 }
 
-export async function isOnboarded(): Promise<boolean> {
+export const isOnboarded = sharedAsync('ai:profileStatus', async (): Promise<boolean> => {
   try {
     // Enterprise has no /ai/profile/status — derive onboarding state from
     // whether the user currently has an active profile selected.
@@ -184,7 +185,7 @@ export async function isOnboarded(): Promise<boolean> {
   } catch {
     return false;
   }
-}
+})
 
 // === Enterprise mode (controller) ===
 

@@ -6,6 +6,10 @@ import { confirmDialog } from '../ConfirmDialog'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import ScriptsPanel from '../ScriptsPanel'
 import type { Script } from '../../api/scripts'
+import ApiClientSection from '../api/ApiClientSection'
+import type { ApiRequestTabInit } from '../../types/apiRequest'
+import type { QuickActionResult } from '../../types/quickAction'
+import { useCapabilitiesStore } from '../../stores/capabilitiesStore'
 
 interface WorkspacesPanelProps {
   onOpenWorkspace: (config: WorkspaceConfig) => void
@@ -17,6 +21,9 @@ interface WorkspacesPanelProps {
   onOpenScript: (script: Script) => void
   onNewScript: () => void
   onAIGenerate: () => void
+  /** API client (sidebar tree of API resources → saved requests). */
+  onOpenApiRequest: (init: ApiRequestTabInit) => void
+  onApiRunResult: (title: string, result: QuickActionResult) => void
 }
 
 export async function loadSavedWorkspaces(): Promise<WorkspaceConfig[]> {
@@ -72,6 +79,8 @@ export default function WorkspacesPanel({
   onOpenScript,
   onNewScript,
   onAIGenerate,
+  onOpenApiRequest,
+  onApiRunResult,
 }: WorkspacesPanelProps) {
   const [savedWorkspaces, setSavedWorkspaces] = useState<WorkspaceConfig[]>([])
   // Collapsed states persist across panel mount/unmount and app restarts
@@ -83,6 +92,13 @@ export default function WorkspacesPanel({
   const [wsCollapsed, setWsCollapsed] = usePersistedState(
     'workspacesPanel.wsCollapsed', false,
   )
+  const [apiCollapsed, setApiCollapsed] = usePersistedState(
+    'workspacesPanel.apiCollapsed', false,
+  )
+  // API resources are a local-integrations feature; the controller hides
+  // them in enterprise mode (same gate as the former Settings tab).
+  const hasApiClient = useCapabilitiesStore((s) => s.hasFeature('local_integrations'))
+  const revealApi = useCallback(() => setApiCollapsed(false), [setApiCollapsed])
   const [explorerCollapsed, setExplorerCollapsed] = usePersistedState(
     'workspacesPanel.explorerCollapsed', false,
   )
@@ -250,6 +266,36 @@ export default function WorkspacesPanel({
         className="workspace-sidebar-explorer-target"
         style={{ display: explorerCollapsed ? 'none' : undefined, flex: wsCollapsed ? 1 : undefined }}
       />
+
+      {/* ── API client section (resources → saved requests) ── */}
+      {hasApiClient && (
+        <>
+          <div
+            className="workspace-panel-section-header"
+            onClick={() => setApiCollapsed(!apiCollapsed)}
+            data-testid="workspaces-api-section"
+          >
+            <span className="workspace-panel-section-toggle">{apiCollapsed ? '▸' : '▾'}</span>
+            <span>API</span>
+            <button
+              className="workspace-panel-section-btn"
+              onClick={(e) => { e.stopPropagation(); setApiCollapsed(false); onOpenApiRequest({}) }}
+              title="New request"
+            >
+              +
+            </button>
+          </div>
+          {!apiCollapsed && (
+            <div className="workspace-panel-list" style={{ flex: 'none', maxHeight: '45%' }}>
+              <ApiClientSection
+                onOpenRequest={onOpenApiRequest}
+                onRunResult={onApiRunResult}
+                onReveal={revealApi}
+              />
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

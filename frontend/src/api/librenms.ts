@@ -1,5 +1,6 @@
 // LibreNMS API client for device and neighbor discovery
 import { getClient, getCurrentMode } from './client';
+import { sharedAsync } from '../lib/inflight'
 
 /**
  * LibreNMS source configuration (stored locally)
@@ -83,11 +84,11 @@ export interface TestLibreNmsResponse {
 /**
  * List all configured LibreNMS sources
  */
-export async function listLibreNmsSources(): Promise<LibreNmsSource[]> {
+export const listLibreNmsSources = sharedAsync('librenms:sources', async (): Promise<LibreNmsSource[]> => {
   if (getCurrentMode() === 'enterprise') return [];
   const { data } = await getClient().http.get('/librenms-sources');
   return data;
-}
+})
 
 /**
  * Get a single LibreNMS source

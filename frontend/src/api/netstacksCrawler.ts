@@ -2,6 +2,7 @@
 // NetStacksCrawler provides L2 topology discovery via CDP/LLDP neighbor data
 
 import { getClient, getCurrentMode } from './client';
+import { sharedAsync } from '../lib/inflight'
 
 // NetStacksCrawler source configuration
 export interface NetStacksCrawlerSource {
@@ -79,11 +80,11 @@ export interface NetStacksCrawlerSearchResult {
 }
 
 // List all NetStacksCrawler sources
-export async function listNetStacksCrawlerSources(): Promise<NetStacksCrawlerSource[]> {
+export const listNetStacksCrawlerSources = sharedAsync('crawler:sources', async (): Promise<NetStacksCrawlerSource[]> => {
   if (getCurrentMode() === 'enterprise') return [];
   const { data } = await getClient().http.get('/netstacks-crawler-sources');
   return data;
-}
+})
 
 // Get a single NetStacksCrawler source by ID
 export async function getNetStacksCrawlerSource(id: string): Promise<NetStacksCrawlerSource> {

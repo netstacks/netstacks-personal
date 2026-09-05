@@ -5,6 +5,7 @@ import type { Detection } from '../types/detection'
 import { isIPv4Metadata, isIPv6Metadata } from '../types/detection'
 import { lookupOui, lookupDns, lookupWhois, lookupAsn, formatOuiResult, formatDnsResult, formatWhoisResult, formatAsnResult } from '../api/lookup'
 import { showToast } from './Toast'
+import { formatShortcut, getCurrentBinding } from '../hooks/useKeyboard'
 
 interface MenuItem {
   id: string
@@ -366,7 +367,6 @@ export const getAIMenuItems = (
   onSessionSettings?: () => void
 ): MenuItem[] => {
   const hasSelection = selectedText.trim().length > 0
-  const isMac = navigator.platform.toUpperCase().includes('MAC')
 
   const items: MenuItem[] = [
     {
@@ -431,7 +431,7 @@ export const getAIMenuItems = (
     {
       id: 'copy',
       label: 'Copy',
-      shortcut: isMac ? 'Cmd+C' : 'Ctrl+Shift+C',
+      shortcut: formatShortcut(getCurrentBinding('terminalCopy')),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -444,7 +444,7 @@ export const getAIMenuItems = (
     {
       id: 'paste',
       label: 'Paste',
-      shortcut: isMac ? 'Cmd+V' : 'Ctrl+Shift+V',
+      shortcut: formatShortcut(getCurrentBinding('terminalPaste')),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />

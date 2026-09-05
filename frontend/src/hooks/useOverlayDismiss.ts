@@ -79,10 +79,23 @@ export function useOverlayDismiss({
     }
   }, [enabled, escape])
 
+  // A press that STARTS inside the content (text selection, dragging a popup
+  // by its title bar, resizing from a corner) may end over the backdrop; the
+  // browser then dispatches `click` to their common ancestor — the backdrop —
+  // which used to dismiss the dialog mid-gesture. Remember where the press
+  // began and only dismiss when it began on the backdrop itself.
+  const pressStartedInside = useRef(false)
+
+  const backdropOnMouseDown = useCallback((e: React.MouseEvent) => {
+    pressStartedInside.current = e.target !== e.currentTarget
+  }, [])
+
   const backdropOnClick = useCallback(
     (e: React.MouseEvent) => {
+      const startedInside = pressStartedInside.current
+      pressStartedInside.current = false
       if (!enabled || !clickOutside) return
-      if (e.target === e.currentTarget) onDismiss()
+      if (e.target === e.currentTarget && !startedInside) onDismiss()
     },
     [enabled, clickOutside, onDismiss],
   )
@@ -95,7 +108,7 @@ export function useOverlayDismiss({
   }, [])
 
   return {
-    backdropProps: { onClick: backdropOnClick },
+    backdropProps: { onMouseDown: backdropOnMouseDown, onClick: backdropOnClick },
     contentProps: { onClick: contentOnClick },
   }
 }

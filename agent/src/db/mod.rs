@@ -78,11 +78,46 @@ pub async fn init_db(db_path: &Path) -> Result<SqlitePool, DbError> {
 async fn init_schema(pool: &SqlitePool) -> Result<(), DbError> {
     let schema = include_str!("schema.sql");
 
-    sqlx::raw_sql(schema)
+    // Tables first, indexes last. `CREATE INDEX IF NOT EXISTS` on a column
+    // that a migration below adds to a pre-existing table would abort startup
+    // on upgraded databases ("no such column", NS-AGENT-14), so every index
+    // statement is held back until the migrations have run.
+    let (tables, indexes) = split_index_statements(schema);
+    sqlx::raw_sql(&tables)
         .execute(pool)
         .await
         .map_err(|e| DbError::Migration(e.to_string()))?;
 
+    run_migrations(pool).await?;
+
+    sqlx::raw_sql(&indexes)
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("index creation: {}", e)))?;
+
+    Ok(())
+}
+
+/// Partition schema.sql into (everything else, `CREATE [UNIQUE] INDEX` lines).
+/// Index statements in schema.sql are one line each.
+fn split_index_statements(schema: &str) -> (String, String) {
+    let mut tables = String::with_capacity(schema.len());
+    let mut indexes = String::new();
+    for line in schema.lines() {
+        let t = line.trim_start();
+        if t.starts_with("CREATE INDEX") || t.starts_with("CREATE UNIQUE INDEX") {
+            indexes.push_str(line);
+            indexes.push('\n');
+        } else {
+            tables.push_str(line);
+            tables.push('\n');
+        }
+    }
+    (tables, indexes)
+}
+
+/// Column/table migrations for databases created by earlier versions.
+async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
     // Run migrations for existing databases
     migrate_sessions_table(pool).await?;
     migrate_credential_profiles_table(pool).await?;
@@ -117,6 +152,12 @@ async fn init_schema(pool: &SqlitePool) -> Result<(), DbError> {
     migrate_console_access(pool).await?;
     migrate_custom_commands_quick_actions(pool).await?;
     migrate_mop_execution_steps_sources(pool).await?;
+    migrate_changes_mop_metadata(pool).await?;
+    migrate_snapshots_execution_owner(pool).await?;
+    migrate_mop_execution_result_columns(pool).await?;
+    migrate_changes_variables(pool).await?;
+    migrate_mop_execution_device_variables(pool).await?;
+    migrate_mop_execution_analysis_meta(pool).await?;
     migrate_ai_engineer_profile(pool).await?;
     migrate_tunnels_table(pool).await?;
     migrate_ai_memory_table(pool).await?;
@@ -158,8 +199,11 @@ async fn migrate_enrichment_tables(pool: &SqlitePool) -> Result<(), DbError> {
             is_builtin INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
-        )"#
-    ).execute(pool).await.map_err(|e| DbError::Migration(format!("create enrichment_matchers: {}", e)))?;
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("create enrichment_matchers: {}", e)))?;
 
     sqlx::query(
         r#"CREATE TABLE IF NOT EXISTS enrichment_sources (
@@ -175,8 +219,11 @@ async fn migrate_enrichment_tables(pool: &SqlitePool) -> Result<(), DbError> {
             is_builtin INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
-        )"#
-    ).execute(pool).await.map_err(|e| DbError::Migration(format!("create enrichment_sources: {}", e)))?;
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("create enrichment_sources: {}", e)))?;
 
     sqlx::query(
         r#"CREATE TABLE IF NOT EXISTS enrichment_matcher_sources (
@@ -184,8 +231,11 @@ async fn migrate_enrichment_tables(pool: &SqlitePool) -> Result<(), DbError> {
             source_id TEXT NOT NULL REFERENCES enrichment_sources(id) ON DELETE CASCADE,
             sort_order INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (matcher_id, source_id)
-        )"#
-    ).execute(pool).await.map_err(|e| DbError::Migration(format!("create enrichment_matcher_sources: {}", e)))?;
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("create enrichment_matcher_sources: {}", e)))?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_enrichment_matcher_sources_matcher ON enrichment_matcher_sources(matcher_id)")
         .execute(pool).await.map_err(|e| DbError::Migration(format!("index matcher: {}", e)))?;
@@ -198,8 +248,11 @@ async fn migrate_enrichment_tables(pool: &SqlitePool) -> Result<(), DbError> {
             vendor TEXT NOT NULL,
             registry TEXT NOT NULL DEFAULT 'MA-L',
             updated_at TEXT NOT NULL
-        )"#
-    ).execute(pool).await.map_err(|e| DbError::Migration(format!("create oui_vendors: {}", e)))?;
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("create oui_vendors: {}", e)))?;
 
     seed_enrichment_matchers(pool).await?;
     seed_enrichment_sources(pool).await?;
@@ -220,35 +273,44 @@ async fn seed_enrichment_matchers(pool: &SqlitePool) -> Result<(), DbError> {
     }
     let seeds: &[M] = &[
         M {
-            id: "builtin-ipv4", name: "ipv4",
+            id: "builtin-ipv4",
+            name: "ipv4",
             description: "IPv4 addresses anywhere in terminal output",
             patterns_json: r#"["\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b"]"#,
-            cli_flavors_json: "[]", priority: 10,
+            cli_flavors_json: "[]",
+            priority: 10,
         },
         M {
-            id: "builtin-mac-colon", name: "mac_colon",
+            id: "builtin-mac-colon",
+            name: "mac_colon",
             description: "MAC addresses with colon or dash separators",
             patterns_json: r#"["\\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\\b"]"#,
-            cli_flavors_json: "[]", priority: 10,
+            cli_flavors_json: "[]",
+            priority: 10,
         },
         M {
-            id: "builtin-mac-cisco", name: "mac_cisco",
+            id: "builtin-mac-cisco",
+            name: "mac_cisco",
             description: "Cisco-format MAC addresses (XXXX.XXXX.XXXX)",
             patterns_json: r#"["\\b(?:[0-9a-fA-F]{4}\\.){2}[0-9a-fA-F]{4}\\b"]"#,
-            cli_flavors_json: "[]", priority: 10,
+            cli_flavors_json: "[]",
+            priority: 10,
         },
         M {
-            id: "builtin-cisco-interface", name: "cisco_interface",
+            id: "builtin-cisco-interface",
+            name: "cisco_interface",
             description: "Cisco / Arista interface names (Gi0/1, GigabitEthernet0/1, etc.)",
             patterns_json: r#"["(?i)\\b(?:Gi|GigabitEthernet|Te|TenGigE|Fa|FastEthernet|Eth|Ethernet|Lo|Loopback|Vl|Vlan|Po|Port-channel|Tun|Tunnel|Management|mgmt|Ma)\\d+(?:/\\d+)*(?:\\.\\d+)?\\b"]"#,
             cli_flavors_json: r#"["cisco-ios","cisco-iosxr","cisco-nxos","arista"]"#,
             priority: 10,
         },
         M {
-            id: "builtin-junos-interface", name: "junos_interface",
+            id: "builtin-junos-interface",
+            name: "junos_interface",
             description: "Juniper interface names (ge-0/0/0, xe-0/1/0, etc.)",
             patterns_json: r#"["\\b(?:ge|xe|et|ae|lo|irb|em|fxp|vme)-\\d+/\\d+/\\d+(?:\\.\\d+)?\\b"]"#,
-            cli_flavors_json: r#"["juniper"]"#, priority: 10,
+            cli_flavors_json: r#"["juniper"]"#,
+            priority: 10,
         },
     ];
 
@@ -276,8 +338,11 @@ async fn seed_enrichment_sources(pool: &SqlitePool) -> Result<(), DbError> {
     ).fetch_optional(pool).await.map_err(|e| DbError::Migration(e.to_string()))?;
     let netbox_id: Option<String> = sqlx::query_scalar(
         "SELECT id FROM api_resources WHERE LOWER(name) LIKE '%netbox%' \
-         ORDER BY created_at LIMIT 1"
-    ).fetch_optional(pool).await.map_err(|e| DbError::Migration(e.to_string()))?;
+         ORDER BY created_at LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| DbError::Migration(e.to_string()))?;
 
     struct S {
         id: &'static str,
@@ -291,46 +356,97 @@ async fn seed_enrichment_sources(pool: &SqlitePool) -> Result<(), DbError> {
     }
 
     let seeds = vec![
-        S { id: "builtin-dns-ptr", name: "dns_ptr", description: "Reverse DNS lookup (PTR) for an IP",
-            kind: "builtin", api_resource_id: None, path_template: "", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"ptr","label":"PTR","format":"string"}]"# },
-        S { id: "builtin-oui-vendor", name: "oui_vendor", description: "OUI vendor lookup for a MAC address",
-            kind: "builtin", api_resource_id: None, path_template: "", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"vendor","label":"Vendor","format":"string"}]"# },
-        S { id: "builtin-mac-address-type", name: "mac_address_type",
-            description: "MAC address classification: locally administered, multicast, broadcast, etc.",
-            kind: "builtin", api_resource_id: None, path_template: "", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"type","label":"Type","format":"string"},{"key":"notes","label":"Notes","format":"string"}]"# },
-        S { id: "builtin-crawler-mac", name: "crawler_mac",
+        S {
+            id: "builtin-dns-ptr",
+            name: "dns_ptr",
+            description: "Reverse DNS lookup (PTR) for an IP",
+            kind: "builtin",
+            api_resource_id: None,
+            path_template: "",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"ptr","label":"PTR","format":"string"}]"#,
+        },
+        S {
+            id: "builtin-oui-vendor",
+            name: "oui_vendor",
+            description: "OUI vendor lookup for a MAC address",
+            kind: "builtin",
+            api_resource_id: None,
+            path_template: "",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"vendor","label":"Vendor","format":"string"}]"#,
+        },
+        S {
+            id: "builtin-mac-address-type",
+            name: "mac_address_type",
+            description:
+                "MAC address classification: locally administered, multicast, broadcast, etc.",
+            kind: "builtin",
+            api_resource_id: None,
+            path_template: "",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"type","label":"Type","format":"string"},{"key":"notes","label":"Notes","format":"string"}]"#,
+        },
+        S {
+            id: "builtin-crawler-mac",
+            name: "crawler_mac",
             description: "Last-seen switchport for a MAC (Netdisco / NetStacks-Crawler)",
-            kind: "api_resource", api_resource_id: crawler_id.clone(),
-            path_template: "/api/v1/search/node?q={token_url}", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"switch","label":"Switch","format":"string"},{"key":"port","label":"Port","format":"string"},{"key":"vlan","label":"VLAN","format":"string"},{"key":"time_last","label":"Last Seen","format":"datetime"}]"# },
-        S { id: "builtin-crawler-device", name: "crawler_device",
+            kind: "api_resource",
+            api_resource_id: crawler_id.clone(),
+            path_template: "/api/v1/search/node?q={token_url}",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"switch","label":"Switch","format":"string"},{"key":"port","label":"Port","format":"string"},{"key":"vlan","label":"VLAN","format":"string"},{"key":"time_last","label":"Last Seen","format":"datetime"}]"#,
+        },
+        S {
+            id: "builtin-crawler-device",
+            name: "crawler_device",
             description: "Device lookup by IP / hostname (Crawler)",
-            kind: "api_resource", api_resource_id: crawler_id.clone(),
-            path_template: "/api/v1/search/device?q={token_url}", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"name","label":"Name","format":"string"},{"key":"vendor","label":"Vendor","format":"string"},{"key":"model","label":"Model","format":"string"},{"key":"os","label":"OS","format":"string"},{"key":"uptime","label":"Uptime","format":"uptime"}]"# },
-        S { id: "builtin-crawler-port", name: "crawler_port",
+            kind: "api_resource",
+            api_resource_id: crawler_id.clone(),
+            path_template: "/api/v1/search/device?q={token_url}",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"name","label":"Name","format":"string"},{"key":"vendor","label":"Vendor","format":"string"},{"key":"model","label":"Model","format":"string"},{"key":"os","label":"OS","format":"string"},{"key":"uptime","label":"Uptime","format":"uptime"}]"#,
+        },
+        S {
+            id: "builtin-crawler-port",
+            name: "crawler_port",
             description: "Per-port info (from device neighbors)",
-            kind: "api_resource", api_resource_id: crawler_id.clone(),
-            path_template: "/api/v1/device/{session_host}/neighbors", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"port","label":"Port","format":"string"},{"key":"remote_dns","label":"Remote","format":"string"},{"key":"remote_port","label":"Remote Port","format":"string"}]"# },
-        S { id: "builtin-crawler-neighbor", name: "crawler_neighbor",
+            kind: "api_resource",
+            api_resource_id: crawler_id.clone(),
+            path_template: "/api/v1/device/{session_host}/neighbors",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"port","label":"Port","format":"string"},{"key":"remote_dns","label":"Remote","format":"string"},{"key":"remote_port","label":"Remote Port","format":"string"}]"#,
+        },
+        S {
+            id: "builtin-crawler-neighbor",
+            name: "crawler_neighbor",
             description: "CDP/LLDP neighbor for an interface",
-            kind: "api_resource", api_resource_id: crawler_id.clone(),
-            path_template: "/api/v1/device/{session_host}/neighbors", response_unwrap: "",
-            picked_fields_json: r#"[{"key":"remote_ip","label":"Remote IP","format":"string"},{"key":"remote_dns","label":"Remote DNS","format":"string"},{"key":"remote_port","label":"Remote Port","format":"string"},{"key":"remote_type","label":"Platform","format":"string"}]"# },
-        S { id: "builtin-netbox-ip", name: "netbox_ip",
+            kind: "api_resource",
+            api_resource_id: crawler_id.clone(),
+            path_template: "/api/v1/device/{session_host}/neighbors",
+            response_unwrap: "",
+            picked_fields_json: r#"[{"key":"remote_ip","label":"Remote IP","format":"string"},{"key":"remote_dns","label":"Remote DNS","format":"string"},{"key":"remote_port","label":"Remote Port","format":"string"},{"key":"remote_type","label":"Platform","format":"string"}]"#,
+        },
+        S {
+            id: "builtin-netbox-ip",
+            name: "netbox_ip",
             description: "NetBox IP address assignment (device / VRF / status)",
-            kind: "api_resource", api_resource_id: netbox_id.clone(),
-            path_template: "/api/ipam/ip-addresses/?address={token_url}", response_unwrap: "results.0",
-            picked_fields_json: r#"[{"key":"assigned_object.device.name","label":"Device","format":"string"},{"key":"vrf.name","label":"VRF","format":"string"},{"key":"status.label","label":"Status","format":"status_pill"}]"# },
-        S { id: "builtin-netbox-interface", name: "netbox_interface",
+            kind: "api_resource",
+            api_resource_id: netbox_id.clone(),
+            path_template: "/api/ipam/ip-addresses/?address={token_url}",
+            response_unwrap: "results.0",
+            picked_fields_json: r#"[{"key":"assigned_object.device.name","label":"Device","format":"string"},{"key":"vrf.name","label":"VRF","format":"string"},{"key":"status.label","label":"Status","format":"status_pill"}]"#,
+        },
+        S {
+            id: "builtin-netbox-interface",
+            name: "netbox_interface",
             description: "NetBox interface details",
-            kind: "api_resource", api_resource_id: netbox_id.clone(),
-            path_template: "/api/dcim/interfaces/?name={token_url}", response_unwrap: "results.0",
-            picked_fields_json: r#"[{"key":"type.label","label":"Type","format":"string"},{"key":"mtu","label":"MTU","format":"string"},{"key":"enabled","label":"Enabled","format":"string"},{"key":"mode.label","label":"Mode","format":"string"}]"# },
+            kind: "api_resource",
+            api_resource_id: netbox_id.clone(),
+            path_template: "/api/dcim/interfaces/?name={token_url}",
+            response_unwrap: "results.0",
+            picked_fields_json: r#"[{"key":"type.label","label":"Type","format":"string"},{"key":"mtu","label":"MTU","format":"string"},{"key":"enabled","label":"Enabled","format":"string"},{"key":"mode.label","label":"Mode","format":"string"}]"#,
+        },
     ];
 
     for s in &seeds {
@@ -350,20 +466,29 @@ async fn seed_enrichment_sources(pool: &SqlitePool) -> Result<(), DbError> {
     if let Some(ref cid) = crawler_id {
         sqlx::query(
             "UPDATE enrichment_sources SET api_resource_id = ? \
-             WHERE api_resource_id IS NULL AND kind = 'api_resource' AND name LIKE 'crawler_%'"
+             WHERE api_resource_id IS NULL AND kind = 'api_resource' AND name LIKE 'crawler_%'",
         )
         .bind(cid)
-        .execute(pool).await
-        .map_err(|e| DbError::Migration(format!("Failed to auto-wire crawler api_resource_id: {}", e)))?;
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to auto-wire crawler api_resource_id: {}",
+                e
+            ))
+        })?;
     }
     if let Some(ref nid) = netbox_id {
         sqlx::query(
             "UPDATE enrichment_sources SET api_resource_id = ? \
-             WHERE api_resource_id IS NULL AND kind = 'api_resource' AND name LIKE 'netbox_%'"
+             WHERE api_resource_id IS NULL AND kind = 'api_resource' AND name LIKE 'netbox_%'",
         )
         .bind(nid)
-        .execute(pool).await
-        .map_err(|e| DbError::Migration(format!("Failed to auto-wire netbox api_resource_id: {}", e)))?;
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to auto-wire netbox api_resource_id: {}", e))
+        })?;
     }
 
     Ok(())
@@ -372,11 +497,46 @@ async fn seed_enrichment_sources(pool: &SqlitePool) -> Result<(), DbError> {
 /// Seed default matcher → source assignments, mirroring the built-in enrich lists.
 async fn seed_enrichment_matcher_sources(pool: &SqlitePool) -> Result<(), DbError> {
     let defaults: &[(&str, &[&str])] = &[
-        ("builtin-ipv4",            &["builtin-dns-ptr", "builtin-crawler-device", "builtin-netbox-ip"]),
-        ("builtin-mac-colon",       &["builtin-mac-address-type", "builtin-oui-vendor", "builtin-crawler-mac"]),
-        ("builtin-mac-cisco",       &["builtin-mac-address-type", "builtin-oui-vendor", "builtin-crawler-mac"]),
-        ("builtin-cisco-interface", &["builtin-crawler-port", "builtin-crawler-neighbor", "builtin-netbox-interface"]),
-        ("builtin-junos-interface", &["builtin-crawler-port", "builtin-crawler-neighbor", "builtin-netbox-interface"]),
+        (
+            "builtin-ipv4",
+            &[
+                "builtin-dns-ptr",
+                "builtin-crawler-device",
+                "builtin-netbox-ip",
+            ],
+        ),
+        (
+            "builtin-mac-colon",
+            &[
+                "builtin-mac-address-type",
+                "builtin-oui-vendor",
+                "builtin-crawler-mac",
+            ],
+        ),
+        (
+            "builtin-mac-cisco",
+            &[
+                "builtin-mac-address-type",
+                "builtin-oui-vendor",
+                "builtin-crawler-mac",
+            ],
+        ),
+        (
+            "builtin-cisco-interface",
+            &[
+                "builtin-crawler-port",
+                "builtin-crawler-neighbor",
+                "builtin-netbox-interface",
+            ],
+        ),
+        (
+            "builtin-junos-interface",
+            &[
+                "builtin-crawler-port",
+                "builtin-crawler-neighbor",
+                "builtin-netbox-interface",
+            ],
+        ),
     ];
     for (matcher_id, source_ids) in defaults {
         for (i, sid) in source_ids.iter().enumerate() {
@@ -419,7 +579,7 @@ async fn migrate_lsp_plugin_tables(pool: &SqlitePool) -> Result<(), DbError> {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -436,11 +596,16 @@ async fn migrate_lsp_plugin_tables(pool: &SqlitePool) -> Result<(), DbError> {
                 custom_command TEXT,
                 custom_args TEXT NOT NULL DEFAULT '[]',
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create lsp_plugin_overrides table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create lsp_plugin_overrides table: {}",
+                e
+            ))
+        })?;
 
         tracing::info!("Created lsp_plugin_overrides table");
     }
@@ -479,12 +644,9 @@ async fn migrate_jump_session_id_columns(pool: &SqlitePool) -> Result<(), DbErro
                  REFERENCES sessions(id) ON DELETE SET NULL",
                 table
             );
-            sqlx::query(&sql)
-                .execute(pool)
-                .await
-                .map_err(|e| DbError::Migration(format!(
-                    "Failed to add {}.jump_session_id: {}", table, e
-                )))?;
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
+                DbError::Migration(format!("Failed to add {}.jump_session_id: {}", table, e))
+            })?;
         }
     }
     Ok(())
@@ -496,11 +658,16 @@ async fn migrate_credential_profile_jump_host(pool: &SqlitePool) -> Result<(), D
     if !column_exists(pool, "credential_profiles", "jump_host_id").await? {
         sqlx::query(
             "ALTER TABLE credential_profiles ADD COLUMN jump_host_id TEXT \
-             REFERENCES jump_hosts(id) ON DELETE SET NULL"
+             REFERENCES jump_hosts(id) ON DELETE SET NULL",
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to add credential_profiles.jump_host_id: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to add credential_profiles.jump_host_id: {}",
+                e
+            ))
+        })?;
     }
     Ok(())
 }
@@ -524,11 +691,15 @@ async fn migrate_topology_folders(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE topologies ADD COLUMN sort_order REAL DEFAULT 0")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add topologies.sort_order: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add topologies.sort_order: {}", e))
+            })?;
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_topologies_folder ON topologies(folder_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create idx_topologies_folder: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create idx_topologies_folder: {}", e))
+            })?;
     }
     if !column_exists(pool, "topologies", "shared").await? {
         sqlx::query("ALTER TABLE topologies ADD COLUMN shared INTEGER NOT NULL DEFAULT 0")
@@ -543,9 +714,8 @@ async fn migrate_topology_folders(pool: &SqlitePool) -> Result<(), DbError> {
 async fn column_exists(pool: &SqlitePool, table: &str, column: &str) -> Result<bool, DbError> {
     // PRAGMA table_info() ignores injected SQL — all callers pass string literals, never user input.
     let query = format!("PRAGMA table_info({})", table);
-    let rows: Vec<(i32, String, String, i32, Option<String>, i32)> = sqlx::query_as(&query)
-        .fetch_all(pool)
-        .await?;
+    let rows: Vec<(i32, String, String, i32, Option<String>, i32)> =
+        sqlx::query_as(&query).fetch_all(pool).await?;
 
     Ok(rows.iter().any(|row| row.1 == column))
 }
@@ -565,7 +735,9 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN profile_overrides TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add profile_overrides column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add profile_overrides column: {}", e))
+            })?;
     }
 
     // Add netbox_device_id column if it doesn't exist
@@ -573,7 +745,9 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN netbox_device_id INTEGER")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add netbox_device_id column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add netbox_device_id column: {}", e))
+            })?;
     }
 
     // Add netbox_source_id column if it doesn't exist
@@ -597,7 +771,9 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN terminal_theme TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add terminal_theme column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add terminal_theme column: {}", e))
+            })?;
     }
 
     // Add jump host columns if they don't exist (Phase 06.2)
@@ -619,7 +795,9 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN jump_username TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add jump_username column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add jump_username column: {}", e))
+            })?;
     }
 
     // Add port_forwards column if it doesn't exist (Phase 06.3)
@@ -627,7 +805,9 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN port_forwards TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add port_forwards column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add port_forwards column: {}", e))
+            })?;
     }
 
     // Add auto_commands column if it doesn't exist (auto commands on connect)
@@ -635,7 +815,9 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN auto_commands TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add auto_commands column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add auto_commands column: {}", e))
+            })?;
     }
 
     // Add legacy_ssh column if it doesn't exist (legacy SSH algorithm support)
@@ -661,15 +843,19 @@ async fn migrate_sessions_table(pool: &SqlitePool) -> Result<(), DbError> {
         .await
         .map_err(|e| DbError::Migration(format!("Failed to create profile_id index: {}", e)))?;
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_netbox_source ON sessions(netbox_source_id)")
-        .execute(pool)
-        .await
-        .map_err(|e| DbError::Migration(format!("Failed to create netbox_source_id index: {}", e)))?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_netbox_source ON sessions(netbox_source_id)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("Failed to create netbox_source_id index: {}", e)))?;
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_netbox_device ON sessions(netbox_device_id)")
-        .execute(pool)
-        .await
-        .map_err(|e| DbError::Migration(format!("Failed to create netbox_device_id index: {}", e)))?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_netbox_device ON sessions(netbox_device_id)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("Failed to create netbox_device_id index: {}", e)))?;
 
     Ok(())
 }
@@ -683,7 +869,9 @@ async fn migrate_credential_profiles_table(pool: &SqlitePool) -> Result<(), DbEr
         sqlx::query("ALTER TABLE netbox_sources ADD COLUMN device_filters TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add device_filters column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add device_filters column: {}", e))
+            })?;
     }
 
     // Add cli_flavor_mappings column to netbox_sources if it doesn't exist
@@ -691,7 +879,9 @@ async fn migrate_credential_profiles_table(pool: &SqlitePool) -> Result<(), DbEr
         sqlx::query("ALTER TABLE netbox_sources ADD COLUMN cli_flavor_mappings TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add cli_flavor_mappings column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add cli_flavor_mappings column: {}", e))
+            })?;
     }
 
     // Console access import settings (terminal-server profile + protocol mappings)
@@ -705,7 +895,12 @@ async fn migrate_credential_profiles_table(pool: &SqlitePool) -> Result<(), DbEr
         sqlx::query("ALTER TABLE netbox_sources ADD COLUMN console_protocol_mappings TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add console_protocol_mappings column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to add console_protocol_mappings column: {}",
+                    e
+                ))
+            })?;
     }
 
     Ok(())
@@ -713,12 +908,11 @@ async fn migrate_credential_profiles_table(pool: &SqlitePool) -> Result<(), DbEr
 
 /// Check if a table exists in the database
 async fn table_exists(pool: &SqlitePool, table: &str) -> Result<bool, DbError> {
-    let result: (i32,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
-    )
-    .bind(table)
-    .fetch_one(pool)
-    .await?;
+    let result: (i32,) =
+        sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?")
+            .bind(table)
+            .fetch_one(pool)
+            .await?;
 
     Ok(result.0 > 0)
 }
@@ -745,22 +939,34 @@ async fn migrate_highlight_rules_table(pool: &SqlitePool) -> Result<(), DbError>
                 category TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create highlight_rules table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create highlight_rules table: {}", e))
+        })?;
 
         // Create indexes
         sqlx::query("CREATE INDEX idx_highlight_rules_session ON highlight_rules(session_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create highlight_rules session index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to create highlight_rules session index: {}",
+                    e
+                ))
+            })?;
 
         sqlx::query("CREATE INDEX idx_highlight_rules_category ON highlight_rules(category)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create highlight_rules category index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to create highlight_rules category index: {}",
+                    e
+                ))
+            })?;
     }
 
     Ok(())
@@ -786,7 +992,7 @@ async fn migrate_change_control_tables(pool: &SqlitePool) -> Result<(), DbError>
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 executed_at TEXT,
                 completed_at TEXT
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -796,17 +1002,23 @@ async fn migrate_change_control_tables(pool: &SqlitePool) -> Result<(), DbError>
         sqlx::query("CREATE INDEX idx_changes_session_id ON changes(session_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create changes session_id index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create changes session_id index: {}", e))
+            })?;
 
         sqlx::query("CREATE INDEX idx_changes_status ON changes(status)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create changes status index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create changes status index: {}", e))
+            })?;
 
         sqlx::query("CREATE INDEX idx_changes_created_at ON changes(created_at)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create changes created_at index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create changes created_at index: {}", e))
+            })?;
     }
 
     // Create snapshots table if it doesn't exist
@@ -819,7 +1031,7 @@ async fn migrate_change_control_tables(pool: &SqlitePool) -> Result<(), DbError>
                 commands TEXT NOT NULL DEFAULT '[]',
                 output TEXT NOT NULL DEFAULT '',
                 captured_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -829,7 +1041,9 @@ async fn migrate_change_control_tables(pool: &SqlitePool) -> Result<(), DbError>
         sqlx::query("CREATE INDEX idx_snapshots_change_id ON snapshots(change_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create snapshots change_id index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create snapshots change_id index: {}", e))
+            })?;
     }
 
     Ok(())
@@ -850,17 +1064,24 @@ async fn migrate_session_context_table(pool: &SqlitePool) -> Result<(), DbError>
                 author TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create session_context table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create session_context table: {}", e))
+        })?;
 
         // Create index for fast lookup by session
         sqlx::query("CREATE INDEX idx_session_context_session_id ON session_context(session_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create session_context session_id index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to create session_context session_id index: {}",
+                    e
+                ))
+            })?;
     }
 
     Ok(())
@@ -911,7 +1132,12 @@ async fn migrate_documents_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("DROP TABLE IF EXISTS documents_new")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to drop leftover documents_new table: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to drop leftover documents_new table: {}",
+                    e
+                ))
+            })?;
 
         // 2. Create new table with updated constraints
         sqlx::query(
@@ -932,35 +1158,47 @@ async fn migrate_documents_table(pool: &SqlitePool) -> Result<(), DbError> {
         .map_err(|e| DbError::Migration(format!("Failed to create documents_new table: {}", e)))?;
 
         // 3. Copy data from old table
-        sqlx::query(
-            "INSERT INTO documents_new SELECT * FROM documents"
-        )
-        .execute(pool)
-        .await
-        .map_err(|e| DbError::Migration(format!("Failed to copy documents data: {}", e)))?;
+        sqlx::query("INSERT INTO documents_new SELECT * FROM documents")
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to copy documents data: {}", e)))?;
 
         // 4. Drop old table
         sqlx::query("DROP TABLE documents")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to drop old documents table: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to drop old documents table: {}", e))
+            })?;
 
         // 5. Rename new table
         sqlx::query("ALTER TABLE documents_new RENAME TO documents")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to rename documents_new table: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to rename documents_new table: {}", e))
+            })?;
 
         // 6. Recreate indexes
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_documents_category ON documents(category)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to recreate documents category index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to recreate documents category index: {}",
+                    e
+                ))
+            })?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_documents_session_id ON documents(session_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to recreate documents session_id index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to recreate documents session_id index: {}",
+                    e
+                ))
+            })?;
 
         // 7. Re-enable foreign keys
         sqlx::query("PRAGMA foreign_keys = ON")
@@ -994,12 +1232,19 @@ async fn migrate_documents_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("CREATE INDEX idx_documents_category ON documents(category)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create documents category index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create documents category index: {}", e))
+            })?;
 
         sqlx::query("CREATE INDEX idx_documents_session_id ON documents(session_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create documents session_id index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to create documents session_id index: {}",
+                    e
+                ))
+            })?;
     }
 
     // Create document_versions table if it doesn't exist
@@ -1010,16 +1255,25 @@ async fn migrate_documents_table(pool: &SqlitePool) -> Result<(), DbError> {
                 document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create document_versions table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create document_versions table: {}", e))
+        })?;
 
-        sqlx::query("CREATE INDEX idx_document_versions_document_id ON document_versions(document_id)")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create document_versions document_id index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX idx_document_versions_document_id ON document_versions(document_id)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create document_versions document_id index: {}",
+                e
+            ))
+        })?;
     }
 
     // Secure Notes: add nullable BLOB columns that hold the
@@ -1031,14 +1285,21 @@ async fn migrate_documents_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE documents ADD COLUMN encrypted_content BLOB")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add documents.encrypted_content: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add documents.encrypted_content: {}", e))
+            })?;
         tracing::info!("Added documents.encrypted_content column for Secure Notes");
     }
     if !column_exists(pool, "document_versions", "encrypted_content").await? {
         sqlx::query("ALTER TABLE document_versions ADD COLUMN encrypted_content BLOB")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add document_versions.encrypted_content: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to add document_versions.encrypted_content: {}",
+                    e
+                ))
+            })?;
         tracing::info!("Added document_versions.encrypted_content column for Secure Notes");
     }
 
@@ -1064,7 +1325,9 @@ async fn migrate_topology_devices_table(pool: &SqlitePool) -> Result<(), DbError
         sqlx::query("DROP TABLE IF EXISTS topology_devices")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to drop old topology_devices table: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to drop old topology_devices table: {}", e))
+            })?;
 
         tracing::info!("Dropped old Phase 20 topology_devices table for Phase 20.1 migration");
     }
@@ -1077,7 +1340,7 @@ async fn migrate_topology_devices_table(pool: &SqlitePool) -> Result<(), DbError
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -1100,11 +1363,13 @@ async fn migrate_topology_devices_table(pool: &SqlitePool) -> Result<(), DbError
                 host TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create topology_devices table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create topology_devices table: {}", e))
+        })?;
 
         // Create index
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_topology_devices_topology ON topology_devices(topology_id)")
@@ -1116,7 +1381,9 @@ async fn migrate_topology_devices_table(pool: &SqlitePool) -> Result<(), DbError
     }
 
     // Add profile_id column to topology_devices if missing (Phase 09)
-    if table_exists(pool, "topology_devices").await? && !column_exists(pool, "topology_devices", "profile_id").await? {
+    if table_exists(pool, "topology_devices").await?
+        && !column_exists(pool, "topology_devices", "profile_id").await?
+    {
         sqlx::query("ALTER TABLE topology_devices ADD COLUMN profile_id TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL")
             .execute(pool)
             .await
@@ -1125,7 +1392,9 @@ async fn migrate_topology_devices_table(pool: &SqlitePool) -> Result<(), DbError
     }
 
     // Add snmp_profile_id column to topology_devices if missing (SNMP interface stats)
-    if table_exists(pool, "topology_devices").await? && !column_exists(pool, "topology_devices", "snmp_profile_id").await? {
+    if table_exists(pool, "topology_devices").await?
+        && !column_exists(pool, "topology_devices", "snmp_profile_id").await?
+    {
         sqlx::query("ALTER TABLE topology_devices ADD COLUMN snmp_profile_id TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL")
             .execute(pool)
             .await
@@ -1146,11 +1415,16 @@ async fn migrate_topology_devices_table(pool: &SqlitePool) -> Result<(), DbError
                 protocol TEXT NOT NULL DEFAULT 'manual',
                 label TEXT,
                 created_at TEXT NOT NULL
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create topology_connections table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create topology_connections table: {}",
+                e
+            ))
+        })?;
 
         // Create index
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_topology_connections_topology ON topology_connections(topology_id)")
@@ -1176,7 +1450,9 @@ async fn migrate_layouts_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE layouts ADD COLUMN tabs TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add tabs column to layouts: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add tabs column to layouts: {}", e))
+            })?;
     }
 
     Ok(())
@@ -1233,8 +1509,9 @@ async fn migrate_groups_table(pool: &SqlitePool) -> Result<(), DbError> {
                         document_name: None,
                     })
                     .collect();
-                serde_json::to_string(&tab_values)
-                    .map_err(|e| DbError::Migration(format!("Failed to serialize migrated tabs: {}", e)))?
+                serde_json::to_string(&tab_values).map_err(|e| {
+                    DbError::Migration(format!("Failed to serialize migrated tabs: {}", e))
+                })?
             }
         };
 
@@ -1273,10 +1550,12 @@ async fn migrate_topology_connections_table(pool: &SqlitePool) -> Result<(), DbE
 
     // Add curve_style column if it doesn't exist
     if !column_exists(pool, "topology_connections", "curve_style").await? {
-        sqlx::query("ALTER TABLE topology_connections ADD COLUMN curve_style TEXT DEFAULT 'straight'")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to add curve_style column: {}", e)))?;
+        sqlx::query(
+            "ALTER TABLE topology_connections ADD COLUMN curve_style TEXT DEFAULT 'straight'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to add curve_style column: {}", e)))?;
     }
 
     // Add bundle_id column if it doesn't exist
@@ -1342,11 +1621,16 @@ async fn migrate_topology_annotations_table(pool: &SqlitePool) -> Result<(), DbE
                 z_index INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create topology_annotations table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create topology_annotations table: {}",
+                e
+            ))
+        })?;
 
         // Create indexes
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_annotations_topology ON topology_annotations(topology_id)")
@@ -1354,10 +1638,12 @@ async fn migrate_topology_annotations_table(pool: &SqlitePool) -> Result<(), DbE
             .await
             .map_err(|e| DbError::Migration(format!("Failed to create topology index: {}", e)))?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_annotations_z_index ON topology_annotations(z_index)")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create z_index index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_annotations_z_index ON topology_annotations(z_index)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to create z_index index: {}", e)))?;
 
         tracing::info!("Created topology_annotations table");
     }
@@ -1378,7 +1664,7 @@ async fn migrate_jump_hosts_table(pool: &SqlitePool) -> Result<(), DbError> {
                 profile_id TEXT NOT NULL REFERENCES credential_profiles(id) ON DELETE CASCADE,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -1388,7 +1674,9 @@ async fn migrate_jump_hosts_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_jump_hosts_name ON jump_hosts(name)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create jump_hosts name index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create jump_hosts name index: {}", e))
+            })?;
 
         tracing::info!("Created jump_hosts table");
     }
@@ -1403,7 +1691,12 @@ async fn migrate_jump_hosts_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_jump_host ON sessions(jump_host_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create sessions jump_host_id index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to create sessions jump_host_id index: {}",
+                    e
+                ))
+            })?;
 
         tracing::info!("Added jump_host_id column to sessions");
     }
@@ -1416,12 +1709,12 @@ async fn migrate_jump_hosts_table(pool: &SqlitePool) -> Result<(), DbError> {
 async fn migrate_profile_only_auth(pool: &SqlitePool) -> Result<(), DbError> {
     // Delete sessions that don't have a profile_id
     // These sessions can no longer authenticate since credentials come from profiles
-    let deleted = sqlx::query(
-        "DELETE FROM sessions WHERE profile_id IS NULL OR profile_id = ''"
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| DbError::Migration(format!("Failed to delete sessions without profiles: {}", e)))?;
+    let deleted = sqlx::query("DELETE FROM sessions WHERE profile_id IS NULL OR profile_id = ''")
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to delete sessions without profiles: {}", e))
+        })?;
 
     if deleted.rows_affected() > 0 {
         tracing::info!(
@@ -1447,35 +1740,42 @@ async fn migrate_profile_only_auth(pool: &SqlitePool) -> Result<(), DbError> {
 async fn migrate_mapped_keys_to_profiles(pool: &SqlitePool) -> Result<(), DbError> {
     // Check if mapped_keys table exists and has session_id column (old schema)
     if table_exists(pool, "mapped_keys").await?
-        && column_exists(pool, "mapped_keys", "session_id").await? {
-            // Drop the old table and recreate with profile_id
-            // Any existing session-based mapped keys will be lost since we're migrating to profiles
-            sqlx::query("DROP TABLE mapped_keys")
-                .execute(pool)
-                .await
-                .map_err(|e| DbError::Migration(format!("Failed to drop old mapped_keys table: {}", e)))?;
+        && column_exists(pool, "mapped_keys", "session_id").await?
+    {
+        // Drop the old table and recreate with profile_id
+        // Any existing session-based mapped keys will be lost since we're migrating to profiles
+        sqlx::query("DROP TABLE mapped_keys")
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to drop old mapped_keys table: {}", e))
+            })?;
 
-            sqlx::query(
-                r#"CREATE TABLE mapped_keys (
+        sqlx::query(
+            r#"CREATE TABLE mapped_keys (
                     id TEXT PRIMARY KEY,
                     profile_id TEXT NOT NULL REFERENCES credential_profiles(id) ON DELETE CASCADE,
                     key_combo TEXT NOT NULL,
                     command TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
-                )"#
-            )
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create new mapped_keys table: {}", e)))?;
+                )"#,
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create new mapped_keys table: {}", e))
+        })?;
 
-            // Create the index on profile_id
-            sqlx::query("CREATE INDEX IF NOT EXISTS idx_mapped_keys_profile ON mapped_keys(profile_id)")
-                .execute(pool)
-                .await
-                .map_err(|e| DbError::Migration(format!("Failed to create mapped_keys index: {}", e)))?;
+        // Create the index on profile_id
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_mapped_keys_profile ON mapped_keys(profile_id)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to create mapped_keys index: {}", e)))?;
 
-            tracing::info!("Migrated mapped_keys table from session-based to profile-based");
-        }
+        tracing::info!("Migrated mapped_keys table from session-based to profile-based");
+    }
 
     // Also drop the old session-based index if it exists (from previous schema.sql)
     let _ = sqlx::query("DROP INDEX IF EXISTS idx_mapped_keys_session")
@@ -1487,10 +1787,12 @@ async fn migrate_mapped_keys_to_profiles(pool: &SqlitePool) -> Result<(), DbErro
     // the column is gone and this CREATE INDEX fails on every startup, so
     // gate it and surface any real failure instead of discarding it (NS-AGENT-12).
     if column_exists(pool, "mapped_keys", "profile_id").await? {
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_mapped_keys_profile ON mapped_keys(profile_id)")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create mapped_keys index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_mapped_keys_profile ON mapped_keys(profile_id)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to create mapped_keys index: {}", e)))?;
     }
 
     Ok(())
@@ -1522,10 +1824,12 @@ async fn migrate_agent_tasks_table(pool: &SqlitePool) -> Result<(), DbError> {
             .await
             .map_err(|e| DbError::Migration(format!("Failed to create status index: {}", e)))?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_agent_tasks_created_at ON agent_tasks(created_at)")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create created_at index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_agent_tasks_created_at ON agent_tasks(created_at)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to create created_at index: {}", e)))?;
 
         tracing::info!("Created agent_tasks table");
     }
@@ -1549,16 +1853,20 @@ async fn migrate_agent_definitions_table(pool: &SqlitePool) -> Result<(), DbErro
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create agent_definitions table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create agent_definitions table: {}", e))
+        })?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_agent_definitions_name ON agent_definitions(name)")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create name index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_agent_definitions_name ON agent_definitions(name)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to create name index: {}", e)))?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_agent_definitions_enabled ON agent_definitions(enabled)")
             .execute(pool)
@@ -1569,7 +1877,9 @@ async fn migrate_agent_definitions_table(pool: &SqlitePool) -> Result<(), DbErro
     }
 
     // Add agent_definition_id column to agent_tasks if missing
-    if table_exists(pool, "agent_tasks").await? && !column_exists(pool, "agent_tasks", "agent_definition_id").await? {
+    if table_exists(pool, "agent_tasks").await?
+        && !column_exists(pool, "agent_tasks", "agent_definition_id").await?
+    {
         sqlx::query("ALTER TABLE agent_tasks ADD COLUMN agent_definition_id TEXT REFERENCES agent_definitions(id)")
             .execute(pool)
             .await
@@ -1591,7 +1901,10 @@ async fn migrate_agent_subagent_columns(pool: &SqlitePool) -> Result<(), DbError
 
     // (column name, column definition) — order matters only for readability.
     let columns: &[(&str, &str)] = &[
-        ("parent_task_id", "parent_task_id TEXT REFERENCES agent_tasks(id)"),
+        (
+            "parent_task_id",
+            "parent_task_id TEXT REFERENCES agent_tasks(id)",
+        ),
         ("root_task_id", "root_task_id TEXT"),
         ("depth", "depth INTEGER NOT NULL DEFAULT 0"),
         (
@@ -1604,10 +1917,9 @@ async fn migrate_agent_subagent_columns(pool: &SqlitePool) -> Result<(), DbError
     for (name, definition) in columns {
         if !column_exists(pool, "agent_tasks", name).await? {
             let sql = format!("ALTER TABLE agent_tasks ADD COLUMN {}", definition);
-            sqlx::query(&sql)
-                .execute(pool)
-                .await
-                .map_err(|e| DbError::Migration(format!("Failed to add {} to agent_tasks: {}", name, e)))?;
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
+                DbError::Migration(format!("Failed to add {} to agent_tasks: {}", name, e))
+            })?;
             tracing::info!("Added {} column to agent_tasks", name);
         }
     }
@@ -1639,7 +1951,7 @@ async fn migrate_smtp_config_table(pool: &SqlitePool) -> Result<(), DbError> {
                 from_name TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -1663,7 +1975,7 @@ async fn migrate_mcp_tables(pool: &SqlitePool) -> Result<(), DbError> {
                 enabled INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -1674,10 +1986,12 @@ async fn migrate_mcp_tables(pool: &SqlitePool) -> Result<(), DbError> {
 
     // Add transport_type column if it doesn't exist
     if !column_exists(pool, "mcp_servers", "transport_type").await? {
-        sqlx::query("ALTER TABLE mcp_servers ADD COLUMN transport_type TEXT NOT NULL DEFAULT 'stdio'")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to add transport_type column: {}", e)))?;
+        sqlx::query(
+            "ALTER TABLE mcp_servers ADD COLUMN transport_type TEXT NOT NULL DEFAULT 'stdio'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to add transport_type column: {}", e)))?;
     }
 
     // Add url column if it doesn't exist
@@ -1716,15 +2030,19 @@ async fn migrate_mcp_tables(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE mcp_servers ADD COLUMN auth_token_encrypted BLOB")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add auth_token_encrypted column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add auth_token_encrypted column: {}", e))
+            })?;
     }
 
     // Add server_type column if it doesn't exist
     if !column_exists(pool, "mcp_servers", "server_type").await? {
-        sqlx::query("ALTER TABLE mcp_servers ADD COLUMN server_type TEXT NOT NULL DEFAULT 'custom'")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to add server_type column: {}", e)))?;
+        sqlx::query(
+            "ALTER TABLE mcp_servers ADD COLUMN server_type TEXT NOT NULL DEFAULT 'custom'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to add server_type column: {}", e)))?;
     }
 
     // Create mcp_tools table if it doesn't exist
@@ -1740,7 +2058,7 @@ async fn migrate_mcp_tables(pool: &SqlitePool) -> Result<(), DbError> {
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(server_id, name)
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -1750,12 +2068,16 @@ async fn migrate_mcp_tables(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_mcp_tools_server ON mcp_tools(server_id)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create mcp_tools server index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create mcp_tools server index: {}", e))
+            })?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_mcp_tools_enabled ON mcp_tools(enabled)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create mcp_tools enabled index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create mcp_tools enabled index: {}", e))
+            })?;
 
         tracing::info!("Created mcp_tools table");
     }
@@ -1786,7 +2108,9 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
             sqlx::query("ALTER TABLE mapped_keys ADD COLUMN description TEXT")
                 .execute(pool)
                 .await
-                .map_err(|e| DbError::Migration(format!("Failed to add description column: {}", e)))?;
+                .map_err(|e| {
+                    DbError::Migration(format!("Failed to add description column: {}", e))
+                })?;
         }
         return Ok(());
     }
@@ -1803,7 +2127,9 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
             sqlx::query("DROP TABLE mapped_keys_old")
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| DbError::Migration(format!("Failed to drop stale mapped_keys_old: {}", e)))?;
+                .map_err(|e| {
+                    DbError::Migration(format!("Failed to drop stale mapped_keys_old: {}", e))
+                })?;
         }
         sqlx::query("ALTER TABLE mapped_keys RENAME TO mapped_keys_old")
             .execute(&mut *tx)
@@ -1820,7 +2146,7 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
             command TEXT NOT NULL,
             description TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )"#
+        )"#,
     )
     .execute(&mut *tx)
     .await
@@ -1831,7 +2157,7 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
         r#"INSERT OR IGNORE INTO mapped_keys (id, key_combo, command, created_at)
            SELECT id, key_combo, command, created_at
            FROM mapped_keys_old
-           ORDER BY created_at ASC"#
+           ORDER BY created_at ASC"#,
     )
     .execute(&mut *tx)
     .await
@@ -1846,11 +2172,13 @@ async fn migrate_mapped_keys_to_global(pool: &SqlitePool) -> Result<(), DbError>
     sqlx::query("DROP INDEX IF EXISTS idx_mapped_keys_profile")
         .execute(&mut *tx)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to drop mapped_keys profile index: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to drop mapped_keys profile index: {}", e))
+        })?;
 
-    tx.commit()
-        .await
-        .map_err(|e| DbError::Migration(format!("Failed to commit mapped_keys migration: {}", e)))?;
+    tx.commit().await.map_err(|e| {
+        DbError::Migration(format!("Failed to commit mapped_keys migration: {}", e))
+    })?;
 
     tracing::info!("Migrated mapped_keys from profile-scoped to global");
 
@@ -1865,13 +2193,20 @@ async fn migrate_mapped_keys_secret(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE mapped_keys ADD COLUMN is_secret INTEGER NOT NULL DEFAULT 0")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add mapped_keys.is_secret: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add mapped_keys.is_secret: {}", e))
+            })?;
     }
     if !column_exists(pool, "mapped_keys", "command_encrypted").await? {
         sqlx::query("ALTER TABLE mapped_keys ADD COLUMN command_encrypted BLOB")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add mapped_keys.command_encrypted: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to add mapped_keys.command_encrypted: {}",
+                    e
+                ))
+            })?;
     }
     Ok(())
 }
@@ -1907,7 +2242,10 @@ async fn migrate_remove_profile_terminal_fields(pool: &SqlitePool) -> Result<(),
     }
 
     if dropped > 0 {
-        tracing::info!("Removed {} legacy columns from credential_profiles", dropped);
+        tracing::info!(
+            "Removed {} legacy columns from credential_profiles",
+            dropped
+        );
     }
 
     Ok(())
@@ -2042,11 +2380,15 @@ async fn migrate_profile_terminal_defaults(pool: &SqlitePool) -> Result<(), DbEr
 
 /// Add device_overrides column to changes table for per-device step customization
 async fn migrate_change_device_overrides(pool: &SqlitePool) -> Result<(), DbError> {
-    if table_exists(pool, "changes").await? && !column_exists(pool, "changes", "device_overrides").await? {
+    if table_exists(pool, "changes").await?
+        && !column_exists(pool, "changes", "device_overrides").await?
+    {
         sqlx::query("ALTER TABLE changes ADD COLUMN device_overrides TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add device_overrides column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add device_overrides column: {}", e))
+            })?;
 
         tracing::info!("Added device_overrides column to changes table");
     }
@@ -2055,7 +2397,9 @@ async fn migrate_change_device_overrides(pool: &SqlitePool) -> Result<(), DbErro
 
 /// Add document_id column to changes table for linking MOP documents
 async fn migrate_change_document_id(pool: &SqlitePool) -> Result<(), DbError> {
-    if table_exists(pool, "changes").await? && !column_exists(pool, "changes", "document_id").await? {
+    if table_exists(pool, "changes").await?
+        && !column_exists(pool, "changes", "document_id").await?
+    {
         sqlx::query("ALTER TABLE changes ADD COLUMN document_id TEXT")
             .execute(pool)
             .await
@@ -2279,7 +2623,9 @@ async fn migrate_sftp_start_path(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE sessions ADD COLUMN sftp_start_path TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add sftp_start_path column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add sftp_start_path column: {}", e))
+            })?;
     }
     Ok(())
 }
@@ -2291,15 +2637,21 @@ async fn migrate_console_access(pool: &SqlitePool) -> Result<(), DbError> {
         ("console_host", "TEXT"),
         ("console_port", "INTEGER"),
         ("console_protocol", "TEXT DEFAULT 'ssh'"),
-        ("console_profile_id", "TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL"),
+        (
+            "console_profile_id",
+            "TEXT REFERENCES credential_profiles(id) ON DELETE SET NULL",
+        ),
         ("console_legacy_ssh", "INTEGER NOT NULL DEFAULT 0"),
     ];
     for (name, decl) in columns {
         if !column_exists(pool, "sessions", name).await? {
-            sqlx::query(&format!("ALTER TABLE sessions ADD COLUMN {} {}", name, decl))
-                .execute(pool)
-                .await
-                .map_err(|e| DbError::Migration(format!("Failed to add {} column: {}", name, e)))?;
+            sqlx::query(&format!(
+                "ALTER TABLE sessions ADD COLUMN {} {}",
+                name, decl
+            ))
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Migration(format!("Failed to add {} column: {}", name, e)))?;
         }
     }
     Ok(())
@@ -2308,22 +2660,28 @@ async fn migrate_console_access(pool: &SqlitePool) -> Result<(), DbError> {
 /// Add action_type, quick_action_id, quick_action_variable columns to custom_commands table
 async fn migrate_custom_commands_quick_actions(pool: &SqlitePool) -> Result<(), DbError> {
     if !column_exists(pool, "custom_commands", "action_type").await? {
-        sqlx::query("ALTER TABLE custom_commands ADD COLUMN action_type TEXT NOT NULL DEFAULT 'terminal'")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to add action_type column: {}", e)))?;
+        sqlx::query(
+            "ALTER TABLE custom_commands ADD COLUMN action_type TEXT NOT NULL DEFAULT 'terminal'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to add action_type column: {}", e)))?;
     }
     if !column_exists(pool, "custom_commands", "quick_action_id").await? {
         sqlx::query("ALTER TABLE custom_commands ADD COLUMN quick_action_id TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add quick_action_id column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add quick_action_id column: {}", e))
+            })?;
     }
     if !column_exists(pool, "custom_commands", "quick_action_variable").await? {
         sqlx::query("ALTER TABLE custom_commands ADD COLUMN quick_action_variable TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add quick_action_variable column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add quick_action_variable column: {}", e))
+            })?;
     }
     if !column_exists(pool, "custom_commands", "script_id").await? {
         sqlx::query("ALTER TABLE custom_commands ADD COLUMN script_id TEXT")
@@ -2332,10 +2690,14 @@ async fn migrate_custom_commands_quick_actions(pool: &SqlitePool) -> Result<(), 
             .map_err(|e| DbError::Migration(format!("Failed to add script_id column: {}", e)))?;
     }
     if !column_exists(pool, "custom_commands", "show_in_force_click").await? {
-        sqlx::query("ALTER TABLE custom_commands ADD COLUMN show_in_force_click INTEGER NOT NULL DEFAULT 0")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to add show_in_force_click column: {}", e)))?;
+        sqlx::query(
+            "ALTER TABLE custom_commands ADD COLUMN show_in_force_click INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to add show_in_force_click column: {}", e))
+        })?;
     }
     Ok(())
 }
@@ -2353,12 +2715,225 @@ async fn migrate_mop_execution_steps_sources(pool: &SqlitePool) -> Result<(), Db
     ];
     for (col, col_type) in &columns {
         if !column_exists(pool, "mop_execution_steps", col).await? {
-            let sql = format!("ALTER TABLE mop_execution_steps ADD COLUMN {} {}", col, col_type);
+            let sql = format!(
+                "ALTER TABLE mop_execution_steps ADD COLUMN {} {}",
+                col, col_type
+            );
             sqlx::query(&sql)
                 .execute(pool)
                 .await
                 .map_err(|e| DbError::Migration(format!("Failed to add {} column: {}", col, e)))?;
         }
+    }
+    Ok(())
+}
+
+/// Risk / ticket / tags / device selection on changes (MOP plan metadata).
+async fn migrate_changes_mop_metadata(pool: &SqlitePool) -> Result<(), DbError> {
+    if !table_exists(pool, "changes").await? {
+        return Ok(());
+    }
+    let columns = [
+        ("risk_level", "TEXT"),
+        ("change_ticket", "TEXT"),
+        ("tags", "TEXT NOT NULL DEFAULT '[]'"),
+        ("session_ids", "TEXT NOT NULL DEFAULT '[]'"),
+    ];
+    for (col, col_type) in &columns {
+        if !column_exists(pool, "changes", col).await? {
+            let sql = format!("ALTER TABLE changes ADD COLUMN {} {}", col, col_type);
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
+                DbError::Migration(format!("Failed to add changes.{} column: {}", col, e))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// NS-MOP-1: snapshots captured by a MOP execution phase used to be stored
+/// with `change_id = <execution id>`, which the `REFERENCES changes(id)`
+/// constraint (and the `get_change` owner check) rejected — so pre/post
+/// phases always failed after running. Rebuild the table with a nullable
+/// `change_id` plus an `execution_id` owner; at least one must be set.
+async fn migrate_snapshots_execution_owner(pool: &SqlitePool) -> Result<(), DbError> {
+    if !table_exists(pool, "snapshots").await? {
+        return Ok(());
+    }
+    if column_exists(pool, "snapshots", "execution_id").await? {
+        return Ok(());
+    }
+
+    tracing::info!("Rebuilding snapshots table with an execution_id owner");
+
+    // mop_execution_devices.pre/post_snapshot_id reference snapshots(id);
+    // with foreign keys off the drop+rename leaves those rows untouched.
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to disable foreign keys: {}", e)))?;
+
+    sqlx::query("DROP TABLE IF EXISTS snapshots_new")
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to drop leftover snapshots_new: {}", e)))?;
+
+    sqlx::query(
+        r#"CREATE TABLE snapshots_new (
+            id TEXT PRIMARY KEY,
+            change_id TEXT REFERENCES changes(id) ON DELETE CASCADE,
+            execution_id TEXT REFERENCES mop_executions(id) ON DELETE CASCADE,
+            snapshot_type TEXT NOT NULL,
+            commands TEXT NOT NULL DEFAULT '[]',
+            output TEXT NOT NULL DEFAULT '',
+            captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK (change_id IS NOT NULL OR execution_id IS NOT NULL)
+        )"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("Failed to create snapshots_new: {}", e)))?;
+
+    // Rows whose change_id is really an execution id (written by the broken
+    // phase path) move to the execution column; everything else keeps its
+    // change owner. Orphans (neither) are dropped by the CHECK.
+    sqlx::query(
+        r#"INSERT INTO snapshots_new (id, change_id, execution_id, snapshot_type, commands, output, captured_at)
+           SELECT s.id,
+                  CASE WHEN c.id IS NULL THEN NULL ELSE s.change_id END,
+                  CASE WHEN c.id IS NULL AND e.id IS NOT NULL THEN s.change_id ELSE NULL END,
+                  s.snapshot_type, s.commands, s.output, s.captured_at
+           FROM snapshots s
+           LEFT JOIN changes c ON c.id = s.change_id
+           LEFT JOIN mop_executions e ON e.id = s.change_id
+           WHERE c.id IS NOT NULL OR e.id IS NOT NULL"#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("Failed to copy snapshots data: {}", e)))?;
+
+    sqlx::query("DROP TABLE snapshots")
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to drop old snapshots table: {}", e)))?;
+
+    sqlx::query("ALTER TABLE snapshots_new RENAME TO snapshots")
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to rename snapshots_new: {}", e)))?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_snapshots_change_id ON snapshots(change_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to recreate snapshots change_id index: {}",
+                e
+            ))
+        })?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_snapshots_execution_id ON snapshots(execution_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create snapshots execution_id index: {}",
+                e
+            ))
+        })?;
+
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to re-enable foreign keys: {}", e)))?;
+
+    Ok(())
+}
+
+/// Per-device CLI flavor and per-step assertion verdicts / error text
+/// (NS-MOP-2 / NS-MOP-5).
+async fn migrate_mop_execution_result_columns(pool: &SqlitePool) -> Result<(), DbError> {
+    if table_exists(pool, "mop_execution_devices").await?
+        && !column_exists(pool, "mop_execution_devices", "cli_flavor").await?
+    {
+        sqlx::query("ALTER TABLE mop_execution_devices ADD COLUMN cli_flavor TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to add mop_execution_devices.cli_flavor: {}",
+                    e
+                ))
+            })?;
+    }
+    if table_exists(pool, "mop_execution_steps").await? {
+        for (col, col_type) in [("assertion_results", "TEXT"), ("error_message", "TEXT")] {
+            if !column_exists(pool, "mop_execution_steps", col).await? {
+                let sql = format!(
+                    "ALTER TABLE mop_execution_steps ADD COLUMN {} {}",
+                    col, col_type
+                );
+                sqlx::query(&sql).execute(pool).await.map_err(|e| {
+                    DbError::Migration(format!("Failed to add mop_execution_steps.{}: {}", col, e))
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Plan-level `{{name}}` variables (P1-11): defaults on the plan plus a
+/// per-session override map.
+async fn migrate_changes_variables(pool: &SqlitePool) -> Result<(), DbError> {
+    if !table_exists(pool, "changes").await? {
+        return Ok(());
+    }
+    let columns = [
+        ("variables", "TEXT NOT NULL DEFAULT '[]'"),
+        ("device_variables", "TEXT NOT NULL DEFAULT '{}'"),
+    ];
+    for (col, col_type) in &columns {
+        if !column_exists(pool, "changes", col).await? {
+            let sql = format!("ALTER TABLE changes ADD COLUMN {} {}", col, col_type);
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
+                DbError::Migration(format!("Failed to add changes.{} column: {}", col, e))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// The resolved variable map stored per execution device (P1-11).
+async fn migrate_mop_execution_device_variables(pool: &SqlitePool) -> Result<(), DbError> {
+    if table_exists(pool, "mop_execution_devices").await?
+        && !column_exists(pool, "mop_execution_devices", "variables").await?
+    {
+        sqlx::query("ALTER TABLE mop_execution_devices ADD COLUMN variables TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to add mop_execution_devices.variables: {}",
+                    e
+                ))
+            })?;
+    }
+    Ok(())
+}
+
+/// Provenance of `mop_executions.ai_analysis` (AI-backed `/analyze`).
+async fn migrate_mop_execution_analysis_meta(pool: &SqlitePool) -> Result<(), DbError> {
+    if table_exists(pool, "mop_executions").await?
+        && !column_exists(pool, "mop_executions", "ai_analysis_meta").await?
+    {
+        sqlx::query("ALTER TABLE mop_executions ADD COLUMN ai_analysis_meta TEXT")
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to add mop_executions.ai_analysis_meta: {}",
+                    e
+                ))
+            })?;
     }
     Ok(())
 }
@@ -2387,11 +2962,13 @@ async fn migrate_ai_engineer_profile(pool: &SqlitePool) -> Result<(), DbError> {
                 compiled_segments TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )"
+            )",
         )
         .execute(pool)
         .await
-        .map_err(|e| DbError::Migration(format!("Failed to create ai_engineer_profile table: {}", e)))?;
+        .map_err(|e| {
+            DbError::Migration(format!("Failed to create ai_engineer_profile table: {}", e))
+        })?;
     }
     Ok(())
 }
@@ -2407,7 +2984,7 @@ async fn migrate_ai_memory_table(pool: &SqlitePool) -> Result<(), DbError> {
                 source TEXT NOT NULL DEFAULT 'ai',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )"#
+            )"#,
         )
         .execute(pool)
         .await
@@ -2416,12 +2993,19 @@ async fn migrate_ai_memory_table(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("CREATE INDEX idx_ai_memory_category ON ai_memory(category)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create ai_memory category index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to create ai_memory category index: {}", e))
+            })?;
 
         sqlx::query("CREATE INDEX idx_ai_memory_created_at ON ai_memory(created_at)")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to create ai_memory created_at index: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Failed to create ai_memory created_at index: {}",
+                    e
+                ))
+            })?;
     }
 
     Ok(())
@@ -2485,7 +3069,15 @@ pub(crate) async fn validate_tunnel_jump_refs(
     jump_host_id: Option<&str>,
     jump_session_id: Option<&str>,
 ) -> Result<(), DbError> {
-    validate_jump_refs_inner(pool, "tunnel", entity_id, entity_name, jump_host_id, jump_session_id).await
+    validate_jump_refs_inner(
+        pool,
+        "tunnel",
+        entity_id,
+        entity_name,
+        jump_host_id,
+        jump_session_id,
+    )
+    .await
 }
 
 /// Same validation, exposed for sessions/profiles writes living in the
@@ -2499,7 +3091,15 @@ pub async fn validate_entity_jump_refs(
     jump_host_id: Option<&str>,
     jump_session_id: Option<&str>,
 ) -> Result<(), DbError> {
-    validate_jump_refs_inner(pool, entity_kind, entity_id, entity_name, jump_host_id, jump_session_id).await
+    validate_jump_refs_inner(
+        pool,
+        entity_kind,
+        entity_id,
+        entity_name,
+        jump_host_id,
+        jump_session_id,
+    )
+    .await
 }
 
 async fn validate_jump_refs_inner(
@@ -2533,7 +3133,7 @@ async fn validate_jump_refs_inner(
     // Target session must exist and be a leaf.
     let row: Option<(String, Option<String>, Option<String>, String)> = sqlx::query_as(
         "SELECT s.name, s.jump_host_id, s.jump_session_id, s.profile_id \
-         FROM sessions s WHERE s.id = ?"
+         FROM sessions s WHERE s.id = ?",
     )
     .bind(target_session_id)
     .fetch_optional(pool)
@@ -2557,7 +3157,7 @@ async fn validate_jump_refs_inner(
 
     // Target session's auth profile must also be a leaf.
     let prof: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT name, jump_host_id, jump_session_id FROM credential_profiles WHERE id = ?"
+        "SELECT name, jump_host_id, jump_session_id FROM credential_profiles WHERE id = ?",
     )
     .bind(&s_profile_id)
     .fetch_optional(pool)
@@ -2595,15 +3195,21 @@ pub async fn validate_session_not_used_as_jump(
          UNION ALL \
          SELECT 'tunnel'  AS kind, name FROM tunnels  WHERE jump_session_id = ? \
          UNION ALL \
-         SELECT 'profile' AS kind, name FROM credential_profiles WHERE jump_session_id = ?"
+         SELECT 'profile' AS kind, name FROM credential_profiles WHERE jump_session_id = ?",
     )
-    .bind(session_id).bind(session_id).bind(session_id).bind(session_id)
+    .bind(session_id)
+    .bind(session_id)
+    .bind(session_id)
+    .bind(session_id)
     .fetch_all(pool)
     .await
     .map_err(|e| DbError::Migration(e.to_string()))?;
 
     if !dependents.is_empty() {
-        let names: Vec<String> = dependents.iter().map(|(k, n)| format!("{} '{}'", k, n)).collect();
+        let names: Vec<String> = dependents
+            .iter()
+            .map(|(k, n)| format!("{} '{}'", k, n))
+            .collect();
         return Err(DbError::Migration(format!(
             "Cannot add a jump to this session — it is currently used as a jump by: {}. \
              Multi-hop jumps are not supported. Detach those references first.",
@@ -2683,9 +3289,7 @@ const TUNNEL_COLUMNS: &str = "id, name, host, port, profile_id, jump_host_id, ju
 
 pub async fn list_tunnels(pool: &SqlitePool) -> Result<Vec<Tunnel>, DbError> {
     let query = format!("SELECT {} FROM tunnels ORDER BY name", TUNNEL_COLUMNS);
-    let rows: Vec<TunnelRow> = sqlx::query_as(&query)
-        .fetch_all(pool)
-        .await?;
+    let rows: Vec<TunnelRow> = sqlx::query_as(&query).fetch_all(pool).await?;
 
     Ok(rows.into_iter().map(|r| r.into_tunnel()).collect())
 }
@@ -2716,20 +3320,29 @@ pub async fn create_tunnel(pool: &SqlitePool, new: NewTunnel) -> Result<Tunnel, 
         &new.name,
         new.jump_host_id.as_deref(),
         new.jump_session_id.as_deref(),
-    ).await?;
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO tunnels (id, name, host, port, profile_id, jump_host_id, jump_session_id, \
          forward_type, local_port, bind_address, remote_host, remote_port, \
          auto_start, auto_reconnect, max_retries, enabled) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
     )
-    .bind(&id).bind(&new.name).bind(&new.host)
-    .bind(new.port as i64).bind(&new.profile_id)
-    .bind(&new.jump_host_id).bind(&new.jump_session_id)
-    .bind(forward_type_str).bind(new.local_port as i64).bind(&new.bind_address)
-    .bind(&new.remote_host).bind(new.remote_port.map(|p| p as i64))
-    .bind(new.auto_start).bind(new.auto_reconnect)
+    .bind(&id)
+    .bind(&new.name)
+    .bind(&new.host)
+    .bind(new.port as i64)
+    .bind(&new.profile_id)
+    .bind(&new.jump_host_id)
+    .bind(&new.jump_session_id)
+    .bind(forward_type_str)
+    .bind(new.local_port as i64)
+    .bind(&new.bind_address)
+    .bind(&new.remote_host)
+    .bind(new.remote_port.map(|p| p as i64))
+    .bind(new.auto_start)
+    .bind(new.auto_reconnect)
     .bind(new.max_retries as i64)
     .execute(pool)
     .await?;
@@ -2737,7 +3350,11 @@ pub async fn create_tunnel(pool: &SqlitePool, new: NewTunnel) -> Result<Tunnel, 
     get_tunnel(pool, &id).await
 }
 
-pub async fn update_tunnel(pool: &SqlitePool, id: &str, update: UpdateTunnel) -> Result<Tunnel, DbError> {
+pub async fn update_tunnel(
+    pool: &SqlitePool,
+    id: &str,
+    update: UpdateTunnel,
+) -> Result<Tunnel, DbError> {
     let existing = get_tunnel(pool, id).await?;
 
     let forward_type_str = match update.forward_type.unwrap_or(existing.forward_type) {
@@ -2747,8 +3364,14 @@ pub async fn update_tunnel(pool: &SqlitePool, id: &str, update: UpdateTunnel) ->
     };
 
     let new_name = update.name.clone().unwrap_or_else(|| existing.name.clone());
-    let new_jump_host_id = update.jump_host_id.clone().unwrap_or(existing.jump_host_id.clone());
-    let new_jump_session_id = update.jump_session_id.clone().unwrap_or(existing.jump_session_id.clone());
+    let new_jump_host_id = update
+        .jump_host_id
+        .clone()
+        .unwrap_or(existing.jump_host_id.clone());
+    let new_jump_session_id = update
+        .jump_session_id
+        .clone()
+        .unwrap_or(existing.jump_session_id.clone());
 
     // Validate the resulting jump refs.
     validate_tunnel_jump_refs(
@@ -2757,7 +3380,8 @@ pub async fn update_tunnel(pool: &SqlitePool, id: &str, update: UpdateTunnel) ->
         &new_name,
         new_jump_host_id.as_deref(),
         new_jump_session_id.as_deref(),
-    ).await?;
+    )
+    .await?;
 
     sqlx::query(
         "UPDATE tunnels SET name = ?, host = ?, port = ?, profile_id = ?, jump_host_id = ?, jump_session_id = ?, \
@@ -2805,7 +3429,9 @@ async fn migrate_auth_header_prefix(pool: &SqlitePool) -> Result<(), DbError> {
         sqlx::query("ALTER TABLE api_resources ADD COLUMN auth_header_prefix TEXT")
             .execute(pool)
             .await
-            .map_err(|e| DbError::Migration(format!("Failed to add auth_header_prefix column: {}", e)))?;
+            .map_err(|e| {
+                DbError::Migration(format!("Failed to add auth_header_prefix column: {}", e))
+            })?;
         tracing::info!("Added auth_header_prefix column to api_resources table");
     }
     Ok(())
@@ -2813,10 +3439,12 @@ async fn migrate_auth_header_prefix(pool: &SqlitePool) -> Result<(), DbError> {
 
 async fn migrate_custom_headers(pool: &SqlitePool) -> Result<(), DbError> {
     if !column_exists(pool, "api_resources", "custom_headers").await? {
-        sqlx::query("ALTER TABLE api_resources ADD COLUMN custom_headers TEXT NOT NULL DEFAULT '[]'")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to add custom_headers column: {}", e)))?;
+        sqlx::query(
+            "ALTER TABLE api_resources ADD COLUMN custom_headers TEXT NOT NULL DEFAULT '[]'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to add custom_headers column: {}", e)))?;
         tracing::info!("Added custom_headers column to api_resources table");
     }
     Ok(())
@@ -3041,7 +3669,10 @@ fn swap_incoming_if_present(db_path: &Path) -> Result<(), DbError> {
     if !incoming.exists() {
         return Ok(());
     }
-    tracing::warn!("Staged DB import found at {} — applying", incoming.display());
+    tracing::warn!(
+        "Staged DB import found at {} — applying",
+        incoming.display()
+    );
 
     if db_path.exists() {
         let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
@@ -3144,10 +3775,12 @@ async fn migrate_task_messages_table(pool: &SqlitePool) -> Result<(), DbError> {
         .await
         .map_err(|e| DbError::Migration(format!("Failed to create task_messages table: {}", e)))?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_task_messages_task_seq ON task_messages(task_id, seq)")
-            .execute(pool)
-            .await
-            .map_err(|e| DbError::Migration(format!("Failed to create task_messages index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_task_messages_task_seq ON task_messages(task_id, seq)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| DbError::Migration(format!("Failed to create task_messages index: {}", e)))?;
 
         tracing::info!("Created task_messages table");
     }
@@ -3177,12 +3810,28 @@ async fn migrate_task_interactions_table(pool: &SqlitePool) -> Result<(), DbErro
         .await
         .map_err(|e| DbError::Migration(format!("Failed to create task_interactions table: {}", e)))?;
 
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_task_interactions_task ON task_interactions(task_id)")
-            .execute(pool).await
-            .map_err(|e| DbError::Migration(format!("Failed to create task_interactions task index: {}", e)))?;
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_task_interactions_status ON task_interactions(status)")
-            .execute(pool).await
-            .map_err(|e| DbError::Migration(format!("Failed to create task_interactions status index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_task_interactions_task ON task_interactions(task_id)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create task_interactions task index: {}",
+                e
+            ))
+        })?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_task_interactions_status ON task_interactions(status)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            DbError::Migration(format!(
+                "Failed to create task_interactions status index: {}",
+                e
+            ))
+        })?;
 
         tracing::info!("Created task_interactions table");
     }
@@ -3224,23 +3873,34 @@ mod tests {
         let pool = scratch_pool(dir.path(), "mk.db").await;
 
         sqlx::query(&PROFILE_SCOPED_MAPPED_KEYS.replace("{name}", "mapped_keys"))
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query(
             "INSERT INTO mapped_keys (id, profile_id, key_combo, command, created_at) VALUES
              ('a', 'p1', 'F1', 'show run', '2024-01-01'),
              ('b', 'p2', 'F1', 'show ver', '2024-01-02'),
              ('c', 'p1', 'F2', 'show ip int br', '2024-01-03')",
         )
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
         migrate_mapped_keys_to_global(&pool).await.unwrap();
 
-        assert!(!column_exists(&pool, "mapped_keys", "profile_id").await.unwrap());
-        assert!(column_exists(&pool, "mapped_keys", "description").await.unwrap());
+        assert!(!column_exists(&pool, "mapped_keys", "profile_id")
+            .await
+            .unwrap());
+        assert!(column_exists(&pool, "mapped_keys", "description")
+            .await
+            .unwrap());
         assert!(!table_exists(&pool, "mapped_keys_old").await.unwrap());
         assert_eq!(
             mapped_key_rows(&pool).await,
-            vec![("F1".to_string(), "show run".to_string()), ("F2".to_string(), "show ip int br".to_string())],
+            vec![
+                ("F1".to_string(), "show run".to_string()),
+                ("F2".to_string(), "show ip int br".to_string())
+            ],
         );
 
         // Re-entry on an already-migrated DB is a no-op.
@@ -3263,7 +3923,9 @@ mod tests {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )",
         )
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
         migrate_mapped_keys_to_profiles(&pool).await.unwrap();
 
@@ -3279,7 +3941,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let pool = scratch_pool(dir.path(), "mk-profile.db").await;
         sqlx::query(&PROFILE_SCOPED_MAPPED_KEYS.replace("{name}", "mapped_keys"))
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
 
         migrate_mapped_keys_to_profiles(&pool).await.unwrap();
 
@@ -3298,18 +3962,27 @@ mod tests {
         let pool = scratch_pool(dir.path(), "mk-leftover.db").await;
 
         sqlx::query(&PROFILE_SCOPED_MAPPED_KEYS.replace("{name}", "mapped_keys_old"))
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query(
             "INSERT INTO mapped_keys_old (id, profile_id, key_combo, command, created_at) VALUES
              ('a', 'p1', 'F1', 'show run', '2024-01-01')",
         )
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
         migrate_mapped_keys_to_global(&pool).await.unwrap();
 
         assert!(!table_exists(&pool, "mapped_keys_old").await.unwrap());
-        assert!(!column_exists(&pool, "mapped_keys", "profile_id").await.unwrap());
-        assert_eq!(mapped_key_rows(&pool).await, vec![("F1".to_string(), "show run".to_string())]);
+        assert!(!column_exists(&pool, "mapped_keys", "profile_id")
+            .await
+            .unwrap());
+        assert_eq!(
+            mapped_key_rows(&pool).await,
+            vec![("F1".to_string(), "show run".to_string())]
+        );
     }
 
     #[tokio::test]
@@ -3320,10 +3993,12 @@ mod tests {
         let pool = init_db(&db_path).await.unwrap();
 
         // Verify tables exist
-        let result: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let result: (i32,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
         assert_eq!(result.0, 1);
     }
@@ -3493,7 +4168,11 @@ mod tests {
         migrate_centralize_api_resources(&pool).await.unwrap();
 
         // All three source tables are empty.
-        for tbl in ["netbox_sources", "librenms_sources", "netstacks_crawler_sources"] {
+        for tbl in [
+            "netbox_sources",
+            "librenms_sources",
+            "netstacks_crawler_sources",
+        ] {
             let (cnt,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {}", tbl))
                 .fetch_one(&pool)
                 .await
@@ -3502,7 +4181,11 @@ mod tests {
         }
 
         // url column removed, api_resource_id present.
-        for tbl in ["netbox_sources", "librenms_sources", "netstacks_crawler_sources"] {
+        for tbl in [
+            "netbox_sources",
+            "librenms_sources",
+            "netstacks_crawler_sources",
+        ] {
             assert!(
                 !column_exists(&pool, tbl, "url").await.unwrap(),
                 "{} should no longer have url column",
@@ -3515,9 +4198,21 @@ mod tests {
             );
         }
         // NetStacks-Crawler's bespoke columns are gone.
-        assert!(!column_exists(&pool, "netstacks_crawler_sources", "auth_type").await.unwrap());
-        assert!(!column_exists(&pool, "netstacks_crawler_sources", "username").await.unwrap());
-        assert!(!column_exists(&pool, "netstacks_crawler_sources", "credential_key").await.unwrap());
+        assert!(
+            !column_exists(&pool, "netstacks_crawler_sources", "auth_type")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !column_exists(&pool, "netstacks_crawler_sources", "username")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !column_exists(&pool, "netstacks_crawler_sources", "credential_key")
+                .await
+                .unwrap()
+        );
 
         // Per-source token tables are gone.
         let token_tables: Vec<(String,)> = sqlx::query_as(
@@ -3545,5 +4240,79 @@ mod tests {
 
         // Idempotent — second run is a no-op.
         migrate_centralize_api_resources(&pool).await.unwrap();
+    }
+
+    #[test]
+    fn split_index_statements_holds_back_every_index() {
+        let (tables, indexes) = split_index_statements(include_str!("schema.sql"));
+        assert!(!tables.contains("CREATE INDEX") && !tables.contains("CREATE UNIQUE INDEX"));
+        assert!(indexes.lines().filter(|l| !l.trim().is_empty()).all(|l| l.trim_start().starts_with("CREATE")));
+        assert!(indexes.contains("idx_snapshots_execution_id"));
+        assert!(tables.contains("CREATE TABLE IF NOT EXISTS clips"));
+    }
+
+    /// A database created before NS-MOP-1 has `snapshots` without `execution_id`.
+    /// `init_schema` must still succeed: the index on that column is owned by
+    /// the migration, not by schema.sql (which runs first and would fail).
+    #[tokio::test]
+    async fn init_schema_upgrades_pre_mop1_snapshots_table() {
+        let dir = tempdir().unwrap();
+        let pool = scratch_pool(dir.path(), "old-snapshots.db").await;
+        sqlx::raw_sql(
+            "CREATE TABLE changes (
+                 id TEXT PRIMARY KEY,
+                 session_id TEXT,
+                 name TEXT NOT NULL,
+                 description TEXT,
+                 status TEXT NOT NULL DEFAULT 'draft',
+                 mop_steps TEXT NOT NULL DEFAULT '[]',
+                 pre_snapshot_id TEXT,
+                 post_snapshot_id TEXT,
+                 ai_analysis TEXT,
+                 created_by TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 executed_at TEXT,
+                 completed_at TEXT
+             );
+             CREATE TABLE snapshots (
+                 id TEXT PRIMARY KEY,
+                 change_id TEXT NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
+                 snapshot_type TEXT NOT NULL,
+                 commands TEXT NOT NULL DEFAULT '[]',
+                 output TEXT NOT NULL DEFAULT '',
+                 captured_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             INSERT INTO changes (id, name, created_by) VALUES ('c1', 'old change', 'engineer');
+             INSERT INTO snapshots (id, change_id, snapshot_type) VALUES ('s1', 'c1', 'pre');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        init_schema(&pool)
+            .await
+            .expect("init_schema must upgrade an old snapshots table");
+
+        assert!(column_exists(&pool, "snapshots", "execution_id")
+            .await
+            .unwrap());
+        let idx: Option<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_snapshots_execution_id'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(idx.as_deref(), Some("idx_snapshots_execution_id"));
+        let kept: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM snapshots WHERE id = 's1' AND change_id = 'c1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(kept, 1);
+
+        // Idempotent on a second start.
+        init_schema(&pool).await.unwrap();
     }
 }

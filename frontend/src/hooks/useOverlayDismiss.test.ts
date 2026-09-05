@@ -73,4 +73,22 @@ describe('useOverlayDismiss', () => {
     c.unmount()
     p.unmount()
   })
+
+  it('backdrop click dismisses only when the press started on the backdrop', () => {
+    const onDismiss = vi.fn()
+    const { result } = renderHook(() => useOverlayDismiss({ onDismiss }))
+    const backdrop = {} as EventTarget
+    const content = {} as EventTarget
+    const ev = (target: EventTarget) => ({ target, currentTarget: backdrop }) as unknown as React.MouseEvent
+
+    // Press began inside the dialog (drag/resize/text selection) and ended over the backdrop.
+    result.current.backdropProps.onMouseDown(ev(content))
+    result.current.backdropProps.onClick(ev(backdrop))
+    expect(onDismiss).not.toHaveBeenCalled()
+
+    // Plain backdrop click still dismisses, and the inside-press flag does not linger.
+    result.current.backdropProps.onMouseDown(ev(backdrop))
+    result.current.backdropProps.onClick(ev(backdrop))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
 })

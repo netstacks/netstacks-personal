@@ -1,6 +1,8 @@
 // Agent Tool definitions for AI troubleshooting agent
 // Follows Claude's tool-use pattern for structured function calling
 
+import type { SettingsTab } from '../types/settingsTab';
+
 /**
  * Tool definition for AI model (Claude tool-use schema)
  */
@@ -1328,71 +1330,11 @@ export const patchFileToolDefinition: AgentTool = {
   },
 };
 
-// =============================================================================
-// Config Backup Tools
-// =============================================================================
-
-const searchConfigBackupsToolDefinition: AgentTool = {
-  name: 'search_config_backups',
-  description: 'Search for a configuration element (route-policy, interface, BGP neighbor, ACL, etc.) across ALL config backups for a device. Shows when the element was first seen, changed, or removed. Use for "when did X change?" questions.',
-  parameters: {
-    type: 'object',
-    properties: {
-      device_id: { type: 'string', description: 'Device UUID' },
-      search_text: { type: 'string', description: 'Config text to search for (e.g., "ROUTE_POLICY1", "interface Ethernet1", "neighbor 10.0.0.1")' },
-    },
-    required: ['device_id', 'search_text'],
-  },
-}
-
-const getDeviceConfigToolDefinition: AgentTool = {
-  name: 'get_device_config',
-  description: 'Get the latest running configuration backup for a device. Can filter to a specific section. Use to check current config state or analyze configuration.',
-  parameters: {
-    type: 'object',
-    properties: {
-      device_id: { type: 'string', description: 'Device UUID' },
-      section: { type: 'string', description: 'Optional: filter to config section (e.g., "bgp", "interface", "route-policy", "acl")' },
-    },
-    required: ['device_id'],
-  },
-}
-
-const collectDeviceBackupToolDefinition: AgentTool = {
-  name: 'collect_device_backup',
-  description: 'SSH into a device and collect a live running configuration backup. Use when you need a fresh config or no backup exists yet.',
-  parameters: {
-    type: 'object',
-    properties: {
-      device_id: { type: 'string', description: 'Device UUID to collect config from' },
-    },
-    required: ['device_id'],
-  },
-}
-
-const investigateConfigChangeToolDefinition: AgentTool = {
-  name: 'investigate_config_change',
-  description: 'Investigate when and why a configuration element changed. Cross-references config backups with audit logs, MOPs, and sessions. Use for "when did this change?", "why was this changed?", "was there a MOP for this?"',
-  parameters: {
-    type: 'object',
-    properties: {
-      device_id: { type: 'string', description: 'Device UUID' },
-      config_element: { type: 'string', description: 'Config element to investigate (e.g., "route-policy CUSTOMER-IN", "interface Ethernet1")' },
-      time_range_days: { type: 'integer', description: 'How far back to look in days (default: 30)' },
-    },
-    required: ['device_id', 'config_element'],
-  },
-}
-
-/**
- * Collection of config backup analysis tools
- */
-export const BACKUP_TOOLS: AgentTool[] = [
-  searchConfigBackupsToolDefinition,
-  getDeviceConfigToolDefinition,
-  collectDeviceBackupToolDefinition,
-  investigateConfigChangeToolDefinition,
-]
+// Config-backup tools (search_config_backups, get_device_config,
+// collect_device_backup, investigate_config_change) are controller-side tools.
+// They are offered only when the controller exports them via /ai/tools/schemas
+// (serverTools) and executed via /ai/tool-exec — never defined locally, since
+// nothing local can execute them (NS-AI-36).
 
 // =============================================================================
 // UI Navigation Tools (frontend-only, executed in React)
@@ -1462,13 +1404,26 @@ const navigateToTopologyToolDefinition: AgentTool = {
   },
 }
 
+/**
+ * Settings tabs the AI may open. Typed against `SettingsTab` so a renamed or
+ * removed tab fails to compile here instead of silently breaking the tool
+ * description (NS-AI-39). Enterprise-only tabs (`enterprise`, `account`) are
+ * left out on purpose.
+ */
+export const NAVIGABLE_SETTINGS_TABS = [
+  'general', 'ai', 'aiEngineer', 'prompts', 'snippets', 'customCommands',
+  'keyboard', 'mappedKeys', 'profiles', 'jumpHosts', 'tunnels', 'highlighting', 'enrichment',
+  'documents', 'security', 'hostKeys', 'recordings', 'layouts', 'sessionLogs', 'integrations',
+  'troubleshooting', 'clipboard', 'workspaces',
+] as const satisfies readonly SettingsTab[];
+
 const navigateToSettingsToolDefinition: AgentTool = {
   name: 'navigate_to_settings',
-  description: 'Open the Settings panel in the UI, optionally to a specific tab. Available tabs: general, ai, aiEngineer, prompts, snippets, customCommands, keyboard, mappedKeys, profiles, jumpHosts, tunnels, highlighting, security, integrations, apiResources, troubleshooting, connection',
+  description: `Open the Settings panel in the UI, optionally to a specific tab. Available tabs: ${NAVIGABLE_SETTINGS_TABS.join(', ')}. Tab meanings: ai = providers/keys/models/tools, aiEngineer = the AI's profile/personality, prompts = editable system prompts, customCommands = terminal right-click actions, mappedKeys = keyboard→command macros, profiles = credential profiles, hostKeys = trusted SSH host keys, enrichment = hover lookups, documents = auto-save locations, integrations = NetBox/LibreNMS/Crawler sources, clipboard = clipboard history retention and paste-hygiene presets. API Resources and saved API requests (Quick Calls) are NOT in Settings — they live in the API section of the Workspaces sidebar (activity bar → Workspaces).`,
   parameters: {
     type: 'object',
     properties: {
-      tab: { type: 'string', description: 'Settings tab to open (e.g., "customCommands", "integrations", "aiEngineer", "tunnels", "profiles")' },
+      tab: { type: 'string', enum: [...NAVIGABLE_SETTINGS_TABS], description: 'Settings tab to open' },
     },
     required: [],
   },
@@ -1504,10 +1459,14 @@ export const REMOTE_FILE_TOOLS: AgentTool[] = [
  */
 export const createMopToolDefinition: AgentTool = {
   name: 'create_mop',
-  description: 'Create a new MOP (Method of Procedure) for a network change. A MOP contains structured steps: pre_check commands to verify state before changes, change commands to execute, post_check commands to verify the change worked, and optional rollback commands. Use this when the user asks to create a change plan, MOP, or maintenance procedure.',
+  description: 'Create a new MOP (Method of Procedure) for a network change, or update an existing one in place when mop_id is given. A MOP contains structured steps: pre_check commands to verify state before changes, change commands to execute, post_check commands to verify the change worked, and optional rollback commands. Steps may use {{name}} placeholders for plan variables (declare them in `variables`) and the {{device.host}} / {{device.name}} / {{device.type}} built-ins, which are resolved per device at execution time. Use this when the user asks to create a change plan, MOP, or maintenance procedure. When the live workspace state shows an open MOP and the user asks to edit/extend it, pass its id as mop_id (the steps you send replace the existing ones — call get_mop first and include the steps you want to keep).',
   parameters: {
     type: 'object',
     properties: {
+      mop_id: {
+        type: 'string',
+        description: 'Optional. ID of an existing MOP to update in place (from list_mops, get_mop or the open MOP in the live workspace state). Omit to create a new MOP.',
+      },
       name: {
         type: 'string',
         description: 'Name/title of the MOP (e.g., "Configure TACACS and DNS on NAW03 Juniper devices")',
@@ -1535,6 +1494,10 @@ export const createMopToolDefinition: AgentTool = {
       rollback: {
         type: 'string',
         description: 'Optional rollback commands in JSON array format. Same format as changes. Used to undo the change if needed.',
+      },
+      variables: {
+        type: 'string',
+        description: 'Optional plan variables in JSON array format: [{"name": "vlan_id", "value": "200", "description": "Access VLAN", "required": true}]. Names match ^[A-Za-z_][A-Za-z0-9_]*$. Commands, expected outputs, quick-action variables and script args may reference them as {{name}}; the built-ins {{device.host}}, {{device.name}} and {{device.type}} (CLI flavor) are always available and need no declaration. Per-device values are set later in the MOP Devices tab (device_variables).',
       },
     },
     required: ['name', 'session_ids', 'pre_checks', 'changes', 'post_checks'],
@@ -1917,6 +1880,7 @@ export interface ToolAvailability {
   hasMcpServers?: boolean;
   // Remote file write tools (AI Terminal Mode) — requires ai.terminal_mode setting
   hasRemoteFiles?: boolean;
+  /** Enterprise: backup tools come from the controller's server-tool schemas, not from here. */
   hasBackupAnalysis?: boolean;
   hasUINavigation?: boolean;
   // Bash/shell tool — available in Auto Pilot mode
@@ -2040,10 +2004,6 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
   // Include remote file tools when AI terminal mode is enabled
   if (availability.hasRemoteFiles) {
     tools.push(...REMOTE_FILE_TOOLS);
-  }
-
-  if (availability.hasBackupAnalysis) {
-    tools.push(...BACKUP_TOOLS);
   }
 
   if (availability.hasUINavigation) {

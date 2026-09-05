@@ -18,6 +18,7 @@ import { PasswordInput } from './PasswordInput'
 import AskAiHelp from './AskAiHelp'
 import AITabInput from './AITabInput'
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
+import { notifyApiClientChanged } from './api/apiClientEvents'
 import './ApiResourceDialog.css'
 
 // Icons
@@ -209,6 +210,7 @@ export default function ApiResourceDialog({
       } else {
         createdResource = await createApiResource(payload)
       }
+      notifyApiClientChanged()
       onSave?.()
       if (createdResource) {
         onSaved?.(createdResource)

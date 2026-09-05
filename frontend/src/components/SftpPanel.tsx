@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { copyToClipboard } from '../lib/clipboard'
 import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
 import {
   sftpLs,
@@ -558,7 +559,7 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
   // --- Copy path ---
 
   const handleCopyPath = (path: string) => {
-    navigator.clipboard.writeText(path).catch(() => {});
+    void copyToClipboard(path, { source: 'app-copy', tabType: 'sftp' });
     setContextMenu(null);
   };
 

@@ -11,6 +11,7 @@
  */
 
 import { getClient } from './client';
+import { sharedAsync } from '../lib/inflight'
 import { getApiErrorMessage, isApiErrorCode } from './errors';
 
 const MCP_STATE_CHANGED = 'mcp-state-changed';
@@ -101,10 +102,10 @@ export interface TestMcpServerResponse {
 /**
  * List all configured MCP servers
  */
-export async function listMcpServers(): Promise<McpServer[]> {
+export const listMcpServers = sharedAsync('mcp:servers', async (): Promise<McpServer[]> => {
   const { data } = await getClient().http.get('/mcp/servers');
   return Array.isArray(data) ? data : [];
-}
+})
 
 /**
  * Add a new MCP server configuration.

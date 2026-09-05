@@ -50,6 +50,11 @@ export const MENU_MODEL: MenuSection[] = [
     cmd('tools.recordings'), cmd('tools.session-logs'), cmd('tools.layouts'), sep,
     cmd('tools.scratchpad'),
   ]},
+  { title: 'MOP', entries: [
+    cmd('file.new-mop'), cmd('mop.save'), sep,
+    cmd('mop.start'), cmd('mop.run-next'), sep,
+    cmd('mop.abort'), cmd('mop.complete'),
+  ]},
   { title: 'AI', entries: [
     cmd('ai.toggle-chat'), sep,
     cmd('ai.settings'), cmd('ai.mcp-servers'), cmd('ai.memory'),

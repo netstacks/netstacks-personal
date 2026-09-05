@@ -1,32 +1,43 @@
 // MopPlanTab — extracted from MopWorkspace.renderPlanTab
 // Renders the Plan sub-tab: metadata, source selectors, step sections, test terminal
 
-import { type RefObject } from 'react';
 import './MopWorkspace.css';
 import type { MopStep, MopStepType } from '../../types/change';
 import type { Session } from '../../api/sessions';
 import type { DeviceSummary } from '../../api/enterpriseDevices';
-import type { ConfigTemplate } from '../../api/configManagement';
-import type { ExecCommandResult } from '../../api/mopTestTerminal';
-import type { StepSourceType } from '../../types/mop';
-import type { QuickAction } from '../../types/quickAction';
-import type { Script, ScriptParam } from '../../api/scripts';
 import { extractActionVariables } from '../../lib/quickActionVariables';
 import ScriptParamsForm from '../ScriptParamsForm';
 import AITabInput from '../AITabInput';
 
-// Re-export constants and helpers from MopWorkspace
-import { STEP_SECTIONS, ASSERTION_COLORS, hasStructuredAssertions, parseAssertions } from './MopWorkspace';
+import { STEP_SECTIONS, ASSERTION_COLORS } from './constants';
+import { hasStructuredAssertions, parseAssertions } from './mopHelpers';
+import MopVariablesCard from './MopVariablesCard';
+import type { UseMopPlanReturn } from './useMopPlan';
+
+// Keyboard activation for clickable <div>s: Enter/Space fire the click
+// handler, but only when the element itself has focus — key events bubbling
+// out of nested inputs/buttons must not trigger the row.
+function activateOnKey(handler: () => void) {
+  return (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler();
+    }
+  };
+}
+
+// MopWorkspace.css only styles `.mop-test-terminal-input input`; the command
+// box is a textarea (Shift+Enter inserts a newline) so mirror that rule here
+// until the stylesheet gains a textarea selector.
 
 // ============================================================================
 // Props Interface
 // ============================================================================
 
-export interface MopPlanTabProps {
-  // Enterprise context
+export interface MopPlanEnterpriseProps {
   isEnterprise: boolean;
   hasStacks: boolean;
-
   // Approval state (enterprise)
   approvalStatus: string;
   syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
@@ -35,49 +46,22 @@ export interface MopPlanTabProps {
   dirty: boolean;
   reviewComment: string | null;
   handleSubmitForReview: () => void;
+}
 
-  // Plan name (for AI context on the description field)
+export interface MopPlanMetaProps {
+  /** Plan name (for AI context on the description field). */
   nameValue: string;
-
-  // Description
   descriptionValue: string;
   setDescriptionValue: (v: string) => void;
   markDirty: () => void;
+}
 
-  // AI auto-description
-  aiFillingDescription: boolean;
-  handleAiAutoDescription: () => void;
-
-  // Source type selector
-  sourceType: StepSourceType;
-  setSourceType: (v: StepSourceType) => void;
-
-  // Config templates
-  configTemplatesList: ConfigTemplate[];
-  configTemplatesLoading: boolean;
-  configTemplateSearch: string;
-  setConfigTemplateSearch: (v: string) => void;
-  selectedConfigTemplate: ConfigTemplate | null;
-  setSelectedConfigTemplate: (v: ConfigTemplate | null) => void;
-  configVariables: Record<string, string>;
-  setConfigVariables: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  renderedConfig: string | null;
-  setRenderedConfig: (v: string | null) => void;
-  renderingConfig: boolean;
-  handleRenderConfigTemplate: () => void;
-  handleUseConfigAsMop: () => void;
-
-  // Device selection
+export interface MopPlanDevicesProps {
   selectedDeviceIds: Set<string>;
-
-  // Per-device steps / device pills
-  hasPerDeviceSteps: boolean;
-  perDeviceSteps: Record<string, MopStep[]>;
-  activeDevicePill: string | null;
-  setActiveDevicePill: (v: string | null) => void;
   selectedDeviceList: (DeviceSummary | Session)[];
+}
 
-  // AI toolbar state
+export interface MopPlanAiProps {
   aiReviewing: boolean;
   aiReviewResult: string | null;
   setAiReviewResult: (v: string | null) => void;
@@ -91,6 +75,7 @@ export interface MopPlanTabProps {
   aiExplanation: string | null;
   aiExplaining: boolean;
   aiFillingStepField: string | null;
+  aiFillingDescription: boolean;
   handleAiReview: () => void;
   handleAiCompleteMop: () => void;
   handleAiSuggest: (sectionType: MopStepType) => void;
@@ -98,69 +83,23 @@ export interface MopPlanTabProps {
   handleExplainCommand: (stepId: string, command: string) => void;
   handleAiAutoExpectedOutput: (stepId: string, command: string) => void;
   handleAiAutoFillAllDescriptions: (sectionType: MopStepType) => void;
+  handleAiAutoDescription: () => void;
+}
 
-  // Paste mode
-  pasteMode: MopStepType | null;
-  setPasteMode: (v: MopStepType | null) => void;
-  pasteText: string;
-  setPasteText: (v: string) => void;
-  handlePasteSubmit: () => void;
-
-  // Step state
-  steps: MopStep[];
-  expandedSteps: Set<string>;
-  collapsedSections: Set<MopStepType>;
-  stepsBySection: Record<MopStepType, MopStep[]>;
-  selectedStepId: string | null;
-  setSelectedStepId: (v: string | null) => void;
-  activeSteps: MopStep[];
-  setActiveSteps: (updater: (prev: MopStep[]) => MopStep[]) => void;
-
-  // Step actions
-  toggleSection: (type: MopStepType) => void;
-  toggleStepExpanded: (stepId: string) => void;
-  addStep: (stepType: MopStepType) => void;
-  updateStepField: (stepId: string, updates: Partial<MopStep>) => void;
-  removeStep: (stepId: string) => void;
-  moveStep: (stepId: string, direction: 'up' | 'down') => void;
-  duplicateStep: (stepId: string) => void;
-  handleRemoveAssertion: (stepId: string, lineIndex: number) => void;
-
-  // Test terminal
-  testTerminalOpen: boolean;
-  setTestTerminalOpen: (v: boolean) => void;
-  testDevice: string;
-  setTestDevice: (v: string) => void;
-  testCommand: string;
-  setTestCommand: (v: string) => void;
-  testRunning: boolean;
-  testResult: ExecCommandResult | null;
-  setTestResult: (v: ExecCommandResult | null) => void;
-  testHistory: Array<{ device: string; deviceName: string; command: string; output: string; success: boolean; time: number }>;
-  testHistoryCollapsed: boolean;
-  setTestHistoryCollapsed: (v: boolean) => void;
-  quickCommandChips: Array<{ id: string; command: string; isCurrent: boolean }>;
-  handleTestRun: () => void;
-  handleUseAsExpectedOutput: () => void;
-  handleRunStepCommand: (stepId: string, command: string) => void;
-  handleOutputMouseUp: () => void;
-  handleOutputMouseDown: () => void;
-  selectionPopover: { text: string; x: number; y: number } | null;
-  handleAddAssertion: (assertionType: 'CONTAINS' | 'NOT_CONTAINS' | 'EXACT_LINE' | 'REGEX', text: string) => void;
-  testOutputRef: RefObject<HTMLPreElement | null>;
-
-  // Quick actions & scripts (for step source picker)
-  quickActions: QuickAction[];
-  scripts: Script[];
-  scriptParams: Record<string, ScriptParam[]>;
-  loadScriptParams: (scriptId: string) => void;
+export interface MopPlanTabProps {
+  /** Plan-editing state + handlers (steps, paste, test terminal, sources…). */
+  plan: UseMopPlanReturn;
+  ai: MopPlanAiProps;
+  enterprise: MopPlanEnterpriseProps;
+  devices: MopPlanDevicesProps;
+  meta: MopPlanMetaProps;
 }
 
 // ============================================================================
 // Component
 // ============================================================================
 
-export default function MopPlanTab(props: MopPlanTabProps) {
+export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopPlanTabProps) {
   const {
     isEnterprise,
     hasStacks,
@@ -171,33 +110,12 @@ export default function MopPlanTab(props: MopPlanTabProps) {
     dirty,
     reviewComment,
     handleSubmitForReview,
-    nameValue,
-    descriptionValue,
-    setDescriptionValue,
-    markDirty,
+  } = enterprise;
+  const { nameValue, descriptionValue, setDescriptionValue, markDirty } = meta;
+  const { selectedDeviceIds, selectedDeviceList } = devices;
+  const {
     aiFillingDescription,
     handleAiAutoDescription,
-    sourceType,
-    setSourceType,
-    configTemplatesList,
-    configTemplatesLoading,
-    configTemplateSearch,
-    setConfigTemplateSearch,
-    selectedConfigTemplate,
-    setSelectedConfigTemplate,
-    configVariables,
-    setConfigVariables,
-    renderedConfig,
-    setRenderedConfig,
-    renderingConfig,
-    handleRenderConfigTemplate,
-    handleUseConfigAsMop,
-    selectedDeviceIds,
-    hasPerDeviceSteps,
-    perDeviceSteps,
-    activeDevicePill,
-    setActiveDevicePill,
-    selectedDeviceList,
     aiReviewing,
     aiReviewResult,
     setAiReviewResult,
@@ -218,18 +136,35 @@ export default function MopPlanTab(props: MopPlanTabProps) {
     handleExplainCommand,
     handleAiAutoExpectedOutput,
     handleAiAutoFillAllDescriptions,
-    pasteMode,
-    setPasteMode,
-    pasteText,
-    setPasteText,
-    handlePasteSubmit,
+  } = ai;
+  const {
+    sourceType,
+    setSourceType,
+    configTemplatesList,
+    configTemplatesLoading,
+    configTemplateSearch,
+    setConfigTemplateSearch,
+    selectedConfigTemplate,
+    setSelectedConfigTemplate,
+    configVariables,
+    setConfigVariables,
+    renderedConfig,
+    setRenderedConfig,
+    renderingConfig,
+    handleRenderConfigTemplate,
+    handleUseConfigAsMop,
+  } = plan.configTemplate;
+  const {
     steps,
+    hasPerDeviceSteps,
+    perDeviceSteps,
     expandedSteps,
     collapsedSections,
     stepsBySection,
-    selectedStepId,
-    setSelectedStepId,
-    activeSteps: _activeSteps,
+  } = plan.steps;
+  const { activeDevicePill, setActiveDevicePill, selectedStepId, setSelectedStepId } = plan.selection;
+  const { pasteMode, setPasteMode, pasteText, setPasteText, handlePasteSubmit } = plan.paste;
+  const {
     setActiveSteps,
     toggleSection,
     toggleStepExpanded,
@@ -238,7 +173,10 @@ export default function MopPlanTab(props: MopPlanTabProps) {
     removeStep,
     moveStep,
     duplicateStep,
+    handleAddAssertion,
     handleRemoveAssertion,
+  } = plan.actions;
+  const {
     testTerminalOpen,
     setTestTerminalOpen,
     testDevice,
@@ -258,13 +196,9 @@ export default function MopPlanTab(props: MopPlanTabProps) {
     handleOutputMouseUp,
     handleOutputMouseDown,
     selectionPopover,
-    handleAddAssertion,
     testOutputRef,
-    quickActions,
-    scripts,
-    scriptParams,
-    loadScriptParams,
-  } = props;
+  } = plan.testTerminal;
+  const { quickActions, scripts, scriptParams, loadScriptParams } = plan.sources;
 
   return (
     <div className="mop-plan-tab">
@@ -340,6 +274,9 @@ export default function MopPlanTab(props: MopPlanTabProps) {
         </div>
       </div>
 
+      {/* Plan variables ({{name}} placeholders) */}
+      <MopVariablesCard variables={plan.variables} />
+
       {/* Enterprise: Source Selector (only show template tabs when stacks plugin is installed) */}
       {isEnterprise && hasStacks && (
         <div className="mop-source-selector">
@@ -390,18 +327,23 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                         const q = configTemplateSearch.toLowerCase();
                         return t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
                       })
-                      .map(t => (
+                      .map(t => {
+                        const selectTemplate = () => {
+                          setSelectedConfigTemplate(t);
+                          const vars: Record<string, string> = {};
+                          for (const v of t.variables) vars[v.name] = '';
+                          setConfigVariables(vars);
+                          setRenderedConfig(null);
+                          setConfigTemplateSearch('');
+                        };
+                        return (
                         <div
                           key={t.id}
                           className="mop-template-card"
-                          onClick={() => {
-                            setSelectedConfigTemplate(t);
-                            const vars: Record<string, string> = {};
-                            for (const v of t.variables) vars[v.name] = '';
-                            setConfigVariables(vars);
-                            setRenderedConfig(null);
-                            setConfigTemplateSearch('');
-                          }}
+                          role="button"
+                          tabIndex={0}
+                          onClick={selectTemplate}
+                          onKeyDown={activateOnKey(selectTemplate)}
                         >
                           <div className="mop-template-card-name">{t.name}</div>
                           {t.description && <div className="mop-template-card-desc">{t.description}</div>}
@@ -409,7 +351,8 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                             {t.variables.length} variable{t.variables.length !== 1 ? 's' : ''} &middot; v{t.current_version}
                           </div>
                         </div>
-                      ))
+                        );
+                      })
                     }
                     {configTemplateSearch.trim() && configTemplatesList.filter(t => {
                       const q = configTemplateSearch.toLowerCase();
@@ -538,7 +481,9 @@ export default function MopPlanTab(props: MopPlanTabProps) {
           className={`mop-ai-toolbar-btn ${testTerminalOpen ? 'active' : ''}`}
           onClick={() => setTestTerminalOpen(!testTerminalOpen)}
           disabled={selectedDeviceIds.size === 0}
-          title="Open command test terminal"
+          title={selectedDeviceIds.size === 0
+            ? 'Select at least one device on the Devices tab to open the test terminal'
+            : 'Open command test terminal'}
         >
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
             <path d="M2 3v10h12V3H2zm11 9H3V5h10v7zM4 6l3 2-3 2V6z" />
@@ -579,7 +524,11 @@ export default function MopPlanTab(props: MopPlanTabProps) {
             <div key={type} className="mop-plan-section">
               <div
                 className="mop-plan-section-header"
+                role="button"
+                tabIndex={0}
+                aria-expanded={!isCollapsed}
                 onClick={() => toggleSection(type)}
+                onKeyDown={activateOnKey(() => toggleSection(type))}
               >
                 <div className="mop-plan-section-title">
                   <span className={`mop-plan-section-chevron ${isCollapsed ? '' : 'expanded'}`}>
@@ -675,7 +624,14 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                   {sectionSteps.map((step, idx) => {
                     const isExpanded = expandedSteps.has(step.id);
                     return (
-                      <div key={step.id} className={`mop-plan-step ${isExpanded ? 'expanded' : ''} ${selectedStepId === step.id ? 'selected' : ''}`} onClick={() => setSelectedStepId(step.id)}>
+                      <div
+                        key={step.id}
+                        className={`mop-plan-step ${isExpanded ? 'expanded' : ''} ${selectedStepId === step.id ? 'selected' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedStepId(step.id)}
+                        onKeyDown={activateOnKey(() => setSelectedStepId(step.id))}
+                      >
                         <div className="mop-plan-step-main">
                           <span
                             className="mop-plan-step-order"
@@ -824,16 +780,7 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                                     >
                                       Template
                                     </button>
-                                    <button
-                                      className={`mop-step-source-btn ${step.execution_source === 'deployment_link' ? 'active' : ''}`}
-                                      onClick={() => updateStepField(step.id, {
-                                        execution_source: 'deployment_link',
-                                        quick_action_id: undefined, quick_action_variables: undefined,
-                                        script_id: undefined, script_args: undefined,
-                                      })}
-                                    >
-                                      Deployment
-                                    </button>
+                                    {/* "Deployment" (deployment_link) source is not implemented — not offered (NS-MOP-12) */}
                                   </>
                                 )}
                               </div>
@@ -997,12 +944,11 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                               </div>
                             )}
 
-                            {/* Deployment Link placeholder */}
                             {step.execution_source === 'deployment_link' && (
                               <div className="mop-plan-step-detail-field">
                                 <label>Deployment</label>
                                 <div className="mop-step-deployment-link-placeholder">
-                                  Deployment linking will be available when the Deployments tab is implemented.
+                                  This step was saved with the unsupported "Deployment" source. Pick CLI, Quick Action, Script or Template above.
                                 </div>
                               </div>
                             )}
@@ -1078,11 +1024,15 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                                         return [...prev, mirrorStep];
                                       });
                                     } else {
+                                      // Unpairing only breaks the link on both sides. The mirror's
+                                      // paired_step_id points at the ORIGINAL step, so deleting the
+                                      // partner here would destroy the user's step.
                                       const pairedId = step.paired_step_id;
-                                      updateStepField(step.id, { paired_step_id: undefined });
-                                      if (pairedId) {
-                                        setActiveSteps(prev => prev.filter(s => s.id !== pairedId));
-                                      }
+                                      setActiveSteps(prev => prev.map(s =>
+                                        s.id === step.id || (pairedId != null && s.id === pairedId)
+                                          ? { ...s, paired_step_id: undefined }
+                                          : s
+                                      ));
                                     }
                                   }}
                                   disabled={step.step_type !== 'pre_check' && step.step_type !== 'post_check'}
@@ -1103,7 +1053,13 @@ export default function MopPlanTab(props: MopPlanTabProps) {
 
                   {/* Section footer actions */}
                   <div className="mop-plan-section-footer">
-                    <div className="mop-plan-add-step" onClick={() => addStep(type)}>
+                    <div
+                      className="mop-plan-add-step"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => addStep(type)}
+                      onKeyDown={activateOnKey(() => addStep(type))}
+                    >
                       <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                         <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3 8H9v2H7V9H5V7h2V5h2v2h2v2z" />
                       </svg>
@@ -1161,11 +1117,17 @@ export default function MopPlanTab(props: MopPlanTabProps) {
           </div>
 
           <div className="mop-test-terminal-input">
-            <input
+            <textarea
               value={testCommand}
               onChange={(e) => setTestCommand(e.target.value)}
-              onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleTestRun(); }}
+              onKeyDown={(e) => {
+                // Enter (or Ctrl/Cmd+Enter) runs; Shift+Enter inserts a newline
+                if (e.key !== 'Enter' || e.shiftKey) return;
+                e.preventDefault();
+                if (testCommand.trim() && !testRunning) handleTestRun();
+              }}
               placeholder="Enter command..."
+              rows={1}
               disabled={!testDevice || testRunning}
             />
             <button
@@ -1219,7 +1181,7 @@ export default function MopPlanTab(props: MopPlanTabProps) {
             ) : (
               <div className="mop-test-terminal-empty">
                 Run a command to see output here.
-                <span className="mop-test-terminal-hint">Ctrl+Enter to run</span>
+                <span className="mop-test-terminal-hint">Enter to run &middot; Shift+Enter for a new line</span>
               </div>
             )}
           </div>
@@ -1247,7 +1209,11 @@ export default function MopPlanTab(props: MopPlanTabProps) {
             <div className="mop-test-terminal-history">
               <div
                 className="mop-test-terminal-history-header"
+                role="button"
+                tabIndex={0}
+                aria-expanded={!testHistoryCollapsed}
                 onClick={() => setTestHistoryCollapsed(!testHistoryCollapsed)}
+                onKeyDown={activateOnKey(() => setTestHistoryCollapsed(!testHistoryCollapsed))}
               >
                 <span className={`mop-plan-section-chevron ${testHistoryCollapsed ? '' : 'expanded'}`}>
                   <svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor">
@@ -1258,15 +1224,20 @@ export default function MopPlanTab(props: MopPlanTabProps) {
               </div>
               {!testHistoryCollapsed && (
                 <div className="mop-test-terminal-history-list">
-                  {testHistory.map((h, i) => (
+                  {testHistory.map((h, i) => {
+                    const recall = () => {
+                      setTestResult({ success: h.success, output: h.output, error: h.success ? undefined : h.output, execution_time_ms: h.time });
+                      setTestCommand(h.command);
+                      setTestDevice(h.device);
+                    };
+                    return (
                     <div
                       key={i}
                       className={`mop-test-terminal-history-item ${h.success ? '' : 'failed'}`}
-                      onClick={() => {
-                        setTestResult({ success: h.success, output: h.output, error: h.success ? undefined : h.output, execution_time_ms: h.time });
-                        setTestCommand(h.command);
-                        setTestDevice(h.device);
-                      }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={recall}
+                      onKeyDown={activateOnKey(recall)}
                       title={`${h.command} on ${h.deviceName}`}
                     >
                       <span className="mop-test-terminal-history-cmd">{h.command}</span>
@@ -1274,7 +1245,8 @@ export default function MopPlanTab(props: MopPlanTabProps) {
                         ({h.deviceName}) {h.time}ms
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

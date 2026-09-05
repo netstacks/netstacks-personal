@@ -1,0 +1,72 @@
+/* Movable / resizable popup chrome shared by the clipboard popups (useMovableRect). */
+
+/* Popup chrome (same look as the command palette, without its fixed layout);
+   geometry comes from the inline style that useMovableRect supplies. */
+.movable-popup {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  border-radius: var(--menu-radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.movable-popup kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+}
+
+.movable-popup-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: 4px var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  cursor: move;
+  user-select: none;
+  flex: none;
+}
+
+.movable-popup-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.movable-popup-close {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.movable-popup-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.movable-popup-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 0 9px, var(--color-text-secondary) 9px 10px, transparent 10px 12px, var(--color-text-secondary) 12px 13px, transparent 13px);
+  opacity: 0.6;
+}
+
+.movable-popup-resize:hover {
+  opacity: 1;
+}

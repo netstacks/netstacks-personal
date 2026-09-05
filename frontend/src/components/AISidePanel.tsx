@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type PointerEvent as ReactPointerEvent } from 'react'
+import { copyToClipboard } from '../lib/clipboard'
 import './AISidePanel.css'
 import { useShortcut } from '../hooks/useKeyboard'
 import MarkdownViewer from './MarkdownViewer'
@@ -162,6 +163,8 @@ interface DisplayMessage {
   sessionId?: string
   sessionName?: string
   output?: string
+  /** Non-zero = the tool call failed (NS-AI-37). */
+  exitCode?: number
 }
 
 const STATE_LABELS: Record<AgentState, string> = {
@@ -310,6 +313,7 @@ const AISidePanel = ({
     litellm: false,
     custom: false,
   })
+  const anyProviderConfigured = Object.values(providerConfigured).some(Boolean)
 
   // AI Engineer onboarding detection (standalone mode only)
   const [onboardingNeeded, setOnboardingNeeded] = useState(false)
@@ -536,6 +540,8 @@ const AISidePanel = ({
     // Pass selected provider/model to the hook
     provider: selectedProvider,
     model: defaultModel,
+    // Setup interview only while a profile is still missing (NS-AI-33)
+    onboardingMode: onboardingNeeded && !isEnterprise,
     onListDocuments,
     onReadDocument,
     onSearchDocuments,
@@ -684,9 +690,11 @@ const AISidePanel = ({
       return [{
         id: 'system-welcome',
         type: 'system',
-        content: onboardingNeeded
-          ? 'Welcome! I\'d like to get to know how you work so I can be more helpful. Type "hi" or anything to start a quick setup conversation.'
-          : `${assistantName} ready. Ask a question or use a quick action below.`,
+        content: !anyProviderConfigured
+          ? 'No AI provider is configured yet. Open Settings → AI (Ctrl+,) to add a provider and model, then come back here.'
+          : onboardingNeeded
+            ? 'Welcome! I\'d like to get to know how you work so I can be more helpful. Type "hi" or anything to start a quick setup conversation.'
+            : `${assistantName} ready. Ask a question or use a quick action below.`,
         timestamp: new Date(),
       }]
     }
@@ -708,9 +716,10 @@ const AISidePanel = ({
         sessionId: msg.sessionId,
         sessionName: msg.sessionName,
         output: msg.output,
+        exitCode: msg.exitCode,
       }
     })
-  }, [agentMessages, onboardingNeeded, assistantName])
+  }, [agentMessages, onboardingNeeded, assistantName, anyProviderConfigured])
 
   // Report the chat's first user prompt once, so the host can show it on the
   // tab's hover tooltip (helps tell many chat tabs apart).
@@ -1096,6 +1105,13 @@ const AISidePanel = ({
   // a second agentic loop concurrently with the paused one.
   const isAgentWorking = agentState === 'thinking' || agentState === 'executing'
   const isAgentBusy = isAgentWorking || agentState === 'waiting_approval'
+  // Re-check after each interview turn so the panel leaves onboarding mode as
+  // soon as the agent has extracted [ONBOARDING_COMPLETE] (NS-AI-33).
+  useEffect(() => {
+    if (isEnterprise || !onboardingNeeded || isAgentBusy) return
+    isOnboarded().then(completed => { if (completed) setOnboardingNeeded(false) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAgentBusy])
 
   // True once the agent's reply has actually started streaming text. Used to
   // show EITHER the thinking dots (pre-token) OR the streaming cursor (mid-text)
@@ -1117,24 +1133,24 @@ const AISidePanel = ({
         id: 'copy-selection',
         label: 'Copy',
         shortcut: '\u2318C',
-        action: () => navigator.clipboard.writeText(selection)
+        action: () => { void copyToClipboard(selection, { source: 'ai' }) }
       })
     }
 
     // Message-type-specific actions
     if (msg.type === 'user') {
-      items.push({ id: 'copy-message', label: 'Copy Message', action: () => navigator.clipboard.writeText(msg.content) })
+      items.push({ id: 'copy-message', label: 'Copy Message', action: () => { void copyToClipboard(msg.content, { source: 'ai' }) } })
     } else if (msg.type === 'agent') {
       items.push(
-        { id: 'copy-message', label: 'Copy Message', action: () => navigator.clipboard.writeText(msg.content) },
-        { id: 'copy-markdown', label: 'Copy as Markdown', action: () => navigator.clipboard.writeText(msg.content) },
+        { id: 'copy-message', label: 'Copy Message', action: () => { void copyToClipboard(msg.content, { source: 'ai' }) } },
+        { id: 'copy-markdown', label: 'Copy as Markdown', action: () => { void copyToClipboard(msg.content, { source: 'ai' }) } },
       )
     } else if (msg.type === 'command-request') {
-      items.push({ id: 'copy-command', label: 'Copy Command', action: () => navigator.clipboard.writeText(msg.command || msg.content) })
+      items.push({ id: 'copy-command', label: 'Copy Command', action: () => { void copyToClipboard(msg.command || msg.content, { source: 'ai' }) } })
     } else if (msg.type === 'command-result') {
-      items.push({ id: 'copy-output', label: 'Copy Output', action: () => navigator.clipboard.writeText(msg.output || msg.content) })
+      items.push({ id: 'copy-output', label: 'Copy Output', action: () => { void copyToClipboard(msg.output || msg.content, { source: 'ai' }) } })
     } else if (msg.type === 'system' || msg.type === 'error') {
-      items.push({ id: 'copy-message', label: 'Copy Message', action: () => navigator.clipboard.writeText(msg.content) })
+      items.push({ id: 'copy-message', label: 'Copy Message', action: () => { void copyToClipboard(msg.content, { source: 'ai' }) } })
     }
 
     if (items.length > 0) {
@@ -1607,16 +1623,35 @@ const AISidePanel = ({
                 {msg.content && <div className="ai-side-panel-command-note">{msg.content}</div>}
               </div>
             )}
-            {msg.type === 'command-result' && (
-              <div className="ai-side-panel-command-inline">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-                {msg.command && <code>{msg.command}</code>}
-                {msg.sessionName && <span className="ai-cmd-session">{msg.sessionName}</span>}
-              </div>
-            )}
+            {msg.type === 'command-result' && (() => {
+              // Failed tool calls get a red ✕ and their result expanded; successful
+              // ones keep the check and fold the result away (NS-AI-37).
+              const failed = (msg.exitCode ?? 0) !== 0
+              const output = (msg.output || '').trim()
+              return (
+                <details className={`ai-side-panel-command-result${failed ? ' failed' : ''}`} open={failed}>
+                  <summary className={`ai-side-panel-command-inline${failed ? ' failed' : ''}`} title={failed ? 'Tool call failed — click for details' : 'Click to show the result'}>
+                    {failed ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="15" y1="9" x2="9" y2="15" />
+                        <line x1="9" y1="9" x2="15" y2="15" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                        <polyline points="22 4 12 14.01 9 11.01" />
+                      </svg>
+                    )}
+                    {msg.command && <code>{msg.command}</code>}
+                    {msg.sessionName && <span className="ai-cmd-session">{msg.sessionName}</span>}
+                  </summary>
+                  {output && (
+                    <pre className="ai-side-panel-command-output">{output.length > 4000 ? `${output.slice(0, 4000)}\n… (${output.length} chars)` : output}</pre>
+                  )}
+                </details>
+              )
+            })()}
             {msg.type === 'error' && (
               <div className="ai-side-panel-error">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">

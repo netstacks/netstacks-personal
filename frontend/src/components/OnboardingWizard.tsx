@@ -9,7 +9,8 @@
 import { useRef, useState } from 'react'
 import { useModalKeyboard } from '../hooks/useModalKeyboard'
 import { useSettings, type AiProviderType } from '../hooks/useSettings'
-import { storeAiApiKey, setAiConfig, testAiConnection } from '../api/ai'
+import { storeAiApiKey, setAiConfig, testAiConnection, listProviderModels, getAiProviderOverrides, setAiProviderOverrides } from '../api/ai'
+import { MODEL_PLACEHOLDER } from '../lib/aiModelDefaults'
 import { getErrorMessage } from '../api/errors'
 import AskAiHelp from './AskAiHelp'
 import './OnboardingWizard.css'
@@ -29,10 +30,17 @@ const PROVIDER_KEY_URLS: Partial<Record<AiProviderType, string>> = {
   anthropic: 'https://console.anthropic.com/settings/keys',
   openai: 'https://platform.openai.com/api-keys',
   openrouter: 'https://openrouter.ai/keys',
-  ollama: 'https://ollama.com/download',
 }
 
+/** Providers that take an API key; for KEY_OPTIONAL ones it may be blank. */
 const KEYED_PROVIDERS: AiProviderType[] = ['anthropic', 'openai', 'openrouter', 'litellm', 'custom']
+const KEY_OPTIONAL: AiProviderType[] = ['litellm', 'custom']
+/** Providers that talk to a self-hosted / arbitrary endpoint (NS-AI-35). */
+const ENDPOINT_PROVIDERS: AiProviderType[] = ['ollama', 'litellm', 'custom']
+const DEFAULT_BASE_URL: Partial<Record<AiProviderType, string>> = {
+  ollama: 'http://localhost:11434',
+  litellm: 'http://localhost:4000',
+}
 
 export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }: OnboardingWizardProps) {
   const { settings, updateSetting } = useSettings()
@@ -44,6 +52,8 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
   const [provider, setProvider] = useState<AiProviderType>((settings['ai.defaultProvider'] as AiProviderType) || 'anthropic')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState<string>((settings['ai.models.anthropic']?.[0]) || '')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [liveModels, setLiveModels] = useState<string[]>([])
   const [aiBusy, setAiBusy] = useState(false)
   const [aiResult, setAiResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
@@ -61,6 +71,8 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
   const onProviderChange = (p: AiProviderType) => {
     setProvider(p)
     setAiResult(null)
+    setBaseUrl('')
+    setLiveModels([])
     setModel(settings[`ai.models.${p}` as keyof typeof settings] as string[] | undefined ? (settings[`ai.models.${p}` as keyof typeof settings] as string[])[0] || '' : '')
   }
 
@@ -69,18 +81,53 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
     setAiResult(null)
     try {
       const needsKey = KEYED_PROVIDERS.includes(provider)
+      const url = baseUrl.trim() || DEFAULT_BASE_URL[provider] || ''
+      if (provider === 'custom' && !url) {
+        setAiResult({ ok: false, msg: 'A Custom provider needs a Base URL (the OpenAI-compatible endpoint).' })
+        return
+      }
       if (needsKey && apiKey.trim()) {
         await storeAiApiKey(provider, apiKey.trim())
         setApiKey('')
       }
-      // Remember the model in the provider's model list so it's the default.
-      if (model.trim()) {
-        const key = `ai.models.${provider}` as keyof typeof settings
-        const existing = (settings[key] as string[] | undefined) || []
-        if (!existing.includes(model.trim())) updateSetting(key, [...existing, model.trim()])
+      // Remember the endpoint for this provider so Settings → AI and the side
+      // panel see the same URL (RC-8 overrides map).
+      if (url) {
+        const overrides = (await getAiProviderOverrides()) || {}
+        await setAiProviderOverrides({ ...overrides, base_urls: { ...(overrides.base_urls || {}), [provider]: url } })
       }
-      await setAiConfig({ provider, model: model.trim() || '' })
-      const result = await testAiConnection(provider, model.trim() || undefined)
+      // A model is required for every provider. If the user left it blank,
+      // ask the provider for its model list and take the first one (NS-SET-9).
+      let chosen = model.trim()
+      if (!chosen) {
+        const res = await listProviderModels(provider, url ? { baseUrl: url, apiFormat: provider === 'custom' ? 'openai' : undefined } : undefined)
+        const ids = res.models.map(m => m.id)
+        setLiveModels(ids)
+        chosen = ids[0] || ''
+        if (!chosen) {
+          setAiResult({ ok: false, msg: res.error ? `Enter a model name — could not list models: ${res.error}` : 'Enter a model name — this provider did not list any.' })
+          return
+        }
+        setModel(chosen)
+      }
+      // Remember the model in the provider's model list so it's the default.
+      const key = `ai.models.${provider}` as keyof typeof settings
+      const existing = (settings[key] as string[] | undefined) || []
+      if (!existing.includes(chosen)) updateSetting(key, [...existing, chosen])
+
+      await setAiConfig({
+        provider,
+        model: chosen,
+        ...(url ? { base_url: url } : {}),
+        ...(provider === 'custom' ? { api_format: 'openai', auth_mode: 'api_key' } : {}),
+      })
+      // Make the side panel agree with the agent: enable the provider and make
+      // it the default (NS-AI-34) — otherwise the panel keeps asking Anthropic.
+      const enabled = settings['ai.enabledProviders'] || ['anthropic']
+      if (!enabled.includes(provider)) updateSetting('ai.enabledProviders', [...enabled, provider])
+      updateSetting('ai.defaultProvider', provider)
+
+      const result = await testAiConnection(provider, chosen)
       setAiResult({ ok: result.success, msg: result.message || (result.success ? 'Connected!' : 'Connection failed') })
     } catch (err) {
       setAiResult({ ok: false, msg: getErrorMessage(err, 'Failed to save AI settings') })
@@ -126,16 +173,44 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
                 Need a key? <a href={keyUrl} target="_blank" rel="noreferrer">Get one from {provider} ↗</a>
               </p>
             )}
+            {provider === 'ollama' && (
+              <p className="ow-muted">
+                No key needed. Don't have Ollama yet? <a href="https://ollama.com/download" target="_blank" rel="noreferrer">Download it ↗</a>
+              </p>
+            )}
             {needsKey && (
               <label className="ow-field">
-                <span>API key</span>
+                <span>API key{KEY_OPTIONAL.includes(provider) ? ' (optional)' : ''}</span>
                 <input type="password" value={apiKey} placeholder="Paste your API key" onChange={(e) => setApiKey(e.target.value)} />
               </label>
             )}
+            {ENDPOINT_PROVIDERS.includes(provider) && (
+              <label className="ow-field">
+                <span>Base URL{provider === 'custom' ? '' : ' (optional)'}</span>
+                <input
+                  type="text"
+                  value={baseUrl}
+                  placeholder={DEFAULT_BASE_URL[provider] || 'https://llm.example.com/v1 (OpenAI-compatible)'}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                />
+              </label>
+            )}
             <label className="ow-field">
-              <span>Model {provider === 'ollama' ? '' : '(optional)'}</span>
-              <input type="text" value={model} placeholder="e.g. claude-sonnet-4-20250514" onChange={(e) => setModel(e.target.value)} />
+              <span>Model</span>
+              <input
+                type="text"
+                value={model}
+                list="ow-model-list"
+                placeholder={MODEL_PLACEHOLDER[provider]}
+                onChange={(e) => setModel(e.target.value)}
+              />
+              {liveModels.length > 0 && (
+                <datalist id="ow-model-list">
+                  {liveModels.map(m => <option key={m} value={m} />)}
+                </datalist>
+              )}
             </label>
+            <p className="ow-muted">Leave the model blank to use the first one the provider lists.</p>
             <div className="ow-inline">
               <button className="ow-btn" onClick={saveAndTestAi} disabled={aiBusy}>
                 {aiBusy ? 'Testing…' : 'Save & test'}

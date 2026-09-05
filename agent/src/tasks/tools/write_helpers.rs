@@ -234,11 +234,15 @@ pub fn build_sed_command(filepath: &str, sed_expression: &str) -> Result<String,
 
     let trimmed = sed_expression.trim();
     let mut chars = trimmed.chars();
-    let s_char = chars.next().ok_or_else(|| "sed expression must not be empty".to_string())?;
+    let s_char = chars
+        .next()
+        .ok_or_else(|| "sed expression must not be empty".to_string())?;
     if s_char != 's' {
         return Err("only 's///' substitutions are allowed".to_string());
     }
-    let sep = chars.next().ok_or_else(|| "sed expression must include a separator after 's'".to_string())?;
+    let sep = chars
+        .next()
+        .ok_or_else(|| "sed expression must include a separator after 's'".to_string())?;
     if !matches!(sep, '/' | '#' | '|' | ',') {
         return Err(format!("unsupported sed separator '{}'", sep));
     }
@@ -279,7 +283,9 @@ pub fn build_sed_command(filepath: &str, sed_expression: &str) -> Result<String,
         match ch {
             'g' | 'i' | 'I' | 'p' => {}
             d if d.is_ascii_digit() => {}
-            'e' => return Err("sed flag 'e' (execute) is not allowed — would yield RCE".to_string()),
+            'e' => {
+                return Err("sed flag 'e' (execute) is not allowed — would yield RCE".to_string())
+            }
             'w' => return Err("sed flag 'w' (write) is not allowed".to_string()),
             'r' => return Err("sed flag 'r' (read) is not allowed".to_string()),
             'M' | 'm' => return Err("sed flag 'M'/'m' is not allowed".to_string()),
@@ -407,7 +413,7 @@ pub async fn execute_ssh_for_session(
             timeout.as_secs(),
             row.host
         )),
-        CommandStatus::Error => Err(format!(
+        CommandStatus::Error | CommandStatus::NotRun => Err(format!(
             "SSH command failed on {}: {}",
             row.host,
             result.error.unwrap_or_default()
@@ -421,8 +427,14 @@ mod tests {
 
     #[test]
     fn test_validate_filepath_valid() {
-        assert_eq!(validate_filepath("/etc/config.txt").unwrap(), "/etc/config.txt");
-        assert_eq!(validate_filepath("/home/user/file").unwrap(), "/home/user/file");
+        assert_eq!(
+            validate_filepath("/etc/config.txt").unwrap(),
+            "/etc/config.txt"
+        );
+        assert_eq!(
+            validate_filepath("/home/user/file").unwrap(),
+            "/home/user/file"
+        );
     }
 
     #[test]

@@ -174,7 +174,7 @@ export default function WorkspaceSettingsTab() {
                 style={{ ...inputStyle, fontFamily: 'var(--font-family-mono)' }}
                 value={defaults.defaultCustomCommand}
                 onChange={e => saveDefaults({ ...defaults, defaultCustomCommand: e.target.value })}
-                placeholder="e.g. aider --model claude-3.5-sonnet"
+                placeholder="e.g. aider --model sonnet"
               />
             </div>
           )}

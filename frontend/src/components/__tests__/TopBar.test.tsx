@@ -46,4 +46,13 @@ describe('TopBar', () => {
     rerender(<TopBar {...base} platform="windows" />)
     expect(container.querySelector('.topbar.is-macos')).toBeNull()
   })
+
+  it('shows the clipboard-history button only when a handler is given', () => {
+    const onClip = vi.fn()
+    const { rerender } = render(<TopBar {...base} />)
+    expect(screen.queryByTestId('clipboard-history-btn')).toBeNull()
+    rerender(<TopBar {...base} onOpenClipboardHistory={onClip} />)
+    fireEvent.click(screen.getByTestId('clipboard-history-btn'))
+    expect(onClip).toHaveBeenCalledOnce()
+  })
 })

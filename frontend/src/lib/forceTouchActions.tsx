@@ -1,4 +1,5 @@
 import type { ForceTouchOption } from '../components/ForceTouchPopover'
+import { copyToClipboard } from './clipboard'
 
 /** Open a URL in the user's default browser (Tauri shell, with web fallback). */
 async function openExternal(url: string): Promise<void> {
@@ -45,6 +46,6 @@ export const forceTouchOptions: ForceTouchOption[] = [
     label: 'Copy',
     icon: CopyIcon,
     visible: (ctx) => ctx.text.length > 0,
-    run: (ctx) => navigator.clipboard.writeText(ctx.text),
+    run: (ctx) => { void copyToClipboard(ctx.text, { source: 'app-copy', tabType: 'force-touch' }) },
   },
 ]

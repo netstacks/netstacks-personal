@@ -43,6 +43,10 @@ export type KeyboardAction =
   | 'startTroubleshooting'
   | 'aiOverlay'
   | 'scratchpadOpen'
+  | 'clipboardHistory'
+  | 'terminalCopy'
+  | 'terminalPaste'
+  | 'terminalPastePassthrough'
   | 'groupSelectedTabs'
   | 'saveTabsAsGroup'
 
@@ -100,6 +104,12 @@ export const DEFAULT_KEYBINDINGS: Record<KeyboardAction, PlatformKeybinding> = {
   startTroubleshooting: both('Shift+K'),
   aiOverlay: both('Shift+A'),
   scratchpadOpen: both('Shift+J'),
+  clipboardHistory: both('Shift+H'),
+  // Terminal clipboard chords. Ctrl+Insert / Shift+Insert stay as fixed
+  // SecureCRT/Linux aliases for copy / paste on top of these.
+  terminalCopy: both('Shift+C'),
+  terminalPaste: both('V'),
+  terminalPastePassthrough: both('Shift+V'),
   groupSelectedTabs: both('G'),
   // Cmd+Shift+G belongs to aiGenerateScript.
   saveTabsAsGroup: both('Shift+D'),
@@ -117,6 +127,10 @@ export const KEYBOARD_ACTIONS: KeyboardActionInfo[] = [
   action('toggleMultiSend', 'Toggle Multi-Send', 'Terminal'),
   action('findInTerminal', 'Find in Terminal', 'Terminal'),
   action('saveTerminalOutput', 'Save Terminal Output to Docs', 'Terminal'),
+  action('clipboardHistory', 'Clipboard History', 'Terminal'),
+  action('terminalCopy', 'Copy Selection', 'Terminal'),
+  action('terminalPaste', 'Paste (preset + confirm dialog)', 'Terminal'),
+  action('terminalPastePassthrough', 'Paste Passthrough (raw, no dialog)', 'Terminal'),
 
   // Navigation
   action('commandPalette', 'Command Palette', 'Navigation'),
@@ -166,15 +180,19 @@ export const KEYBOARD_CATEGORIES: KeyboardCategory[] = ['Terminal', 'Navigation'
 export const RESERVED_SHORTCUTS: { binding: PlatformKeybinding; label: string }[] = [
   ...Array.from({ length: 9 }, (_, i) => ({ binding: both(String(i + 1)), label: `Go to Tab ${i + 1}` })),
   { binding: both('Alt+N'), label: 'New Window' },
+  // Cmd/Ctrl+V and Cmd/Ctrl+Shift+C/V are real actions now (terminalPaste,
+  // terminalCopy, terminalPastePassthrough) and are found by KEYBOARD_ACTIONS
+  // before this table is consulted, so they are not listed here.
   { binding: both('C'), label: 'Copy' },
-  { binding: both('V'), label: 'Paste' },
   { binding: both('X'), label: 'Cut' },
   { binding: both('A'), label: 'Select All' },
   { binding: both('Z'), label: 'Undo' },
   { binding: both('Shift+Z'), label: 'Redo' },
   { binding: { mac: 'Cmd+Q', windows: 'Alt+F4' }, label: 'Quit' },
-  { binding: { mac: 'Cmd+H', windows: 'Ctrl+Shift+C' }, label: isMac() ? 'Hide NetStacks' : 'Copy (terminal)' },
-  { binding: { mac: 'Cmd+M', windows: 'Ctrl+Shift+V' }, label: isMac() ? 'Minimize' : 'Paste (terminal)' },
+  // macOS-only window chords. The Windows half repeats the Quit reservation
+  // above so these rows add nothing new on Windows/Linux.
+  { binding: { mac: 'Cmd+H', windows: 'Alt+F4' }, label: isMac() ? 'Hide NetStacks' : 'Quit' },
+  { binding: { mac: 'Cmd+M', windows: 'Alt+F4' }, label: isMac() ? 'Minimize' : 'Quit' },
 ]
 
 // Detect platform

@@ -5,6 +5,7 @@ import {
   useActiveContextStore,
   useCommandStore,
   type Command as RegistryCommand,
+  type CommandCategory,
 } from '../commands'
 import './CommandPalette.css'
 import { isMac, displayShortcut, useKeybindings } from '../hooks/useKeyboard'
@@ -43,13 +44,20 @@ interface Row {
   run: () => void
 }
 
+/** Display labels for registry categories whose id isn't a plain word. */
+const CATEGORY_LABELS: Partial<Record<CommandCategory, string>> = {
+  ai: 'AI',
+  mop: 'MOP',
+  sftp: 'SFTP',
+}
+
 /** Convert a registry Command into a palette row, gated by ActiveContext. */
 function rowFromRegistry(cmd: RegistryCommand, onClose: () => void): Row {
   const enabled = cmd.when ? cmd.when(getActiveContext()) : true
   return {
     id: `cmd:${cmd.id}`,
     label: cmd.label,
-    category: cmd.category,
+    category: CATEGORY_LABELS[cmd.category] ?? cmd.category,
     shortcut: currentAcceleratorForCommand(cmd.id, cmd.accelerator),
     description: cmd.description,
     enabled,

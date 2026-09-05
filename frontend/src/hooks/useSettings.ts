@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { TransformPreset } from '../lib/clipTransforms';
 import { DEFAULT_DISABLED_TOOLS } from '../lib/agentTools';
 
 // AI provider type (matches api/ai.ts)
@@ -19,6 +20,22 @@ export interface AppSettings {
   'terminal.copyOnSelect': boolean;
   // Middle-click pastes the clipboard (Linux/SecureCRT convention).
   'terminal.middleClickPaste': boolean;
+  // Clipboard history (docs/clipboard-history-plan.md): record in-app copies
+  // with provenance; unpinned clips expire after expiryHours / beyond maxClips.
+  'clipboard.historyEnabled': boolean;
+  'clipboard.expiryHours': number;
+  'clipboard.maxClips': number;
+  // Paste hygiene: apply the flavor's transform preset on paste; user-edited
+  // preset list (empty = built-ins).
+  'clipboard.autoTransform': boolean;
+  'clipboard.presets': TransformPreset[];
+  // SecureCRT-style confirm: pastes of at least confirmPasteLines lines open
+  // the editable paste dialog instead of going straight to the terminal.
+  'clipboard.confirmMultilinePaste': boolean;
+  'clipboard.confirmPasteLines': number;
+  // Master switch for paste hygiene + confirm dialog. Off = every paste chord
+  // is a plain paste, exactly what the clipboard holds.
+  'clipboard.advancedPaste': boolean;
   // Session Guard (see gaurd work.md). Standalone SSH sessions only in v1.
   // dry-run evaluates and writes trace records without ever holding a
   // command; enforce holds on WARN and asks before sending.
@@ -145,6 +162,14 @@ const defaultSettings: AppSettings = {
   'terminal.defaultTheme': 'default',
   'terminal.copyOnSelect': false,
   'terminal.middleClickPaste': true,
+  'clipboard.historyEnabled': true,
+  'clipboard.expiryHours': 24,
+  'clipboard.maxClips': 500,
+  'clipboard.autoTransform': true,
+  'clipboard.presets': [],
+  'clipboard.confirmMultilinePaste': true,
+  'clipboard.confirmPasteLines': 2,
+  'clipboard.advancedPaste': true,
   'guard.enabled': false,
   'guard.mode': 'dry-run',
   'terminal.fontWeight': 'normal',

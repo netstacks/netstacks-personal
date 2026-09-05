@@ -1,7 +1,7 @@
 // DeviceDetailsOverlay - Floating overlay showing device details on single-click
 // Part of the immersive topology interaction system
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Device, DeviceType, DeviceStatus } from '../types/topology';
 import './DeviceDetailsOverlay.css';
 
@@ -151,7 +151,6 @@ export default function DeviceDetailsOverlay({
   onOpenSession,
   onOpenInTab,
 }: DeviceDetailsOverlayProps) {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
   // Close on Escape key
   useEffect(() => {
@@ -184,18 +183,6 @@ export default function DeviceDetailsOverlay({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [device, position, onClose]);
-
-  const toggleSection = useCallback((section: string) => {
-    setExpandedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(section)) {
-        next.delete(section);
-      } else {
-        next.add(section);
-      }
-      return next;
-    });
-  }, []);
 
   if (!device || !position) return null;
 
@@ -358,82 +345,9 @@ export default function DeviceDetailsOverlay({
         )}
       </div>
 
-      {/* Expandable Sections */}
-      <div className="device-details-sections">
-        {/* Interfaces Section - Placeholder */}
-        <div className="device-details-section">
-          <button
-            className={`device-details-section-header ${expandedSections.has('interfaces') ? 'expanded' : ''}`}
-            onClick={() => toggleSection('interfaces')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="chevron">
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-            <span>Interfaces</span>
-            <span className="device-details-section-badge">--</span>
-          </button>
-          {expandedSections.has('interfaces') && (
-            <div className="device-details-section-content">
-              <div className="device-details-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
-                </svg>
-                <span>Interface data will be discovered via AI commands</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Neighbors Section - Placeholder */}
-        <div className="device-details-section">
-          <button
-            className={`device-details-section-header ${expandedSections.has('neighbors') ? 'expanded' : ''}`}
-            onClick={() => toggleSection('neighbors')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="chevron">
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-            <span>Neighbors</span>
-            <span className="device-details-section-badge">--</span>
-          </button>
-          {expandedSections.has('neighbors') && (
-            <div className="device-details-section-content">
-              <div className="device-details-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <circle cx="12" cy="12" r="3" />
-                  <circle cx="19" cy="12" r="2" />
-                  <circle cx="5" cy="12" r="2" />
-                </svg>
-                <span>Click "Discover Neighbors" to find connected devices</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Statistics Section - Placeholder */}
-        <div className="device-details-section">
-          <button
-            className={`device-details-section-header ${expandedSections.has('stats') ? 'expanded' : ''}`}
-            onClick={() => toggleSection('stats')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="chevron">
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-            <span>Statistics</span>
-            <span className="device-details-section-badge">--</span>
-          </button>
-          {expandedSections.has('stats') && (
-            <div className="device-details-section-content">
-              <div className="device-details-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M18 20V10M12 20V4M6 20v-6" />
-                </svg>
-                <span>Statistics will be available when connected to monitoring</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Interfaces / Neighbors / Statistics sections were permanent placeholders
+          with no data source; removed until real data is wired up (NS-FEAT-27).
+          "Discover Neighbors" above remains the way to enrich this device. */}
     </div>
   );
 }

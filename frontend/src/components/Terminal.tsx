@@ -25,7 +25,9 @@ import { RecordingCapture } from '../api/recordings'
 import { createDocument, getDocument, updateDocument, type DocumentCategory, type ContentType } from '../api/docs'
 import { resolveDocSaveTarget } from '../lib/docSaveTargets'
 import { showToast } from './Toast'
-import { getImageFromClipboard, convertToPng, copyToClipboard, readClipboardText } from '../lib/clipboard'
+import { convertToPng, copyToClipboard, getImageFromClipboard, readClipboardText } from '../lib/clipboard'
+import type { ClipProvenance } from '../types/clip'
+import { advancedPasteEnabled, preparePasteText, shouldConfirmPaste } from '../lib/clipTransforms'
 import { openExternalUrl } from '../lib/openExternal'
 import { LocalFileOps } from '../lib/fileOps'
 import { createAgentHttpClient } from '../api/localClient'
@@ -86,6 +88,9 @@ interface TerminalProps {
   /** Connection protocol (ssh, telnet, or console — OOB console via the
    *  session's terminal server; default ssh) */
   protocol?: TabProtocol
+  /** Review a paste in the editable paste dialog before it is sent (SecureCRT-style
+   *  confirm for multi-line pastes). When absent, pastes go straight to the terminal. */
+  onReviewPaste?: (text: string, raw: boolean) => void
   /** Session name for AI context */
   sessionName?: string
   /** CLI flavor for AI command suggestions */
@@ -166,6 +171,10 @@ export interface TerminalHandle {
   sendCommand: (command: string, timeoutMs?: number) => Promise<string>
   /** Write text to the terminal without executing (no Enter appended) */
   writeText: (text: string) => void
+  /** Paste text exactly as given through xterm's own paste path — works in every connection mode. */
+  paste: (text: string) => void
+  /** Smart paste: flavor preset + confirm dialog for multi-line text, same as the paste chord. */
+  pasteSmart: (text: string) => void
   /** Get recent terminal output buffer. If sinceOffset provided, returns delta JSON. */
   getBuffer: (lines?: number, sinceOffset?: number) => string
   /** Check if terminal is connected */
@@ -235,6 +244,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   id,
   sessionId,
   protocol,
+  onReviewPaste,
   sessionName,
   cliFlavor = 'auto',
   terminalTheme,
@@ -574,6 +584,20 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   clearSuggestionsRef.current = clearSuggestions
   const cliFlavorRef = useRef(cliFlavor)
   cliFlavorRef.current = cliFlavor
+  // Provenance for clipboard history: which session/device this text came from.
+  // Read through a ref by the xterm listeners, so no memoisation is needed.
+  const clipProvenanceRef = useRef<() => ClipProvenance>(() => ({ source: 'terminal-selection' }))
+  clipProvenanceRef.current = () => ({
+    source: 'terminal-selection',
+    sessionId,
+    sessionName,
+    deviceHost: sessionHostRef.current || undefined,
+    cliFlavor: cliFlavorRef.current,
+  })
+  const onReviewPasteRef = useRef(onReviewPaste)
+  useEffect(() => { onReviewPasteRef.current = onReviewPaste }, [onReviewPaste])
+  // Set by the terminal init effect; lets the imperative handle share one paste path.
+  const pasteTextRef = useRef<(text: string, raw: boolean) => void>(() => {})
 
   // Terminal watcher for AI context
   const terminalWatcher = useTerminalWatcher({
@@ -733,6 +757,12 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       })
     },
 
+    paste: (text: string): void => {
+      terminalRef.current?.paste(text)
+    },
+    pasteSmart: (text: string): void => {
+      pasteTextRef.current(text, false)
+    },
     writeText: (text: string): void => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'Input', data: text }))
@@ -2330,14 +2360,26 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // Linux blocks navigator.clipboard.readText — readClipboardText goes
     // through the clipboard-manager plugin first). Exposed via ref for
     // the context menu.
-    const pasteFromClipboard = async () => {
+    // Smart paste: multi-line text is reviewed in the editable paste dialog first
+    // (SecureCRT-style confirm) and the flavor preset is applied. `raw` is the
+    // passthrough chord — exactly the clipboard contents, no dialog. Both collapse
+    // to a plain paste when the advanced paste features are switched off.
+    const pasteText = (text: string, raw: boolean) => {
+      if (!raw && onReviewPasteRef.current && shouldConfirmPaste(text)) {
+        onReviewPasteRef.current(text, false)
+        return
+      }
+      terminal.paste(raw ? text : preparePasteText(text, cliFlavorRef.current))
+    }
+    pasteTextRef.current = pasteText
+    const pasteFromClipboard = async (raw = false) => {
       const text = await readClipboardText()
-      if (text) terminal.paste(text)
+      if (text) pasteText(text, raw)
     }
     pasteFromClipboardRef.current = () => { void pasteFromClipboard() }
 
-    // SecureCRT/Linux-convention clipboard keys: Ctrl+Shift+C / Ctrl+Insert
-    // copy, Ctrl+Shift+V / Shift+Insert paste. Registered ahead of xterm's
+    // Clipboard chords (Settings → Keyboard: Copy Selection, Paste, Paste
+    // Passthrough) plus the fixed Ctrl+Insert / Shift+Insert aliases. Registered ahead of xterm's
     // keyboard handling so they never reach the remote shell as input
     // (plain Ctrl+C still sends SIGINT as a terminal must).
     terminal.attachCustomKeyEventHandler((e) => {
@@ -2376,16 +2418,26 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         }
         return false
       }
+      // Clipboard chords come from Settings → Keyboard (rebindable); Ctrl+Insert
+      // and Shift+Insert stay as fixed SecureCRT/Linux aliases. Plain typing
+      // (no Ctrl/Meta/Shift) can never match a chord — skip the binding parse.
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey) return true
       const key = e.key.toLowerCase()
-      const ctrlShift = e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey
-      const isCopy = (ctrlShift && key === 'c')
-        || (e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && key === 'insert')
-      const isPaste = (ctrlShift && key === 'v')
-        || (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && key === 'insert')
+      const bareInsert = key === 'insert' && !e.metaKey && !e.altKey
+      const isCopy = matchesBinding(e, getCurrentBinding('terminalCopy'))
+        || (bareInsert && e.ctrlKey && !e.shiftKey)
+      const isPassthrough = matchesBinding(e, getCurrentBinding('terminalPastePassthrough'))
+      const isPaste = matchesBinding(e, getCurrentBinding('terminalPaste'))
+        || (bareInsert && e.shiftKey && !e.ctrlKey)
       if (isCopy) {
         e.preventDefault()
         const selection = terminal.getSelection()
-        if (selection) void copyToClipboard(selection)
+        if (selection) void copyToClipboard(selection, clipProvenanceRef.current())
+        return false
+      }
+      if (isPassthrough) {
+        e.preventDefault()
+        void pasteFromClipboard(true)
         return false
       }
       if (isPaste) {
@@ -2500,7 +2552,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       if (!copyOnSelectRef.current) return
       const selection = terminal.getSelection()
       if (selection && selection.length > 0) {
-        void copyToClipboard(selection)
+        void copyToClipboard(selection, clipProvenanceRef.current())
       }
     }
 
@@ -2531,13 +2583,24 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       }
     }
 
-    // Handle clipboard paste with image data (Cmd+V / Ctrl+V)
+    // Native paste events (Edit → Paste on macOS, or a paste chord the user
+    // rebound away from Cmd/Ctrl+V): images go to the drop handler; text takes
+    // the smart-paste path when the advanced paste features are on, otherwise
+    // xterm's own paste runs untouched.
     const handlePaste = async (e: ClipboardEvent) => {
       const imageBlob = getImageFromClipboard(e.clipboardData)
-      if (!imageBlob) return
+      if (imageBlob) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleImageDropRef.current?.(imageBlob)
+        return
+      }
+      if (!advancedPasteEnabled()) return
+      const text = e.clipboardData?.getData('text/plain') ?? ''
+      if (!text) return
       e.preventDefault()
       e.stopPropagation()
-      handleImageDropRef.current?.(imageBlob)
+      pasteText(text, false)
     }
 
     // macOS Force Touch (force click) → action popover. ADDITIVE & NON-BLOCKING:
@@ -3484,7 +3547,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   }, [])
 
   const handleDetectionCopy = useCallback((text: string) => {
-    void copyToClipboard(text)
+    void copyToClipboard(text, clipProvenanceRef.current())
   }, [])
 
   const handleDetectionAIAction = useCallback((action: string, context: string) => {
@@ -3578,7 +3641,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     () => onAIAction?.('explain', contextMenuText, contextMenuPosition || { x: 100, y: 100 }, sessionId, sessionName),
     () => onAIAction?.('fix', contextMenuText, contextMenuPosition || { x: 100, y: 100 }, sessionId, sessionName),
     () => onAIAction?.('suggest', contextMenuText, contextMenuPosition || { x: 100, y: 100 }, sessionId, sessionName),
-    () => { void copyToClipboard(contextMenuText) },
+    () => { void copyToClipboard(contextMenuText, clipProvenanceRef.current()) },
     () => pasteFromClipboardRef.current(),
     handleAskAI,
     sessionId && onSessionSettings ? onSessionSettings : undefined

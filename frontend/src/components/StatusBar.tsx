@@ -22,7 +22,6 @@ import TroubleshootingIndicator from './TroubleshootingIndicator'
 import { useTunnelStore } from '../stores/tunnelStore'
 import TunnelPopover from './TunnelPopover'
 import { formatTunnelSpec } from '../api/tunnels'
-import { useMopExecutionOptional } from '../contexts/MopExecutionContext'
 import type { TroubleshootingSession } from '../types/troubleshooting'
 import { useMode } from '../hooks/useMode'
 import { useAuthStore } from '../stores/authStore'
@@ -254,7 +253,6 @@ export default function StatusBar({
   // (a primitive selector — safe). The item only appears while > 0.
   const agentRunningCount = useAgentTasksStore((s) => s.tasks.filter((t) => t.status === 'running').length)
   const contextMenu = useContextMenu()
-  const mopContext = useMopExecutionOptional()
 
   // Load and manage status bar settings
   const [settings, setSettings] = useState<StatusBarSettings>(() => loadStatusBarSettings())
@@ -686,41 +684,6 @@ export default function StatusBar({
             />
           </>
         )}
-        {/* Minimized MOP Wizard indicator */}
-        {mopContext?.isWizardMinimized && (
-          <>
-            <span className="status-bar-divider" />
-            <button
-              className="status-bar-item status-bar-item-btn status-bar-mop-indicator"
-              onClick={() => mopContext.restoreWizard()}
-              title="Restore MOP Wizard"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="7" y1="8" x2="17" y2="8" />
-                <line x1="7" y1="12" x2="17" y2="12" />
-                <line x1="7" y1="16" x2="13" y2="16" />
-              </svg>
-              <span>
-                MOP: {mopContext.selectedChange?.name || mopContext.selectedTemplate?.name || 'Execution'}
-              </span>
-              {mopContext.execution.state.progress && (
-                <span style={{ opacity: 0.8 }}>
-                  {mopContext.execution.state.progress.phase === 'pre_checks' ? 'Pre' :
-                   mopContext.execution.state.progress.phase === 'change_execution' ? 'Exec' :
-                   mopContext.execution.state.progress.phase === 'post_checks' ? 'Post' :
-                   mopContext.execution.state.progress.phase}
-                  {' '}{mopContext.execution.state.progress.percentComplete}%
-                </span>
-              )}
-              <span className={`status-bar-connection-dot ${
-                mopContext.execution.state.execution?.status === 'running' ? 'connected' :
-                mopContext.execution.state.execution?.status === 'failed' ? '' :
-                'partial'
-              }`} />
-            </button>
-          </>
-        )}
       </div>
 
       {/* Center section: optional message area */}
@@ -866,11 +829,14 @@ export default function StatusBar({
           <button
             className={`status-bar-item status-bar-item-btn status-bar-item-ai${aiOverlordActive ? ' ai-overlord-active' : ''}`}
             onClick={onToggleAIOverlord}
-            title={aiOverlordActive ? 'AI Overlord Active (click to disable)' : 'Enable AI Overlord'}
+            title={aiOverlordActive
+              ? 'AI Highlights on — terminal output is scanned live for errors, security issues and anomalies (click to disable)'
+              : 'Enable AI Highlights — scan terminal output live for errors, security issues and anomalies'}
           >
             {Icons.aiActive}
-            <span>Overlord</span>
-            {settings.showKeyboardShortcuts && <kbd>{hint('aiChat')}</kbd>}
+            {/* Labelled "AI Highlights", not "Overlord": that name belongs to the
+                agent mode, and this button never opened the AI panel (NS-APP-23). */}
+            <span>AI Highlights</span>
           </button>
         )}
         {onOpenAgentRun && agentRunningCount > 0 && (

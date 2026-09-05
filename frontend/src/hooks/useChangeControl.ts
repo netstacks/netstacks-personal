@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../api/errors'
+import { useAuthStore } from '../stores/authStore';
 /**
  * Change control hook. In enterprise mode, delegates to controller MOP APIs
  * (listControllerMops, getControllerMop, deleteControllerMop, etc.) rather than
@@ -69,11 +70,16 @@ export function useChangeControl({
   const [error, setError] = useState<string | null>(null);
   const { isEnterprise } = useMode();
 
-  // Get current user for change tracking
-  // Placeholder: returns hardcoded 'engineer' until user profile is wired in
+  // Author stamp for new changes (NS-FEAT-28). Enterprise: the signed-in
+  // controller user. Standalone: leave empty — the local agent fills in the
+  // OS user account it runs as.
   const getCurrentUser = useCallback(() => {
-    return 'engineer';
-  }, []);
+    if (isEnterprise) {
+      const u = useAuthStore.getState().user;
+      return u?.display_name || u?.username || 'engineer';
+    }
+    return '';
+  }, [isEnterprise]);
 
   const loadChanges = useCallback(async () => {
     setLoading(true);

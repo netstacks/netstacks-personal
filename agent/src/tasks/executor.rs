@@ -4,21 +4,25 @@
 //! Uses the ReAct loop to execute tasks with Claude API and network tools.
 //! Also integrates enabled MCP tools from connected MCP servers.
 
-use std::sync::Arc;
 use sqlx::sqlite::SqlitePool;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::ai::sanitizer::Sanitizer;
-use crate::integrations::{McpClientManager, McpToolWrapper};
-use crate::providers::DataProvider;
 use super::models::{TaskStatus, UpdateTaskRequest};
 use super::progress::{ProgressBroadcaster, TaskProgressEvent};
 use super::react::{execute_react_loop_with_agent, ReactError};
 use super::registry::TaskRegistry;
 use super::store::TaskStore;
-use super::tools::{AskUserTool, DelegateAgentTool, DeviceQueryTool, EditFileTool, ListSpecialistsTool, MopAnalysisTool, MopExecutionTool, MopPlanTool, PatchFileTool, SaveDocumentTool, SendEmailTool, SharedTool, SshCommandTool, ToolRegistry, WriteFileTool};
+use super::tools::{
+    AskUserTool, DelegateAgentTool, DeviceQueryTool, EditFileTool, ListSpecialistsTool,
+    MopAnalysisTool, MopExecutionTool, MopPlanTool, PatchFileTool, SaveDocumentTool, SendEmailTool,
+    SharedTool, SshCommandTool, ToolRegistry, WriteFileTool,
+};
+use crate::ai::sanitizer::Sanitizer;
+use crate::integrations::{McpClientManager, McpToolWrapper};
+use crate::providers::DataProvider;
 
 /// Interpret the `ai.terminal_mode` setting. Accepts the seeded bare boolean
 /// (`true`), a bare string (`"true"`), and the frontend's settings envelope
@@ -60,7 +64,13 @@ impl AgentTaskExecutor {
         Self {
             // Evaluate the clone before `store` is moved by the shorthand below.
             approval_service: super::approvals::TaskApprovalService::new(store.clone()),
-            store, registry, broadcaster, pool, provider, mcp_manager, sanitizer,
+            store,
+            registry,
+            broadcaster,
+            pool,
+            provider,
+            mcp_manager,
+            sanitizer,
         }
     }
 
@@ -107,8 +117,16 @@ impl AgentTaskExecutor {
         // Self-handle so the delegate_to_agent tool can spawn child agents.
         let executor = self.clone();
 
+        // The task must not be able to `unregister` before `register` below has
+        // run (a task that finishes instantly could otherwise leave a stale
+        // handle in the registry — NS-AGENT-13). Gate the body on this signal.
+        let (registered_tx, registered_rx) = tokio::sync::oneshot::channel::<()>();
+
         // Spawn the background task
         let join_handle = tokio::spawn(async move {
+            // Registration happens right after spawn; a dropped sender (spawn_task
+            // bailed out) just means we proceed without the gate.
+            let _ = registered_rx.await;
             // Wait for a concurrency slot here — not in the HTTP handler — so
             // `POST /tasks` returns the pending row at once (NS-API-8).
             let permit = match acquire_slot(&semaphore, &cancel_token_clone).await {
@@ -116,13 +134,19 @@ impl AgentTaskExecutor {
                 Err(SlotWaitError::Cancelled) => {
                     info!("Task {} cancelled while queued for a slot", task_id_clone);
                     if let Err(e) = mark_cancelled_before_execution(&store, &task_id_clone).await {
-                        warn!("Task {}: failed to record queued cancellation: {}", task_id_clone, e);
+                        warn!(
+                            "Task {}: failed to record queued cancellation: {}",
+                            task_id_clone, e
+                        );
                     }
                     registry.unregister(&task_id_clone).await;
                     return;
                 }
                 Err(SlotWaitError::SemaphoreClosed) => {
-                    error!("Task {} could not start: executor semaphore closed", task_id_clone);
+                    error!(
+                        "Task {} could not start: executor semaphore closed",
+                        task_id_clone
+                    );
                     registry.unregister(&task_id_clone).await;
                     return;
                 }
@@ -137,15 +161,24 @@ impl AgentTaskExecutor {
             let agent_definition = if let Some(ref def_id) = agent_definition_id {
                 match provider.get_agent_definition(def_id).await {
                     Ok(Some(def)) => {
-                        info!("Task {} using agent definition: {} ({})", task_id_clone, def.name, def_id);
+                        info!(
+                            "Task {} using agent definition: {} ({})",
+                            task_id_clone, def.name, def_id
+                        );
                         Some(def)
                     }
                     Ok(None) => {
-                        warn!("Task {} references missing agent definition: {}", task_id_clone, def_id);
+                        warn!(
+                            "Task {} references missing agent definition: {}",
+                            task_id_clone, def_id
+                        );
                         None
                     }
                     Err(e) => {
-                        warn!("Failed to load agent definition {} for task {}: {}", def_id, task_id_clone, e);
+                        warn!(
+                            "Failed to load agent definition {} for task {}: {}",
+                            def_id, task_id_clone, e
+                        );
                         None
                     }
                 }
@@ -230,6 +263,8 @@ impl AgentTaskExecutor {
         self.registry
             .register(task_id.clone(), cancel_token, join_handle)
             .await;
+        // Registered — let the task body run (NS-AGENT-13).
+        let _ = registered_tx.send(());
 
         info!("Spawned task {} for background execution", task_id);
         Ok(())
@@ -292,7 +327,10 @@ async fn acquire_slot(
 }
 
 /// Record that a task was cancelled before its ReAct loop ever started.
-async fn mark_cancelled_before_execution(store: &TaskStore, task_id: &str) -> Result<(), ExecutorError> {
+async fn mark_cancelled_before_execution(
+    store: &TaskStore,
+    task_id: &str,
+) -> Result<(), ExecutorError> {
     store
         .update_task(
             task_id,
@@ -473,11 +511,22 @@ async fn load_enabled_mcp_tools(
     manager: Arc<RwLock<McpClientManager>>,
 ) -> Vec<SharedTool> {
     // Query enabled tools from enabled servers (include server name and type for AI context)
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, String)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+        ),
+    >(
         r#"SELECT t.id, t.server_id, s.name, s.server_type, t.name, t.description, t.input_schema
            FROM mcp_tools t
            JOIN mcp_servers s ON t.server_id = s.id
-           WHERE t.enabled = 1 AND s.enabled = 1"#
+           WHERE t.enabled = 1 AND s.enabled = 1"#,
     )
     .fetch_all(pool)
     .await;
@@ -487,31 +536,33 @@ async fn load_enabled_mcp_tools(
             let count = tools.len();
             let wrapped: Vec<SharedTool> = tools
                 .into_iter()
-                .filter_map(|(_id, server_id, server_name, server_type, name, description, schema_str)| {
-                    // Parse the input schema JSON
-                    let schema: serde_json::Value = match serde_json::from_str(&schema_str) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!(
-                                tool = %name,
-                                server_id = %server_id,
-                                error = %e,
-                                "Failed to parse MCP tool input schema, skipping"
-                            );
-                            return None;
-                        }
-                    };
+                .filter_map(
+                    |(_id, server_id, server_name, server_type, name, description, schema_str)| {
+                        // Parse the input schema JSON
+                        let schema: serde_json::Value = match serde_json::from_str(&schema_str) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!(
+                                    tool = %name,
+                                    server_id = %server_id,
+                                    error = %e,
+                                    "Failed to parse MCP tool input schema, skipping"
+                                );
+                                return None;
+                            }
+                        };
 
-                    Some(Arc::new(McpToolWrapper::new(
-                        server_id,
-                        server_name,
-                        server_type,
-                        name,
-                        description,
-                        schema,
-                        manager.clone(),
-                    )) as SharedTool)
-                })
+                        Some(Arc::new(McpToolWrapper::new(
+                            server_id,
+                            server_name,
+                            server_type,
+                            name,
+                            description,
+                            schema,
+                            manager.clone(),
+                        )) as SharedTool)
+                    },
+                )
                 .collect();
 
             if !wrapped.is_empty() {
@@ -571,7 +622,9 @@ mod slot_wait_tests {
         let sem = Arc::new(Semaphore::new(1));
         sem.close();
         assert_eq!(
-            acquire_slot(&sem, &CancellationToken::new()).await.map(|_| ()),
+            acquire_slot(&sem, &CancellationToken::new())
+                .await
+                .map(|_| ()),
             Err(SlotWaitError::SemaphoreClosed)
         );
     }

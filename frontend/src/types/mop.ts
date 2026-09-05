@@ -1,6 +1,6 @@
-// MOP Types - Plan layer (reusable procedure definitions) + Execution layer (runtime instances)
+// MOP Types - Execution layer (runtime instances of a Change/plan)
 
-import type { MopStep, MopStepType } from './change';
+import type { MopStepType } from './change';
 
 // Re-export MopStepType from change.ts (canonical source) for backward compatibility
 export type { MopStepType } from './change';
@@ -20,8 +20,8 @@ export type ControlMode = 'manual' | 'auto_run' | 'ai_pilot';
 // The MOP backend (agent/src/models.rs::ExecutionStatus) only ever emits
 // 'complete' (snake_case serde). 'completed' is kept in this union because
 // several consumers also branch on TaskStatus / deployment status, both of
-// which use 'completed' — and a few sites (ApprovalControls, MopWorkspace,
-// useMopExecution) accept either spelling defensively. Don't trim 'completed'
+// which use 'completed' — and a few sites (MopWorkspace, useMopExecution)
+// accept either spelling defensively. Don't trim 'completed'
 // without auditing those consumers.
 export type ExecutionStatus = 'pending' | 'running' | 'paused' | 'complete' | 'completed' | 'failed' | 'aborted';
 
@@ -46,77 +46,31 @@ export type AiAutonomyLevel = 1 | 2 | 3 | 4;
 // Behavior when a step fails during auto_run or ai_pilot
 export type OnFailureBehavior = 'pause' | 'skip' | 'abort';
 
-// ============================================================================
-// PLAN LAYER — Reusable procedure definitions
-// ============================================================================
+// How a step is executed (mirrors MopStep.execution_source)
+export type StepExecutionSource = 'cli' | 'quick_action' | 'script' | 'deploy_template' | 'deployment_link';
 
-// MopPlan is the reusable, versioned procedure definition. It is authored once,
-// reviewed/approved, and then instantiated as MopExecution records at runtime.
-export interface MopPlan {
-  id: string;
-  name: string;
-  description?: string;
-  status: 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived';
-  revision: number;
+// One evaluated expected_output assertion (agent: finalize_step_execution).
+// `TEXT:` results are advisory — they never change the step status.
+export interface AssertionResult {
+  assertion: string;
+  passed: boolean;
+  detail: string;
+}
 
-  // Change management metadata (enterprise-enhanced)
-  risk_level?: RiskLevel;
-  change_ticket?: string;       // ITSM ticket reference (e.g. CHG-1234)
-  tags?: string[];
-
-  // Step source: how the steps were created
-  source_type: StepSourceType;
-  source_id?: string;           // Template or stack ID if steps were generated
-  source_variables?: Record<string, Record<string, string>>; // per-device/role variable overrides
-
-  // The procedure itself
-  steps: MopStep[];             // Default ordered step list
-  device_overrides?: Record<string, MopStep[]>; // Per-device step overrides (keyed by role or device_id)
-
-  // Enterprise sync fields
-  org_id?: string;
-  controller_id?: string;       // Corresponding ID on the controller
-  approved_by?: string;
-  approved_at?: string;
-
-  created_by: string;
-  created_at: string;
-  updated_at: string;
+/** Provenance stored next to `MopExecution.ai_analysis` (agent `ai_analysis_meta`). */
+export interface MopAnalysisMeta {
+  risk_level: string;
+  recommendations: string[];
+  source: 'ai' | 'rules';
+  model: string | null;
+  analyzed_at: string;
 }
 
 // ============================================================================
-// LEGACY — MopTemplate (kept for backward compatibility)
-// MopTemplate predates the Plan layer. Prefer MopPlan for new code.
+// EXECUTION LAYER — Runtime instances of a plan (Change)
 // ============================================================================
 
-export interface MopTemplate {
-  id: string;
-  name: string;
-  description?: string;
-  mop_steps: MopStep[];
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface NewMopTemplate {
-  name: string;
-  description?: string;
-  mop_steps: MopStep[];
-  created_by: string;
-}
-
-export interface UpdateMopTemplate {
-  name?: string;
-  description?: string | null;
-  mop_steps?: MopStep[];
-}
-
-// ============================================================================
-// EXECUTION LAYER — Runtime instances of a MopPlan
-// ============================================================================
-
-// MopExecution is a single run of a MopPlan against a set of devices.
+// MopExecution is a single run of a plan (Change) against a set of devices.
 // It references the plan and the revision that was active at execution time.
 export interface MopExecution {
   id: string;
@@ -135,6 +89,8 @@ export interface MopExecution {
   status: ExecutionStatus;
   current_phase?: string;
   ai_analysis?: string;
+  /** Risk/recommendations/provenance of `ai_analysis` (older agents omit it). */
+  ai_analysis_meta?: MopAnalysisMeta | null;
 
   // AI Pilot settings (applicable when control_mode === 'ai_pilot')
   ai_autonomy_level?: AiAutonomyLevel;
@@ -215,6 +171,11 @@ export interface MopExecutionDevice {
   device_name: string;
   device_host: string;
   role?: string;                // Stack role (e.g. PE, CE, P, RR)
+  // Session.cli_flavor resolved when the device was added (drives the config wrapper)
+  cli_flavor?: string | null;
+  // Final resolved `{{name}}` map for this device (plan defaults ∪ device
+  // overrides; the `device.*` built-ins are derived, not stored)
+  variables?: Record<string, string> | null;
 
   device_order: number;
   status: DeviceStatus;
@@ -241,6 +202,8 @@ export interface NewMopExecutionDevice {
   device_name: string;
   device_host: string;
   role?: string;
+  /** Resolved variable map; when omitted the agent derives it from the plan. */
+  variables?: Record<string, string>;
 }
 
 // ============================================================================
@@ -258,14 +221,17 @@ export interface MopExecutionStep {
   mock_enabled: boolean;
   mock_output?: string;
   status: StepStatus;
-  output?: string;
+  output?: string;              // this step's own output (never the cumulative transcript)
   ai_feedback?: string;
   started_at?: string;
   completed_at?: string;
   duration_ms?: number;
+  // Evaluated expected_output assertions + the reason a step failed
+  assertion_results?: AssertionResult[] | null;
+  error_message?: string | null;
 
   // Execution source fields (carried from plan step)
-  execution_source?: 'cli' | 'quick_action' | 'script';
+  execution_source?: StepExecutionSource;
   quick_action_id?: string;
   quick_action_variables?: Record<string, string>;
   script_id?: string;
@@ -285,7 +251,7 @@ export interface NewMopExecutionStep {
   mock_output?: string;
 
   // Execution source fields (carried from plan step)
-  execution_source?: 'cli' | 'quick_action' | 'script' | 'deploy_template' | 'deployment_link';
+  execution_source?: StepExecutionSource;
   quick_action_id?: string;
   quick_action_variables?: Record<string, string>;
   script_id?: string;

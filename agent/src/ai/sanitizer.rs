@@ -11,19 +11,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::providers::DataProvider;
 use super::providers::{
-    AiContext, AiError, AiProvider, AgentChatOptions, AgentContent, AgentContentBlock,
-    AgentMessage, AgentResponse, ChatMessage, StreamEvent,
+    AgentChatOptions, AgentContent, AgentContentBlock, AgentMessage, AgentResponse, AiContext,
+    AiError, AiProvider, ChatMessage, StreamEvent,
 };
+use crate::providers::DataProvider;
 
 // =============================================================================
 // Configuration Types
 // =============================================================================
 
 /// Sanitization configuration stored as a JSON setting
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SanitizationConfig {
     /// Redact IPv4 addresses (10.0.0.1, 192.168.1.0/24)
     #[serde(default)]
@@ -48,6 +47,22 @@ pub struct SanitizationConfig {
     pub allowlist: Vec<String>,
 }
 
+impl SanitizationConfig {
+    /// The same custom patterns and allowlist, with every network-identifier
+    /// redaction (IPs, MACs, hostnames, usernames) switched off. The mandatory
+    /// credential patterns always apply. Used for local-only data such as
+    /// clipboard history, where addresses are exactly what gets re-pasted.
+    pub fn credentials_only(self) -> Self {
+        Self {
+            redact_ip_addresses: false,
+            redact_ipv6_addresses: false,
+            redact_mac_addresses: false,
+            redact_hostnames: false,
+            redact_usernames: false,
+            ..self
+        }
+    }
+}
 
 /// A user-defined custom regex pattern.
 /// Accepts both `regex` and `pattern` field names for compatibility with controller.
@@ -92,11 +107,7 @@ impl Sanitizer {
         let mandatory = build_mandatory_patterns();
         let optional = build_optional_patterns(config);
         let custom = build_custom_patterns(&config.custom_patterns);
-        let allowlist: Vec<String> = config
-            .allowlist
-            .iter()
-            .map(|s| s.to_lowercase())
-            .collect();
+        let allowlist: Vec<String> = config.allowlist.iter().map(|s| s.to_lowercase()).collect();
 
         Sanitizer {
             mandatory,
@@ -113,19 +124,27 @@ impl Sanitizer {
         let mut pattern_names: Vec<String> = Vec::new();
 
         // Apply patterns in order: mandatory, optional, custom
-        for pattern in self.mandatory.iter().chain(self.optional.iter()).chain(self.custom.iter()) {
+        for pattern in self
+            .mandatory
+            .iter()
+            .chain(self.optional.iter())
+            .chain(self.custom.iter())
+        {
             let mut new_result = String::new();
             let mut last_end = 0;
             let mut matched = false;
 
-            for mat in pattern.regex.find_iter(&result) {
+            for caps in pattern.regex.captures_iter(&result) {
+                let mat = caps.get(0).expect("group 0 always participates in a match");
                 let matched_text = mat.as_str();
                 // Check allowlist: if matched text contains any allowlisted string, skip
                 if self.is_allowlisted(matched_text) {
                     new_result.push_str(&result[last_end..mat.end()]);
                 } else {
                     new_result.push_str(&result[last_end..mat.start()]);
-                    new_result.push_str(&pattern.replacement);
+                    // Expand `${1}`-style group references so the safe prefix
+                    // ("enable secret 5 ") survives and only the value is redacted.
+                    caps.expand(&pattern.replacement, &mut new_result);
                     redaction_count += 1;
                     matched = true;
                 }
@@ -518,18 +537,14 @@ impl SanitizingProvider {
         AgentMessage {
             role: msg.role,
             content: match msg.content {
-                AgentContent::Text(text) => {
-                    AgentContent::Text(self.sanitize_text(&text).await)
-                }
+                AgentContent::Text(text) => AgentContent::Text(self.sanitize_text(&text).await),
                 AgentContent::Blocks(blocks) => {
                     let mut sanitized = Vec::with_capacity(blocks.len());
                     for block in blocks {
                         let sb = match block {
-                            AgentContentBlock::Text { text } => {
-                                AgentContentBlock::Text {
-                                    text: self.sanitize_text(&text).await,
-                                }
-                            }
+                            AgentContentBlock::Text { text } => AgentContentBlock::Text {
+                                text: self.sanitize_text(&text).await,
+                            },
                             AgentContentBlock::ToolResult {
                                 tool_use_id,
                                 content,
@@ -635,10 +650,46 @@ impl AiProvider for SanitizingProvider {
 
 /// Run sanitization on arbitrary text and return detailed results.
 /// Always loads fresh config (bypasses cache) for testing.
-pub async fn test_sanitization(
-    provider: &dyn DataProvider,
-    text: &str,
-) -> SanitizedOutput {
+pub async fn test_sanitization(provider: &dyn DataProvider, text: &str) -> SanitizedOutput {
     let sanitizer = load_sanitizer(provider).await;
     sanitizer.sanitize(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sanitizer() -> Sanitizer {
+        Sanitizer::from_config(&SanitizationConfig::default())
+    }
+
+    #[test]
+    fn replacement_keeps_captured_prefix() {
+        let out = sanitizer()
+            .sanitize("enable secret 5 $1$abcd$WxYz123\nsnmp-server community s3cr3t RO");
+        assert_eq!(
+            out.sanitized,
+            "enable secret 5 [REDACTED]\nsnmp-server community [REDACTED] RO"
+        );
+        assert!(
+            !out.sanitized.contains("${1}"),
+            "group references must be expanded: {}",
+            out.sanitized
+        );
+        // arista_secret re-matches the already-redacted enable line, so the count is >= 2.
+        assert!(out.redaction_count >= 2, "{}", out.redaction_count);
+    }
+
+    #[test]
+    fn paloalto_keeps_both_tags() {
+        let out = sanitizer().sanitize("<password>hunter2</password>");
+        assert_eq!(out.sanitized, "<password>[REDACTED]</password>");
+    }
+
+    #[test]
+    fn assertion_status_is_not_a_password() {
+        let out =
+            sanitizer().sanitize("  assertion [PASS] CONTAINS: pre 200 (text found in output)");
+        assert_eq!(out.redaction_count, 0, "{}", out.sanitized);
+    }
 }

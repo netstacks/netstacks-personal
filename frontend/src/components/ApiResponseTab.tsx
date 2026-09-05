@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { copyToClipboard } from '../lib/clipboard'
 import JsonViewer from './JsonViewer'
 import './ApiResponseTab.css'
 
@@ -13,7 +14,7 @@ function ApiResponseTab({ title, data, statusCode, durationMs }: ApiResponseTabP
   const [copied, setCopied] = useState(false)
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(data)
+    void copyToClipboard(data, { source: 'app-copy', tabType: 'api-response' })
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

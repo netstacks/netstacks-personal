@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { copyToClipboard } from '../../lib/clipboard'
 import type { GitOps, CommitInfo } from '../../types/workspace'
 import ContextMenu from '../ContextMenu'
 import type { MenuItem } from '../ContextMenu'
@@ -83,7 +84,7 @@ export default function WorkspaceGitHistory({ gitOps, onRefresh }: WorkspaceGitH
         id: 'copy-hash',
         label: 'Copy Hash',
         action: () => {
-          navigator.clipboard.writeText(commit.hash)
+          void copyToClipboard(commit.hash, { source: 'app-copy', tabType: 'workspace' })
           showToast('Hash copied', 'info', 1500)
         },
       },
@@ -91,7 +92,7 @@ export default function WorkspaceGitHistory({ gitOps, onRefresh }: WorkspaceGitH
         id: 'copy-short-hash',
         label: 'Copy Short Hash',
         action: () => {
-          navigator.clipboard.writeText(commit.shortHash)
+          void copyToClipboard(commit.shortHash, { source: 'app-copy', tabType: 'workspace' })
           showToast('Short hash copied', 'info', 1500)
         },
       },

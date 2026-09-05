@@ -385,6 +385,7 @@ pub async fn execute_action(
                 warning: None,
                 raw_text: None,
                 content_type: None,
+                        response_headers: None,
             };
         }
     };

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { copyToClipboard } from '../../lib/clipboard'
 import FileIcon from './FileIcon'
 import type { FileOps, WorkspaceFileEntry, WorkspaceMode, GitBranchInfo, GitFileStatus, GitStatusCode, GitOps } from '../../types/workspace'
 import { showToast } from '../Toast'
@@ -283,13 +284,13 @@ export default function WorkspaceFileExplorer({
   }, [handleInlineSubmit])
 
   const handleCopyPath = useCallback((path: string) => {
-    navigator.clipboard.writeText(path)
+    void copyToClipboard(path, { source: 'app-copy', tabType: 'workspace' })
     showToast('Path copied', 'info', 1500)
     setContextMenu(null)
   }, [])
 
   const handleCopyRelativePath = useCallback((relativePath: string) => {
-    navigator.clipboard.writeText(relativePath)
+    void copyToClipboard(relativePath, { source: 'app-copy', tabType: 'workspace' })
     showToast('Relative path copied', 'info', 1500)
   }, [])
 

@@ -40,10 +40,23 @@ export type CommandCategory =
   | 'workspace'   // Switch / Reload / Open in finder / Git
   | 'sftp'        // Upload / Download / Rename / Permissions
   | 'tools'       // Quick Actions / Snippets / Mapped Keys / Vault / Recordings / Layouts
+  | 'mop'         // Save / Start / Run next step / Abort / Complete execution
   | 'ai'          // Settings / MCP / Memory / Generate / Run agent
   | 'window'      // Tabs / New window / Next-prev tab
   | 'navigation'  // Open recent / Jump to / Activity bar
   | 'help'        // Docs / About / Report bug / Diagnostics
+
+/**
+ * Execution-state flags published by the active MopWorkspace so the
+ * `mop.*` commands can gate themselves without reading MOP state.
+ */
+export interface MopCommandContext {
+  canStart: boolean
+  canRunNext: boolean
+  canAbort: boolean
+  canComplete: boolean
+  hasExecution: boolean
+}
 
 /**
  * Snapshot of "what's active right now" — passed to every `when`
@@ -97,6 +110,10 @@ export interface ActiveContext {
   /** Whether the app is running in enterprise (controller) mode.
    *  Some commands only make sense in one mode. */
   isEnterprise: boolean
+
+  /** Present only while a MOP tab is active (published by MopWorkspace
+   *  via useMopCommandBridge); null otherwise. */
+  mop: MopCommandContext | null
 }
 
 /** Predicate signature for a command's `when` gate. */

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { copyToClipboard } from '../lib/clipboard'
 import {
   listQuickPrompts,
   createQuickPrompt,
@@ -375,7 +376,7 @@ export default function PromptsSettingsTab() {
     const value = getPromptValue(key);
     const effectiveValue = value || SYSTEM_PROMPT_META[key].default;
     try {
-      await navigator.clipboard.writeText(effectiveValue);
+      await copyToClipboard(effectiveValue, { source: 'app-copy', tabType: 'settings' });
       showToast('Copied to clipboard', 'success', TOAST_DURATION.SHORT);
     } catch (err) {
       console.error('Failed to copy:', err);

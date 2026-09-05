@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { copyToClipboard } from '../lib/clipboard'
 import './BroadcastCommandDialog.css';
 import {
   executeBulkCommand,
@@ -202,7 +203,7 @@ function BroadcastCommandDialog({
       .join('\n\n');
 
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text, { source: 'app-copy', tabType: 'broadcast' });
       showToast(`Copied ${results.results.length} result${results.results.length === 1 ? '' : 's'} to clipboard`, 'success');
     } catch (err) {
       console.error('Failed to copy to clipboard', err);

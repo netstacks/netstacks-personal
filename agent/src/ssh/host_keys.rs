@@ -70,20 +70,25 @@ impl HostKeyStore {
     pub fn load_from_file(&mut self) -> Result<(), HostKeyError> {
         // If file doesn't exist, start with empty store
         if !self.path.exists() {
-            tracing::debug!("Known_hosts file does not exist, starting with empty store: {:?}", self.path);
+            tracing::debug!(
+                "Known_hosts file does not exist, starting with empty store: {:?}",
+                self.path
+            );
             return Ok(());
         }
 
-        let file = fs::File::open(&self.path)
-            .map_err(|e| HostKeyError::LoadError(format!("Failed to open {}: {}", self.path.display(), e)))?;
+        let file = fs::File::open(&self.path).map_err(|e| {
+            HostKeyError::LoadError(format!("Failed to open {}: {}", self.path.display(), e))
+        })?;
 
         let reader = BufReader::new(file);
         let mut line_num = 0;
 
         for line_result in reader.lines() {
             line_num += 1;
-            let line = line_result
-                .map_err(|e| HostKeyError::LoadError(format!("Failed to read line {}: {}", line_num, e)))?;
+            let line = line_result.map_err(|e| {
+                HostKeyError::LoadError(format!("Failed to read line {}: {}", line_num, e))
+            })?;
 
             // Skip comments and empty lines
             let trimmed = line.trim();
@@ -94,7 +99,11 @@ impl HostKeyStore {
             // Parse line: "host:port key-type base64-key"
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() < 3 {
-                tracing::warn!("Skipping malformed known_hosts line {}: {}", line_num, trimmed);
+                tracing::warn!(
+                    "Skipping malformed known_hosts line {}: {}",
+                    line_num,
+                    trimmed
+                );
                 continue;
             }
 
@@ -110,7 +119,10 @@ impl HostKeyStore {
                 Ok(public_key) => {
                     // Store the key bytes for later comparison
                     let key_bytes = public_key.to_bytes().map_err(|e| {
-                        HostKeyError::ParseError(format!("Failed to serialize key on line {}: {}", line_num, e))
+                        HostKeyError::ParseError(format!(
+                            "Failed to serialize key on line {}: {}",
+                            line_num, e
+                        ))
                     })?;
 
                     self.known_keys.insert(host_port.to_string(), key_bytes);
@@ -123,7 +135,11 @@ impl HostKeyStore {
             }
         }
 
-        tracing::info!("Loaded {} known host keys from {}", self.known_keys.len(), self.path.display());
+        tracing::info!(
+            "Loaded {} known host keys from {}",
+            self.known_keys.len(),
+            self.path.display()
+        );
         Ok(())
     }
 
@@ -161,11 +177,16 @@ impl HostKeyStore {
     /// Called by the connect path after the user has approved a prompt
     /// (or after `auto_accept_changed_keys=true` was passed for a MOP
     /// connect that explicitly opted in).
-    pub fn trust_key(&mut self, host: &str, port: u16, key: &PublicKey) -> Result<(), HostKeyError> {
+    pub fn trust_key(
+        &mut self,
+        host: &str,
+        port: u16,
+        key: &PublicKey,
+    ) -> Result<(), HostKeyError> {
         let host_port = format!("{}:{}", host, port);
-        let bytes = key.to_bytes().map_err(|e| {
-            HostKeyError::ParseError(format!("Failed to serialize key: {}", e))
-        })?;
+        let bytes = key
+            .to_bytes()
+            .map_err(|e| HostKeyError::ParseError(format!("Failed to serialize key: {}", e)))?;
         self.known_keys.insert(host_port.clone(), bytes);
         self.save_to_file()?;
         tracing::warn!(
@@ -191,12 +212,19 @@ impl HostKeyStore {
     /// - `Ok(true)` if the key matches, was auto-accepted, or was stored (first connection)
     /// - `Ok(false)` if the key does NOT match and `auto_accept_changed` is false
     /// - `Err(...)` if there was an error during verification or storage
-    pub fn verify_or_store(&mut self, host: &str, port: u16, key: &PublicKey, auto_accept_changed: bool) -> Result<bool, HostKeyError> {
+    pub fn verify_or_store(
+        &mut self,
+        host: &str,
+        port: u16,
+        key: &PublicKey,
+        auto_accept_changed: bool,
+    ) -> Result<bool, HostKeyError> {
         let host_port = format!("{}:{}", host, port);
 
         // Serialize the presented key for comparison
-        let presented_key_bytes = key.to_bytes()
-            .map_err(|e| HostKeyError::ParseError(format!("Failed to serialize presented key: {}", e)))?;
+        let presented_key_bytes = key.to_bytes().map_err(|e| {
+            HostKeyError::ParseError(format!("Failed to serialize presented key: {}", e))
+        })?;
 
         match self.known_keys.get(&host_port) {
             Some(known_key_bytes) if known_key_bytes == &presented_key_bytes => {
@@ -223,7 +251,9 @@ impl HostKeyStore {
                          Known fingerprint: {}\n\
                          Presented fingerprint: {}\n\
                          This could indicate a MITM attack or the host key has changed.",
-                        host_port, known_fp, presented_fp
+                        host_port,
+                        known_fp,
+                        presented_fp
                     );
 
                     Ok(false)
@@ -238,7 +268,8 @@ impl HostKeyStore {
                 );
 
                 // Store the key
-                self.known_keys.insert(host_port.clone(), presented_key_bytes);
+                self.known_keys
+                    .insert(host_port.clone(), presented_key_bytes);
 
                 // Persist to disk
                 self.save_to_file()?;
@@ -263,7 +294,12 @@ impl HostKeyStore {
                 .map(|pk| pk.algorithm().as_str().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
             let fingerprint = fingerprint_bytes(key_bytes);
-            out.push(HostKeyEntry { host, port, key_type, fingerprint });
+            out.push(HostKeyEntry {
+                host,
+                port,
+                key_type,
+                fingerprint,
+            });
         }
         // Stable ordering: by host, then port.
         out.sort_by(|a, b| a.host.cmp(&b.host).then(a.port.cmp(&b.port)));
@@ -309,13 +345,19 @@ impl HostKeyStore {
     fn save_to_file(&self) -> Result<(), HostKeyError> {
         // Create parent directory if needed
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| HostKeyError::SaveError(format!("Failed to create directory {}: {}", parent.display(), e)))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                HostKeyError::SaveError(format!(
+                    "Failed to create directory {}: {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
         }
 
         // Create or truncate the file
-        let mut file = fs::File::create(&self.path)
-            .map_err(|e| HostKeyError::SaveError(format!("Failed to create {}: {}", self.path.display(), e)))?;
+        let mut file = fs::File::create(&self.path).map_err(|e| {
+            HostKeyError::SaveError(format!("Failed to create {}: {}", self.path.display(), e))
+        })?;
 
         // Write header comment
         writeln!(file, "# SSH known hosts file managed by NetStacks")
@@ -324,18 +366,31 @@ impl HostKeyStore {
         // Write all known keys
         for (host_port, key_bytes) in &self.known_keys {
             // Parse the key bytes back to PublicKey to get the OpenSSH format
-            let public_key = PublicKey::from_bytes(key_bytes)
-                .map_err(|e| HostKeyError::SaveError(format!("Failed to deserialize key for {}: {}", host_port, e)))?;
+            let public_key = PublicKey::from_bytes(key_bytes).map_err(|e| {
+                HostKeyError::SaveError(format!(
+                    "Failed to deserialize key for {}: {}",
+                    host_port, e
+                ))
+            })?;
 
-            let openssh_line = public_key.to_openssh()
-                .map_err(|e| HostKeyError::SaveError(format!("Failed to serialize key to OpenSSH format for {}: {}", host_port, e)))?;
+            let openssh_line = public_key.to_openssh().map_err(|e| {
+                HostKeyError::SaveError(format!(
+                    "Failed to serialize key to OpenSSH format for {}: {}",
+                    host_port, e
+                ))
+            })?;
 
             // OpenSSH format is "key-type base64-key", we need to prepend "host:port"
-            writeln!(file, "{} {}", host_port, openssh_line)
-                .map_err(|e| HostKeyError::SaveError(format!("Failed to write entry for {}: {}", host_port, e)))?;
+            writeln!(file, "{} {}", host_port, openssh_line).map_err(|e| {
+                HostKeyError::SaveError(format!("Failed to write entry for {}: {}", host_port, e))
+            })?;
         }
 
-        tracing::info!("Saved {} known host keys to {}", self.known_keys.len(), self.path.display());
+        tracing::info!(
+            "Saved {} known host keys to {}",
+            self.known_keys.len(),
+            self.path.display()
+        );
         Ok(())
     }
 }
@@ -378,18 +433,34 @@ fn fingerprint_bytes(bytes: &[u8]) -> String {
 
 /// Base64 encoding helper (without padding for SHA256 fingerprints).
 fn base64_encode(bytes: &[u8]) -> String {
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::{engine::general_purpose, Engine as _};
     general_purpose::STANDARD_NO_PAD.encode(bytes)
 }
 
 /// Get the default path to the known_hosts file.
 ///
 /// Returns `~/.ssh/known_hosts` or `./.ssh/known_hosts` if home directory cannot be determined.
+#[cfg(not(test))]
 pub fn default_known_hosts_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".ssh")
         .join("known_hosts")
+}
+
+/// Unit tests get a per-process scratch known_hosts. The fake SSH servers in
+/// `test_utils` bind random loopback ports, and trusting them through the
+/// developer's real `~/.ssh/known_hosts` both polluted that file with
+/// `127.0.0.1:<port>` entries and made the suite flaky: a port reused within
+/// one run with a different key was refused as "host key changed".
+#[cfg(test)]
+pub fn default_known_hosts_path() -> PathBuf {
+    static TEST_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    TEST_PATH
+        .get_or_init(|| {
+            std::env::temp_dir().join(format!("netstacks-test-known-hosts-{}", std::process::id()))
+        })
+        .clone()
 }
 
 /// Load the default HostKeyStore from ~/.ssh/known_hosts.

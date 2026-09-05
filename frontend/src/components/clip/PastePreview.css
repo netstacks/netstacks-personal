@@ -1,0 +1,139 @@
+.paste-preview-head {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.paste-preview-sub {
+  color: var(--color-text-muted);
+}
+
+.paste-preview-preset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+}
+
+.paste-preview-preset select {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+
+.paste-preview-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--color-border);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.paste-preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--menu-bg);
+}
+
+.paste-preview-pane-title {
+  padding: 4px var(--spacing-md);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.paste-preview-pane pre {
+  margin: 0;
+  padding: 6px var(--spacing-md);
+  overflow: auto;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  white-space: pre;
+}
+
+.paste-preview-pane pre div.added,
+.paste-preview-legend .added {
+  background: rgba(78, 201, 176, 0.18);
+}
+
+.paste-preview-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.paste-preview-buttons {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.paste-preview-buttons button {
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.paste-preview-buttons button.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.paste-preview-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.paste-preview-editor {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px var(--spacing-md);
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  white-space: pre;
+  overflow: auto;
+}
+
+.paste-preview-editor:focus {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.paste-preview-revert {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+}

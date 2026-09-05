@@ -1,0 +1,152 @@
+/* Clipboard history palette — reuses the command palette shell. */
+
+.clip-history-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.clip-history-head {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.clip-history-head .command-palette-input {
+  flex: 1;
+}
+
+.clip-history-filter {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.clip-history-filter.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.clip-history-row {
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+
+.clip-history-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.clip-history-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.clip-history-text {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clip-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.clip-history-where {
+  color: var(--color-text-secondary);
+}
+
+.clip-badge {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  font-size: 10px;
+  line-height: 16px;
+  text-transform: lowercase;
+}
+
+.clip-badge-warn {
+  color: #e5a50a;
+  border-color: rgba(229, 165, 10, 0.5);
+  text-transform: none;
+}
+
+.clip-badge-pin {
+  color: var(--color-accent);
+  border: none;
+  background: none;
+  font-size: 12px;
+  padding: 0;
+}
+
+.clip-badge-redacted {
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.clip-history-actions {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  opacity: 0;
+}
+
+.clip-history-row:hover .clip-history-actions,
+.clip-history-row.selected .clip-history-actions {
+  opacity: 1;
+}
+
+.clip-history-actions button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.clip-history-actions button:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.clip-history-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.clip-history-clear {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.clip-history-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

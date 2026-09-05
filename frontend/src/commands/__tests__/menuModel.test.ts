@@ -5,7 +5,7 @@ import { MENU_ID_TO_COMMAND } from '../menuBridge'
 describe('MENU_MODEL', () => {
   it('has the expected top-level sections in order', () => {
     expect(MENU_MODEL.map(s => s.title)).toEqual(
-      ['File', 'Edit', 'View', 'Session', 'Tools', 'AI', 'Window', 'Help']
+      ['File', 'Edit', 'View', 'Session', 'Tools', 'MOP', 'AI', 'Window', 'Help']
     )
   })
 

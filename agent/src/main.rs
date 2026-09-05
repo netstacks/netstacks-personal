@@ -6,12 +6,12 @@
 //! as the Terminal app connects directly to the Controller. The agent will detect
 //! Enterprise mode configuration and exit gracefully.
 
+use crate::lsp::{LspHost, LspState};
+use crate::tracked_router::TrackedRouter;
 use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use crate::lsp::{LspHost, LspState};
-use crate::tracked_router::TrackedRouter;
 // Registry write only matters when the dev-routes endpoint is compiled in
 // (debug builds, or when the `dev-routes` feature is enabled). In release
 // builds without the feature, dev::routes_handler is excluded — there is
@@ -20,11 +20,11 @@ use crate::tracked_router::TrackedRouter;
 use crate::tracked_router::set_global_routes;
 use base64::Engine as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
+use rand::Rng;
 use sqlx::sqlite::SqlitePool;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use rand::Rng;
 use std::sync::Arc;
 use tokio_rustls::TlsAcceptor;
 use tower_http::cors::CorsLayer;
@@ -38,12 +38,17 @@ mod biometric;
 mod cert_manager;
 mod crypto;
 mod db;
+mod db_backup;
 #[cfg(any(debug_assertions, feature = "dev-routes"))]
 mod dev;
 mod discovery;
 mod docs;
 mod docs_kb;
 mod enrich;
+mod git;
+mod git_accounts;
+mod git_api;
+mod guard_probe;
 mod integrations;
 mod lsp;
 mod models;
@@ -53,7 +58,6 @@ mod remote_agents;
 mod scripts;
 mod search;
 mod secret;
-mod db_backup;
 mod sftp;
 mod snmp;
 mod ssh;
@@ -62,17 +66,13 @@ mod telnet;
 mod terminal;
 mod tls;
 mod tracked_router;
-mod git;
-mod guard_probe;
-mod git_accounts;
-mod git_api;
 mod tunnels;
 mod utf8_decoder;
 mod ws;
 
 use api::AppState;
-use providers::LocalDataProvider;
 use providers::DataProvider as _;
+use providers::LocalDataProvider;
 
 /// Get the path to the Tauri app config file.
 ///
@@ -94,7 +94,10 @@ fn get_config_path() -> PathBuf {
     #[cfg(target_os = "linux")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        PathBuf::from(format!("{}/.local/share/{}/app-config.json", home, app_name))
+        PathBuf::from(format!(
+            "{}/.local/share/{}/app-config.json",
+            home, app_name
+        ))
     }
 
     #[cfg(target_os = "windows")]
@@ -197,12 +200,18 @@ async fn evict_orphaned_agent() {
         Ok(r) if r.status().is_success()
     );
     if !is_ours {
-        tracing::warn!("PID {} holds port {} but isn't a NetStacks agent — not evicting", pid, port);
+        tracing::warn!(
+            "PID {} holds port {} but isn't a NetStacks agent — not evicting",
+            pid,
+            port
+        );
         return;
     }
 
     tracing::warn!("Evicting orphaned netstacks-agent PID {}", pid);
-    unsafe { libc::kill(pid, libc::SIGTERM); }
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
 
     for _ in 0..20 {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -214,7 +223,9 @@ async fn evict_orphaned_agent() {
     }
 
     tracing::warn!("SIGTERM didn't stop PID {} — escalating to SIGKILL", pid);
-    unsafe { libc::kill(pid, libc::SIGKILL); }
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+    }
     tokio::time::sleep(Duration::from_millis(500)).await;
     let _ = fs::remove_file(&lock);
 }
@@ -235,7 +246,10 @@ fn spawn_parent_death_watcher() {
     if original_ppid <= 1 {
         // Already orphaned (running from CLI without a Tauri parent, or
         // launched by launchd directly). Nothing to watch — stay alive.
-        tracing::info!("No supervising parent (ppid={}); skipping death watcher", original_ppid);
+        tracing::info!(
+            "No supervising parent (ppid={}); skipping death watcher",
+            original_ppid
+        );
         return;
     }
     tracing::info!("Parent-PID watcher armed for ppid={}", original_ppid);
@@ -426,9 +440,13 @@ async fn async_main() {
         .collect();
 
     let local_tls = if !extra_sans.is_empty() {
-        tls::load_or_generate_remote(extra_sans).await.expect("Failed to initialize remote TLS cert")
+        tls::load_or_generate_remote(extra_sans)
+            .await
+            .expect("Failed to initialize remote TLS cert")
     } else {
-        tls::load_or_generate().await.expect("Failed to initialize localhost TLS")
+        tls::load_or_generate()
+            .await
+            .expect("Failed to initialize localhost TLS")
     };
     let cert_b64 = base64::engine::general_purpose::STANDARD.encode(local_tls.cert_pem.as_bytes());
     println!("NETSTACKS_TLS_CERT={}", cert_b64);
@@ -453,7 +471,9 @@ async fn async_main() {
         .unwrap_or_else(|_| db::default_db_path());
     tracing::info!("Database path: {}", db_path.display());
 
-    let pool = db::init_db(&db_path).await.expect("Failed to initialize database");
+    let pool = db::init_db(&db_path)
+        .await
+        .expect("Failed to initialize database");
     tracing::info!("Database initialized");
 
     // Seed template scripts
@@ -474,7 +494,9 @@ async fn async_main() {
 
     // Create MCP client manager (Phase 06)
     // Wrapped in RwLock for safe sharing with task executor and API
-    let mcp_client_manager = Arc::new(tokio::sync::RwLock::new(integrations::McpClientManager::new()));
+    let mcp_client_manager = Arc::new(tokio::sync::RwLock::new(
+        integrations::McpClientManager::new(),
+    ));
 
     // Create shared sanitizer cache (used by both API handlers and background tasks)
     let sanitizer: Arc<tokio::sync::RwLock<Option<ai::sanitizer::Sanitizer>>> =
@@ -516,19 +538,25 @@ async fn async_main() {
 
     // Hover-enrichment: load matchers + sources from DB. The seed functions in
     // db/mod.rs populated built-ins on first boot; user UI edits stack on top.
-    let db_matchers = provider.list_enrichment_matchers().await.unwrap_or_default();
+    let db_matchers = provider
+        .list_enrichment_matchers()
+        .await
+        .unwrap_or_default();
     let db_sources = provider.list_enrichment_sources().await.unwrap_or_default();
-    let sources_by_id: std::collections::HashMap<String, String> = db_sources.iter()
+    let sources_by_id: std::collections::HashMap<String, String> = db_sources
+        .iter()
         .map(|s| (s.id.clone(), s.name.clone()))
         .collect();
-    let sources_by_name: std::collections::HashMap<String, models::EnrichmentSource> = db_sources.into_iter()
+    let sources_by_name: std::collections::HashMap<String, models::EnrichmentSource> = db_sources
+        .into_iter()
         .map(|s| (s.name.clone(), s))
         .collect();
-    let enrichment_registry = Arc::new(tokio::sync::RwLock::new(
-        enrich::MatcherRegistry::from_db(&db_matchers, &sources_by_id),
-    ));
+    let enrichment_registry = Arc::new(tokio::sync::RwLock::new(enrich::MatcherRegistry::from_db(
+        &db_matchers,
+        &sources_by_id,
+    )));
     let enrichment_cache = Arc::new(tokio::sync::RwLock::new(
-        enrich::EnrichmentCache::new(300),  // 5min default TTL
+        enrich::EnrichmentCache::new(300), // 5min default TTL
     ));
     let enrichment_sources = Arc::new(tokio::sync::RwLock::new(sources_by_name));
 
@@ -537,6 +565,7 @@ async fn async_main() {
         provider: provider as Arc<dyn providers::DataProvider>,
         auth_token: auth_token.clone(),
         sanitizer: sanitizer.clone(),
+        clip_sanitizer: Arc::new(tokio::sync::RwLock::new(None)),
         task_store,
         task_registry,
         task_executor,
@@ -557,6 +586,7 @@ async fn async_main() {
         enrichment: enrichment_registry,
         enrichment_cache,
         enrichment_sources,
+        mop_phase_locks: std::sync::Mutex::new(std::collections::HashSet::new()),
     });
 
     // Background-refresh the local OUI vendor table (IEEE CSV ~7 MB). Empty DB
@@ -569,7 +599,7 @@ async fn async_main() {
     // Built-in plugins are added in Phase 4 (Pyrefly); v1 ships with an
     // empty registry plus whatever the user has added via Settings.
     let lsp_data_dir = tls::data_dir(); // Same base as TLS cert
-    // Sweep stale scratch directories older than 24h (Phase 6).
+                                        // Sweep stale scratch directories older than 24h (Phase 6).
     crate::lsp::scratch::sweep_stale_scratch_dirs(&lsp_data_dir);
     let lsp_host = Arc::new(LspHost::new(pool.clone(), lsp_data_dir));
     let lsp_state = LspState {
@@ -615,7 +645,14 @@ async fn async_main() {
             .await
             .unwrap_or_default();
 
+            // Connect every server concurrently: one unreachable endpoint
+            // (10 s timeout) must not delay the others' tool discovery.
+            let mut joins = Vec::new();
             for row in rows {
+                let pool_bg = pool_bg.clone();
+                let manager_bg = manager_bg.clone();
+                let provider_bg = provider_bg.clone();
+                joins.push(tokio::spawn(async move {
                 let McpServerAutoConnectRow {
                     id,
                     name,
@@ -635,13 +672,13 @@ async fn async_main() {
                             "Skipping MCP auto-connect for '{}' — vault locked and server has an auth token. Reconnect after unlocking the vault.",
                             name
                         );
-                        continue;
+                        return;
                     }
                     match provider_bg.get_mcp_auth_token(&id).await {
                         Ok(t) => t,
                         Err(e) => {
                             tracing::warn!("Failed to load MCP auth token for '{}': {} — skipping", name, e);
-                            continue;
+                            return;
                         }
                     }
                 } else {
@@ -695,7 +732,9 @@ async fn async_main() {
                         tracing::warn!("Timed out connecting to MCP server '{}'", name);
                     }
                 }
+                }));
             }
+            futures::future::join_all(joins).await;
         });
     }
 
@@ -709,11 +748,15 @@ async fn async_main() {
     // --bind <addr>: override bind address
     let args: Vec<String> = std::env::args().collect();
     let remote_mode = args.contains(&"--remote".to_string());
-    let cli_port: u16 = args.iter().position(|a| a == "--port")
+    let cli_port: u16 = args
+        .iter()
+        .position(|a| a == "--port")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
-    let cli_bind: Option<std::net::IpAddr> = args.iter().position(|a| a == "--bind")
+    let cli_bind: Option<std::net::IpAddr> = args
+        .iter()
+        .position(|a| a == "--bind")
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok());
 
@@ -721,7 +764,7 @@ async fn async_main() {
         if remote_mode {
             std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED) // 0.0.0.0
         } else {
-            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)   // 127.0.0.1
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) // 127.0.0.1
         }
     });
     let addr = SocketAddr::new(bind_ip, cli_port);
@@ -738,7 +781,9 @@ async fn async_main() {
         Err(e) => {
             tracing::error!(
                 "Failed to bind to {}: {}. Is port {} already in use by another process?",
-                addr, e, addr.port()
+                addr,
+                e,
+                addr.port()
             );
             std::process::exit(1);
         }
@@ -765,22 +810,28 @@ async fn async_main() {
     loop {
         let (tcp, _remote_addr) = match listener.accept().await {
             Ok(pair) => pair,
-            Err(e) => { tracing::warn!("Accept error: {}", e); continue; }
+            Err(e) => {
+                tracing::warn!("Accept error: {}", e);
+                continue;
+            }
         };
         let acceptor = acceptor.clone();
         let app = app.clone();
         tokio::spawn(async move {
             let tls_stream = match acceptor.accept(tcp).await {
                 Ok(s) => s,
-                Err(e) => { tracing::debug!("TLS handshake failed: {}", e); return; }
+                Err(e) => {
+                    tracing::debug!("TLS handshake failed: {}", e);
+                    return;
+                }
             };
             let io = TokioIo::new(tls_stream);
-            let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
-                let mut app = app.clone();
-                async move {
-                    tower::Service::call(&mut app, req.map(axum::body::Body::new)).await
-                }
-            });
+            let svc = hyper::service::service_fn(
+                move |req: hyper::Request<hyper::body::Incoming>| {
+                    let mut app = app.clone();
+                    async move { tower::Service::call(&mut app, req.map(axum::body::Body::new)).await }
+                },
+            );
             if let Err(e) = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
                 .serve_connection_with_upgrades(io, svc)
                 .await
@@ -805,9 +856,9 @@ fn resolve_frontend_dist() -> PathBuf {
             //   <prefix>/bin/netstacks-agent   (or alongside the main binary)
             // with resources one level up in `share/` or alongside.
             let candidates = [
-                exe_dir.join("frontend/dist"),        // flat bundle
-                exe_dir.join("../frontend/dist"),      // one level up
-                exe_dir.join("../../frontend/dist"),   // two levels up
+                exe_dir.join("frontend/dist"),                    // flat bundle
+                exe_dir.join("../frontend/dist"),                 // one level up
+                exe_dir.join("../../frontend/dist"),              // two levels up
                 exe_dir.join("../share/netstacks/frontend/dist"), // FHS deb layout
             ];
             for candidate in &candidates {
@@ -836,7 +887,9 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::AllowOrigin::predicate(
             |origin: &axum::http::HeaderValue, _req: &axum::http::request::Parts| {
-                let Ok(origin_str) = origin.to_str() else { return false };
+                let Ok(origin_str) = origin.to_str() else {
+                    return false;
+                };
                 // Allow Tauri-specific origins
                 //   macOS:           tauri://localhost
                 //   Linux / WebView2: http://tauri.localhost (default scheme)
@@ -896,7 +949,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         // Search
         .route("/search", get(search::search))
         // Sessions
-        .route("/sessions", get(api::list_sessions).post(api::create_session))
+        .route(
+            "/sessions",
+            get(api::list_sessions).post(api::create_session),
+        )
         .route("/sessions/bulk-delete", post(api::bulk_delete_sessions))
         .route("/sessions/:id/move", put(api::move_session))
         .route(
@@ -920,7 +976,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         )
         // Vault
         .route("/vault/status", get(api::vault_status))
-        .route("/vault/password", post(api::set_master_password).put(api::change_master_password))
+        .route(
+            "/vault/password",
+            post(api::set_master_password).put(api::change_master_password),
+        )
         .route("/vault/unlock", post(api::unlock_vault))
         .route("/vault/lock", post(api::lock_vault))
         .route("/vault/wipe", post(api::wipe_vault))
@@ -929,7 +988,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/vault/biometric/status", get(api::biometric_status))
         .route("/vault/biometric/enable", post(api::enable_biometric))
         .route("/vault/biometric/unlock", post(api::unlock_with_biometric))
-        .route("/vault/biometric", axum::routing::delete(api::disable_biometric))
+        .route(
+            "/vault/biometric",
+            axum::routing::delete(api::disable_biometric),
+        )
         // Credentials
         .route(
             "/credentials/:session_id",
@@ -953,11 +1015,16 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
             "/snippets/:id",
             put(api::update_snippet).delete(api::delete_global_snippet),
         )
-        // Connection History
+        // Clipboard history
         .route(
-            "/history",
-            get(api::list_history).post(api::create_history),
+            "/clips",
+            get(api::list_clips)
+                .post(api::create_clip)
+                .delete(api::clear_clips),
         )
+        .route("/clips/:id", put(api::update_clip).delete(api::delete_clip))
+        // Connection History
+        .route("/history", get(api::list_history).post(api::create_history))
         .route("/history/:id", delete(api::delete_history))
         // Export/Import
         .route("/sessions/export", get(api::export_all))
@@ -972,18 +1039,9 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
                 .delete(api::delete_setting),
         )
         // Terminal Logging
-        .route(
-            "/terminals/:id/log/start",
-            post(api::start_terminal_log),
-        )
-        .route(
-            "/terminals/:id/log/stop",
-            post(api::stop_terminal_log),
-        )
-        .route(
-            "/terminals/:id/log/write",
-            post(api::write_terminal_log),
-        )
+        .route("/terminals/:id/log/start", post(api::start_terminal_log))
+        .route("/terminals/:id/log/stop", post(api::stop_terminal_log))
+        .route("/terminals/:id/log/write", post(api::write_terminal_log))
         .route("/logs/append", post(api::append_to_log))
         // Bulk command execution
         .route("/bulk-command", post(api::bulk_command))
@@ -1013,10 +1071,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
             "/mapped-keys/:key_id",
             put(api::update_mapped_key).delete(api::delete_mapped_key),
         )
-        .route(
-            "/mapped-keys/:key_id/reveal",
-            get(api::reveal_mapped_key),
-        )
+        .route("/mapped-keys/:key_id/reveal", get(api::reveal_mapped_key))
         // Custom Commands (right-click menu)
         .route(
             "/custom-commands",
@@ -1060,24 +1115,42 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
                 .delete(api::delete_netbox_source),
         )
         .route("/netbox-sources/:id/test", post(api::test_netbox_source))
-        .route("/netbox-sources/:id/devices", get(api::netbox_source_list_devices))
+        .route(
+            "/netbox-sources/:id/devices",
+            get(api::netbox_source_list_devices),
+        )
         .route(
             "/netbox-sources/:id/devices/:device_id/neighbors",
             get(api::netbox_source_device_neighbors),
         )
         .route("/netbox/test", post(api::test_netbox_direct))
-        .route("/netbox-sources/:id/sync-complete", post(api::sync_complete_netbox_source))
+        .route(
+            "/netbox-sources/:id/sync-complete",
+            post(api::sync_complete_netbox_source),
+        )
         .route("/netbox-sources/:id/token", get(api::get_netbox_token))
         // NetBox proxy endpoints (for filter options with SSL bypass)
         .route("/netbox/proxy/sites", post(api::netbox_proxy_sites))
         .route("/netbox/proxy/roles", post(api::netbox_proxy_roles))
-        .route("/netbox/proxy/manufacturers", post(api::netbox_proxy_manufacturers))
+        .route(
+            "/netbox/proxy/manufacturers",
+            post(api::netbox_proxy_manufacturers),
+        )
         .route("/netbox/proxy/platforms", post(api::netbox_proxy_platforms))
         .route("/netbox/proxy/tags", post(api::netbox_proxy_tags))
-        .route("/netbox/proxy/devices/count", post(api::netbox_proxy_count_devices))
+        .route(
+            "/netbox/proxy/devices/count",
+            post(api::netbox_proxy_count_devices),
+        )
         .route("/netbox/proxy/devices", post(api::netbox_proxy_devices))
-        .route("/netbox/proxy/ip-addresses", post(api::netbox_proxy_ip_addresses))
-        .route("/netbox/proxy/console-access", post(api::netbox_proxy_console_access))
+        .route(
+            "/netbox/proxy/ip-addresses",
+            post(api::netbox_proxy_ip_addresses),
+        )
+        .route(
+            "/netbox/proxy/console-access",
+            post(api::netbox_proxy_console_access),
+        )
         // LibreNMS Sources (Phase 22)
         .route(
             "/librenms-sources",
@@ -1089,12 +1162,27 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
                 .put(api::update_librenms_source)
                 .delete(api::delete_librenms_source),
         )
-        .route("/librenms-sources/:id/test", post(api::test_librenms_source))
+        .route(
+            "/librenms-sources/:id/test",
+            post(api::test_librenms_source),
+        )
         .route("/librenms/test", post(api::test_librenms_direct))
-        .route("/librenms-sources/:id/devices", get(api::get_librenms_devices))
-        .route("/librenms-sources/:id/devices/:hostname/links", get(api::get_librenms_device_links))
-        .route("/librenms-sources/:id/links", get(api::get_librenms_all_links))
-        .route("/librenms-sources/:id/import-topology", post(api::librenms_import_topology))
+        .route(
+            "/librenms-sources/:id/devices",
+            get(api::get_librenms_devices),
+        )
+        .route(
+            "/librenms-sources/:id/devices/:hostname/links",
+            get(api::get_librenms_device_links),
+        )
+        .route(
+            "/librenms-sources/:id/links",
+            get(api::get_librenms_all_links),
+        )
+        .route(
+            "/librenms-sources/:id/import-topology",
+            post(api::librenms_import_topology),
+        )
         // Netdisco Sources (Phase 22)
         .route(
             "/netstacks-crawler-sources",
@@ -1106,13 +1194,34 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
                 .put(api::update_netstacks_crawler_source)
                 .delete(api::delete_netstacks_crawler_source),
         )
-        .route("/netstacks-crawler-sources/:id/test", post(api::test_netstacks_crawler_source))
-        .route("/netstacks-crawler/test", post(api::test_netstacks_crawler_direct))
-        .route("/netstacks-crawler-sources/:id/devices", get(api::netstacks_crawler_proxy_devices))
-        .route("/netstacks-crawler-sources/:id/devices/:device_ip/neighbors", get(api::netstacks_crawler_proxy_neighbors))
-        .route("/netstacks-crawler-sources/:id/devicelinks", get(api::netstacks_crawler_proxy_devicelinks))
-        .route("/netstacks-crawler-sources/:id/search", get(api::netstacks_crawler_proxy_search))
-        .route("/netstacks-crawler-sources/:id/import-topology", post(api::netstacks_crawler_import_topology))
+        .route(
+            "/netstacks-crawler-sources/:id/test",
+            post(api::test_netstacks_crawler_source),
+        )
+        .route(
+            "/netstacks-crawler/test",
+            post(api::test_netstacks_crawler_direct),
+        )
+        .route(
+            "/netstacks-crawler-sources/:id/devices",
+            get(api::netstacks_crawler_proxy_devices),
+        )
+        .route(
+            "/netstacks-crawler-sources/:id/devices/:device_ip/neighbors",
+            get(api::netstacks_crawler_proxy_neighbors),
+        )
+        .route(
+            "/netstacks-crawler-sources/:id/devicelinks",
+            get(api::netstacks_crawler_proxy_devicelinks),
+        )
+        .route(
+            "/netstacks-crawler-sources/:id/search",
+            get(api::netstacks_crawler_proxy_search),
+        )
+        .route(
+            "/netstacks-crawler-sources/:id/import-topology",
+            post(api::netstacks_crawler_import_topology),
+        )
         // API Key Vault
         .route(
             "/vault/api-keys/:key_type",
@@ -1134,7 +1243,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         )
         .route("/recordings/:id/data", get(api::get_recording_data))
         .route("/recordings/:id/append", post(api::append_recording_data))
-        .route("/recordings/:id/save-to-docs", post(api::save_recording_to_docs))
+        .route(
+            "/recordings/:id/save-to-docs",
+            post(api::save_recording_to_docs),
+        )
         // Highlight Rules
         .route(
             "/highlight-rules",
@@ -1146,12 +1258,12 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
                 .put(api::update_highlight_rule)
                 .delete(api::delete_highlight_rule),
         )
-        .route("/sessions/:session_id/highlight-rules/effective", get(api::get_effective_highlight_rules))
-        // Change Control
         .route(
-            "/changes",
-            get(api::list_changes).post(api::create_change),
+            "/sessions/:session_id/highlight-rules/effective",
+            get(api::get_effective_highlight_rules),
         )
+        // Change Control
+        .route("/changes", get(api::list_changes).post(api::create_change))
         .route("/changes/import-mop", post(api::import_mop_package))
         .route(
             "/changes/:id",
@@ -1161,10 +1273,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         )
         .route("/changes/:id/export-mop", get(api::export_mop_package))
         .route("/changes/:change_id/snapshots", get(api::list_snapshots))
-        .route(
-            "/snapshots",
-            post(api::create_snapshot),
-        )
+        .route("/snapshots", post(api::create_snapshot))
         .route(
             "/snapshots/:id",
             get(api::get_snapshot).delete(api::delete_snapshot),
@@ -1207,34 +1316,57 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/enrich/source", post(api::enrich_source_one))
         .route("/enrich/active-matchers", get(api::enrich_active_matchers))
         .route("/enrichment/reload", post(api::enrich_reload))
-        .route("/enrichment-matchers",
-            get(api::list_enrichment_matchers).post(api::create_enrichment_matcher))
+        .route(
+            "/enrichment-matchers",
+            get(api::list_enrichment_matchers).post(api::create_enrichment_matcher),
+        )
         .route("/enrichment-matchers/test", post(api::test_matcher))
-        .route("/enrichment-matchers/:id",
+        .route(
+            "/enrichment-matchers/:id",
             get(api::get_enrichment_matcher)
                 .put(api::update_enrichment_matcher)
-                .delete(api::delete_enrichment_matcher))
-        .route("/enrichment-matchers/:id/sources", put(api::replace_matcher_sources))
-        .route("/enrichment-sources",
-            get(api::list_enrichment_sources).post(api::create_enrichment_source))
-        .route("/enrichment-sources/test", post(api::test_enrichment_source))
-        .route("/enrichment-sources/:id",
+                .delete(api::delete_enrichment_matcher),
+        )
+        .route(
+            "/enrichment-matchers/:id/sources",
+            put(api::replace_matcher_sources),
+        )
+        .route(
+            "/enrichment-sources",
+            get(api::list_enrichment_sources).post(api::create_enrichment_source),
+        )
+        .route(
+            "/enrichment-sources/test",
+            post(api::test_enrichment_source),
+        )
+        .route(
+            "/enrichment-sources/:id",
             get(api::get_enrichment_source)
                 .put(api::update_enrichment_source)
-                .delete(api::delete_enrichment_source))
+                .delete(api::delete_enrichment_source),
+        )
         .route("/enrichment/export", post(api::enrichment_export))
         .route("/enrichment/import", post(api::enrichment_import))
         // Saved Topologies (Phase 20.1)
-        .route("/topologies", get(api::list_topologies).post(api::create_topology))
+        .route(
+            "/topologies",
+            get(api::list_topologies).post(api::create_topology),
+        )
         .route("/topologies/bulk-delete", post(api::bulk_delete_topologies))
-        .route("/topologies/folders", get(api::list_topology_folders).post(api::create_topology_folder))
+        .route(
+            "/topologies/folders",
+            get(api::list_topology_folders).post(api::create_topology_folder),
+        )
         .route(
             "/topologies/folders/:id",
             get(api::get_topology_folder)
                 .put(api::update_topology_folder)
                 .delete(api::delete_topology_folder),
         )
-        .route("/topologies/folders/:id/move", put(api::move_topology_folder))
+        .route(
+            "/topologies/folders/:id/move",
+            put(api::move_topology_folder),
+        )
         .route(
             "/topologies/:id",
             get(api::get_topology)
@@ -1244,20 +1376,43 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/topologies/:id/share", put(api::share_topology))
         .route("/topologies/:id/move", put(api::move_topology))
         .route("/topologies/:id/devices", post(api::add_topology_device))
-        .route("/topologies/:id/devices/:device_id/position", put(api::update_topology_device_position))
-        .route("/topologies/:id/devices/:device_id/type", put(api::update_topology_device_type))
-        .route("/topologies/:id/devices/:device_id/details", put(api::update_topology_device_details))
-        .route("/topologies/:id/devices/:device_id", delete(api::delete_topology_device))
-        .route("/topologies/:id/connections", post(api::create_topology_connection))
+        .route(
+            "/topologies/:id/devices/:device_id/position",
+            put(api::update_topology_device_position),
+        )
+        .route(
+            "/topologies/:id/devices/:device_id/type",
+            put(api::update_topology_device_type),
+        )
+        .route(
+            "/topologies/:id/devices/:device_id/details",
+            put(api::update_topology_device_details),
+        )
+        .route(
+            "/topologies/:id/devices/:device_id",
+            delete(api::delete_topology_device),
+        )
+        .route(
+            "/topologies/:id/connections",
+            post(api::create_topology_connection),
+        )
         .route(
             "/topologies/:id/connections/:conn_id",
-            put(api::update_topology_connection)
-                .delete(api::delete_topology_connection),
+            put(api::update_topology_connection).delete(api::delete_topology_connection),
         )
         // Topology Annotations (Phase 27-03)
-        .route("/topologies/:id/annotations", get(api::list_topology_annotations).post(api::create_topology_annotation))
-        .route("/topologies/:id/annotations/reorder", post(api::reorder_topology_annotations))
-        .route("/topologies/:id/annotations/:annotation_id", put(api::update_topology_annotation).delete(api::delete_topology_annotation))
+        .route(
+            "/topologies/:id/annotations",
+            get(api::list_topology_annotations).post(api::create_topology_annotation),
+        )
+        .route(
+            "/topologies/:id/annotations/reorder",
+            post(api::reorder_topology_annotations),
+        )
+        .route(
+            "/topologies/:id/annotations/:annotation_id",
+            put(api::update_topology_annotation).delete(api::delete_topology_annotation),
+        )
         // Layouts (Phase 25)
         .route("/layouts", get(api::list_layouts).post(api::create_layout))
         .route(
@@ -1268,10 +1423,23 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         )
         // Groups (Plan 1: Tab Groups Redesign)
         .route("/groups", get(api::list_groups).post(api::create_group))
-        .route("/groups/:id", get(api::get_group).put(api::update_group).delete(api::delete_group))
+        .route(
+            "/groups/:id",
+            get(api::get_group)
+                .put(api::update_group)
+                .delete(api::delete_group),
+        )
         // API Resources
-        .route("/api-resources", get(api::list_api_resources).post(api::create_api_resource))
-        .route("/api-resources/:id", get(api::get_api_resource).put(api::update_api_resource).delete(api::delete_api_resource))
+        .route(
+            "/api-resources",
+            get(api::list_api_resources).post(api::create_api_resource),
+        )
+        .route(
+            "/api-resources/:id",
+            get(api::get_api_resource)
+                .put(api::update_api_resource)
+                .delete(api::delete_api_resource),
+        )
         .route("/api-resources/:id/test", post(api::test_api_resource))
         .route(
             "/api-resources/test-inline",
@@ -1286,46 +1454,141 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
             post(api::test_auth_flow_step_inline),
         )
         // Quick Actions
-        .route("/quick-actions", get(api::list_quick_actions).post(api::create_quick_action))
-        .route("/quick-actions/:id", get(api::get_quick_action).put(api::update_quick_action).delete(api::delete_quick_action))
-        .route("/quick-actions/:id/execute", post(api::execute_quick_action))
-        .route("/quick-actions/execute-inline", post(api::execute_inline_quick_action))
+        .route(
+            "/quick-actions",
+            get(api::list_quick_actions).post(api::create_quick_action),
+        )
+        .route(
+            "/quick-actions/:id",
+            get(api::get_quick_action)
+                .put(api::update_quick_action)
+                .delete(api::delete_quick_action),
+        )
+        .route(
+            "/quick-actions/:id/execute",
+            post(api::execute_quick_action),
+        )
+        .route(
+            "/quick-actions/execute-inline",
+            post(api::execute_inline_quick_action),
+        )
         // Quick Prompts
-        .route("/quick-prompts", get(api::list_quick_prompts).post(api::create_quick_prompt))
-        .route("/quick-prompts/:id", put(api::update_quick_prompt).delete(api::delete_quick_prompt))
+        .route(
+            "/quick-prompts",
+            get(api::list_quick_prompts).post(api::create_quick_prompt),
+        )
+        .route(
+            "/quick-prompts/:id",
+            put(api::update_quick_prompt).delete(api::delete_quick_prompt),
+        )
         // Agent Definitions
-        .route("/agent-definitions", get(api::list_agent_definitions).post(api::create_agent_definition))
-        .route("/agent-definitions/:id", get(api::get_agent_definition).put(api::update_agent_definition).delete(api::delete_agent_definition))
-        .route("/agent-definitions/:id/run", post(api::run_agent_definition))
+        .route(
+            "/agent-definitions",
+            get(api::list_agent_definitions).post(api::create_agent_definition),
+        )
+        .route(
+            "/agent-definitions/:id",
+            get(api::get_agent_definition)
+                .put(api::update_agent_definition)
+                .delete(api::delete_agent_definition),
+        )
+        .route(
+            "/agent-definitions/:id/run",
+            post(api::run_agent_definition),
+        )
         // MOP Templates (Phase 30)
-        .route("/mop-templates", get(api::list_mop_templates).post(api::create_mop_template))
-        .route("/mop-templates/:id", get(api::get_mop_template).put(api::update_mop_template).delete(api::delete_mop_template))
+        .route(
+            "/mop-templates",
+            get(api::list_mop_templates).post(api::create_mop_template),
+        )
+        .route(
+            "/mop-templates/:id",
+            get(api::get_mop_template)
+                .put(api::update_mop_template)
+                .delete(api::delete_mop_template),
+        )
         // MOP Executions (Phase 30)
-        .route("/mop-executions", get(api::list_mop_executions).post(api::create_mop_execution))
-        .route("/mop-executions/:id", get(api::get_mop_execution).put(api::update_mop_execution).delete(api::delete_mop_execution))
+        .route(
+            "/mop-executions",
+            get(api::list_mop_executions).post(api::create_mop_execution),
+        )
+        .route(
+            "/mop-executions/:id",
+            get(api::get_mop_execution)
+                .put(api::update_mop_execution)
+                .delete(api::delete_mop_execution),
+        )
         // MOP Execution Control
         .route("/mop-executions/:id/start", post(api::start_mop_execution))
         .route("/mop-executions/:id/pause", post(api::pause_mop_execution))
-        .route("/mop-executions/:id/resume", post(api::resume_mop_execution))
+        .route(
+            "/mop-executions/:id/resume",
+            post(api::resume_mop_execution),
+        )
         .route("/mop-executions/:id/abort", post(api::abort_mop_execution))
-        .route("/mop-executions/:id/complete", post(api::complete_mop_execution))
+        .route(
+            "/mop-executions/:id/complete",
+            post(api::complete_mop_execution),
+        )
         // MOP Execution Devices
-        .route("/mop-executions/:id/devices", get(api::list_execution_devices).post(api::add_execution_device))
-        .route("/mop-executions/:exec_id/devices/:device_id/skip", post(api::skip_execution_device))
-        .route("/mop-executions/:exec_id/devices/:device_id/retry", post(api::retry_execution_device))
-        .route("/mop-executions/:exec_id/devices/:device_id/rollback", post(api::rollback_execution_device))
+        .route(
+            "/mop-executions/:id/devices",
+            get(api::list_execution_devices).post(api::add_execution_device),
+        )
+        .route(
+            "/mop-executions/:exec_id/devices/:device_id/skip",
+            post(api::skip_execution_device),
+        )
+        .route(
+            "/mop-executions/:exec_id/devices/:device_id/retry",
+            post(api::retry_execution_device),
+        )
+        .route(
+            "/mop-executions/:exec_id/devices/:device_id/rollback",
+            post(api::rollback_execution_device),
+        )
         // MOP Execution Steps
-        .route("/mop-executions/:exec_id/devices/:device_id/steps", get(api::list_execution_steps).post(api::add_execution_steps))
-        .route("/mop-executions/:exec_id/steps/:step_id/execute", post(api::execute_step))
-        .route("/mop-executions/:exec_id/steps/:step_id/approve", post(api::approve_step))
-        .route("/mop-executions/:exec_id/steps/:step_id/skip", post(api::skip_step))
-        .route("/mop-executions/:exec_id/steps/:step_id/mock", put(api::update_step_mock))
-        .route("/mop-executions/:exec_id/steps/:step_id/command", put(api::update_step_command))
-        .route("/mop-executions/:exec_id/steps/:step_id/output", put(api::update_step_output))
+        .route(
+            "/mop-executions/:exec_id/devices/:device_id/steps",
+            get(api::list_execution_steps).post(api::add_execution_steps),
+        )
+        .route(
+            "/mop-executions/:exec_id/steps/:step_id/execute",
+            post(api::execute_step),
+        )
+        .route(
+            "/mop-executions/:exec_id/steps/:step_id/approve",
+            post(api::approve_step),
+        )
+        .route(
+            "/mop-executions/:exec_id/steps/:step_id/skip",
+            post(api::skip_step),
+        )
+        .route(
+            "/mop-executions/:exec_id/steps/:step_id/mock",
+            put(api::update_step_mock),
+        )
+        .route(
+            "/mop-executions/:exec_id/steps/:step_id/command",
+            put(api::update_step_command),
+        )
+        .route(
+            "/mop-executions/:exec_id/steps/:step_id/output",
+            put(api::update_step_output),
+        )
         // MOP Phase Execution & Snapshots (Phase 30 - Production)
-        .route("/mop-executions/:exec_id/devices/:device_id/execute-phase", post(api::execute_device_phase))
-        .route("/mop-executions/:exec_id/devices/:device_id/diff", get(api::get_device_snapshot_diff))
-        .route("/mop-executions/:exec_id/analyze", post(api::analyze_mop_execution))
+        .route(
+            "/mop-executions/:exec_id/devices/:device_id/execute-phase",
+            post(api::execute_device_phase),
+        )
+        .route(
+            "/mop-executions/:exec_id/devices/:device_id/diff",
+            get(api::get_device_snapshot_diff),
+        )
+        .route(
+            "/mop-executions/:exec_id/analyze",
+            post(api::analyze_mop_execution),
+        )
         // MOP Diff (paired step comparison)
         .route("/mop/diff", post(api::mop_diff))
         // SNMP Operations (Phase 6)
@@ -1334,10 +1597,16 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/snmp/try-communities", post(api::snmp_try_communities))
         // SNMP Interface Stats (Phase 7)
         .route("/snmp/interface-stats", post(api::snmp_interface_stats))
-        .route("/snmp/try-interface-stats", post(api::snmp_try_interface_stats))
+        .route(
+            "/snmp/try-interface-stats",
+            post(api::snmp_try_interface_stats),
+        )
         // Discovery (Phase 27: Topology Discovery v2)
         .route("/discovery/batch", post(api::discovery_batch))
-        .route("/discovery/traceroute-resolve", post(api::discovery_traceroute_resolve))
+        .route(
+            "/discovery/traceroute-resolve",
+            post(api::discovery_traceroute_resolve),
+        )
         .route("/discovery/capabilities", get(api::discovery_capabilities))
         // Tasks (Phase 02)
         .route("/tasks", get(api::list_tasks).post(api::create_task))
@@ -1348,16 +1617,27 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         // Feature A: glass-box transcript catch-up (backfill after WS lag)
         .route("/tasks/:id/messages", get(api::list_task_messages))
         // SMTP Configuration (Phase 06)
-        .route("/smtp/config", get(api::get_smtp_config).post(api::save_smtp_config).delete(api::delete_smtp_config))
+        .route(
+            "/smtp/config",
+            get(api::get_smtp_config)
+                .post(api::save_smtp_config)
+                .delete(api::delete_smtp_config),
+        )
         .route("/smtp/test", post(api::test_smtp_connection))
         // MCP Server Management (Phase 06-03)
-        .route("/mcp/servers", get(api::list_mcp_servers).post(api::add_mcp_server))
+        .route(
+            "/mcp/servers",
+            get(api::list_mcp_servers).post(api::add_mcp_server),
+        )
         .route(
             "/mcp/servers/:id",
             put(api::update_mcp_server).delete(api::delete_mcp_server),
         )
         .route("/mcp/servers/:id/connect", post(api::connect_mcp_server))
-        .route("/mcp/servers/:id/disconnect", post(api::disconnect_mcp_server))
+        .route(
+            "/mcp/servers/:id/disconnect",
+            post(api::disconnect_mcp_server),
+        )
         .route("/mcp/servers/:id/test", post(api::test_mcp_server))
         .route("/mcp/servers/:id/restart", post(api::restart_mcp_server))
         // MCP Tool Approval (Phase 06-04)
@@ -1370,24 +1650,48 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/cert/renew", post(api::cert_renew))
         // AUDIT FIX (REMOTE-001): host-key fingerprint prompts
         .route("/host-keys/prompts", get(api::list_host_key_prompts))
-        .route("/host-keys/prompts/:id/approve", post(api::approve_host_key_prompt))
-        .route("/host-keys/prompts/:id/reject", post(api::reject_host_key_prompt))
-        .route("/host-keys", get(api::list_host_keys).delete(api::purge_host_keys))
+        .route(
+            "/host-keys/prompts/:id/approve",
+            post(api::approve_host_key_prompt),
+        )
+        .route(
+            "/host-keys/prompts/:id/reject",
+            post(api::reject_host_key_prompt),
+        )
+        .route(
+            "/host-keys",
+            get(api::list_host_keys).delete(api::purge_host_keys),
+        )
         .route("/host-keys/:host/:port", delete(api::delete_host_key))
         // AUDIT FIX (EXEC-017): per-tool-call approval prompts for ReAct tasks
-        .route("/tasks/:task_id/pending-approvals", get(api::list_task_pending_approvals))
+        .route(
+            "/tasks/:task_id/pending-approvals",
+            get(api::list_task_pending_approvals),
+        )
         .route("/task-approvals", get(api::list_all_task_approvals))
-        .route("/task-approvals/:approval_id/approve", post(api::approve_task_tool_use))
-        .route("/task-approvals/:approval_id/reject", post(api::reject_task_tool_use))
+        .route(
+            "/task-approvals/:approval_id/approve",
+            post(api::approve_task_tool_use),
+        )
+        .route(
+            "/task-approvals/:approval_id/reject",
+            post(api::reject_task_tool_use),
+        )
         // Feature B: typed interaction resolve (approve/reject/answer). The
         // list endpoints above already return typed PendingInteraction rows.
-        .route("/task-interactions/:interaction_id/resolve", post(api::resolve_task_interaction))
+        .route(
+            "/task-interactions/:interaction_id/resolve",
+            post(api::resolve_task_interaction),
+        )
         // Tunnels (static routes before parameterized)
         .route("/tunnels/status", get(api::tunnel_status))
         .route("/tunnels/start-all", post(api::start_all_tunnels))
         .route("/tunnels/stop-all", post(api::stop_all_tunnels))
         .route("/tunnels", get(api::list_tunnels).post(api::create_tunnel))
-        .route("/tunnels/:id", put(api::update_tunnel).delete(api::delete_tunnel))
+        .route(
+            "/tunnels/:id",
+            put(api::update_tunnel).delete(api::delete_tunnel),
+        )
         .route("/tunnels/:id/start", post(api::start_tunnel))
         .route("/tunnels/:id/stop", post(api::stop_tunnel))
         .route("/tunnels/:id/reconnect", post(api::reconnect_tunnel))
@@ -1395,7 +1699,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/local/read-file", post(api::local_file_read))
         .route("/local/read-file-binary", post(api::local_file_read_binary))
         .route("/local/write-file", post(api::local_file_write))
-        .route("/local/write-file-binary", post(api::local_file_write_binary))
+        .route(
+            "/local/write-file-binary",
+            post(api::local_file_write_binary),
+        )
         .route("/local/list-dir", post(api::local_dir_list))
         .route("/local/mkdir", post(api::local_file_mkdir))
         .route("/local/delete", post(api::local_file_delete))
@@ -1415,26 +1722,59 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/workspace/git/pull", post(git_api::git_pull))
         .route("/workspace/git/fetch", post(git_api::git_fetch))
         .route("/workspace/git/branches", post(git_api::git_list_branches))
-        .route("/workspace/git/branch/create", post(git_api::git_create_branch))
-        .route("/workspace/git/branch/switch", post(git_api::git_switch_branch))
-        .route("/workspace/git/branch/delete", post(git_api::git_delete_branch))
+        .route(
+            "/workspace/git/branch/create",
+            post(git_api::git_create_branch),
+        )
+        .route(
+            "/workspace/git/branch/switch",
+            post(git_api::git_switch_branch),
+        )
+        .route(
+            "/workspace/git/branch/delete",
+            post(git_api::git_delete_branch),
+        )
         .route("/workspace/git/merge", post(git_api::git_merge))
         .route("/workspace/git/stashes", post(git_api::git_list_stashes))
         .route("/workspace/git/stash", post(git_api::git_stash))
         .route("/workspace/git/init", post(git_api::git_init))
-        .route("/workspace/git/commit/amend", post(git_api::git_commit_amend))
+        .route(
+            "/workspace/git/commit/amend",
+            post(git_api::git_commit_amend),
+        )
         .route("/workspace/git/rebase/plan", post(git_api::git_rebase_plan))
-        .route("/workspace/git/rebase/apply", post(git_api::git_rebase_apply))
-        .route("/workspace/git/rebase/abort", post(git_api::git_rebase_abort))
-        .route("/workspace/git/generate-commit-message", post(git_api::git_generate_commit_message))
+        .route(
+            "/workspace/git/rebase/apply",
+            post(git_api::git_rebase_apply),
+        )
+        .route(
+            "/workspace/git/rebase/abort",
+            post(git_api::git_rebase_abort),
+        )
+        .route(
+            "/workspace/git/generate-commit-message",
+            post(git_api::git_generate_commit_message),
+        )
         .route("/workspace/git/clone", post(git_api::git_clone))
         .route("/workspace/open-file", post(git_api::open_file))
         // Git accounts
         .route("/workspace/git/accounts", get(git_accounts::list_accounts))
-        .route("/workspace/git/accounts/create", post(git_accounts::create_account))
-        .route("/workspace/git/accounts/update", post(git_accounts::update_account))
-        .route("/workspace/git/accounts/delete", post(git_accounts::delete_account))
-        .route("/workspace/git/accounts/test", post(git_accounts::test_connection))
+        .route(
+            "/workspace/git/accounts/create",
+            post(git_accounts::create_account),
+        )
+        .route(
+            "/workspace/git/accounts/update",
+            post(git_accounts::update_account),
+        )
+        .route(
+            "/workspace/git/accounts/delete",
+            post(git_accounts::delete_account),
+        )
+        .route(
+            "/workspace/git/accounts/test",
+            post(git_accounts::test_connection),
+        )
         // Seed Export/Import
         .route("/db/export", post(api::db_export))
         .route("/db/import", post(api::db_import))
@@ -1497,10 +1837,16 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
     // AI routes (with state for settings access)
     let ai_routes = TrackedRouter::new()
         .route("/chat", post(ai::chat::chat_completion))
-        .route("/providers/:provider/models", get(ai::chat::list_provider_models))
+        .route(
+            "/providers/:provider/models",
+            get(ai::chat::list_provider_models),
+        )
         .route("/generate-script", post(ai::chat::generate_script))
         .route("/agent-chat", post(ai::chat::agent_chat))
-        .route("/agent-chat-stream", post(ai::chat::agent_chat_stream_handler))
+        .route(
+            "/agent-chat-stream",
+            post(ai::chat::agent_chat_stream_handler),
+        )
         .route("/analyze-highlights", post(ai::chat::analyze_highlights))
         .route("/sanitization/test", post(ai::chat::test_sanitization))
         .route("/ssh-execute", post(api::ai_ssh_execute))
@@ -1511,11 +1857,25 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .route("/write-file", post(api::ai_write_file))
         .route("/edit-file", post(api::ai_edit_file))
         .route("/patch-file", post(api::ai_patch_file))
-        .route("/profile", get(ai::chat::get_ai_profile).put(ai::chat::update_ai_profile).delete(ai::chat::reset_ai_profile))
+        .route(
+            "/profile",
+            get(ai::chat::get_ai_profile)
+                .put(ai::chat::update_ai_profile)
+                .delete(ai::chat::reset_ai_profile),
+        )
         .route("/profile/status", get(ai::chat::get_ai_profile_status))
-        .route("/knowledge-pack-sizes", get(ai::chat::get_knowledge_pack_sizes))
-        .route("/memory", get(api::list_ai_memories).post(api::create_ai_memory))
-        .route("/memory/:id", put(api::update_ai_memory).delete(api::delete_ai_memory))
+        .route(
+            "/knowledge-pack-sizes",
+            get(ai::chat::get_knowledge_pack_sizes),
+        )
+        .route(
+            "/memory",
+            get(api::list_ai_memories).post(api::create_ai_memory),
+        )
+        .route(
+            "/memory/:id",
+            put(api::update_ai_memory).delete(api::delete_ai_memory),
+        )
         // AUDIT FIX (EXEC-002): server-side config-mode lifecycle
         .route("/config-mode/enable", post(api::enable_config_mode))
         .route("/config-mode/disable", post(api::disable_config_mode))
@@ -1558,8 +1918,7 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
     // packaged installs (Linux AppImage/deb/rpm, macOS .app) find the assets
     // regardless of the process working directory.
     let dist_dir = resolve_frontend_dist();
-    let static_service = ServeDir::new(&dist_dir)
-        .not_found_service(ServeDir::new(&dist_dir));
+    let static_service = ServeDir::new(&dist_dir).not_found_service(ServeDir::new(&dist_dir));
 
     // Compose API sub-routers (these get auth middleware).
     let api_composed = TrackedRouter::<()>::new()
@@ -1568,16 +1927,17 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         .nest_tracked("/api/docs", docs_routes)
         .nest_tracked("/api/ai", ai_routes)
         .nest_tracked("/api/sftp", sftp_routes)
-        .nest_tracked("/api/remote-agents", TrackedRouter::new()
-            .route("/deploy", post(api::remote_agent_deploy))
-            .route("/:id/status", get(api::remote_agent_status))
-            .route("/:id/stop", post(api::remote_agent_stop))
-            .with_state(app_state.clone())
+        .nest_tracked(
+            "/api/remote-agents",
+            TrackedRouter::new()
+                .route("/deploy", post(api::remote_agent_deploy))
+                .route("/:id/status", get(api::remote_agent_status))
+                .route("/:id/stop", post(api::remote_agent_stop))
+                .with_state(app_state.clone()),
         );
 
     // Compose WS routes separately (no auth middleware).
-    let ws_composed = TrackedRouter::<()>::new()
-        .nest_tracked("/ws", ws_routes);
+    let ws_composed = TrackedRouter::<()>::new().nest_tracked("/ws", ws_routes);
 
     // Aggregate captured routes from BOTH and stash globally — only when
     // the dev-routes endpoint will read them back.
@@ -1597,11 +1957,10 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
     ));
 
     // LSP routes: split HTTP (auth via middleware) from WebSocket (auth via query token).
-    let lsp_http = lsp::http_router(lsp_state.clone())
-        .layer(axum::middleware::from_fn_with_state(
-            app_state.clone(),
-            api::auth_middleware,
-        ));
+    let lsp_http = lsp::http_router(lsp_state.clone()).layer(axum::middleware::from_fn_with_state(
+        app_state.clone(),
+        api::auth_middleware,
+    ));
     let lsp_ws = lsp::ws_router(lsp_state);
 
     Router::new()

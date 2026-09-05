@@ -117,16 +117,7 @@ export default function ConnectionDetailsOverlay({
         </div>
       </div>
 
-      {/* Statistics Placeholder */}
-      <div className="connection-details-stats">
-        <div className="connection-details-section-title">Traffic Statistics</div>
-        <div className="connection-details-placeholder">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M18 20V10M12 20V4M6 20v-6" />
-          </svg>
-          <span>Statistics will be available when connected to monitoring</span>
-        </div>
-      </div>
+      {/* Traffic statistics placeholder removed — no data source yet (NS-FEAT-27) */}
     </div>
   );
 }

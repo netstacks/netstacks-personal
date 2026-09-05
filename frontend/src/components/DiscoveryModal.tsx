@@ -246,7 +246,9 @@ export default function DiscoveryModal({
     return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose });
+  // Always mounted by App — register on the Escape stack only while open,
+  // otherwise this modal swallows every Escape in the app (NS-UI-15).
+  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: isOpen });
 
   if (!isOpen) return null;
 

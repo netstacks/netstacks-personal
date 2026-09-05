@@ -9,11 +9,7 @@ import type { MopExecutionDevice } from '../../types/mop';
 import type { MopExecutionState } from '../../hooks/useMopExecution';
 import type { SnapshotDiff, MopAiAnalysisResponse } from '../../api/mop';
 
-// Re-export constants and helpers from MopWorkspace
-import { capitalize, isExecutionFinished } from './MopWorkspace';
-
-// StepComparisons is a module-private component in MopWorkspace, so we import it
-// via a re-export. We need to handle this — see note below.
+import { capitalize, isExecutionFinished } from './constants';
 
 // ============================================================================
 // Props Interface
@@ -42,8 +38,8 @@ export interface MopReviewTabProps {
   handleGenerateDocument: () => void;
   handleAiGenerateDocument: () => void;
 
-  // AI analysis
-  handleAnalyzeExecution: () => void;
+  // AI analysis (`force` re-runs the model instead of returning the stored analysis)
+  handleAnalyzeExecution: (force?: boolean) => void;
 
   // Step status helpers
   getStepStatusColor: (status: string) => string;
@@ -51,6 +47,52 @@ export interface MopReviewTabProps {
 
   // Step Comparisons sub-component
   StepComparisons: React.ComponentType<{ execState: MopExecutionState }>;
+}
+
+/** "AI · anthropic/claude-…" or "Rule-based — AI provider not configured". */
+function analysisProvenance(a: MopAiAnalysisResponse): string {
+  const warnings = (a.warnings || []).filter(w => w !== 'cached');
+  const cached = (a.warnings || []).includes('cached') ? ' (stored)' : '';
+  if (a.source === 'rules') {
+    return `Rule-based${warnings.length ? ` — ${warnings.join('; ')}` : ''}`;
+  }
+  return `AI · ${a.model || 'model'}${cached}${warnings.length ? ` — ${warnings.join('; ')}` : ''}`;
+}
+
+// ============================================================================
+// Document actions — shared by the pre-execution empty state and the
+// finished-execution summary bar
+// ============================================================================
+
+interface DocumentActionsProps {
+  className: string;
+  generatingDoc: boolean;
+  aiEnhancingDoc: boolean;
+  onGenerate: () => void;
+  onAiGenerate: () => void;
+  children?: React.ReactNode;
+}
+
+function DocumentActions({ className, generatingDoc, aiEnhancingDoc, onGenerate, onAiGenerate, children }: DocumentActionsProps) {
+  const busy = generatingDoc || aiEnhancingDoc;
+  return (
+    <div className={className}>
+      {children}
+      <button className="mop-workspace-header-btn" onClick={onGenerate} disabled={busy}>
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+          <path d="M3 2h7l3 3v9H3V2zm7 1H4v10h8V5.5L10 3z" />
+        </svg>
+        {generatingDoc ? 'Generating...' : 'Generate Document'}
+      </button>
+      <button className="mop-workspace-header-btn primary" onClick={onAiGenerate} disabled={busy}>
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+          <path d="M8 1C4.1 1 1 4.1 1 8s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm0 12.5c-3 0-5.5-2.5-5.5-5.5S5 2.5 8 2.5s5.5 2.5 5.5 5.5-2.5 5.5-5.5 5.5z" />
+          <path d="M10.5 5.5L7.5 8l-2-1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+        {aiEnhancingDoc ? 'AI Generating...' : 'AI Generate Document'}
+      </button>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -99,30 +141,15 @@ export default function MopReviewTab(props: MopReviewTabProps) {
           </p>
         </div>
         {steps.length > 0 && (
-          <div className="mop-review-doc-actions">
+          <DocumentActions
+            className="mop-review-doc-actions"
+            generatingDoc={generatingDoc}
+            aiEnhancingDoc={aiEnhancingDoc}
+            onGenerate={handleGenerateDocument}
+            onAiGenerate={handleAiGenerateDocument}
+          >
             <span>Generate a MOP document from your plan:</span>
-            <button
-              className="mop-workspace-header-btn"
-              onClick={handleGenerateDocument}
-              disabled={generatingDoc || aiEnhancingDoc}
-            >
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-                <path d="M3 2h7l3 3v9H3V2zm7 1H4v10h8V5.5L10 3z" />
-              </svg>
-              {generatingDoc ? 'Generating...' : 'Generate Document'}
-            </button>
-            <button
-              className="mop-workspace-header-btn primary"
-              onClick={handleAiGenerateDocument}
-              disabled={generatingDoc || aiEnhancingDoc}
-            >
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-                <path d="M8 1C4.1 1 1 4.1 1 8s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm0 12.5c-3 0-5.5-2.5-5.5-5.5S5 2.5 8 2.5s5.5 2.5 5.5 5.5-2.5 5.5-5.5 5.5z" />
-                <path d="M10.5 5.5L7.5 8l-2-1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-              {aiEnhancingDoc ? 'AI Generating...' : 'AI Generate Document'}
-            </button>
-          </div>
+          </DocumentActions>
         )}
       </div>
     );
@@ -168,29 +195,13 @@ export default function MopReviewTab(props: MopReviewTabProps) {
         </span>
 
         {isFinished && (
-          <div className="mop-review-doc-actions-inline">
-            <button
-              className="mop-workspace-header-btn"
-              onClick={handleGenerateDocument}
-              disabled={generatingDoc || aiEnhancingDoc}
-            >
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-                <path d="M3 2h7l3 3v9H3V2zm7 1H4v10h8V5.5L10 3z" />
-              </svg>
-              {generatingDoc ? 'Generating...' : 'Generate Document'}
-            </button>
-            <button
-              className="mop-workspace-header-btn primary"
-              onClick={handleAiGenerateDocument}
-              disabled={generatingDoc || aiEnhancingDoc}
-            >
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-                <path d="M8 1C4.1 1 1 4.1 1 8s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm0 12.5c-3 0-5.5-2.5-5.5-5.5S5 2.5 8 2.5s5.5 2.5 5.5 5.5-2.5 5.5-5.5 5.5z" />
-                <path d="M10.5 5.5L7.5 8l-2-1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-              {aiEnhancingDoc ? 'AI Generating...' : 'AI Generate Document'}
-            </button>
-          </div>
+          <DocumentActions
+            className="mop-review-doc-actions-inline"
+            generatingDoc={generatingDoc}
+            aiEnhancingDoc={aiEnhancingDoc}
+            onGenerate={handleGenerateDocument}
+            onAiGenerate={handleAiGenerateDocument}
+          />
         )}
       </div>
 
@@ -204,11 +215,12 @@ export default function MopReviewTab(props: MopReviewTabProps) {
           {isFinished && (
             <button
               className="mop-workspace-header-btn"
-              onClick={handleAnalyzeExecution}
+              onClick={() => handleAnalyzeExecution(!!aiAnalysis)}
               disabled={analyzingAi}
               style={{ marginLeft: 'auto' }}
+              title={aiAnalysis ? 'Ask the AI again (ignores the stored analysis)' : 'Analyze outputs, assertions and config diffs'}
             >
-              {analyzingAi ? 'Analyzing...' : aiAnalysis ? 'Re-run Analysis' : 'Run AI Analysis'}
+              {analyzingAi ? 'Analyzing...' : aiAnalysis ? 'Re-run' : 'Run AI Analysis'}
             </button>
           )}
         </div>
@@ -217,6 +229,9 @@ export default function MopReviewTab(props: MopReviewTabProps) {
           <div className="mop-review-ai-content">
             <div className={`mop-review-ai-risk ${aiAnalysis.risk_level}`}>
               Risk Level: {aiAnalysis.risk_level.toUpperCase()}
+            </div>
+            <div className={`mop-review-ai-source ${aiAnalysis.source === 'rules' ? 'rules' : ''}`} data-testid="mop-review-ai-source">
+              {analysisProvenance(aiAnalysis)}
             </div>
             <div className="mop-review-ai-text">{aiAnalysis.analysis}</div>
             {aiAnalysis.recommendations.length > 0 && (
@@ -273,7 +288,7 @@ export default function MopReviewTab(props: MopReviewTabProps) {
 
               {/* Step results summary */}
               <div className="mop-review-device-steps">
-                {deviceSteps
+                {[...deviceSteps]
                   .sort((a, b) => a.step_order - b.step_order)
                   .map((step, idx) => (
                     <div key={step.id} className={`mop-review-step ${step.status}`}>

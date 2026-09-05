@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { copyToClipboard } from '../../lib/clipboard'
 import WorkspaceCodeEditor from './WorkspaceCodeEditor'
 import WorkspaceBrowser from './WorkspaceBrowser'
 import WorkspaceDiffViewer from './WorkspaceDiffViewer'
@@ -77,7 +78,7 @@ export default function WorkspaceEditorArea({
       items.push({
         id: 'copy-path',
         label: 'Copy Path',
-        action: () => { navigator.clipboard.writeText(tab.filePath!) },
+        action: () => { void copyToClipboard(tab.filePath!, { source: 'app-copy', tabType: 'workspace' }) },
       })
     }
 

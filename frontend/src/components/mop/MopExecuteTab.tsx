@@ -1,44 +1,59 @@
 // MopExecuteTab — extracted from MopWorkspace.renderExecuteTab
-// Renders the Execute sub-tab: phase progress, config bar, device step list, output pane
+// Renders the Execute sub-tab: phase progress, config bar, executions list,
+// phase/rollback controls, manual-mode drivers, device step list, output pane
 
+import { useCallback, useMemo, useState } from 'react';
 import type React from 'react';
 import './MopWorkspace.css';
 import type { MopStep, MopStepType } from '../../types/change';
 import type { Session } from '../../api/sessions';
 import type { DeviceSummary } from '../../api/enterpriseDevices';
 import type {
+  MopExecution,
   MopExecutionDevice,
-  MopExecutionStep,
   ControlMode,
   ExecutionStrategy,
-  ExecutionPhase,
   OnFailureBehavior,
 } from '../../types/mop';
 import type { MopExecutionState } from '../../hooks/useMopExecution';
 import type { UseMopExecutionReturn } from '../../hooks/useMopExecution';
 import type { UseAiPilotReturn } from '../../hooks/useAiPilot';
+import type { UseMopExecuteViewReturn } from './useMopExecuteView';
 import type { QuickAction } from '../../types/quickAction';
 import type { Script } from '../../api/scripts';
-
-// Re-export constants and helpers from MopWorkspace
-import { STEP_SECTIONS, capitalize, isExecutionFinished } from './MopWorkspace';
+import type { CliFlavor } from '../../types/enrichment';
+import { CLI_FLAVOR_META } from '../../lib/cliFlavorMeta';
+import {
+  STEP_SECTIONS,
+  DEVICE_STATUS_CLASSES,
+  EXEC_STATUS_COLORS,
+  EXEC_STATUS_LABELS,
+  PHASE_STEP_TYPES,
+  capitalize,
+  isExecutionFinished,
+  type PhaseStepType,
+} from './constants';
+import { resolveMopVariables, type VariableIssue } from '../../lib/mopVariables';
+import {
+  stepAppliesToDevice,
+  scopedDeviceCount,
+  sortPlanSteps,
+  devicesEligibleForPhase,
+  previousPhaseIncomplete,
+  findNextPendingStep,
+  pendingStepsInPhase,
+  phaseResultNotes,
+} from './mopHelpers';
 
 // ============================================================================
 // Props Interface
 // ============================================================================
 
-export interface MopExecuteTabProps {
-  // Enterprise context
-  isEnterprise: boolean;
-
-  // Execution state (from useMopExecution hook)
+export interface MopExecuteExecProps {
   execution: MopExecutionState['execution'];
-  executionDevices: MopExecutionDevice[];
+  devices: MopExecutionDevice[];
   execState: MopExecutionState;
   execHook: UseMopExecutionReturn;
-  executionProgress: MopExecutionState['progress'];
-  currentPhase: ExecutionPhase;
-
   // Execution config
   controlMode: ControlMode;
   setControlMode: (v: ControlMode) => void;
@@ -46,86 +61,110 @@ export interface MopExecuteTabProps {
   setExecutionStrategy: (v: ExecutionStrategy) => void;
   onFailure: OnFailureBehavior;
   setOnFailure: (v: OnFailureBehavior) => void;
-
   // Execution flow
   executionStarting: boolean;
   runningPhase: string | null;
+  rollbackRunning: boolean;
   executingStepId: string | null;
-  editingStepId: string | null;
-  editingStepCommand: string;
-  setEditingStepCommand: (v: string) => void;
-  setEditingStepId: (v: string | null) => void;
-  expandedExecutionDevices: Set<string>;
+}
 
-  // Execute split-pane
-  selectedExecStepId: string | null;
-  setSelectedExecStepId: (v: string | null) => void;
-  collapsedPhases: Set<string>;
-  rollbackVisible: Set<string>;
-  setRollbackVisible: React.Dispatch<React.SetStateAction<Set<string>>>;
-
-  // Selected exec step data (computed)
-  selectedExecStepData: { step: MopExecutionStep; device: MopExecutionDevice } | null;
-
+export interface MopExecutePlanProps {
   // Plan steps (for pre-execution preview)
   steps: MopStep[];
   stepCount: number;
   stepsBySection: Record<MopStepType, MopStep[]>;
   selectedDeviceIds: Set<string>;
   selectedDeviceList: (DeviceSummary | Session)[];
-
   // Per-device steps
   hasPerDeviceSteps: boolean;
   perDeviceSteps: Record<string, MopStep[]>;
-
-  // Approval gating
-  isApprovalGated: boolean | string | null;
-  approvalStatus: string;
-
-  // AI risk assessment
-  aiRiskLevel: string | null;
-  aiRiskReason: string | null;
-  aiRiskChecking: boolean;
-
-  // AI Pilot
-  aiPilot: UseAiPilotReturn;
-
-  // Tab switching
-  setActiveTab: (tab: 'plan' | 'devices' | 'execute' | 'review' | 'history') => void;
-
-  // Execution action callbacks
-  startExecutionFlow: () => void;
-  handleRunPhase: (stepType: 'pre_check' | 'change' | 'post_check') => void;
-  handleExecuteStep: (stepId: string) => void;
-  handleSkipStep: (stepId: string) => void;
-  handleStartEditStep: (step: MopExecutionStep) => void;
-  handleSaveEditStep: (stepId: string) => void;
-  toggleExecutionDeviceExpand: (deviceId: string) => void;
-  togglePhaseCollapse: (key: string) => void;
-  getStepStatusColor: (status: string) => string;
-  getDeviceStatusInfo: (device: MopExecutionDevice) => { passed: number; failed: number; total: number; label: string };
-
   // Quick actions & scripts (for output panel details)
   quickActions: QuickAction[];
   scripts: Script[];
+  // Approval gating
+  isApprovalGated: boolean | string | null;
+  approvalStatus: string;
+  // Plan variables: resolved map per selected device id (preview) and the
+  // `device → variable` problems that block Start
+  variableMaps: Record<string, Record<string, string>>;
+  variableIssues: VariableIssue[];
+}
 
+export interface MopExecuteAiProps {
+  aiRiskLevel: string | null;
+  aiRiskReason: string | null;
+  aiRiskChecking: boolean;
+  aiPilot: UseAiPilotReturn;
+}
+
+/** Executions list (personal mode; every execution created from this plan). */
+export interface MopExecuteExecutionsProps {
+  planExecutions: MopExecution[];
+  planExecutionsLoading: boolean;
+  handleOpenExecution: (id: string) => void;
+  handleRefreshExecutions: () => void;
+}
+
+export interface MopExecuteActions {
+  startExecutionFlow: () => void;
+  handleRunPhase: (stepType: PhaseStepType) => void;
+  handleExecuteStep: (stepId: string) => void;
+  handleSkipStep: (stepId: string) => void;
+  handleRunNextStep: () => void;
+  handleRunPendingInPhase: (deviceId: string, stepType: MopStepType) => void;
+  handleRunStepOnAllDevices: (stepId: string) => void;
+  /** Roll back one device, or every device when called without an id. */
+  handleRunRollback: (deviceId?: string) => void;
+  handleAbort: (reason?: string) => void;
+  handleComplete: () => void;
+  handleNewExecution: () => void;
+  handleSaveEditStep: (stepId: string) => void;
+  getStepStatusColor: (status: string) => string;
+  getDeviceStatusInfo: (device: MopExecutionDevice) => { passed: number; failed: number; total: number; label: string };
+  // Tab switching
+  setActiveTab: (tab: 'plan' | 'devices' | 'execute' | 'review' | 'history') => void;
   // Formatters
   formatDurationMs: (ms: number) => string;
+}
+
+export interface MopExecuteTabProps {
+  // Enterprise context
+  isEnterprise: boolean;
+  /** Split-pane view state (selection, collapsed phases, rollback, editing). */
+  view: UseMopExecuteViewReturn;
+  exec: MopExecuteExecProps;
+  plan: MopExecutePlanProps;
+  actions: MopExecuteActions;
+  ai: MopExecuteAiProps;
+  executions: MopExecuteExecutionsProps;
+}
+
+
+const PHASES: { key: string; label: string; stepType?: PhaseStepType }[] = [
+  { key: 'pre_checks', label: 'Pre-Checks', stepType: 'pre_check' },
+  { key: 'changes', label: 'Changes', stepType: 'change' },
+  { key: 'post_checks', label: 'Post-Checks', stepType: 'post_check' },
+  { key: 'review', label: 'Review' },
+];
+
+const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+
+function flavorLabel(flavor: string | null | undefined): string | null {
+  if (!flavor || flavor === 'auto') return null;
+  const meta = CLI_FLAVOR_META[flavor as CliFlavor];
+  return meta ? (meta.vendor ? `${meta.vendor} ${meta.platform}` : meta.platform) : flavor;
 }
 
 // ============================================================================
 // Component
 // ============================================================================
 
-export default function MopExecuteTab(props: MopExecuteTabProps) {
+export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions, ai, executions }: MopExecuteTabProps) {
   const {
-    isEnterprise: _isEnterprise,
     execution,
-    executionDevices,
+    devices: executionDevices,
     execState,
     execHook,
-    executionProgress,
-    currentPhase,
     controlMode,
     setControlMode,
     executionStrategy,
@@ -134,55 +173,57 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
     setOnFailure,
     executionStarting,
     runningPhase,
+    rollbackRunning,
     executingStepId,
-    editingStepId,
-    editingStepCommand,
-    setEditingStepCommand,
-    setEditingStepId,
-    expandedExecutionDevices,
-    selectedExecStepId: _selectedExecStepId,
-    setSelectedExecStepId,
-    collapsedPhases,
-    rollbackVisible,
-    setRollbackVisible,
-    selectedExecStepData,
-    steps: _steps,
+  } = exec;
+  const { currentPhase, progress: executionProgress } = view;
+  const { selectedExecStepId, setSelectedExecStepId, selectedExecStepData } = view.selection;
+  const { collapsedPhases, togglePhaseCollapse } = view.phases;
+  const { rollbackVisible, setRollbackVisible } = view.rollback;
+  const { expandedExecutionDevices, toggleExecutionDeviceExpand } = view.devices;
+  const { editingStepId, setEditingStepId, editingStepCommand, setEditingStepCommand, handleStartEditStep } = view.editing;
+  const {
+    steps,
     stepCount,
     stepsBySection,
     selectedDeviceIds,
     selectedDeviceList,
-    hasPerDeviceSteps: _hasPerDeviceSteps,
-    perDeviceSteps: _perDeviceSteps,
+    hasPerDeviceSteps,
+    perDeviceSteps,
+    quickActions,
+    scripts,
     isApprovalGated,
     approvalStatus,
-    aiRiskLevel,
-    aiRiskReason,
-    aiRiskChecking,
-    aiPilot,
-    setActiveTab,
+    variableMaps,
+    variableIssues,
+  } = plan;
+  const { aiRiskLevel, aiRiskReason, aiRiskChecking, aiPilot } = ai;
+  const { planExecutions, planExecutionsLoading, handleOpenExecution, handleRefreshExecutions } = executions;
+  const {
     startExecutionFlow,
     handleRunPhase,
     handleExecuteStep,
     handleSkipStep,
-    handleStartEditStep,
+    handleRunNextStep,
+    handleRunPendingInPhase,
+    handleRunStepOnAllDevices,
+    handleRunRollback,
+    handleAbort,
+    handleComplete,
+    handleNewExecution,
     handleSaveEditStep,
-    toggleExecutionDeviceExpand,
-    togglePhaseCollapse,
     getStepStatusColor,
     getDeviceStatusInfo,
-    quickActions,
-    scripts,
+    setActiveTab,
     formatDurationMs,
-  } = props;
+  } = actions;
 
-  const phases: { key: string; label: string; stepType?: 'pre_check' | 'change' | 'post_check' }[] = [
-    { key: 'pre_checks', label: 'Pre-Checks', stepType: 'pre_check' },
-    { key: 'changes', label: 'Changes', stepType: 'change' },
-    { key: 'post_checks', label: 'Post-Checks', stepType: 'post_check' },
-    { key: 'review', label: 'Review' },
-  ];
+  // Local UI state
+  const { dialog, abortReason, setAbortReason, openDialog, closeDialog } = view.dialog;
+  const [runAnyway, setRunAnyway] = useState<Set<string>>(new Set());
+  const [executionsOpen, setExecutionsOpen] = useState(false);
 
-  const phaseIndex = phases.findIndex(p => {
+  const phaseIndex = PHASES.findIndex(p => {
     if (currentPhase === 'pre_checks' && p.key === 'pre_checks') return true;
     if (currentPhase === 'change_execution' && p.key === 'changes') return true;
     if (currentPhase === 'post_checks' && p.key === 'post_checks') return true;
@@ -192,16 +233,99 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
 
   const hasSteps = stepCount > 0;
   const hasDevices = selectedDeviceIds.size > 0;
-  const canStart = hasSteps && hasDevices && !execution && !executionStarting;
+  const hasVariableIssues = variableIssues.length > 0;
+  const canStart = hasSteps && hasDevices && !execution && !executionStarting && !hasVariableIssues;
   const isRunning = execution?.status === 'running';
   const isPaused = execution?.status === 'paused';
   const isFinished = isExecutionFinished(execution?.status);
+  const isActive = isRunning || isPaused;
+  const busy = !!runningPhase || rollbackRunning || !!execState.phaseRunning;
+  const failedSteps = executionProgress?.failedSteps ?? 0;
+  const pendingSteps = useMemo(
+    () => executionDevices.reduce((n, d) => n + (execState.stepsByDevice[d.id] || []).filter(s => s.status === 'pending' && s.step_type !== 'rollback').length, 0),
+    [executionDevices, execState.stepsByDevice],
+  );
+  const anyRollbackSteps = useMemo(
+    () => executionDevices.some(d => (execState.stepsByDevice[d.id] || []).some(s => s.step_type === 'rollback')),
+    [executionDevices, execState.stepsByDevice],
+  );
+  const rollbackTitle = !anyRollbackSteps
+    ? 'No rollback steps in this plan'
+    : busy ? 'Wait for the current phase to finish'
+      : isFinished ? 'Run the rollback steps against the finished execution'
+        : 'Run the rollback steps';
+
+  const phaseCount = (stepType: PhaseStepType): string | number => {
+    if (!execution) return (stepsBySection[stepType] || []).length;
+    let total = 0, done = 0;
+    for (const d of executionDevices) {
+      const devSteps = execState.stepsByDevice[d.id] || [];
+      const phaseSteps = devSteps.filter(s => s.step_type === stepType);
+      total += phaseSteps.length;
+      done += phaseSteps.filter(s => s.status === 'passed' || s.status === 'skipped' || s.status === 'mocked').length;
+    }
+    return `${done}/${total}`;
+  };
+
+  // Notes from the last phase / rollback (failures, skips, save errors, 409s)
+  const phaseNotes = useMemo(() => {
+    const summary = execState.lastPhaseSummary;
+    if (!summary) return null;
+    const lines: { deviceName: string; text: string; error: boolean }[] = [];
+    for (const deviceId of summary.deviceIds) {
+      const device = executionDevices.find(d => d.id === deviceId);
+      const name = device?.device_name || deviceId;
+      const err = summary.errors[deviceId];
+      if (err) {
+        lines.push({ deviceName: name, text: err, error: true });
+        continue;
+      }
+      const result = execState.phaseResults[deviceId];
+      if (!result) continue;
+      const notes = phaseResultNotes(result);
+      if (notes.length > 0) lines.push({ deviceName: name, text: notes.join(' · '), error: result.steps_failed > 0 || !!result.post_command_error });
+    }
+    const extras: string[] = [];
+    if (summary.aborted) extras.push('Execution aborted (On Failure = Abort).');
+    if (summary.paused) extras.push('Execution paused after this phase — Resume to continue.');
+    if (lines.length === 0 && extras.length === 0) return null;
+    return { stepType: summary.stepType, lines, extras };
+  }, [execState.lastPhaseSummary, execState.phaseResults, executionDevices]);
+
+  // Keyboard driver (manual mode): Enter = run selected/next, S = skip, N = next
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!execution || isFinished || controlMode !== 'manual') return;
+    const target = e.target as HTMLElement;
+    if (EDITABLE_TAGS.has(target.tagName) || target.isContentEditable) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const selected = selectedExecStepData?.step ?? null;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (busy || executingStepId) return;
+      if (selected && selected.status === 'pending' && isActive) handleExecuteStep(selected.id);
+      else handleRunNextStep();
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      if (selected && (selected.status === 'pending' || selected.status === 'failed') && isActive) handleSkipStep(selected.id);
+    } else if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      const next = findNextPendingStep(executionDevices, execState.stepsByDevice, selectedExecStepData?.device.id ?? null);
+      if (next) setSelectedExecStepId(next.step.id);
+    }
+  }, [execution, isFinished, controlMode, selectedExecStepData, busy, executingStepId, isActive, handleExecuteStep, handleRunNextStep, handleSkipStep, executionDevices, execState.stepsByDevice, setSelectedExecStepId]);
+
+  const onCompleteClick = () => {
+    if (failedSteps > 0 || pendingSteps > 0) openDialog('complete');
+    else handleComplete();
+  };
+
+  const completeLabel = failedSteps > 0 ? `Complete with ${failedSteps} failure${failedSteps !== 1 ? 's' : ''}` : 'Complete';
 
   return (
-    <div className="mop-execute-tab">
+    <div className="mop-execute-tab" tabIndex={0} onKeyDown={handleKeyDown} data-testid="mop-execute-tab">
       {/* Phase progress bar */}
       <div className="mop-execute-phase-bar">
-        {phases.map((phase, idx) => (
+        {PHASES.map((phase, idx) => (
           <span key={phase.key} style={{ display: 'contents' }}>
             {idx > 0 && <span className="mop-execute-phase-arrow">&rarr;</span>}
             <span className={`mop-execute-phase ${idx === phaseIndex ? 'active' : ''} ${idx < phaseIndex ? 'complete' : ''}`}>
@@ -212,21 +336,7 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
               )}
               {phase.label}
               {phase.stepType && (
-                <span className="mop-execute-phase-count">
-                  {execution
-                    ? (() => {
-                        let total = 0, done = 0;
-                        for (const d of executionDevices) {
-                          const devSteps = execState.stepsByDevice[d.id] || [];
-                          const phaseSteps = devSteps.filter(s => s.step_type === phase.stepType);
-                          total += phaseSteps.length;
-                          done += phaseSteps.filter(s => s.status === 'passed' || s.status === 'skipped' || s.status === 'mocked').length;
-                        }
-                        return `${done}/${total}`;
-                      })()
-                    : (stepsBySection[phase.stepType] || []).length
-                  }
-                </span>
+                <span className="mop-execute-phase-count">{phaseCount(phase.stepType)}</span>
               )}
             </span>
           </span>
@@ -242,7 +352,8 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
           />
           <span className="mop-execute-progress-label">
             {executionProgress.percentComplete}% complete
-            {executionProgress.failedSteps > 0 && ` \u00b7 ${executionProgress.failedSteps} failed`}
+            {executionProgress.failedSteps > 0 && ` · ${executionProgress.failedSteps} failed`}
+            {execState.phaseRunning && ` · running ${execState.phaseRunning.stepType.replace('_', ' ')} on ${execState.phaseRunning.deviceIds.length} device${execState.phaseRunning.deviceIds.length !== 1 ? 's' : ''}`}
           </span>
         </div>
       )}
@@ -294,6 +405,7 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                 className={`mop-execute-config-option ${executionStrategy === strategy ? 'active' : ''}`}
                 onClick={() => setExecutionStrategy(strategy)}
                 disabled={!!execution}
+                title={strategy === 'sequential' ? 'One device at a time per phase' : 'All devices at once per phase'}
               >
                 {strategy === 'sequential' ? 'Sequential' : 'Parallel'}
               </button>
@@ -308,13 +420,13 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
               {([1, 2, 3, 4] as const).map(level => (
                 <button
                   key={level}
-                  className={`mop-execute-config-option ${(aiPilot.state.level === level && aiPilot.state.active) ? 'active' : ''}`}
-                  onClick={() => aiPilot.activate(level)}
+                  className={`mop-execute-config-option ${aiPilot.state.level === level ? 'active' : ''}`}
+                  onClick={() => aiPilot.setLevel(level)}
                   title={
-                    level === 1 ? 'Observer: AI provides commentary only'
-                      : level === 2 ? 'Advisor: AI suggests, you approve'
-                      : level === 3 ? 'Co-Pilot: AI runs steps, pauses at phase boundaries'
-                      : 'Autopilot: AI runs entire MOP after plan approval'
+                    level === 1 ? 'Observer: AI comments on every step result (saved as AI feedback)'
+                      : level === 2 ? 'Advisor: AI proposes the next step or phase, you approve'
+                      : level === 3 ? 'Co-Pilot: you start a phase; when the AI gate says proceed the next phase runs automatically'
+                      : 'Autopilot: after you approve the plan, pre-checks → change → post-checks run back to back, stopping on any failure or non-proceed gate'
                   }
                 >
                   L{level}
@@ -333,6 +445,11 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                   key={b}
                   className={`mop-execute-config-option ${onFailure === b ? 'active' : ''}`}
                   onClick={() => setOnFailure(b)}
+                  title={
+                    b === 'pause' ? 'Pause the execution after a phase with failures'
+                      : b === 'skip' ? 'Keep going on the remaining devices'
+                      : 'Abort the execution after the first device with failures'
+                  }
                 >
                   {capitalize(b)}
                 </button>
@@ -353,18 +470,20 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
               className="mop-workspace-header-btn primary"
               disabled={!canStart}
               onClick={startExecutionFlow}
-              title={!hasSteps ? 'Add steps first' : !hasDevices ? 'Select devices first' : 'Start execution'}
+              title={!hasSteps ? 'Add steps first' : !hasDevices ? 'Select devices first' : hasVariableIssues ? 'Resolve the variable issues listed below first' : 'Start execution'}
             >
               {executionStarting ? 'Starting...' : 'Start Execution'}
             </button>
           )
         ) : isFinished ? (
           <div style={{ display: 'flex', gap: 6 }}>
+            <span className="mop-execute-finished-label" style={{ color: EXEC_STATUS_COLORS[execution.status] }}>
+              {EXEC_STATUS_LABELS[execution.status] || capitalize(execution.status)}
+            </span>
             <button
               className="mop-workspace-header-btn"
-              onClick={() => {
-                execHook.resetExecution();
-              }}
+              onClick={() => openDialog('new')}
+              title="Reset the view for another run — this execution stays in the Executions list"
             >
               New Execution
             </button>
@@ -377,53 +496,210 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
           </div>
         ) : (
           <div className="mop-execute-config-group" style={{ flexDirection: 'row', gap: 6 }}>
-            {executionProgress && executionProgress.percentComplete >= 100 ? (
-              <button
-                className="mop-workspace-header-btn primary"
-                onClick={() => execHook.completeExecution()}
-              >
-                Complete
+            {isRunning && (
+              <button className="mop-workspace-header-btn" onClick={() => execHook.pauseExecution()} disabled={busy}>
+                Pause
               </button>
-            ) : (
-              <>
-                {isRunning && (
-                  <button className="mop-workspace-header-btn" onClick={() => execHook.pauseExecution()}>
-                    Pause
-                  </button>
-                )}
-                {isPaused && (
-                  <button className="mop-workspace-header-btn primary" onClick={() => execHook.resumeExecution()}>
-                    Resume
-                  </button>
-                )}
-              </>
             )}
-            <button className="mop-workspace-header-btn" onClick={() => execHook.cancelExecution()}>
-              Cancel
+            {isPaused && (
+              <button className="mop-workspace-header-btn primary" onClick={() => execHook.resumeExecution()} disabled={busy}>
+                Resume
+              </button>
+            )}
+            <button
+              className="mop-workspace-header-btn primary"
+              onClick={onCompleteClick}
+              disabled={busy || !!executingStepId}
+              title={pendingSteps > 0 ? `${pendingSteps} step${pendingSteps !== 1 ? 's' : ''} still pending` : 'Mark the execution complete'}
+            >
+              {completeLabel}
             </button>
-            <button className="mop-workspace-header-btn danger" onClick={() => execHook.abortExecution()}>
+            <button
+              className="mop-workspace-header-btn danger"
+              onClick={() => openDialog('abort')}
+              title="Abort the execution (asks for confirmation)"
+            >
               Abort
             </button>
           </div>
         )}
       </div>
 
-      {/* Auto-run phase controls */}
-      {execution && controlMode === 'auto_run' && !isFinished && (
+      {/* Executions list (personal mode) */}
+      {!isEnterprise && (planExecutions.length > 0 || planExecutionsLoading) && (
+        <div className="mop-execute-executions">
+          <div className="mop-execute-executions-header" onClick={() => setExecutionsOpen(o => !o)}>
+            <span className={`mop-execute-step-group-chevron ${executionsOpen ? 'expanded' : ''}`}>
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor">
+                <path d="M6 4l4 4-4 4z" />
+              </svg>
+            </span>
+            <span>Executions</span>
+            <span className="mop-execute-step-group-count">{planExecutions.length}</span>
+            <span style={{ flex: 1 }} />
+            <button
+              className="mop-plan-step-action-btn"
+              onClick={(e) => { e.stopPropagation(); handleRefreshExecutions(); }}
+              disabled={planExecutionsLoading}
+              title="Refresh"
+            >
+              {planExecutionsLoading ? <span className="mop-ai-loading small" /> : 'Refresh'}
+            </button>
+          </div>
+          {executionsOpen && (
+            <div className="mop-execute-executions-list">
+              {planExecutions.map(exec => {
+                const isCurrent = execution?.id === exec.id;
+                // The open execution's row follows the live status (pause/resume don't refetch the list)
+                const status = isCurrent && execution ? execution.status : exec.status;
+                return (
+                  <div key={exec.id} className={`mop-execute-executions-row ${isCurrent ? 'current' : ''}`}>
+                    <span className="mop-execute-executions-status" style={{ color: EXEC_STATUS_COLORS[status] || 'var(--text-secondary)' }}>
+                      {EXEC_STATUS_LABELS[status] || status}
+                    </span>
+                    <span className="mop-execute-executions-name">{exec.name}</span>
+                    <span className="mop-execute-executions-meta">
+                      {exec.control_mode} · {new Date(exec.started_at || exec.created_at).toLocaleString()}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    {isCurrent ? (
+                      <span className="mop-execute-executions-current">Open</span>
+                    ) : (
+                      <button
+                        className="mop-workspace-header-btn"
+                        onClick={() => handleOpenExecution(exec.id)}
+                        disabled={busy || !!executingStepId}
+                      >
+                        Open
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Phase controls (auto-run / AI pilot) + rollback */}
+      {execution && controlMode !== 'manual' && !isFinished && (
         <div className="mop-execute-autorun-bar">
-          {phases.filter(p => p.stepType).map(phase => {
-            const isCurrentPhaseRunning = runningPhase === phase.stepType;
+          {PHASE_STEP_TYPES.map(stepType => {
+            const phase = PHASES.find(p => p.stepType === stepType)!;
+            const isCurrentPhaseRunning = runningPhase === stepType || execState.phaseRunning?.stepType === stepType;
+            const eligible = devicesEligibleForPhase(executionDevices, execState.stepsByDevice, stepType).length;
+            const blocked = previousPhaseIncomplete(executionDevices, execState.stepsByDevice, stepType) && !runAnyway.has(stepType);
+            const disabled = busy || eligible === 0 || blocked;
+            const title = isCurrentPhaseRunning ? `Running ${phase.label}…`
+              : eligible === 0 ? `No pending ${phase.label.toLowerCase()} on any device`
+              : blocked ? 'Run the previous phase first (or use "Run anyway")'
+              : `Run ${phase.label} on ${eligible} device${eligible !== 1 ? 's' : ''}`;
             return (
-              <button
-                key={phase.key}
-                className={`mop-workspace-header-btn ${isCurrentPhaseRunning ? '' : 'primary'}`}
-                disabled={isCurrentPhaseRunning || !!runningPhase}
-                onClick={() => handleRunPhase(phase.stepType!)}
-              >
-                {isCurrentPhaseRunning ? `Running ${phase.label}...` : `Run ${phase.label}`}
-              </button>
+              <span key={phase.key} className="mop-execute-phase-btn-group">
+                <button
+                  className={`mop-workspace-header-btn ${isCurrentPhaseRunning ? '' : 'primary'}`}
+                  disabled={disabled}
+                  onClick={() => handleRunPhase(stepType)}
+                  title={title}
+                >
+                  {isCurrentPhaseRunning ? `Running ${phase.label}...` : `Run ${phase.label}`}
+                </button>
+                {blocked && eligible > 0 && !busy && (
+                  <button
+                    className="mop-execute-run-anyway"
+                    onClick={() => setRunAnyway(prev => new Set(prev).add(stepType))}
+                    title="Ignore phase order for this phase"
+                  >
+                    Run anyway
+                  </button>
+                )}
+              </span>
             );
           })}
+          <span style={{ flex: 1 }} />
+          <button
+            className="mop-execute-rollback-btn"
+            disabled={!anyRollbackSteps || busy || !isActive}
+            onClick={() => handleRunRollback()}
+            title={rollbackTitle}
+          >
+            {rollbackRunning ? 'Rolling back...' : 'Roll back all devices'}
+          </button>
+        </div>
+      )}
+
+      {/* Manual-mode driver bar */}
+      {execution && controlMode === 'manual' && !isFinished && (
+        <div className="mop-execute-autorun-bar mop-execute-manual-bar">
+          <button
+            className="mop-workspace-header-btn primary"
+            onClick={handleRunNextStep}
+            disabled={busy || !!executingStepId || !isActive || pendingSteps === 0}
+            title={!isActive ? 'Resume the execution first' : pendingSteps === 0 ? 'No pending steps' : 'Run the next pending step (Enter)'}
+          >
+            Run next step
+          </button>
+          <button
+            className="mop-workspace-header-btn"
+            onClick={() => selectedExecStepData && handleSkipStep(selectedExecStepData.step.id)}
+            disabled={!isActive || !selectedExecStepData || !(selectedExecStepData.step.status === 'pending' || selectedExecStepData.step.status === 'failed')}
+            title="Skip the selected step (S)"
+          >
+            Skip selected
+          </button>
+          <button
+            className="mop-workspace-header-btn"
+            onClick={() => {
+              const next = findNextPendingStep(executionDevices, execState.stepsByDevice, selectedExecStepData?.device.id ?? null);
+              if (next) setSelectedExecStepId(next.step.id);
+            }}
+            disabled={pendingSteps === 0}
+            title="Select the next pending step (N)"
+          >
+            Next
+          </button>
+          <span className="mop-execute-manual-hint">Enter = run · S = skip · N = next (focus this panel)</span>
+          <span style={{ flex: 1 }} />
+          <button
+            className="mop-execute-rollback-btn"
+            disabled={!anyRollbackSteps || busy || !isActive}
+            onClick={() => handleRunRollback()}
+            title={rollbackTitle}
+          >
+            {rollbackRunning ? 'Rolling back...' : 'Roll back all devices'}
+          </button>
+        </div>
+      )}
+
+      {/* Rollback affordance once the execution is finished (the agent accepts rollback in complete/failed/aborted) */}
+      {execution && isFinished && anyRollbackSteps && (
+        <div className="mop-execute-autorun-bar">
+          <button
+            className="mop-execute-rollback-btn"
+            disabled={busy}
+            onClick={() => handleRunRollback()}
+            title={rollbackTitle}
+          >
+            {rollbackRunning ? 'Rolling back...' : 'Roll back all devices'}
+          </button>
+          <span className="mop-execute-manual-hint">Runs each device's rollback steps with the platform's config wrapper.</span>
+        </div>
+      )}
+
+      {/* Notes from the last phase / rollback */}
+      {phaseNotes && (
+        <div className="mop-execute-phase-notes" data-testid="mop-phase-notes">
+          <div className="mop-execute-phase-notes-title">
+            Last {phaseNotes.stepType.replace('_', ' ')} run
+          </div>
+          {phaseNotes.lines.map(line => (
+            <div key={line.deviceName} className={`mop-execute-phase-note ${line.error ? 'error' : ''}`}>
+              <strong>{line.deviceName}</strong>: {line.text}
+            </div>
+          ))}
+          {phaseNotes.extras.map(extra => (
+            <div key={extra} className="mop-execute-phase-note">{extra}</div>
+          ))}
         </div>
       )}
 
@@ -437,6 +713,8 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
             <div className="mop-ai-pilot-header-status">
               <span className="mop-ai-pilot-header-dot" />
               <span>AI Pilot active · L{aiPilot.state.level}</span>
+              {aiPilot.state.driving && <span className="mop-ai-pilot-driving">running phases automatically…</span>}
+              {aiPilot.state.processing && !aiPilot.state.driving && <span className="mop-ai-loading small" title="AI thinking" />}
             </div>
             <button
               className="mop-workspace-header-btn"
@@ -457,7 +735,7 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
               </div>
               <div className="mop-ai-pilot-gate-content">
                 <strong>L4 Autopilot requires plan approval</strong>
-                <p>The AI will execute the entire MOP autonomously. Review the plan before approving.</p>
+                <p>On approval the pilot runs pre-checks, the change and post-checks back to back. Each phase gate must come back "proceed" with enough confidence; any failed step, other recommendation or low confidence stops it and hands control back to you.</p>
               </div>
               <button className="mop-workspace-header-btn primary" onClick={aiPilot.approvePlan}>
                 Approve Plan
@@ -583,6 +861,23 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
         </>
       )}
 
+      {/* Pre-start block: unresolved placeholders / empty required variables */}
+      {!execution && hasVariableIssues && (
+        <div className="mop-workspace-banner error mop-variable-issues" role="alert" data-testid="mop-variable-issues">
+          <span className="mop-variable-issues-title">
+            Execution is blocked until every device resolves its variables (Plan tab → Variables, Devices tab → per-device values):
+          </span>
+          <ul>
+            {variableIssues.map(issue => (
+              <li key={`${issue.deviceId}:${issue.name}`}>
+                {issue.deviceName} → <code>{`{{${issue.name}}}`}</code>{' '}
+                {issue.reason === 'required' ? '(required, no value)' : '(not declared)'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Execution content */}
       <div className="mop-execute-content">
         {!hasSteps && !hasDevices && !execution && !executionStarting ? (
@@ -616,18 +911,26 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                 selectedDeviceList.map(device => {
                   const deviceName = 'name' in device ? device.name : (device as Session).name;
                   const deviceHost = 'host' in device ? device.host : '';
+                  const devicePlanSteps = hasPerDeviceSteps ? (perDeviceSteps[device.id] || steps) : steps;
+                  const scopedSteps = sortPlanSteps(devicePlanSteps).filter(s => stepAppliesToDevice(s, device.id));
+                  const flavor = flavorLabel((device as Session).cli_flavor);
                   return (
                     <div key={device.id} className="mop-execute-device-panel pending">
                       <div className="mop-execute-device-header" style={{ cursor: 'default' }}>
                         <span className="mop-execute-device-status pending" />
                         <span className="mop-execute-device-name">{deviceName}</span>
                         <span className="mop-execute-device-host">{deviceHost}</span>
+                        {flavor && <span className="mop-execute-flavor-badge" title="CLI flavor">{flavor}</span>}
                         <span style={{ flex: 1 }} />
-                        <span className="mop-execute-device-progress">{stepCount} steps</span>
+                        <span className="mop-execute-device-progress">
+                          {scopedSteps.length === devicePlanSteps.length
+                            ? `${scopedSteps.length} steps`
+                            : `${scopedSteps.length} of ${devicePlanSteps.length} steps`}
+                        </span>
                       </div>
                       <div className="mop-execute-device-steps">
                         {STEP_SECTIONS.filter(s => s.type !== 'rollback').map(({ type, label, color }) => {
-                          const sectionSteps = stepsBySection[type] || [];
+                          const sectionSteps = scopedSteps.filter(s => s.step_type === type);
                           if (sectionSteps.length === 0) return null;
                           const phaseKey = `preview:${device.id}:${type}`;
                           const isPhaseCollapsed = collapsedPhases.has(phaseKey);
@@ -646,19 +949,36 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                                 <span>{label}</span>
                                 <span className="mop-execute-step-group-count">{sectionSteps.length}</span>
                               </div>
-                              {!isPhaseCollapsed && sectionSteps.map((step, idx) => (
-                                <div key={step.id} className="mop-execute-step pending">
-                                  <div className="mop-execute-step-main">
-                                    <span className="mop-execute-step-status pending" style={{ background: '#6e7681' }} />
-                                    <span className="mop-execute-step-order" style={{ color }}>{idx + 1}</span>
-                                    {step.execution_source === 'quick_action' && <span className="mop-step-source-badge api">API</span>}
-                                    {step.execution_source === 'script' && <span className="mop-step-source-badge script">Script</span>}
-                                    <span className="mop-execute-step-command">{step.command || '(empty)'}</span>
-                                    <span style={{ flex: 1 }} />
-                                    <span className="mop-execute-step-status-label pending">Pending</span>
+                              {!isPhaseCollapsed && sectionSteps.map((step, idx) => {
+                                const scoped = step.device_scope === 'specific';
+                                const n = scoped ? scopedDeviceCount(step, selectedDeviceIds) : selectedDeviceIds.size;
+                                const deviceVars = variableMaps[device.id];
+                                const resolvedCommand = deviceVars ? resolveMopVariables(step.command, deviceVars) : step.command;
+                                const wasResolved = resolvedCommand !== step.command;
+                                return (
+                                  <div key={step.id} className="mop-execute-step pending">
+                                    <div className="mop-execute-step-main">
+                                      <span className="mop-execute-step-status pending" style={{ background: '#6e7681' }} />
+                                      <span className="mop-execute-step-order" style={{ color }}>{idx + 1}</span>
+                                      {step.execution_source === 'quick_action' && <span className="mop-step-source-badge api">API</span>}
+                                      {step.execution_source === 'script' && <span className="mop-step-source-badge script">Script</span>}
+                                      <span
+                                        className={`mop-execute-step-command ${wasResolved ? 'resolved' : ''}`}
+                                        title={wasResolved ? `Template: ${step.command}` : undefined}
+                                      >
+                                        {resolvedCommand || '(empty)'}
+                                      </span>
+                                      {scoped && (
+                                        <span className="mop-execute-step-scope" title="Device scope from the Devices tab">
+                                          ({n} of {selectedDeviceIds.size} devices)
+                                        </span>
+                                      )}
+                                      <span style={{ flex: 1 }} />
+                                      <span className="mop-execute-step-status-label pending">Pending</span>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           );
                         })}
@@ -697,10 +1017,11 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                 const deviceSteps = execState.stepsByDevice[device.id] || [];
                 const statusInfo = getDeviceStatusInfo(device);
                 const isExpanded = expandedExecutionDevices.has(device.id);
-                const DEVICE_STATUS_CLASSES: Record<string, string> = {
-                  complete: 'complete', failed: 'failed', running: 'running', skipped: 'skipped',
-                };
                 const statusClass = DEVICE_STATUS_CLASSES[device.status] || 'pending';
+                const hasRollback = deviceSteps.some(s => s.step_type === 'rollback');
+                const isDeviceSkipped = device.status === 'skipped';
+                const devicePhaseRunning = !!execState.phaseRunning?.deviceIds.includes(device.id);
+                const flavor = flavorLabel(device.cli_flavor);
 
                 return (
                   <div key={device.id} className={`mop-execute-device-panel ${statusClass}`}>
@@ -711,11 +1032,27 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                       <span className={`mop-execute-device-status ${statusClass}`} />
                       <span className="mop-execute-device-name">{device.device_name}</span>
                       <span className="mop-execute-device-host">{device.device_host}</span>
+                      {flavor && <span className="mop-execute-flavor-badge" title="CLI flavor (drives the config wrapper)">{flavor}</span>}
+                      {isDeviceSkipped && <span className="mop-execute-device-skipped">Skipped</span>}
+                      {devicePhaseRunning && <span className="mop-ai-loading small" title="Phase running" />}
                       <span style={{ flex: 1 }} />
                       <span className="mop-execute-device-progress">
                         {statusInfo.label}
                       </span>
-                      {deviceSteps.some(s => s.step_type === 'rollback') && (isRunning || isPaused) && (
+                      {hasRollback && !isDeviceSkipped && (
+                        <button
+                          className="mop-execute-rollback-btn run"
+                          disabled={busy || !(isActive || isFinished)}
+                          onClick={(e) => { e.stopPropagation(); handleRunRollback(device.id); }}
+                          title={busy ? 'Wait for the current phase to finish' : !(isActive || isFinished) ? 'Start the execution first' : 'Run this device\'s rollback steps'}
+                        >
+                          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                            <polygon points="4,2 13,8 4,14" />
+                          </svg>
+                          Run rollback
+                        </button>
+                      )}
+                      {hasRollback && (
                         <button
                           className={`mop-execute-rollback-btn ${rollbackVisible.has(device.id) ? 'active' : ''}`}
                           onClick={(e) => {
@@ -727,7 +1064,7 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                               return next;
                             });
                           }}
-                          title="Toggle rollback steps"
+                          title="Show / hide rollback steps"
                         >
                           <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                             <path d="M8 1v2a5 5 0 110 10v2a7 7 0 100-14zm0 4v2l3 3h-2v2H7V10H5l3-3z" />
@@ -745,20 +1082,34 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                     {isExpanded && (
                       <div className="mop-execute-device-steps">
                         {STEP_SECTIONS.map(({ type, label, color }) => {
-                          // Show rollback if device has failures or user toggled it visible
-                          if (type === 'rollback' && !deviceSteps.some(s => s.status === 'failed') && !rollbackVisible.has(device.id)) return null;
                           const phaseSteps = deviceSteps
                             .filter(s => s.step_type === type)
                             .sort((a, b) => a.step_order - b.step_order);
                           if (phaseSteps.length === 0) return null;
                           const phaseKey = `${device.id}:${type}`;
-                          const isPhaseCollapsed = collapsedPhases.has(phaseKey);
+                          // Rollback is always listed but collapsed until toggled
+                          const isRollback = type === 'rollback';
+                          const isPhaseCollapsed = isRollback ? !rollbackVisible.has(device.id) : collapsedPhases.has(phaseKey);
+                          const toggleGroup = () => {
+                            if (isRollback) {
+                              setRollbackVisible(prev => {
+                                const next = new Set(prev);
+                                if (next.has(device.id)) next.delete(device.id);
+                                else next.add(device.id);
+                                return next;
+                              });
+                            } else {
+                              togglePhaseCollapse(phaseKey);
+                            }
+                          };
+                          const pendingHere = pendingStepsInPhase(phaseSteps, type).length;
+                          const canRunPhaseHere = controlMode === 'manual' && !isRollback && isActive && !isDeviceSkipped && pendingHere > 0 && !busy && !executingStepId;
 
                           return (
                             <div key={type} className={`mop-execute-step-group ${isPhaseCollapsed ? 'collapsed' : ''}`}>
                               <div
                                 className="mop-execute-step-group-header"
-                                onClick={() => togglePhaseCollapse(phaseKey)}
+                                onClick={toggleGroup}
                               >
                                 <span className={`mop-execute-step-group-chevron ${isPhaseCollapsed ? '' : 'expanded'}`}>
                                   <svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor">
@@ -770,17 +1121,30 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                                 <span className="mop-execute-step-group-count">
                                   {phaseSteps.filter(s => s.status === 'passed' || s.status === 'mocked' || s.status === 'skipped').length}/{phaseSteps.length}
                                 </span>
+                                <span style={{ flex: 1 }} />
+                                {canRunPhaseHere && (
+                                  <button
+                                    className="mop-execute-run-pending-btn"
+                                    onClick={(e) => { e.stopPropagation(); handleRunPendingInPhase(device.id, type); }}
+                                    title={`Run the ${pendingHere} pending ${label.toLowerCase()} on ${device.device_name}, in order`}
+                                  >
+                                    Run pending ({pendingHere})
+                                  </button>
+                                )}
                               </div>
 
                               {!isPhaseCollapsed && phaseSteps.map((step, idx) => {
                                 const isExecuting = executingStepId === step.id;
                                 const isEditing = editingStepId === step.id;
-                                const isSelected = selectedExecStepData?.step.id === step.id;
-                                const canRun = controlMode === 'manual' && step.status === 'pending' && (isRunning || isPaused);
-                                const canRetry = step.status === 'failed' && (isRunning || isPaused);
-                                const canSkip = (step.status === 'pending' || step.status === 'failed') && (isRunning || isPaused);
-                                const canEdit = step.status === 'pending' && (isRunning || isPaused);
-                                const canReset = step.status === 'skipped' && (isRunning || isPaused);
+                                const isSelected = selectedExecStepId === step.id;
+                                const stepActive = isActive && !isDeviceSkipped && !busy;
+                                const canRun = controlMode === 'manual' && step.status === 'pending' && stepActive;
+                                const canRunAll = canRun && executionDevices.length > 1 && !isRollback;
+                                const canRetry = step.status === 'failed' && stepActive;
+                                const canSkip = (step.status === 'pending' || step.status === 'failed') && stepActive;
+                                const canEdit = step.status === 'pending' && stepActive;
+                                const canReset = step.status === 'skipped' && stepActive;
+                                const failedAssertions = step.assertion_results?.filter(a => !a.passed).length ?? 0;
 
                                 return (
                                   <div
@@ -817,6 +1181,15 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                                         </span>
                                       )}
 
+                                      {step.error_message && (
+                                        <span className="mop-execute-step-error-mark" title={step.error_message}>!</span>
+                                      )}
+                                      {failedAssertions > 0 && (
+                                        <span className="mop-assertion-pill fail small" title={`${failedAssertions} assertion${failedAssertions !== 1 ? 's' : ''} failed`}>
+                                          {failedAssertions} assert
+                                        </span>
+                                      )}
+
                                       <span style={{ flex: 1 }} />
 
                                       {step.duration_ms != null && (
@@ -834,7 +1207,7 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                                           <button
                                             className="mop-execute-step-action-btn run"
                                             onClick={(e) => { e.stopPropagation(); handleExecuteStep(step.id); }}
-                                            disabled={isExecuting}
+                                            disabled={isExecuting || !!executingStepId}
                                             title="Run this step"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
@@ -842,10 +1215,24 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                                             </svg>
                                           </button>
                                         )}
+                                        {canRunAll && (
+                                          <button
+                                            className="mop-execute-step-action-btn"
+                                            onClick={(e) => { e.stopPropagation(); handleRunStepOnAllDevices(step.id); }}
+                                            disabled={isExecuting || !!executingStepId}
+                                            title="Run this step on all devices"
+                                          >
+                                            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                                              <polygon points="2,2 8,8 2,14" />
+                                              <polygon points="8,2 14,8 8,14" />
+                                            </svg>
+                                          </button>
+                                        )}
                                         {canRetry && (
                                           <button
                                             className="mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); handleExecuteStep(step.id); }}
+                                            disabled={!!executingStepId}
                                             title="Retry this step"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
@@ -926,6 +1313,28 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                     </div>
                   </div>
 
+                  {/* Why the step failed (transport, vendor error marker, assertion, config save) */}
+                  {selectedExecStepData.step.error_message && (
+                    <div className="mop-execute-error-message" data-testid="mop-step-error">
+                      {selectedExecStepData.step.error_message}
+                    </div>
+                  )}
+
+                  {/* Evaluated expected_output assertions */}
+                  {selectedExecStepData.step.assertion_results && selectedExecStepData.step.assertion_results.length > 0 && (
+                    <div className="mop-assertion-results" data-testid="mop-assertion-results">
+                      {selectedExecStepData.step.assertion_results.map((a, i) => (
+                        <span
+                          key={`${a.assertion}-${i}`}
+                          className={`mop-assertion-pill ${a.passed ? 'pass' : 'fail'}`}
+                          title={a.detail || (a.passed ? 'Passed' : 'Failed')}
+                        >
+                          {a.passed ? '✓' : '✗'} {a.assertion}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Request details for API / Script steps */}
                   {selectedExecStepData.step.execution_source === 'quick_action' && (
                     <div className="mop-execute-request-details">
@@ -978,9 +1387,9 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
                         )}
                         <pre>{selectedExecStepData.step.output}</pre>
                       </>
-                    ) : executingStepId === selectedExecStepData.step.id ? (
+                    ) : executingStepId === selectedExecStepData.step.id || execState.phaseRunning?.deviceIds.includes(selectedExecStepData.device.id) ? (
                       <div className="mop-execute-output-waiting">
-                        <span className="mop-ai-loading small" /> Executing...
+                        <span className="mop-ai-loading small" /> {selectedExecStepData.step.status === 'running' || executingStepId === selectedExecStepData.step.id ? 'Executing...' : 'Waiting for this step...'}
                       </div>
                     ) : (
                       <div className="mop-execute-output-empty-msg">No output yet</div>
@@ -1008,6 +1417,71 @@ export default function MopExecuteTab(props: MopExecuteTabProps) {
           </div>
         )}
       </div>
+
+      {/* Confirmation dialogs: Abort (with reason), Complete with failures/pending, New Execution */}
+      {dialog && (
+        <div className="mop-workspace-overlay" onClick={() => closeDialog()}>
+          <div className="mop-workspace-dialog" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+            {dialog === 'abort' && (
+              <>
+                <h3>Abort execution</h3>
+                <p>Running steps are marked failed and pending steps skipped. This cannot be undone.</p>
+                <textarea
+                  className="mop-workspace-dialog-textarea"
+                  value={abortReason}
+                  onChange={(e) => setAbortReason(e.target.value)}
+                  placeholder="Reason (optional) — recorded on the execution"
+                  rows={2}
+                  autoFocus
+                />
+                <div className="mop-workspace-dialog-actions">
+                  <button className="mop-workspace-header-btn" onClick={() => closeDialog()}>Cancel</button>
+                  <button
+                    className="mop-workspace-header-btn danger"
+                    onClick={() => { closeDialog(); handleAbort(abortReason.trim() || undefined); }}
+                  >
+                    Abort execution
+                  </button>
+                </div>
+              </>
+            )}
+            {dialog === 'complete' && (
+              <>
+                <h3>Complete execution</h3>
+                <p>
+                  {failedSteps > 0 && `${failedSteps} step${failedSteps !== 1 ? 's' : ''} failed. `}
+                  {pendingSteps > 0 && `${pendingSteps} step${pendingSteps !== 1 ? 's' : ''} never ran. `}
+                  Mark the execution complete anyway? The results stay as they are.
+                </p>
+                <div className="mop-workspace-dialog-actions">
+                  <button className="mop-workspace-header-btn" onClick={() => closeDialog()}>Cancel</button>
+                  <button
+                    className="mop-workspace-header-btn primary"
+                    onClick={() => { closeDialog(); handleComplete(); }}
+                  >
+                    {completeLabel}
+                  </button>
+                </div>
+              </>
+            )}
+            {dialog === 'new' && (
+              <>
+                <h3>Start a new execution?</h3>
+                <p>The finished execution stays saved and can be reopened from the Executions list. Only this view is reset.</p>
+                <div className="mop-workspace-dialog-actions">
+                  <button className="mop-workspace-header-btn" onClick={() => closeDialog()}>Cancel</button>
+                  <button
+                    className="mop-workspace-header-btn primary"
+                    onClick={() => { closeDialog(); handleNewExecution(); }}
+                  >
+                    New Execution
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

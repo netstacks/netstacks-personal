@@ -1,18 +1,22 @@
-import { getErrorMessage } from '../api/errors'
 /**
  * useMopExecution - Hook for managing MOP execution state
  *
  * This hook provides:
  * - Load/create/update execution
  * - Device and step state management
- * - Execution control actions (start, pause, resume, abort)
+ * - Execution control actions (start, pause, resume, abort, complete)
  * - Step execution with mock support
+ * - Phase execution that honours the execution's strategy / on_failure /
+ *   pause_after_* settings, skips skipped devices and polls step rows
+ *   every 2 s while a phase is in flight
+ * - Rollback per device / for every device
  * - Auto-save checkpoints
  * - Progress tracking and phase detection
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import * as mopApi from '../api/mop';
+import { getMopErrorMessage, type PhaseExecutionResult, type MopStepTimeoutOptions } from '../api/mop';
 import type {
   MopExecution,
   MopExecutionDevice,
@@ -24,6 +28,15 @@ import type {
   MockConfig,
   StepOutputUpdate,
 } from '../types/mop';
+import type { MopStepType } from '../types/change';
+import {
+  devicesEligibleForPhase,
+  remapPairedStepIds,
+} from '../components/mop/mopHelpers';
+import type { PhaseStepType } from '../components/mop/constants';
+
+/** How often step rows are re-fetched for a device while a phase runs on it. */
+export const PHASE_POLL_INTERVAL_MS = 2000;
 
 // Progress info for the execution
 export interface ExecutionProgress {
@@ -51,14 +64,49 @@ export interface ExecutionCheckpoint {
 // Timer ref type
 type TimerRef = ReturnType<typeof setInterval> | null;
 
+/** Options for runPhase. */
+export interface RunPhaseOptions extends MopStepTimeoutOptions {
+  /** Restrict the phase to these devices (default: every eligible device). */
+  deviceIds?: string[];
+}
+
+/** What happened during one runPhase / rollback call. */
+export interface PhaseRunSummary {
+  stepType: MopStepType;
+  /** Devices the phase actually ran on. */
+  deviceIds: string[];
+  results: PhaseExecutionResult[];
+  /** Devices whose phase reported failures or whose request failed. */
+  failedDeviceIds: string[];
+  /** Request errors keyed by device id (409s, transport errors …). */
+  errors: Record<string, string>;
+  /** on_failure=abort fired — the execution was aborted. */
+  aborted: boolean;
+  /** The execution was paused after the phase (on_failure=pause or pause_after_*). */
+  paused: boolean;
+}
+
 // Hook state
 export interface MopExecutionState {
   execution: MopExecution | null;
   devices: MopExecutionDevice[];
   stepsByDevice: Record<string, MopExecutionStep[]>;
   loading: boolean;
+  /** Last action error — rendered by the workspace banner; clear with clearError(). */
   error: string | null;
   progress: ExecutionProgress | null;
+  /** Phase currently in flight (step type + devices), or null. */
+  phaseRunning: { stepType: MopStepType; deviceIds: string[] } | null;
+  /** Result of the most recent phase / rollback per device id. */
+  phaseResults: Record<string, PhaseExecutionResult>;
+  /** Summary of the most recent runPhase / rollback call. */
+  lastPhaseSummary: PhaseRunSummary | null;
+}
+
+/** Extra per-device fields for `addDevice` (appended as an options object). */
+export interface AddDeviceOptions {
+  /** Resolved `{{name}}` map for the device (plan defaults ∪ overrides). */
+  variables?: Record<string, string>;
 }
 
 // Hook return type
@@ -72,37 +120,43 @@ export interface UseMopExecutionReturn {
   updateExecution: (update: UpdateMopExecution) => Promise<void>;
 
   // Device management
-  addDevice: (sessionId: string, order: number, deviceName?: string, deviceHost?: string, deviceId?: string, credentialId?: string, role?: string) => Promise<MopExecutionDevice>;
+  addDevice: (sessionId: string, order: number, deviceName?: string, deviceHost?: string, deviceId?: string, credentialId?: string, role?: string, options?: AddDeviceOptions) => Promise<MopExecutionDevice>;
   removeDevice: (deviceId: string) => Promise<void>;
   reorderDevices: (deviceIds: string[]) => Promise<void>;
 
   // Step management
   loadSteps: (deviceId: string) => Promise<MopExecutionStep[]>;
-  addSteps: (deviceId: string, steps: Omit<NewMopExecutionStep, 'execution_device_id'>[]) => Promise<MopExecutionStep[]>;
+  /** `planStepIds[i]` is the plan step `steps[i]` was cloned from — used to
+   *  remap `paired_step_id` onto the execution ids the agent assigns. */
+  addSteps: (deviceId: string, steps: Omit<NewMopExecutionStep, 'execution_device_id'>[], planStepIds?: string[]) => Promise<MopExecutionStep[]>;
   updateStepMock: (stepId: string, config: MockConfig) => Promise<void>;
 
   // Execution control
   startExecution: () => Promise<void>;
   pauseExecution: () => Promise<void>;
   resumeExecution: () => Promise<void>;
-  abortExecution: () => Promise<void>;
+  /** Abort. `reason` (optional) is appended to the execution description —
+   *  the agent has no dedicated abort-reason field. */
+  abortExecution: (reason?: string) => Promise<void>;
   completeExecution: (aiAnalysis?: string) => Promise<void>;
-  cancelExecution: () => Promise<void>;
 
   // Device control
   skipDevice: (deviceId: string) => Promise<void>;
   retryDevice: (deviceId: string) => Promise<void>;
-  rollbackDevice: (deviceId: string) => Promise<void>;
+  /** Run the device's rollback steps. Requires a running execution. */
+  rollbackDevice: (deviceId: string, opts?: MopStepTimeoutOptions) => Promise<PhaseRunSummary>;
+  /** Roll back every non-skipped device that has rollback steps (sequential). */
+  rollbackAllDevices: (opts?: MopStepTimeoutOptions) => Promise<PhaseRunSummary>;
 
-  // Step control
-  executeStep: (stepId: string) => Promise<void>;
+  // Step control. executeStep resolves with the updated step row (undefined when no execution is loaded).
+  executeStep: (stepId: string, opts?: MopStepTimeoutOptions) => Promise<MopExecutionStep | undefined>;
   approveStep: (stepId: string) => Promise<void>;
   skipStep: (stepId: string) => Promise<void>;
   updateStepOutput: (stepId: string, output: StepOutputUpdate) => Promise<void>;
   updateStepCommand: (stepId: string, command: string) => Promise<void>;
 
-  // Phase execution (runs all steps for a phase across all devices sequentially)
-  runPhase: (stepType: 'pre_check' | 'change' | 'post_check') => Promise<void>;
+  // Phase execution — honours execution_strategy / on_failure / pause_after_*
+  runPhase: (stepType: PhaseStepType, opts?: RunPhaseOptions) => Promise<PhaseRunSummary | null>;
 
   // Progress
   calculateProgress: () => ExecutionProgress;
@@ -114,6 +168,10 @@ export interface UseMopExecutionReturn {
 
   // Refresh
   refresh: () => Promise<void>;
+
+  // Errors
+  setError: (message: string | null) => void;
+  clearError: () => void;
 
   // Reset (clear execution state for fresh start)
   resetExecution: () => void;
@@ -127,6 +185,9 @@ const initialState: MopExecutionState = {
   loading: false,
   error: null,
   progress: null,
+  phaseRunning: null,
+  phaseResults: {},
+  lastPhaseSummary: null,
 };
 
 // Calculate progress from devices and steps
@@ -258,11 +319,94 @@ function updateStepInState(
   return { ...prev, stepsByDevice: newStepsByDevice };
 }
 
+// Drop duplicate step rows (older agents could return a step twice)
+function dedupeSteps(raw: MopExecutionStep[]): MopExecutionStep[] {
+  const seen = new Set<string>();
+  return raw.filter(s => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+}
+
+async function fetchDevicesAndSteps(execId: string): Promise<{
+  devices: MopExecutionDevice[];
+  stepsByDevice: Record<string, MopExecutionStep[]>;
+}> {
+  const devices = await mopApi.listExecutionDevices(execId);
+  const stepsByDevice: Record<string, MopExecutionStep[]> = {};
+  for (const device of devices) {
+    stepsByDevice[device.id] = dedupeSteps(await mopApi.listExecutionSteps(execId, device.id));
+  }
+  return { devices, stepsByDevice };
+}
+
+function emptySummary(stepType: MopStepType): PhaseRunSummary {
+  return { stepType, deviceIds: [], results: [], failedDeviceIds: [], errors: {}, aborted: false, paused: false };
+}
+
 export function useMopExecution(executionId?: string): UseMopExecutionReturn {
   const [state, setState] = useState<MopExecutionState>(initialState);
   const autoSaveRef = useRef<TimerRef>(null);
   // Ref for immediate access to execution (avoids React stale closure issue)
   const execRef = useRef<MopExecution | null>(null);
+  // Latest devices/steps for async loops (runPhase must not close over stale state)
+  const stateRef = useRef<MopExecutionState>(initialState);
+  // Active step pollers, so unmount never leaves an interval behind
+  const pollersRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    const pollers = pollersRef.current;
+    return () => {
+      for (const timer of pollers) clearInterval(timer);
+      pollers.clear();
+    };
+  }, []);
+
+  const setError = useCallback((message: string | null) => {
+    setState(prev => ({ ...prev, error: message }));
+  }, []);
+
+  const clearError = useCallback(() => {
+    setState(prev => (prev.error === null ? prev : { ...prev, error: null }));
+  }, []);
+
+  // Refresh devices + steps (+ the execution row, whose status may have moved)
+  const refreshAll = useCallback(async (execId: string) => {
+    const [execution, { devices, stepsByDevice }] = await Promise.all([
+      mopApi.getMopExecution(execId),
+      fetchDevicesAndSteps(execId),
+    ]);
+    execRef.current = execution;
+    setState(prev => ({ ...prev, execution, devices, stepsByDevice }));
+  }, []);
+
+  // Poll one device's step rows every PHASE_POLL_INTERVAL_MS until stopped
+  const startStepPoller = useCallback((execId: string, deviceId: string): (() => void) => {
+    let inFlight = false;
+    const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const steps = dedupeSteps(await mopApi.listExecutionSteps(execId, deviceId));
+        setState(prev => ({ ...prev, stepsByDevice: { ...prev.stepsByDevice, [deviceId]: steps } }));
+      } catch {
+        // Polling is best-effort; the phase result refresh is authoritative.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = setInterval(tick, PHASE_POLL_INTERVAL_MS);
+    pollersRef.current.add(timer);
+    return () => {
+      clearInterval(timer);
+      pollersRef.current.delete(timer);
+    };
+  }, []);
 
   // Load execution by ID
   const loadExecution = useCallback(async (id: string) => {
@@ -270,36 +414,19 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     try {
       const execution = await mopApi.getMopExecution(id);
       execRef.current = execution;
-      const devices = await mopApi.listExecutionDevices(id);
-
-      // Load steps for each device (deduplicate by step ID)
-      const stepsByDevice: Record<string, MopExecutionStep[]> = {};
-      for (const device of devices) {
-        const raw = await mopApi.listExecutionSteps(id, device.id);
-        const seen = new Set<string>();
-        stepsByDevice[device.id] = raw.filter(s => {
-          if (seen.has(s.id)) return false;
-          seen.add(s.id);
-          return true;
-        });
-      }
-
-      const progress = calculateProgressFromState(devices, stepsByDevice);
-      progress.phase = detectPhaseFromState(execution, devices, stepsByDevice);
+      const { devices, stepsByDevice } = await fetchDevicesAndSteps(id);
 
       setState({
+        ...initialState,
         execution,
         devices,
         stepsByDevice,
-        loading: false,
-        error: null,
-        progress,
       });
     } catch (err) {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: getErrorMessage(err, 'Failed to load execution'),
+        error: getMopErrorMessage(err, 'Failed to load execution'),
       }));
     }
   }, []);
@@ -310,31 +437,13 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     try {
       const execution = await mopApi.createMopExecution(data);
       execRef.current = execution;
-      setState({
-        execution,
-        devices: [],
-        stepsByDevice: {},
-        loading: false,
-        error: null,
-        progress: {
-          phase: 'device_selection',
-          totalDevices: 0,
-          completedDevices: 0,
-          currentDeviceIndex: 0,
-          totalSteps: 0,
-          completedSteps: 0,
-          failedSteps: 0,
-          skippedSteps: 0,
-          mockedSteps: 0,
-          percentComplete: 0,
-        },
-      });
+      setState({ ...initialState, execution });
       return execution;
     } catch (err) {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: getErrorMessage(err, 'Failed to create execution'),
+        error: getMopErrorMessage(err, 'Failed to create execution'),
       }));
       throw err;
     }
@@ -351,7 +460,7 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     } catch (err) {
       setState(prev => ({
         ...prev,
-        error: getErrorMessage(err, 'Failed to update execution'),
+        error: getMopErrorMessage(err, 'Failed to update execution'),
       }));
     }
   }, []);
@@ -367,6 +476,7 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     deviceId?: string,
     credentialId?: string,
     role?: string,
+    options?: AddDeviceOptions,
   ): Promise<MopExecutionDevice> => {
     const exec = execRef.current;
     if (!exec) throw new Error('No execution loaded');
@@ -378,6 +488,7 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
       device_host: deviceHost,
       role,
       device_order: order,
+      variables: options?.variables,
     });
     setState(prev => ({
       ...prev,
@@ -416,7 +527,7 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
   const loadSteps = useCallback(async (deviceId: string): Promise<MopExecutionStep[]> => {
     const exec = execRef.current;
     if (!exec) return [];
-    const steps = await mopApi.listExecutionSteps(exec.id, deviceId);
+    const steps = dedupeSteps(await mopApi.listExecutionSteps(exec.id, deviceId));
     setState(prev => ({
       ...prev,
       stepsByDevice: { ...prev.stepsByDevice, [deviceId]: steps },
@@ -424,14 +535,17 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     return steps;
   }, []);
 
-  // Add steps to a device
+  // Add steps to a device. Pairings are sent with plan ids and remapped to
+  // the execution ids the agent returns (created[i] ↔ planStepIds[i]).
   const addSteps = useCallback(async (
     deviceId: string,
-    steps: Omit<NewMopExecutionStep, 'execution_device_id'>[]
+    steps: Omit<NewMopExecutionStep, 'execution_device_id'>[],
+    planStepIds?: string[],
   ): Promise<MopExecutionStep[]> => {
     const exec = execRef.current;
     if (!exec) throw new Error('No execution loaded');
-    const created = await mopApi.addExecutionSteps(exec.id, deviceId, steps);
+    const raw = await mopApi.addExecutionSteps(exec.id, deviceId, steps);
+    const created = planStepIds ? remapPairedStepIds(raw, planStepIds) : raw;
     setState(prev => ({
       ...prev,
       stepsByDevice: {
@@ -475,39 +589,41 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     setState(prev => ({ ...prev, execution }));
   }, []);
 
-  const abortExecution = useCallback(async () => {
+  const abortExecution = useCallback(async (reason?: string) => {
     const exec = execRef.current;
     if (!exec) return;
+    const trimmed = reason?.trim();
+    if (trimmed) {
+      // No abort_reason column on the agent — keep it on the description so
+      // it survives in the executions list.
+      try {
+        await mopApi.updateMopExecution(exec.id, {
+          description: [exec.description, `Aborted: ${trimmed}`].filter(Boolean).join('\n'),
+        });
+      } catch {
+        // The reason is informational; the abort itself must still go through.
+      }
+    }
     const execution = await mopApi.abortMopExecution(exec.id);
     execRef.current = execution;
     setState(prev => ({ ...prev, execution }));
+    // Abort flips running devices/steps to failed and pending steps to skipped.
+    try {
+      const { devices, stepsByDevice } = await fetchDevicesAndSteps(exec.id);
+      setState(prev => ({ ...prev, devices, stepsByDevice }));
+    } catch {
+      // Status already updated; a stale step list is recoverable via refresh().
+    }
   }, []);
 
   const completeExecution = useCallback(async (aiAnalysis?: string) => {
     const exec = execRef.current;
     if (!exec) return;
-    const execution = await mopApi.completeMopExecution(exec.id, { ai_analysis: aiAnalysis });
+    // Only send ai_analysis when there is one — the agent keeps the stored
+    // value when the body carries no non-null analysis.
+    const execution = await mopApi.completeMopExecution(exec.id, aiAnalysis ? { ai_analysis: aiAnalysis } : {});
     execRef.current = execution;
     setState(prev => ({ ...prev, execution }));
-  }, []);
-
-  const cancelExecution = useCallback(async () => {
-    const exec = execRef.current;
-    if (!exec) return;
-    try {
-      await mopApi.abortMopExecution(exec.id);
-    } catch {
-      // If abort fails (already completed, etc.), still clear local state
-    }
-    execRef.current = null;
-    setState({
-      execution: null,
-      devices: [],
-      stepsByDevice: {},
-      loading: false,
-      error: null,
-      progress: null,
-    });
   }, []);
 
   // Device control
@@ -525,28 +641,185 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     const exec = execRef.current;
     if (!exec) return;
     const device = await mopApi.retryExecutionDevice(exec.id, deviceId);
+    // Retry also resets the device's failed/skipped steps to pending.
+    const steps = dedupeSteps(await mopApi.listExecutionSteps(exec.id, deviceId));
     setState(prev => ({
       ...prev,
       devices: prev.devices.map(d => d.id === deviceId ? device : d),
+      stepsByDevice: { ...prev.stepsByDevice, [deviceId]: steps },
     }));
   }, []);
 
-  const rollbackDevice = useCallback(async (deviceId: string) => {
+  // Run one device's phase (or rollback) with live step polling. Returns
+  // whether the device should count as failed for on_failure purposes.
+  const runDevicePhase = useCallback(async (
+    execId: string,
+    device: MopExecutionDevice,
+    stepType: PhaseStepType | 'rollback',
+    summary: PhaseRunSummary,
+    opts?: MopStepTimeoutOptions,
+  ): Promise<boolean> => {
+    const stopPolling = startStepPoller(execId, device.id);
+    try {
+      const result = stepType === 'rollback'
+        ? await mopApi.rollbackExecutionDevice(execId, device.id, opts)
+        : await mopApi.executeDevicePhase(execId, device.id, stepType, opts);
+      summary.results.push(result);
+      setState(prev => ({ ...prev, phaseResults: { ...prev.phaseResults, [device.id]: result } }));
+      const failed = result.steps_failed > 0 || result.stopped_early || !!result.post_command_error;
+      if (failed) summary.failedDeviceIds.push(device.id);
+      return failed;
+    } catch (err) {
+      const message = getMopErrorMessage(err, `Failed to run ${stepType} on ${device.device_name}`);
+      summary.errors[device.id] = message;
+      summary.failedDeviceIds.push(device.id);
+      setState(prev => ({ ...prev, error: `${device.device_name}: ${message}` }));
+      return true;
+    } finally {
+      stopPolling();
+    }
+  }, [startStepPoller]);
+
+  // Pause only when the execution is still running (a 409 here is noise).
+  const pauseIfRunning = useCallback(async (): Promise<boolean> => {
+    if (execRef.current?.status !== 'running') return false;
+    try {
+      const execution = await mopApi.pauseMopExecution(execRef.current.id);
+      execRef.current = execution;
+      setState(prev => ({ ...prev, execution }));
+      return true;
+    } catch (err) {
+      setState(prev => ({ ...prev, error: getMopErrorMessage(err, 'Failed to pause execution') }));
+      return false;
+    }
+  }, []);
+
+  // Run a phase across the eligible devices, honouring execution settings.
+  const runPhase = useCallback(async (stepType: PhaseStepType, opts: RunPhaseOptions = {}): Promise<PhaseRunSummary | null> => {
     const exec = execRef.current;
-    if (!exec) return;
-    const device = await mopApi.rollbackExecutionDevice(exec.id, deviceId);
+    if (!exec) return null;
+
+    const { devices, stepsByDevice } = stateRef.current;
+    let targets = devicesEligibleForPhase(devices, stepsByDevice, stepType);
+    if (opts.deviceIds) {
+      const wanted = new Set(opts.deviceIds);
+      targets = targets.filter(d => wanted.has(d.id));
+    }
+    targets = [...targets].sort((a, b) => a.device_order - b.device_order);
+
+    const summary = emptySummary(stepType);
+    summary.deviceIds = targets.map(d => d.id);
+    if (targets.length === 0) {
+      setState(prev => ({ ...prev, lastPhaseSummary: summary }));
+      return summary;
+    }
+
+    const targetIds = new Set(summary.deviceIds);
     setState(prev => ({
       ...prev,
-      devices: prev.devices.map(d => d.id === deviceId ? device : d),
+      error: null,
+      phaseRunning: { stepType, deviceIds: summary.deviceIds },
+      phaseResults: Object.fromEntries(Object.entries(prev.phaseResults).filter(([id]) => !targetIds.has(id))),
     }));
-  }, []);
+
+    const onFailure = exec.on_failure || 'pause';
+    const timeoutOpts = opts.timeoutSecs != null ? { timeoutSecs: opts.timeoutSecs } : undefined;
+
+    try {
+      if (exec.execution_strategy === 'parallel_by_phase') {
+        await Promise.all(targets.map(device => runDevicePhase(exec.id, device, stepType, summary, timeoutOpts)));
+      } else {
+        for (const device of targets) {
+          const failed = await runDevicePhase(exec.id, device, stepType, summary, timeoutOpts);
+          if (failed && onFailure === 'abort') break;
+        }
+      }
+
+      if (summary.failedDeviceIds.length > 0 && onFailure === 'abort') {
+        summary.aborted = true;
+        try {
+          const execution = await mopApi.abortMopExecution(exec.id);
+          execRef.current = execution;
+          setState(prev => ({ ...prev, execution }));
+        } catch (err) {
+          setState(prev => ({ ...prev, error: getMopErrorMessage(err, 'Failed to abort execution') }));
+        }
+      } else if (summary.failedDeviceIds.length > 0 && onFailure === 'pause') {
+        summary.paused = await pauseIfRunning();
+      } else {
+        const pauseAfter =
+          (stepType === 'pre_check' && !!exec.pause_after_pre_checks) ||
+          (stepType === 'change' && !!exec.pause_after_changes) ||
+          (stepType === 'post_check' && !!exec.pause_after_post_checks);
+        if (pauseAfter) summary.paused = await pauseIfRunning();
+      }
+    } finally {
+      try {
+        await refreshAll(exec.id);
+      } catch (err) {
+        setState(prev => ({ ...prev, error: getMopErrorMessage(err, 'Failed to refresh execution state') }));
+      }
+      setState(prev => ({ ...prev, phaseRunning: null, lastPhaseSummary: summary }));
+    }
+
+    return summary;
+  }, [runDevicePhase, pauseIfRunning, refreshAll]);
+
+  // Rollback: one device or every device with rollback steps (sequential —
+  // rollback is the one place we never want to race the devices).
+  const runRollback = useCallback(async (deviceIds: string[] | null, opts?: MopStepTimeoutOptions): Promise<PhaseRunSummary> => {
+    const summary = emptySummary('rollback');
+    const exec = execRef.current;
+    if (!exec) return summary;
+
+    const { devices, stepsByDevice } = stateRef.current;
+    let targets = devices.filter(d =>
+      d.status !== 'skipped' && (stepsByDevice[d.id] || []).some(s => s.step_type === 'rollback'),
+    );
+    if (deviceIds) {
+      const wanted = new Set(deviceIds);
+      targets = targets.filter(d => wanted.has(d.id));
+    }
+    targets = [...targets].sort((a, b) => a.device_order - b.device_order);
+    summary.deviceIds = targets.map(d => d.id);
+    if (targets.length === 0) {
+      setState(prev => ({ ...prev, lastPhaseSummary: summary }));
+      return summary;
+    }
+
+    setState(prev => ({ ...prev, error: null, phaseRunning: { stepType: 'rollback', deviceIds: summary.deviceIds } }));
+    try {
+      for (const device of targets) {
+        await runDevicePhase(exec.id, device, 'rollback', summary, opts);
+      }
+    } finally {
+      try {
+        await refreshAll(exec.id);
+      } catch (err) {
+        setState(prev => ({ ...prev, error: getMopErrorMessage(err, 'Failed to refresh execution state') }));
+      }
+      setState(prev => ({ ...prev, phaseRunning: null, lastPhaseSummary: summary }));
+    }
+    return summary;
+  }, [runDevicePhase, refreshAll]);
+
+  const rollbackDevice = useCallback(
+    (deviceId: string, opts?: MopStepTimeoutOptions) => runRollback([deviceId], opts),
+    [runRollback],
+  );
+
+  const rollbackAllDevices = useCallback(
+    (opts?: MopStepTimeoutOptions) => runRollback(null, opts),
+    [runRollback],
+  );
 
   // Step control
-  const executeStep = useCallback(async (stepId: string) => {
+  const executeStep = useCallback(async (stepId: string, opts?: MopStepTimeoutOptions): Promise<MopExecutionStep | undefined> => {
     const exec = execRef.current;
-    if (!exec) return;
-    const step = await mopApi.executeStep(exec.id, stepId);
+    if (!exec) return undefined;
+    const step = await mopApi.executeStep(exec.id, stepId, opts);
     setState(prev => updateStepInState(prev, stepId, step));
+    return step;
   }, []);
 
   const approveStep = useCallback(async (stepId: string) => {
@@ -577,43 +850,19 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     setState(prev => updateStepInState(prev, stepId, step));
   }, []);
 
-  // Run all steps for a phase across all devices (one API call per device, sequential)
-  const runPhase = useCallback(async (stepType: 'pre_check' | 'change' | 'post_check') => {
-    const exec = execRef.current;
-    if (!exec) return;
-
-    for (const device of state.devices) {
-      try {
-        await mopApi.executeDevicePhase(exec.id, device.id, stepType);
-      } catch (err) {
-        console.error(`Failed to execute phase for device ${device.id}:`, err);
-      }
-    }
-
-    // Refresh all devices and steps after phase execution (deduplicate by step ID)
-    try {
-      const devices = await mopApi.listExecutionDevices(exec.id);
-      const stepsByDevice: Record<string, MopExecutionStep[]> = {};
-      for (const device of devices) {
-        const raw = await mopApi.listExecutionSteps(exec.id, device.id);
-        const seen = new Set<string>();
-        stepsByDevice[device.id] = raw.filter(s => {
-          if (seen.has(s.id)) return false;
-          seen.add(s.id);
-          return true;
-        });
-      }
-      setState(prev => ({ ...prev, devices, stepsByDevice }));
-    } catch (err) {
-      console.error('Failed to refresh execution state:', err);
-    }
-  }, [state.devices]);
+  // Derived progress (no effect round-trip)
+  const progress = useMemo<ExecutionProgress | null>(() => {
+    if (!state.execution) return null;
+    const p = calculateProgressFromState(state.devices, state.stepsByDevice);
+    p.phase = detectPhaseFromState(state.execution, state.devices, state.stepsByDevice);
+    return p;
+  }, [state.execution, state.devices, state.stepsByDevice]);
 
   // Calculate progress
   const calculateProgress = useCallback((): ExecutionProgress => {
-    const progress = calculateProgressFromState(state.devices, state.stepsByDevice);
-    progress.phase = detectPhaseFromState(state.execution, state.devices, state.stepsByDevice);
-    return progress;
+    const p = calculateProgressFromState(state.devices, state.stepsByDevice);
+    p.phase = detectPhaseFromState(state.execution, state.devices, state.stepsByDevice);
+    return p;
   }, [state.execution, state.devices, state.stepsByDevice]);
 
   // Detect current phase
@@ -664,15 +913,6 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     }
   }, [executionId, loadExecution]);
 
-  // Update progress when state changes
-  useEffect(() => {
-    if (state.execution) {
-      const progress = calculateProgressFromState(state.devices, state.stepsByDevice);
-      progress.phase = detectPhaseFromState(state.execution, state.devices, state.stepsByDevice);
-      setState(prev => ({ ...prev, progress }));
-    }
-  }, [state.execution, state.devices, state.stepsByDevice]);
-
   // Auto-save checkpoint every 30 seconds during running execution
   useEffect(() => {
     if (state.execution?.status === 'running') {
@@ -693,8 +933,10 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     execRef.current = null;
   }, []);
 
-  return {
-    state,
+  const stateWithProgress = useMemo<MopExecutionState>(() => ({ ...state, progress }), [state, progress]);
+
+  return useMemo<UseMopExecutionReturn>(() => ({
+    state: stateWithProgress,
     loadExecution,
     createExecution,
     updateExecution,
@@ -709,10 +951,10 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     resumeExecution,
     abortExecution,
     completeExecution,
-    cancelExecution,
     skipDevice,
     retryDevice,
     rollbackDevice,
+    rollbackAllDevices,
     executeStep,
     approveStep,
     skipStep,
@@ -724,6 +966,14 @@ export function useMopExecution(executionId?: string): UseMopExecutionReturn {
     saveCheckpoint,
     loadCheckpoint,
     refresh,
+    setError,
+    clearError,
     resetExecution,
-  };
+  }), [
+    stateWithProgress, loadExecution, createExecution, updateExecution, addDevice, removeDevice, reorderDevices,
+    loadSteps, addSteps, updateStepMock, startExecution, pauseExecution, resumeExecution, abortExecution,
+    completeExecution, skipDevice, retryDevice, rollbackDevice, rollbackAllDevices, executeStep, approveStep,
+    skipStep, updateStepOutput, updateStepCommand, runPhase, calculateProgress, detectPhase, saveCheckpoint,
+    loadCheckpoint, refresh, setError, clearError, resetExecution,
+  ]);
 }

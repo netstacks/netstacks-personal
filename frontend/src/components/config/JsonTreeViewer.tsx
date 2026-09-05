@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { copyToClipboard } from '../../lib/clipboard'
 import './JsonTreeViewer.css'
 
 interface JsonTreeViewerProps {
@@ -148,7 +149,7 @@ export default function JsonTreeViewer({
 }: JsonTreeViewerProps) {
   const handleCopy = useCallback(() => {
     try {
-      navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+      void copyToClipboard(JSON.stringify(data, null, 2), { source: 'app-copy', tabType: 'config' })
     } catch {
       // ignore
     }

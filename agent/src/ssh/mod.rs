@@ -1,16 +1,16 @@
 //! SSH session management using russh.
 
-pub mod host_keys;
 pub mod approvals;
-pub mod jump;
 pub mod exec_pool;
+pub mod host_keys;
+pub mod jump;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
 use futures::future::join_all;
 use russh::client::{self, KeyboardInteractiveAuthResponse};
-use russh::keys::{load_secret_key, Algorithm, EcdsaCurve, HashAlg};
 use russh::keys::key::PrivateKeyWithHashAlg;
+use russh::keys::{load_secret_key, Algorithm, EcdsaCurve, HashAlg};
 use russh::{cipher, kex, mac, ChannelMsg, Disconnect};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -62,7 +62,10 @@ pub enum SshAuth {
     /// Password authentication.
     Password(String),
     /// Key file authentication with optional passphrase.
-    KeyFile { path: String, passphrase: Option<String> },
+    KeyFile {
+        path: String,
+        passphrase: Option<String>,
+    },
 }
 
 /// SSH connection configuration.
@@ -98,7 +101,7 @@ impl std::fmt::Debug for SshConfig {
     }
 }
 
-use crate::models::{Session, CredentialProfile, ProfileCredential, AuthType};
+use crate::models::{AuthType, CredentialProfile, ProfileCredential, Session};
 
 /// Build an SshConfig from a session, its credential profile, and optional vault credential.
 /// Returns Err with a descriptive message if required auth credentials are missing.
@@ -109,8 +112,7 @@ pub fn build_ssh_config_from_session(
 ) -> Result<SshConfig, String> {
     let auth = match profile.auth_type {
         AuthType::Password => {
-            let password = credential
-                .and_then(|c| c.password.clone());
+            let password = credential.and_then(|c| c.password.clone());
 
             match password {
                 Some(p) => SshAuth::Password(p),
@@ -122,21 +124,21 @@ pub fn build_ssh_config_from_session(
                 }
             }
         }
-        AuthType::Key => {
-            match &profile.key_path {
-                Some(path) => {
-                    let passphrase = credential
-                        .and_then(|c| c.key_passphrase.clone());
-                    SshAuth::KeyFile { path: path.clone(), passphrase }
+        AuthType::Key => match &profile.key_path {
+            Some(path) => {
+                let passphrase = credential.and_then(|c| c.key_passphrase.clone());
+                SshAuth::KeyFile {
+                    path: path.clone(),
+                    passphrase,
                 }
-                None => {
-                    return Err(format!(
+            }
+            None => {
+                return Err(format!(
                         "No SSH key path found for session '{}' via profile '{}'. Please configure key path in profile settings.",
                         session.name, profile.name
                     ));
-                }
             }
-        }
+        },
     };
 
     Ok(SshConfig {
@@ -188,9 +190,13 @@ impl client::Handler for ClientHandler {
             // Already-explicit opt-in (`auto_accept_changed_keys=true`) skips
             // the prompt. This is the post-RMA escape hatch and is never the
             // default.
-            C::Unknown { presented_fingerprint } | C::Changed { presented_fingerprint, .. }
-                if self.auto_accept_changed_keys =>
-            {
+            C::Unknown {
+                presented_fingerprint,
+            }
+            | C::Changed {
+                presented_fingerprint,
+                ..
+            } if self.auto_accept_changed_keys => {
                 let mut store = self.host_key_store.lock().await;
                 store
                     .trust_key(&self.host, self.port, server_public_key)
@@ -207,7 +213,9 @@ impl client::Handler for ClientHandler {
             // No approval service wired (legacy callers) — fall back to
             // silent TOFU. This branch should disappear once every call
             // site supplies a service.
-            C::Unknown { presented_fingerprint } if self.approvals.is_none() => {
+            C::Unknown {
+                presented_fingerprint,
+            } if self.approvals.is_none() => {
                 let mut store = self.host_key_store.lock().await;
                 store
                     .trust_key(&self.host, self.port, server_public_key)
@@ -222,7 +230,10 @@ impl client::Handler for ClientHandler {
                 Ok(true)
             }
             // No approval service AND a changed key — refuse outright.
-            C::Changed { previous_fingerprint, presented_fingerprint } if self.approvals.is_none() => {
+            C::Changed {
+                previous_fingerprint,
+                presented_fingerprint,
+            } if self.approvals.is_none() => {
                 tracing::error!(
                     target: "audit",
                     host = %self.host,
@@ -238,7 +249,9 @@ impl client::Handler for ClientHandler {
             }
             // Approval service present — surface a prompt and block on the
             // user's decision.
-            C::Unknown { presented_fingerprint } => {
+            C::Unknown {
+                presented_fingerprint,
+            } => {
                 let svc = self.approvals.as_ref().expect("checked above");
                 let approved = svc
                     .request_approval(
@@ -262,7 +275,10 @@ impl client::Handler for ClientHandler {
                     .map_err(|e| SshError::KeyError(e.to_string()))?;
                 Ok(true)
             }
-            C::Changed { previous_fingerprint, presented_fingerprint } => {
+            C::Changed {
+                previous_fingerprint,
+                presented_fingerprint,
+            } => {
                 let svc = self.approvals.as_ref().expect("checked above");
                 let approved = svc
                     .request_approval(
@@ -323,8 +339,15 @@ async fn try_keyboard_interactive(
             tracing::debug!("Keyboard-interactive auth rejected immediately");
             Ok(false)
         }
-        KeyboardInteractiveAuthResponse::InfoRequest { name: _name, instructions: _instructions, prompts } => {
-            tracing::debug!("Keyboard-interactive InfoRequest: {} prompts", prompts.len());
+        KeyboardInteractiveAuthResponse::InfoRequest {
+            name: _name,
+            instructions: _instructions,
+            prompts,
+        } => {
+            tracing::debug!(
+                "Keyboard-interactive InfoRequest: {} prompts",
+                prompts.len()
+            );
 
             // AUDIT FIX (REMOTE-017): only respond to NON-echo prompts with
             // the password. A malicious server could send an echo=true prompt
@@ -334,7 +357,13 @@ async fn try_keyboard_interactive(
             // marked as secret.
             let responses: Vec<String> = prompts
                 .iter()
-                .map(|p| if p.echo { String::new() } else { password.to_string() })
+                .map(|p| {
+                    if p.echo {
+                        String::new()
+                    } else {
+                        password.to_string()
+                    }
+                })
                 .collect();
             tracing::info!("Sending {} responses", responses.len());
 
@@ -359,7 +388,10 @@ async fn try_keyboard_interactive(
                         tracing::info!("Keyboard-interactive auth rejected");
                         return Ok(false);
                     }
-                    KeyboardInteractiveAuthResponse::InfoRequest { prompts: ref new_prompts, .. } => {
+                    KeyboardInteractiveAuthResponse::InfoRequest {
+                        prompts: ref new_prompts,
+                        ..
+                    } => {
                         if new_prompts.is_empty() {
                             // Empty prompt list - respond with empty list to confirm
                             tracing::info!("Empty prompt list, sending empty response to confirm");
@@ -367,8 +399,14 @@ async fn try_keyboard_interactive(
                                 .authenticate_keyboard_interactive_respond(vec![])
                                 .await
                                 .map_err(|e| {
-                                    tracing::error!("keyboard-interactive empty respond error: {}", e);
-                                    SshError::AuthFailed(format!("keyboard-interactive respond failed: {}", e))
+                                    tracing::error!(
+                                        "keyboard-interactive empty respond error: {}",
+                                        e
+                                    );
+                                    SshError::AuthFailed(format!(
+                                        "keyboard-interactive respond failed: {}",
+                                        e
+                                    ))
                                 })?;
                         } else {
                             // More prompts - unexpected, give up
@@ -414,14 +452,23 @@ impl SshSession {
     /// approvals (NS-TERM-6) and keepalive (NS-TERM-7) wired in.
     /// `options.cols`/`rows` set the initial PTY dimensions (0 = 80x24).
     pub async fn connect(config: SshConfig, options: ShellOptions) -> Result<Self, SshError> {
-        let ShellOptions { cols, rows, approvals, keepalive_interval } = options;
+        let ShellOptions {
+            cols,
+            rows,
+            approvals,
+            keepalive_interval,
+        } = options;
         let cols = if cols == 0 { 80 } else { cols };
         let rows = if rows == 0 { 24 } else { rows };
 
         // Connect and authenticate using the shared helper
         let handle = connect_and_authenticate_with_options(
             &config,
-            ConnectOptions { auto_accept_changed_keys: false, approvals, keepalive_interval },
+            ConnectOptions {
+                auto_accept_changed_keys: false,
+                approvals,
+                keepalive_interval,
+            },
         )
         .await?;
 
@@ -436,10 +483,10 @@ impl SshSession {
             .request_pty(
                 false,
                 "xterm-256color",
-                cols,    // columns
-                rows,    // rows
-                0,       // pixel width
-                0,       // pixel height
+                cols, // columns
+                rows, // rows
+                0,    // pixel width
+                0,    // pixel height
                 &[],
             )
             .await
@@ -518,7 +565,12 @@ impl SshSession {
         jump: SshConfig,
         options: ShellOptions,
     ) -> Result<Self, SshError> {
-        let ShellOptions { cols, rows, approvals, keepalive_interval: _ } = options;
+        let ShellOptions {
+            cols,
+            rows,
+            approvals,
+            keepalive_interval: _,
+        } = options;
         let cols = if cols == 0 { 80 } else { cols };
         let rows = if rows == 0 { 24 } else { rows };
 
@@ -535,10 +587,10 @@ impl SshSession {
             .request_pty(
                 false,
                 "xterm-256color",
-                cols,    // columns
-                rows,    // rows
-                0,       // pixel width
-                0,       // pixel height
+                cols, // columns
+                rows, // rows
+                0,    // pixel width
+                0,    // pixel height
                 &[],
             )
             .await
@@ -659,6 +711,9 @@ pub enum CommandStatus {
     Error,
     Timeout,
     AuthFailed,
+    /// Never sent: an earlier command in the same shell batch timed out and
+    /// the batch was configured with `stop_on_timeout`.
+    NotRun,
 }
 
 /// Result of command execution on a single session
@@ -713,21 +768,31 @@ fn build_ssh_config(_legacy_ssh: bool, keepalive_interval: Option<Duration>) -> 
         kex::ECDH_SHA2_NISTP521,
         kex::DH_G16_SHA512,
         kex::DH_G14_SHA256,
-        kex::DH_G14_SHA1,  // Legacy but widely supported
-        kex::DH_G1_SHA1,   // Very old devices
+        kex::DH_G14_SHA1, // Legacy but widely supported
+        kex::DH_G1_SHA1,  // Very old devices
     ];
 
     // Host key algorithms - prioritize Ed25519/ECDSA (most reliable), then RSA-SHA256
     // RSA-SHA512 has known signature verification issues in russh
     let key_algorithms = vec![
         Algorithm::Ed25519,
-        Algorithm::Ecdsa { curve: EcdsaCurve::NistP256 },
-        Algorithm::Ecdsa { curve: EcdsaCurve::NistP384 },
-        Algorithm::Ecdsa { curve: EcdsaCurve::NistP521 },
-        Algorithm::Rsa { hash: Some(HashAlg::Sha256) }, // rsa-sha2-256 (preferred RSA)
-        Algorithm::Rsa { hash: Some(HashAlg::Sha512) }, // rsa-sha2-512 (has issues)
+        Algorithm::Ecdsa {
+            curve: EcdsaCurve::NistP256,
+        },
+        Algorithm::Ecdsa {
+            curve: EcdsaCurve::NistP384,
+        },
+        Algorithm::Ecdsa {
+            curve: EcdsaCurve::NistP521,
+        },
+        Algorithm::Rsa {
+            hash: Some(HashAlg::Sha256),
+        }, // rsa-sha2-256 (preferred RSA)
+        Algorithm::Rsa {
+            hash: Some(HashAlg::Sha512),
+        }, // rsa-sha2-512 (has issues)
         Algorithm::Rsa { hash: None }, // ssh-rsa (SHA-1, legacy)
-        Algorithm::Dsa, // ssh-dss (legacy)
+        Algorithm::Dsa,                // ssh-dss (legacy)
     ];
 
     // Ciphers - all supported ciphers (modern preferred, legacy included)
@@ -791,7 +856,11 @@ pub async fn connect_and_authenticate_with_approvals(
 ) -> Result<client::Handle<ClientHandler>, SshError> {
     connect_and_authenticate_with_options(
         config,
-        ConnectOptions { auto_accept_changed_keys, approvals, keepalive_interval: None },
+        ConnectOptions {
+            auto_accept_changed_keys,
+            approvals,
+            keepalive_interval: None,
+        },
     )
     .await
 }
@@ -814,7 +883,11 @@ pub async fn connect_and_authenticate_with_options(
     config: &SshConfig,
     options: ConnectOptions,
 ) -> Result<client::Handle<ClientHandler>, SshError> {
-    let ConnectOptions { auto_accept_changed_keys, approvals, keepalive_interval } = options;
+    let ConnectOptions {
+        auto_accept_changed_keys,
+        approvals,
+        keepalive_interval,
+    } = options;
     let russh_config = Arc::new(build_ssh_config(config.legacy_ssh, keepalive_interval));
     let addr = format!("{}:{}", config.host, config.port);
 
@@ -843,21 +916,20 @@ pub async fn connect_and_authenticate_with_options(
         connect_timeout,
         client::connect(russh_config, &addr, handler),
     )
-        .await
-        .map_err(|_| SshError::ConnectionFailed(format!(
+    .await
+    .map_err(|_| {
+        SshError::ConnectionFailed(format!(
             "{}:{} - connection timed out after {}s",
             config.host, config.port, connect_timeout_secs,
-        )))?
-        .map_err(|e| SshError::ConnectionFailed(format!(
-            "{}:{} - {}",
-            config.host, config.port, e
-        )))?;
+        ))
+    })?
+    .map_err(|e| SshError::ConnectionFailed(format!("{}:{} - {}", config.host, config.port, e)))?;
 
     // Authenticate using the shared helper (preserves keyboard-interactive
     // → password fallback and RSA SHA-512 → SHA-256 fallback).
     if !authenticate_handle(&mut handle, config).await? {
         return Err(SshError::AuthFailed(
-            "authentication failed - check credentials in profile".to_string()
+            "authentication failed - check credentials in profile".to_string(),
         ));
     }
 
@@ -900,12 +972,20 @@ async fn authenticate_handle(
             } else {
                 // Network devices (Arista, Cisco, etc.) often require keyboard-interactive.
                 // Probe it first, fall back to plain password if rejected.
-                tracing::debug!("Trying keyboard-interactive auth first for {}@{}", config.username, config.host);
+                tracing::debug!(
+                    "Trying keyboard-interactive auth first for {}@{}",
+                    config.username,
+                    config.host
+                );
                 let ki_result = try_keyboard_interactive(handle, &config.username, password).await;
 
                 match ki_result {
                     Ok(true) => {
-                        tracing::info!("Keyboard-interactive auth succeeded for {}@{}", config.username, config.host);
+                        tracing::info!(
+                            "Keyboard-interactive auth succeeded for {}@{}",
+                            config.username,
+                            config.host
+                        );
                         true
                     }
                     Ok(false) | Err(_) => {
@@ -913,7 +993,9 @@ async fn authenticate_handle(
                         let result = handle
                             .authenticate_password(&config.username, password)
                             .await
-                            .map_err(|_e| SshError::AuthFailed("authentication failed".to_string()))?;
+                            .map_err(|_e| {
+                                SshError::AuthFailed("authentication failed".to_string())
+                            })?;
                         matches!(result, russh::client::AuthResult::Success)
                     }
                 }
@@ -923,18 +1005,23 @@ async fn authenticate_handle(
             let key_path = Path::new(path);
             tracing::info!("Loading SSH key from: {}", path);
             let key_pair = load_secret_key(key_path, passphrase.as_deref())
-                .map_err(|e| SshError::KeyError(format!(
-                    "failed to load key '{}': {}",
-                    path, e
-                )))?;
-            tracing::info!("Key loaded successfully, algorithm: {:?}", key_pair.algorithm());
+                .map_err(|e| SshError::KeyError(format!("failed to load key '{}': {}", path, e)))?;
+            tracing::info!(
+                "Key loaded successfully, algorithm: {:?}",
+                key_pair.algorithm()
+            );
 
             // For RSA keys, try multiple signature algorithms
             // Modern servers disable ssh-rsa (SHA-1) and require rsa-sha2-256 or rsa-sha2-512
             if matches!(key_pair.algorithm(), Algorithm::Rsa { .. }) {
                 // First try with SHA-512 (rsa-sha2-512)
-                tracing::info!("Attempting RSA publickey auth (SHA-512) for {}@{}", config.username, config.host);
-                let key_with_hash = PrivateKeyWithHashAlg::new(Arc::new(key_pair.clone()), Some(HashAlg::Sha512));
+                tracing::info!(
+                    "Attempting RSA publickey auth (SHA-512) for {}@{}",
+                    config.username,
+                    config.host
+                );
+                let key_with_hash =
+                    PrivateKeyWithHashAlg::new(Arc::new(key_pair.clone()), Some(HashAlg::Sha512));
                 let auth_result = handle
                     .authenticate_publickey(&config.username, key_with_hash)
                     .await;
@@ -944,8 +1031,13 @@ async fn authenticate_handle(
                     Ok(russh::client::AuthResult::Success) => true,
                     _ => {
                         // Try SHA-256 (rsa-sha2-256) as fallback
-                        tracing::info!("RSA-SHA512 failed, trying RSA-SHA256 for {}@{}", config.username, config.host);
-                        let key_with_hash = PrivateKeyWithHashAlg::new(Arc::new(key_pair), Some(HashAlg::Sha256));
+                        tracing::info!(
+                            "RSA-SHA512 failed, trying RSA-SHA256 for {}@{}",
+                            config.username,
+                            config.host
+                        );
+                        let key_with_hash =
+                            PrivateKeyWithHashAlg::new(Arc::new(key_pair), Some(HashAlg::Sha256));
                         let auth_result = handle
                             .authenticate_publickey(&config.username, key_with_hash)
                             .await;
@@ -955,7 +1047,11 @@ async fn authenticate_handle(
                 }
             } else {
                 // For non-RSA keys, use None for hash_alg
-                tracing::info!("Attempting publickey auth for {}@{}", config.username, config.host);
+                tracing::info!(
+                    "Attempting publickey auth for {}@{}",
+                    config.username,
+                    config.host
+                );
                 let key_with_hash = PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
                 let auth_result = handle
                     .authenticate_publickey(&config.username, key_with_hash)
@@ -993,11 +1089,15 @@ pub async fn connect_and_authenticate_over_stream<S>(
     config: &SshConfig,
     stream: S,
     approvals: Option<Arc<approvals::HostKeyApprovalService>>,
+    keepalive_interval: Option<Duration>,
 ) -> Result<client::Handle<ClientHandler>, SshError>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let russh_config = Arc::new(build_ssh_config(config.legacy_ssh, None));
+    // SSH-level keepalives on the target hop too (NS-TERM-17): the jump hop
+    // keeps the TCP path alive, but an idle inner session can still be
+    // dropped by the target's ClientAliveCountMax.
+    let russh_config = Arc::new(build_ssh_config(config.legacy_ssh, keepalive_interval));
 
     // Load host key store for verification
     let host_key_store = host_keys::load_default_store();
@@ -1013,15 +1113,17 @@ where
     // Connect over the stream (no TCP dial, no timeout needed for the connect itself)
     let mut handle = client::connect_stream(russh_config, stream, handler)
         .await
-        .map_err(|e| SshError::ConnectionFailed(format!(
-            "{}:{} - stream handshake failed: {}",
-            config.host, config.port, e
-        )))?;
+        .map_err(|e| {
+            SshError::ConnectionFailed(format!(
+                "{}:{} - stream handshake failed: {}",
+                config.host, config.port, e
+            ))
+        })?;
 
     // Authenticate using the shared helper.
     if !authenticate_handle(&mut handle, config).await? {
         return Err(SshError::AuthFailed(
-            "authentication failed - check credentials in profile".to_string()
+            "authentication failed - check credentials in profile".to_string(),
         ));
     }
 
@@ -1105,7 +1207,11 @@ pub(crate) async fn exec_on_handle(
                 exit_status = Some(s);
                 termination = ExecTermination::Normal;
             }
-            Some(ChannelMsg::ExitSignal { signal_name, error_message, .. }) => {
+            Some(ChannelMsg::ExitSignal {
+                signal_name,
+                error_message,
+                ..
+            }) => {
                 let detail = if error_message.is_empty() {
                     format!("{:?}", signal_name)
                 } else {
@@ -1116,13 +1222,19 @@ pub(crate) async fn exec_on_handle(
             Some(ChannelMsg::Failure) => {
                 termination = ExecTermination::ExecRequestRejected;
             }
-            Some(ChannelMsg::Eof) => { /* no more data, but exit-status / close may still arrive */ }
+            Some(ChannelMsg::Eof) => { /* no more data, but exit-status / close may still arrive */
+            }
             Some(ChannelMsg::Close) | None => break,
             _ => {}
         }
     }
 
-    Ok(ExecResult { stdout, stderr, exit_status, termination })
+    Ok(ExecResult {
+        stdout,
+        stderr,
+        exit_status,
+        termination,
+    })
 }
 
 /// Execute a command on a single session with timeout.
@@ -1137,7 +1249,15 @@ pub async fn execute_command_on_session(
     command: String,
     timeout: Duration,
 ) -> CommandResult {
-    execute_command_on_session_with_approvals(config, session_id, session_name, command, timeout, None).await
+    execute_command_on_session_with_approvals(
+        config,
+        session_id,
+        session_name,
+        command,
+        timeout,
+        None,
+    )
+    .await
 }
 
 /// Execute a command on a single session with optional host-key prompt
@@ -1155,7 +1275,8 @@ pub async fn execute_command_on_session_with_approvals(
 
     // Connect to SSH server without PTY (exec channel instead)
     let connect_result = tokio::time::timeout(timeout, async {
-        let handle = connect_and_authenticate_with_approvals(&config, false, approvals.clone()).await?;
+        let handle =
+            connect_and_authenticate_with_approvals(&config, false, approvals.clone()).await?;
 
         // Open session channel for exec (not shell)
         let mut channel = handle
@@ -1248,18 +1369,16 @@ pub async fn execute_command_on_session_with_approvals(
                 exit_code: None,
             }
         }
-        Err(_) => {
-            CommandResult {
-                session_id,
-                session_name,
-                host,
-                status: CommandStatus::Timeout,
-                output: String::new(),
-                error: Some(format!("Command timed out after {}s", timeout.as_secs())),
-                execution_time_ms,
-                exit_code: None,
-            }
-        }
+        Err(_) => CommandResult {
+            session_id,
+            session_name,
+            host,
+            status: CommandStatus::Timeout,
+            output: String::new(),
+            error: Some(format!("Command timed out after {}s", timeout.as_secs())),
+            execution_time_ms,
+            exit_code: None,
+        },
     }
 }
 
@@ -1280,6 +1399,10 @@ pub struct ShellExecutionResults {
     pub commands: Vec<ShellCommandResult>,
     /// The complete session transcript including auto_commands and all steps
     pub full_transcript: String,
+    /// One result per `post_command` (step_id = the command text), so callers
+    /// can surface a failed `commit` / `write memory` instead of only logging
+    /// it. Empty when the batch stopped early after a timeout.
+    pub post_command_results: Vec<ShellCommandResult>,
 }
 
 /// Strip ANSI escape sequences from PTY output.
@@ -1292,7 +1415,7 @@ pub(crate) fn strip_ansi(input: &str) -> String {
 
 /// Strip the echoed command from the beginning of PTY output.
 /// PTY shells echo the typed command back; remove that first line if it matches.
-fn _strip_echo(output: &str, command: &str) -> String {
+fn strip_echo(output: &str, command: &str) -> String {
     let cmd_trimmed = command.trim();
     let mut lines = output.lines();
     if let Some(first_line) = lines.next() {
@@ -1303,22 +1426,89 @@ fn _strip_echo(output: &str, command: &str) -> String {
     output.to_string()
 }
 
-/// Wait for a shell prompt by accumulating output until a prompt character is seen.
-/// Uses a "settle" approach: after detecting a potential prompt ending, waits briefly
-/// for more data. If no more data arrives, it's a real prompt. This prevents false
-/// triggers on output lines like "Hardware version:" or "Serial number:".
-pub(crate) async fn wait_for_prompt(
-    channel: &mut russh::Channel<client::Msg>,
-    timeout: Duration,
-) -> Result<String, SshError> {
-    wait_for_prompt_matching(channel, timeout, |trimmed| {
-        trimmed.ends_with('>')
-            || trimmed.ends_with('#')
-            || trimmed.ends_with('$')
-            || trimmed.ends_with('%')
-            || trimmed.ends_with(':')
-    })
-    .await
+/// Reduce one command's raw (ANSI-stripped) PTY exchange to just its own
+/// output: drop the echoed command line, the trailing prompt line, and any
+/// pager artifacts (`--More--` plus the backspaces that erase it).
+fn per_command_output(cleaned: &str, command: &str) -> String {
+    let without_echo = strip_echo(cleaned, command);
+    let lines: Vec<&str> = without_echo.lines().collect();
+    let body = if lines.len() <= 1 {
+        // Only the prompt came back (or nothing): the command produced no output.
+        String::new()
+    } else {
+        lines[..lines.len() - 1].join("\n")
+    };
+    strip_pager_artifacts(&body).trim_end().to_string()
+}
+
+/// Remove pager continuation markers left in output after we auto-paged
+/// through them (` --More-- ` followed by backspace/space erasure).
+fn strip_pager_artifacts(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        let Some((start, end)) = find_pager_marker(rest) else {
+            out.push_str(rest);
+            return out;
+        };
+        let before = rest[..start].trim_end_matches(' ');
+        out.push_str(before);
+        // Cisco prints ` --More-- ` then erases it with `\b`*n, ` `*n, `\b`*n
+        // before the next line; strip exactly that shape (ending on the
+        // backspace run) so the next line's real indentation survives.
+        let after = rest[end..]
+            .trim_start_matches(' ')
+            .trim_start_matches(['\u{8}', '\r'])
+            .trim_start_matches(' ')
+            .trim_start_matches(['\u{8}', '\r']);
+        // A marker that sat on its own line leaves an empty line behind.
+        rest = if before.ends_with('\n') || before.is_empty() {
+            after
+                .strip_prefix("\r\n")
+                .or_else(|| after.strip_prefix('\n'))
+                .unwrap_or(after)
+        } else {
+            after
+        };
+    }
+}
+
+/// Byte range of the first pager marker in `text`: `--More--` (Cisco,
+/// Arista, NX-OS) or `---(more N%)---` (Junos).
+fn find_pager_marker(text: &str) -> Option<(usize, usize)> {
+    let cisco = text.find("--More--").map(|p| (p, p + "--More--".len()));
+    let junos = text
+        .find("---(more")
+        .and_then(|p| text[p..].find(")---").map(|e| (p, p + e + ")---".len())));
+    [cisco, junos].into_iter().flatten().min_by_key(|(s, _)| *s)
+}
+
+/// Whether the last line of (ANSI-stripped, right-trimmed) output is a
+/// pager continuation prompt.
+fn ends_with_pager_prompt(trimmed: &str) -> bool {
+    let last = trimmed.lines().next_back().unwrap_or("").trim();
+    last.ends_with("--More--") || (last.starts_with("---(more") && last.ends_with(")---"))
+}
+
+/// Max pager pages to auto-continue through before giving up (treated as a
+/// timeout by the caller if the device keeps paging).
+const MAX_PAGER_CONTINUES: usize = 500;
+
+/// Last `n` bytes of `s`, cut on a char boundary (for log/error tails).
+fn tail_for_log(s: &str, n: usize) -> &str {
+    &s[s.floor_char_boundary(s.len().saturating_sub(n))..]
+}
+
+/// Loose prompt heuristic: any line ending in a prompt-ish character,
+/// including `:` (which also matches `Password:` / `Enter value:` — hence
+/// "loose"). Only used by shell batches that opt out of `exec_prompt_only`
+/// (Linux-style `user@host:~$` prompts).
+fn is_loose_prompt(trimmed: &str) -> bool {
+    trimmed.ends_with('>')
+        || trimmed.ends_with('#')
+        || trimmed.ends_with('$')
+        || trimmed.ends_with('%')
+        || trimmed.ends_with(':')
 }
 
 /// Stricter variant for automated probes: only an exec/config prompt ends
@@ -1330,24 +1520,52 @@ pub(crate) async fn wait_for_exec_prompt(
     channel: &mut russh::Channel<client::Msg>,
     timeout: Duration,
 ) -> Result<String, SshError> {
-    wait_for_prompt_matching(channel, timeout, is_exec_prompt).await
+    wait_for_prompt_matching(channel, timeout, is_exec_prompt, false).await
+}
+
+/// Prompt wait for scripted shell batches (MOP runs): picks the strict or
+/// loose matcher and auto-continues through `--More--` pager prompts by
+/// sending a space, so a forgotten `terminal length 0` degrades to slower
+/// output instead of a timeout.
+async fn wait_for_shell_prompt(
+    channel: &mut russh::Channel<client::Msg>,
+    timeout: Duration,
+    exec_prompt_only: bool,
+) -> Result<String, SshError> {
+    if exec_prompt_only {
+        wait_for_prompt_matching(channel, timeout, is_exec_prompt, true).await
+    } else {
+        wait_for_prompt_matching(channel, timeout, is_loose_prompt, true).await
+    }
 }
 
 /// Whether the last line of (ANSI-stripped) output is an exec/config
 /// prompt: `^\S+[#>]$`.
 pub(crate) fn is_exec_prompt(text: &str) -> bool {
     let last = text.trim_end().lines().next_back().unwrap_or("");
-    last.len() > 1 && !last.contains(char::is_whitespace) && (last.ends_with('#') || last.ends_with('>'))
+    last.len() > 1
+        && !last.contains(char::is_whitespace)
+        && (last.ends_with('#') || last.ends_with('>'))
 }
 
+/// Wait for a shell prompt by accumulating output until `looks_like_prompt`
+/// accepts the (ANSI-stripped, right-trimmed) buffer. Uses a "settle"
+/// approach: after detecting a potential prompt ending, waits briefly for
+/// more data. If no more data arrives, it's a real prompt. This prevents
+/// false triggers on output lines like "Hardware version:" or "Serial number:".
 async fn wait_for_prompt_matching(
     channel: &mut russh::Channel<client::Msg>,
     timeout: Duration,
     looks_like_prompt: impl Fn(&str) -> bool,
+    auto_page: bool,
 ) -> Result<String, SshError> {
     let mut buffer = Vec::new();
     let settle_duration = Duration::from_millis(200);
     let deadline = tokio::time::Instant::now() + timeout;
+    // Byte offset up to which pager prompts have already been answered, so
+    // one `--More--` never triggers more than one space.
+    let mut paged_up_to = 0usize;
+    let mut pager_continues = 0usize;
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -1355,7 +1573,7 @@ async fn wait_for_prompt_matching(
             let partial = String::from_utf8_lossy(&buffer).to_string();
             return Err(SshError::ChannelError(format!(
                 "Timed out waiting for prompt. Partial output: {}",
-                if partial.len() > 200 { &partial[partial.len()-200..] } else { &partial }
+                tail_for_log(&partial, 200)
             )));
         }
 
@@ -1371,14 +1589,16 @@ async fn wait_for_prompt_matching(
                 if !buffer.is_empty() {
                     return Ok(String::from_utf8_lossy(&buffer).to_string());
                 }
-                return Err(SshError::ChannelError("Channel closed while waiting for prompt".to_string()));
+                return Err(SshError::ChannelError(
+                    "Channel closed while waiting for prompt".to_string(),
+                ));
             }
             Ok(_) => continue,
             Err(_) => {
                 let partial = String::from_utf8_lossy(&buffer).to_string();
                 return Err(SshError::ChannelError(format!(
                     "Timed out waiting for prompt. Partial output: {}",
-                    if partial.len() > 200 { &partial[partial.len()-200..] } else { &partial }
+                    tail_for_log(&partial, 200)
                 )));
             }
         }
@@ -1390,12 +1610,35 @@ async fn wait_for_prompt_matching(
         let clean_text = strip_ansi(&text);
         let trimmed = clean_text.trim_end();
 
+        // Pager: `--More--` is never a prompt. Answer it with a space (once
+        // per occurrence) and keep accumulating.
+        if auto_page && buffer.len() > paged_up_to && ends_with_pager_prompt(trimmed) {
+            if pager_continues >= MAX_PAGER_CONTINUES {
+                let partial = String::from_utf8_lossy(&buffer).to_string();
+                return Err(SshError::ChannelError(format!(
+                    "Timed out waiting for prompt: pager did not finish after {} pages. Partial output: {}",
+                    pager_continues,
+                    tail_for_log(&partial, 200)
+                )));
+            }
+            pager_continues += 1;
+            paged_up_to = buffer.len();
+            if let Err(e) = channel.data(&b" "[..]).await {
+                return Err(SshError::ChannelError(format!(
+                    "Failed to continue pager: {}",
+                    e
+                )));
+            }
+            continue;
+        }
+
         if looks_like_prompt(trimmed) {
             // Settle: wait briefly for more data. If nothing arrives, it's a real prompt.
             // This prevents false triggers on output lines like "Hardware version:"
             let settle_deadline = tokio::time::Instant::now() + settle_duration;
             loop {
-                let settle_remaining = settle_deadline.saturating_duration_since(tokio::time::Instant::now());
+                let settle_remaining =
+                    settle_deadline.saturating_duration_since(tokio::time::Instant::now());
                 if settle_remaining.is_zero() {
                     // Settle timeout expired — no more data, this is a real prompt
                     return Ok(text.to_string());
@@ -1431,6 +1674,7 @@ async fn wait_for_prompt_matching(
 /// One batch of shell commands for `execute_commands_via_shell`:
 /// setup commands, the (step_id, command) list, teardown commands,
 /// and the per-command timeout.
+#[derive(Debug, Clone)]
 pub struct ShellCommandBatch {
     pub auto_commands: Vec<String>,
     /// (step_id, command)
@@ -1438,7 +1682,32 @@ pub struct ShellCommandBatch {
     /// Commands to run after all steps (e.g. exit, write memory)
     pub post_commands: Vec<String>,
     pub timeout_per_command: Duration,
+    /// Only a real exec/config prompt (`^\S+[#>]$`) ends a command. The
+    /// loose heuristic also accepts a trailing `:`/`$`/`%`, which mistakes
+    /// `Enter value:` or `Password:` for a prompt and desyncs every later
+    /// command. MOP runs set this; Linux-shell targets need it off.
+    pub exec_prompt_only: bool,
+    /// After a per-command timeout, close the channel instead of typing the
+    /// next command into a shell that is still busy. Remaining commands are
+    /// reported as [`CommandStatus::NotRun`] and post-commands are skipped.
+    pub stop_on_timeout: bool,
 }
+
+impl Default for ShellCommandBatch {
+    fn default() -> Self {
+        Self {
+            auto_commands: Vec::new(),
+            commands: Vec::new(),
+            post_commands: Vec::new(),
+            timeout_per_command: Duration::from_secs(60),
+            exec_prompt_only: false,
+            stop_on_timeout: false,
+        }
+    }
+}
+
+/// Error text attached to commands skipped after a `stop_on_timeout` stop.
+pub const NOT_RUN_AFTER_TIMEOUT: &str = "not run: previous command timed out";
 
 /// Execute multiple commands via an interactive shell channel (PTY).
 ///
@@ -1459,23 +1728,35 @@ pub async fn execute_commands_via_shell(
     batch: ShellCommandBatch,
     auto_accept_changed_keys: bool,
 ) -> ShellExecutionResults {
-    let ShellCommandBatch { auto_commands, commands, post_commands, timeout_per_command } = batch;
+    let ShellCommandBatch {
+        auto_commands,
+        commands,
+        post_commands,
+        timeout_per_command,
+        exec_prompt_only,
+        stop_on_timeout,
+    } = batch;
     let prompt_timeout = Duration::from_secs(15);
 
     // If connection/auth fails, return error for all commands
-    let make_error_results = |commands: &[(String, String)], error: &str, time_ms: u64| -> ShellExecutionResults {
-        ShellExecutionResults {
-            commands: commands.iter().map(|(step_id, _)| ShellCommandResult {
-                step_id: step_id.clone(),
-                status: CommandStatus::Error,
-                output: String::new(),
-                error: Some(error.to_string()),
-                execution_time_ms: time_ms,
-                transcript: String::new(),
-            }).collect(),
-            full_transcript: format!("Error: {}", error),
-        }
-    };
+    let make_error_results =
+        |commands: &[(String, String)], error: &str, time_ms: u64| -> ShellExecutionResults {
+            ShellExecutionResults {
+                commands: commands
+                    .iter()
+                    .map(|(step_id, _)| ShellCommandResult {
+                        step_id: step_id.clone(),
+                        status: CommandStatus::Error,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                        execution_time_ms: time_ms,
+                        transcript: String::new(),
+                    })
+                    .collect(),
+                full_transcript: format!("Error: {}", error),
+                post_command_results: Vec::new(),
+            }
+        };
 
     let overall_start = Instant::now();
 
@@ -1484,7 +1765,11 @@ pub async fn execute_commands_via_shell(
     let handle = match connect_and_authenticate(&config, auto_accept_changed_keys).await {
         Ok(h) => h,
         Err(e) => {
-            return make_error_results(&commands, &e.to_string(), overall_start.elapsed().as_millis() as u64);
+            return make_error_results(
+                &commands,
+                &e.to_string(),
+                overall_start.elapsed().as_millis() as u64,
+            );
         }
     };
 
@@ -1492,35 +1777,57 @@ pub async fn execute_commands_via_shell(
     let mut channel = match handle.channel_open_session().await {
         Ok(ch) => ch,
         Err(e) => {
-            return make_error_results(&commands, &format!("Failed to open channel: {}", e), overall_start.elapsed().as_millis() as u64);
+            return make_error_results(
+                &commands,
+                &format!("Failed to open channel: {}", e),
+                overall_start.elapsed().as_millis() as u64,
+            );
         }
     };
 
-    if let Err(e) = channel.request_pty(false, "xterm-256color", 200, 500, 0, 0, &[]).await {
-        return make_error_results(&commands, &format!("Failed to request PTY: {}", e), overall_start.elapsed().as_millis() as u64);
+    if let Err(e) = channel
+        .request_pty(false, "xterm-256color", 200, 500, 0, 0, &[])
+        .await
+    {
+        return make_error_results(
+            &commands,
+            &format!("Failed to request PTY: {}", e),
+            overall_start.elapsed().as_millis() as u64,
+        );
     }
 
     if let Err(e) = channel.request_shell(false).await {
-        return make_error_results(&commands, &format!("Failed to request shell: {}", e), overall_start.elapsed().as_millis() as u64);
+        return make_error_results(
+            &commands,
+            &format!("Failed to request shell: {}", e),
+            overall_start.elapsed().as_millis() as u64,
+        );
     }
 
     // Wait for initial prompt and start building the session transcript
     let mut transcript = String::new();
-    match wait_for_prompt(&mut channel, prompt_timeout).await {
+    match wait_for_shell_prompt(&mut channel, prompt_timeout, exec_prompt_only).await {
         Ok(raw) => {
             let cleaned = strip_ansi(&raw);
             transcript.push_str(cleaned.trim_start());
         }
         Err(e) => {
-            tracing::warn!("Shell initial prompt wait failed for {}@{}: {}", config.username, config.host, e);
+            tracing::warn!(
+                "Shell initial prompt wait failed for {}@{}: {}",
+                config.username,
+                config.host,
+                e
+            );
         }
     }
 
     // Helper: send a command and append to transcript, return the cleaned output
+    // of this exchange only (echo + output + prompt).
     async fn send_cmd(
         channel: &mut russh::Channel<client::Msg>,
         cmd: &str,
         timeout: Duration,
+        exec_prompt_only: bool,
         transcript: &mut String,
     ) -> Result<String, String> {
         let cmd_bytes = format!("{}\n", cmd);
@@ -1528,13 +1835,9 @@ pub async fn execute_commands_via_shell(
         if let Err(e) = channel.data(&mut cursor).await {
             return Err(format!("Failed to send command: {}", e));
         }
-        match wait_for_prompt(channel, timeout).await {
+        match wait_for_shell_prompt(channel, timeout, exec_prompt_only).await {
             Ok(raw_output) => {
                 let cleaned = strip_ansi(&raw_output);
-                // Append to transcript (includes echo + output + prompt)
-                if !transcript.is_empty() && !transcript.ends_with('\n') {
-                    // No newline needed — the prompt line is already there
-                }
                 transcript.push_str(&cleaned);
                 Ok(cleaned)
             }
@@ -1544,8 +1847,22 @@ pub async fn execute_commands_via_shell(
 
     // Send auto_commands one at a time, waiting for prompt between each
     for (i, auto_cmd) in auto_commands.iter().enumerate() {
-        tracing::debug!("Sending auto_command {}/{} to {}: {}", i + 1, auto_commands.len(), session_name, auto_cmd);
-        match send_cmd(&mut channel, auto_cmd, prompt_timeout, &mut transcript).await {
+        tracing::debug!(
+            "Sending auto_command {}/{} to {}: {}",
+            i + 1,
+            auto_commands.len(),
+            session_name,
+            auto_cmd
+        );
+        match send_cmd(
+            &mut channel,
+            auto_cmd,
+            prompt_timeout,
+            exec_prompt_only,
+            &mut transcript,
+        )
+        .await
+        {
             Ok(_) => {
                 tracing::debug!("Auto_command '{}' complete", auto_cmd);
             }
@@ -1555,28 +1872,47 @@ pub async fn execute_commands_via_shell(
         }
     }
 
-    tracing::debug!("Auto_commands complete for {}, executing {} commands", session_name, commands.len());
+    tracing::debug!(
+        "Auto_commands complete for {}, executing {} commands",
+        session_name,
+        commands.len()
+    );
 
     // Execute each MOP command in sequence
     let mut results = Vec::with_capacity(commands.len());
+    // Set once a timeout stopped the batch: the shell may still be busy with
+    // the timed-out command, so nothing else is typed into it.
+    let mut stopped_after_timeout = false;
 
     for (step_id, command) in &commands {
+        if stopped_after_timeout {
+            results.push(ShellCommandResult {
+                step_id: step_id.clone(),
+                status: CommandStatus::NotRun,
+                output: String::new(),
+                error: Some(NOT_RUN_AFTER_TIMEOUT.to_string()),
+                execution_time_ms: 0,
+                transcript: transcript.clone(),
+            });
+            continue;
+        }
+
         let cmd_start = Instant::now();
 
-        match send_cmd(&mut channel, command, timeout_per_command, &mut transcript).await {
+        match send_cmd(
+            &mut channel,
+            command,
+            timeout_per_command,
+            exec_prompt_only,
+            &mut transcript,
+        )
+        .await
+        {
             Ok(cleaned) => {
-                // Per-step output: just this command's output (strip trailing prompt line)
-                let lines: Vec<&str> = cleaned.lines().collect();
-                let step_output = if lines.len() <= 1 {
-                    cleaned.trim().to_string()
-                } else {
-                    lines[..lines.len() - 1].join("\n")
-                };
-
                 results.push(ShellCommandResult {
                     step_id: step_id.clone(),
                     status: CommandStatus::Success,
-                    output: step_output,
+                    output: per_command_output(&cleaned, command),
                     error: None,
                     execution_time_ms: cmd_start.elapsed().as_millis() as u64,
                     transcript: transcript.clone(),
@@ -1584,9 +1920,21 @@ pub async fn execute_commands_via_shell(
             }
             Err(e) => {
                 let is_timeout = e.contains("Timed out");
+                if is_timeout && stop_on_timeout {
+                    tracing::warn!(
+                        "Command timed out on {}; closing shell and skipping the rest of the batch: {}",
+                        session_name, e
+                    );
+                    let _ = channel.close().await;
+                    stopped_after_timeout = true;
+                }
                 results.push(ShellCommandResult {
                     step_id: step_id.clone(),
-                    status: if is_timeout { CommandStatus::Timeout } else { CommandStatus::Error },
+                    status: if is_timeout {
+                        CommandStatus::Timeout
+                    } else {
+                        CommandStatus::Error
+                    },
                     output: String::new(),
                     error: Some(e),
                     execution_time_ms: cmd_start.elapsed().as_millis() as u64,
@@ -1596,15 +1944,61 @@ pub async fn execute_commands_via_shell(
         }
     }
 
-    // Send post-commands (e.g. exit config mode, write memory) — don't track as steps
-    for post_cmd in &post_commands {
-        tracing::debug!("Sending post-command to {}: {}", session_name, post_cmd);
-        match send_cmd(&mut channel, post_cmd, prompt_timeout, &mut transcript).await {
-            Ok(_) => {
-                tracing::debug!("Post-command '{}' complete", post_cmd);
-            }
-            Err(e) => {
-                tracing::warn!("Post-command '{}' failed: {}", post_cmd, e);
+    // Send post-commands (e.g. exit config mode, write memory) — not steps,
+    // but reported separately so a failed save is visible to the caller.
+    let mut post_command_results = Vec::with_capacity(post_commands.len());
+    if stopped_after_timeout {
+        if !post_commands.is_empty() {
+            tracing::warn!(
+                "Skipping {} post-command(s) on {} after a timeout stopped the batch",
+                post_commands.len(),
+                session_name
+            );
+        }
+    } else {
+        for post_cmd in &post_commands {
+            tracing::debug!("Sending post-command to {}: {}", session_name, post_cmd);
+            let cmd_start = Instant::now();
+            match send_cmd(
+                &mut channel,
+                post_cmd,
+                timeout_per_command,
+                exec_prompt_only,
+                &mut transcript,
+            )
+            .await
+            {
+                Ok(cleaned) => {
+                    tracing::debug!("Post-command '{}' complete", post_cmd);
+                    post_command_results.push(ShellCommandResult {
+                        step_id: post_cmd.clone(),
+                        status: CommandStatus::Success,
+                        output: per_command_output(&cleaned, post_cmd),
+                        error: None,
+                        execution_time_ms: cmd_start.elapsed().as_millis() as u64,
+                        transcript: transcript.clone(),
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("Post-command '{}' failed: {}", post_cmd, e);
+                    let is_timeout = e.contains("Timed out");
+                    post_command_results.push(ShellCommandResult {
+                        step_id: post_cmd.clone(),
+                        status: if is_timeout {
+                            CommandStatus::Timeout
+                        } else {
+                            CommandStatus::Error
+                        },
+                        output: String::new(),
+                        error: Some(e),
+                        execution_time_ms: cmd_start.elapsed().as_millis() as u64,
+                        transcript: transcript.clone(),
+                    });
+                    if is_timeout && stop_on_timeout {
+                        let _ = channel.close().await;
+                        break;
+                    }
+                }
             }
         }
     }
@@ -1614,7 +2008,8 @@ pub async fn execute_commands_via_shell(
 
     tracing::info!(
         "Shell execution on {}@{} complete: {} commands, {:.1}s total",
-        config.username, config.host,
+        config.username,
+        config.host,
         results.len(),
         overall_start.elapsed().as_secs_f64()
     );
@@ -1622,6 +2017,7 @@ pub async fn execute_commands_via_shell(
     ShellExecutionResults {
         commands: results,
         full_transcript: transcript,
+        post_command_results,
     }
 }
 
@@ -1689,11 +2085,9 @@ mod exec_tests {
     //! uses a unique ephemeral test-server port, so the pool's per-key
     //! mutex doesn't interleave them.
 
-    use super::*;
     use super::exec_pool::exec_on_remote_pooled;
-    use super::test_utils::{
-        ephemeral_ed25519, start_test_server, ExecResponse, TestServerConfig,
-    };
+    use super::test_utils::{ephemeral_ed25519, start_test_server, ExecResponse, TestServerConfig};
+    use super::*;
     use std::sync::Arc;
 
     fn cfg(host: std::net::SocketAddr) -> SshConfig {
@@ -1744,11 +2138,13 @@ mod exec_tests {
 
     #[tokio::test]
     async fn propagates_nonzero_exit() {
-        let addr = server_with_responder(|_| Some(ExecResponse {
-            stdout: vec![],
-            stderr: vec![],
-            exit_status: 2,
-        }))
+        let addr = server_with_responder(|_| {
+            Some(ExecResponse {
+                stdout: vec![],
+                stderr: vec![],
+                exit_status: 2,
+            })
+        })
         .await;
 
         let r = exec_on_remote_pooled(&cfg(addr), "false", Duration::from_secs(5))
@@ -1759,11 +2155,13 @@ mod exec_tests {
 
     #[tokio::test]
     async fn captures_stderr_separately_from_stdout() {
-        let addr = server_with_responder(|_| Some(ExecResponse {
-            stdout: b"out\n".to_vec(),
-            stderr: b"err\n".to_vec(),
-            exit_status: 1,
-        }))
+        let addr = server_with_responder(|_| {
+            Some(ExecResponse {
+                stdout: b"out\n".to_vec(),
+                stderr: b"err\n".to_vec(),
+                exit_status: 1,
+            })
+        })
         .await;
 
         let r = exec_on_remote_pooled(&cfg(addr), "noisy-cmd", Duration::from_secs(5))
@@ -1779,16 +2177,22 @@ mod exec_tests {
         // Mirror real shell behavior: missing command → stderr message + exit 127.
         // The SNMP-via-jump path uses this exit code to surface a clear
         // "snmpget not found on jump host" error.
-        let addr = server_with_responder(|_| Some(ExecResponse {
-            stdout: vec![],
-            stderr: b"bash: snmpget: command not found\n".to_vec(),
-            exit_status: 127,
-        }))
+        let addr = server_with_responder(|_| {
+            Some(ExecResponse {
+                stdout: vec![],
+                stderr: b"bash: snmpget: command not found\n".to_vec(),
+                exit_status: 127,
+            })
+        })
         .await;
 
-        let r = exec_on_remote_pooled(&cfg(addr), "snmpget -v2c -c x 1.2.3.4 .1", Duration::from_secs(5))
-            .await
-            .unwrap();
+        let r = exec_on_remote_pooled(
+            &cfg(addr),
+            "snmpget -v2c -c x 1.2.3.4 .1",
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
         assert_eq!(r.exit_status, Some(127));
         assert!(String::from_utf8_lossy(&r.stderr).contains("not found"));
     }
@@ -1808,11 +2212,13 @@ mod exec_tests {
             accept_password: Some(("u".into(), "p".into())),
             accept_key_user: None,
             allow_direct_tcpip: false,
-            exec_responder: Some(Arc::new(|_| Some(ExecResponse {
-                stdout: b"iso.3.6.1.2.1.1.5.0 = STRING: \"RR1-NYC\"\n".to_vec(),
-                stderr: vec![],
-                exit_status: 0,
-            }))),
+            exec_responder: Some(Arc::new(|_| {
+                Some(ExecResponse {
+                    stdout: b"iso.3.6.1.2.1.1.5.0 = STRING: \"RR1-NYC\"\n".to_vec(),
+                    stderr: vec![],
+                    exit_status: 0,
+                })
+            })),
             eof_before_exit_status: true,
             shell: None,
             host_key: ephemeral_ed25519(),
@@ -1822,9 +2228,285 @@ mod exec_tests {
         let r = exec_on_remote_pooled(&cfg(addr), "snmpget ...", Duration::from_secs(5))
             .await
             .expect("exec should succeed even with eof-first ordering");
-        assert_eq!(r.exit_status, Some(0),
-            "exit_status must survive eof-arrives-first ordering");
-        assert!(String::from_utf8_lossy(&r.stdout).contains("RR1-NYC"),
-            "stdout should still be captured");
+        assert_eq!(
+            r.exit_status,
+            Some(0),
+            "exit_status must survive eof-arrives-first ordering"
+        );
+        assert!(
+            String::from_utf8_lossy(&r.stdout).contains("RR1-NYC"),
+            "stdout should still be captured"
+        );
+    }
+}
+
+#[cfg(test)]
+mod shell_tests {
+    //! Behavior contracts for `execute_commands_via_shell` (the MOP path)
+    //! against the scripted PTY shell in `test_utils`.
+
+    use super::test_utils::{ephemeral_ed25519, start_test_server, ShellScript, TestServerConfig};
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    const PROMPT: &str = "R1#";
+
+    fn cfg(host: std::net::SocketAddr) -> SshConfig {
+        SshConfig {
+            host: host.ip().to_string(),
+            port: host.port(),
+            username: "u".into(),
+            auth: SshAuth::Password("p".into()),
+            legacy_ssh: false,
+            skip_keyboard_interactive: false,
+        }
+    }
+
+    /// Fake device: every line is recorded in `seen`; `responder` answers
+    /// plain lines, `raw` (if set) can script chunked/prompt-less replies.
+    async fn device(
+        seen: Arc<Mutex<Vec<String>>>,
+        responder: impl Fn(&str) -> String + Send + Sync + 'static,
+        raw: Option<impl Fn(&str) -> Option<Vec<(Duration, String)>> + Send + Sync + 'static>,
+    ) -> std::net::SocketAddr {
+        let seen_raw = seen.clone();
+        let raw_responder = raw.map(|f| {
+            Arc::new(move |line: &str| {
+                let reply = f(line);
+                if reply.is_some() && line != " " {
+                    seen_raw.lock().unwrap().push(line.to_string());
+                }
+                reply
+            }) as super::test_utils::RawShellResponder
+        });
+        start_test_server(TestServerConfig {
+            accept_password: Some(("u".into(), "p".into())),
+            accept_key_user: None,
+            allow_direct_tcpip: false,
+            exec_responder: None,
+            eof_before_exit_status: false,
+            shell: Some(ShellScript {
+                prompt: PROMPT.into(),
+                responder: Arc::new(move |line: &str| {
+                    seen.lock().unwrap().push(line.to_string());
+                    responder(line)
+                }),
+                raw_responder,
+            }),
+            host_key: ephemeral_ed25519(),
+        })
+        .await
+    }
+
+    fn batch(commands: &[(&str, &str)]) -> ShellCommandBatch {
+        ShellCommandBatch {
+            commands: commands
+                .iter()
+                .map(|(id, c)| (id.to_string(), c.to_string()))
+                .collect(),
+            timeout_per_command: Duration::from_secs(5),
+            exec_prompt_only: true,
+            stop_on_timeout: true,
+            ..Default::default()
+        }
+    }
+
+    async fn run(addr: std::net::SocketAddr, batch: ShellCommandBatch) -> ShellExecutionResults {
+        execute_commands_via_shell(cfg(addr), "sid".into(), "R1".into(), batch, false).await
+    }
+
+    #[test]
+    fn per_command_output_strips_echo_and_prompt() {
+        assert_eq!(
+            per_command_output("show ver\r\nIOS 15.2\r\nuptime 1d\r\nR1#", "show ver"),
+            "IOS 15.2\nuptime 1d"
+        );
+        // No output: only echo + prompt.
+        assert_eq!(per_command_output("conf t\r\nR1(config)#", "conf t"), "");
+        // Pager marker with Cisco erase sequence is removed, indentation kept.
+        let paged = "show run\r\ninterface Gi0/1\r\n --More-- \u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}         \u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8} ip address 10.0.0.1\r\nR1#";
+        assert_eq!(
+            per_command_output(paged, "show run"),
+            "interface Gi0/1\n ip address 10.0.0.1"
+        );
+        // Junos-style marker on its own line disappears entirely.
+        assert_eq!(
+            per_command_output("show x\r\na\r\n---(more 40%)---\r\nb\r\nR1>", "show x"),
+            "a\nb"
+        );
+    }
+
+    #[test]
+    fn tail_for_log_is_char_boundary_safe() {
+        let s = "é".repeat(150); // 300 bytes, boundary at odd offsets
+        let tail = tail_for_log(&s, 200);
+        assert!(tail.len() <= 201 && tail.chars().all(|c| c == 'é'));
+        assert_eq!(tail_for_log("abc", 200), "abc");
+    }
+
+    #[test]
+    fn pager_prompt_detection() {
+        assert!(ends_with_pager_prompt("line\r\n --More--"));
+        assert!(ends_with_pager_prompt("line\n---(more 12%)---"));
+        assert!(!ends_with_pager_prompt("Serial number:"));
+        assert!(!ends_with_pager_prompt("R1#"));
+    }
+
+    /// (a) `Enter value:` is not a prompt under `exec_prompt_only`: the
+    /// command only completes when the real `R1#` arrives, so the value
+    /// printed after the colon belongs to THIS command, not the next one.
+    #[tokio::test]
+    async fn trailing_colon_is_not_a_prompt_in_exec_mode() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let addr = device(
+            seen,
+            |_| String::new(),
+            Some(|line: &str| match line {
+                "show calc" => Some(vec![
+                    (Duration::ZERO, "Enter value:".to_string()),
+                    // Well past the 200 ms settle window the loose heuristic uses.
+                    (Duration::from_millis(600), " 42\r\nR1#".to_string()),
+                ]),
+                _ => None,
+            }),
+        )
+        .await;
+
+        let r = run(addr, batch(&[("s1", "show calc"), ("s2", "show b")])).await;
+        assert_eq!(r.commands.len(), 2);
+        assert_eq!(r.commands[0].status, CommandStatus::Success);
+        assert_eq!(r.commands[0].output, "Enter value: 42");
+        assert_eq!(r.commands[1].status, CommandStatus::Success);
+        assert!(
+            !r.commands[1].output.contains("42"),
+            "value leaked into next step: {:?}",
+            r.commands[1].output
+        );
+    }
+
+    /// (b) A hung command times out; with `stop_on_timeout` nothing else is
+    /// typed into the busy shell — later steps are NotRun and post-commands
+    /// are never sent.
+    #[tokio::test]
+    async fn timeout_stops_batch_and_marks_rest_not_run() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let addr = device(
+            seen.clone(),
+            |_| String::new(),
+            Some(|line: &str| match line {
+                "hang" => Some(vec![(Duration::ZERO, "working...".to_string())]),
+                _ => None,
+            }),
+        )
+        .await;
+
+        let mut b = batch(&[("s1", "hang"), ("s2", "show b"), ("s3", "show c")]);
+        b.timeout_per_command = Duration::from_millis(700);
+        b.post_commands = vec!["end".into(), "write memory".into()];
+        let r = run(addr, b).await;
+
+        assert_eq!(r.commands[0].status, CommandStatus::Timeout);
+        assert_eq!(r.commands[1].status, CommandStatus::NotRun);
+        assert_eq!(r.commands[2].status, CommandStatus::NotRun);
+        assert_eq!(r.commands[1].output, "");
+        assert_eq!(r.commands[1].error.as_deref(), Some(NOT_RUN_AFTER_TIMEOUT));
+        assert!(r.post_command_results.is_empty());
+
+        // Give the server a moment to have processed anything we might have sent.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            vec!["hang".to_string()],
+            "shell received extra input after timeout: {seen:?}"
+        );
+    }
+
+    /// Without `stop_on_timeout` the legacy behavior (keep going) is kept.
+    #[tokio::test]
+    async fn timeout_without_stop_keeps_sending() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let addr = device(
+            seen.clone(),
+            |line| format!("out-{line}"),
+            Some(|line: &str| match line {
+                "hang" => Some(vec![(Duration::ZERO, "working...".to_string())]),
+                _ => None,
+            }),
+        )
+        .await;
+
+        let mut b = batch(&[("s1", "hang"), ("s2", "show b")]);
+        b.timeout_per_command = Duration::from_millis(700);
+        b.stop_on_timeout = false;
+        let r = run(addr, b).await;
+        assert_eq!(r.commands[0].status, CommandStatus::Timeout);
+        assert_ne!(r.commands[1].status, CommandStatus::NotRun);
+        assert!(seen.lock().unwrap().contains(&"show b".to_string()));
+    }
+
+    /// (c) Each result's `output` is only that command's output; the
+    /// transcript stays cumulative.
+    #[tokio::test]
+    async fn per_command_output_excludes_earlier_commands() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let addr = device(
+            seen,
+            |line| match line {
+                "show a" => "AAA\r\nAAA2".to_string(),
+                "show b" => "BBB".to_string(),
+                _ => String::new(),
+            },
+            None::<fn(&str) -> Option<Vec<(Duration, String)>>>,
+        )
+        .await;
+
+        let mut b = batch(&[("s1", "show a"), ("s2", "show b")]);
+        b.auto_commands = vec!["terminal length 0".into()];
+        b.post_commands = vec!["end".into()];
+        let r = run(addr, b).await;
+
+        assert_eq!(r.commands[0].status, CommandStatus::Success);
+        assert_eq!(r.commands[0].output, "AAA\nAAA2");
+        assert_eq!(r.commands[1].output, "BBB");
+        assert!(
+            !r.commands[1].output.contains("show b"),
+            "echo not stripped"
+        );
+        assert!(!r.commands[1].output.contains("terminal length"));
+        assert!(
+            r.commands[1].transcript.contains("AAA") && r.commands[1].transcript.contains("BBB")
+        );
+        assert!(
+            r.full_transcript.contains("terminal length 0") && r.full_transcript.contains("end")
+        );
+        assert_eq!(r.post_command_results.len(), 1);
+        assert_eq!(r.post_command_results[0].step_id, "end");
+        assert_eq!(r.post_command_results[0].status, CommandStatus::Success);
+    }
+
+    /// `--More--` is answered with a space and stitched out of the output.
+    #[tokio::test]
+    async fn pager_is_continued_not_treated_as_prompt() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let addr = device(
+            seen,
+            |_| String::new(),
+            Some(|line: &str| match line {
+                "show run" => Some(vec![(Duration::ZERO, "line1\r\n --More-- ".to_string())]),
+                " " => Some(vec![(Duration::ZERO, "\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}          \u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}line2\r\nR1#".to_string())]),
+                _ => None,
+            }),
+        )
+        .await;
+
+        let r = run(addr, batch(&[("s1", "show run")])).await;
+        assert_eq!(
+            r.commands[0].status,
+            CommandStatus::Success,
+            "{:?}",
+            r.commands[0].error
+        );
+        assert_eq!(r.commands[0].output, "line1\nline2");
     }
 }

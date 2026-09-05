@@ -209,6 +209,11 @@
   white-space: nowrap;
 }
 
+.mop-workspace-tab:focus-visible {
+  outline: 2px solid var(--accent-color, #0078d4);
+  outline-offset: -2px;
+}
+
 .mop-workspace-tab:hover {
   color: var(--text-primary, #cccccc);
 }
@@ -1170,9 +1175,7 @@
   color: var(--text-secondary);
   margin-bottom: 2px;
 }
-.mop-execute-response-title {
-  padding: 8px 16px 0;
-}
+.mop-execute-response-title { padding: 8px 16px 0; }
 .mop-execute-request-line {
   display: block;
   font-family: 'Menlo', 'Consolas', monospace;
@@ -1547,10 +1550,6 @@
   transform: rotate(90deg);
 }
 
-.mop-execute-device-header {
-  cursor: pointer;
-}
-
 /* Device panel status variants */
 .mop-execute-device-panel.complete .mop-execute-device-header {
   border-left: 2px solid #4bb44b;
@@ -1707,47 +1706,6 @@
   padding: 2px 6px;
   border-radius: 2px;
   outline: none;
-}
-
-/* Step output panel */
-.mop-execute-step-output {
-  margin: 0 12px 4px 46px;
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 3px;
-  max-height: 200px;
-  overflow: auto;
-}
-
-.mop-execute-step-output pre {
-  margin: 0;
-  padding: 8px 10px;
-  font-family: 'Menlo', 'Consolas', monospace;
-  font-size: 11px;
-  color: var(--text-primary, #cccccc);
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.4;
-}
-
-/* Step AI feedback */
-.mop-execute-step-ai-feedback {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0 12px 4px 46px;
-  padding: 6px 10px;
-  background: rgba(197, 134, 192, 0.08);
-  border-left: 2px solid #c586c0;
-  border-radius: 0 3px 3px 0;
-  font-size: 11px;
-  color: var(--text-secondary, #858585);
-  line-height: 1.4;
-}
-
-.mop-execute-step-ai-feedback svg {
-  flex-shrink: 0;
-  margin-top: 1px;
 }
 
 /* === Review: AI Analysis === */
@@ -1933,9 +1891,16 @@
   border-bottom: 1px solid var(--border-color, #3c3c3c);
 }
 
+/* Escalation variant: amber tint + left bar on top of the shared gate layout */
 .mop-ai-pilot-escalation {
   background: rgba(244, 135, 71, 0.08);
   border-left: 3px solid #f48747;
+}
+
+.mop-ai-pilot-driving {
+  font-size: 11px;
+  color: var(--text-secondary, #858585);
+  font-style: italic;
 }
 
 .mop-ai-pilot-gate-icon {
@@ -2547,163 +2512,6 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
-/* ===== Template: Devices Prompt ===== */
-
-.mop-template-devices-prompt {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-  text-align: center;
-  gap: 12px;
-}
-
-.mop-template-devices-prompt-icon {
-  color: var(--text-secondary, #666);
-  opacity: 0.6;
-}
-
-.mop-template-devices-prompt-text {
-  font-size: 13px;
-  color: var(--text-secondary, #aaa);
-  max-width: 320px;
-  line-height: 1.5;
-}
-
-.mop-template-devices-prompt-text strong {
-  color: var(--accent-color, #4fc1ff);
-}
-
-/* ===== Shared Variables Grid ===== */
-
-.mop-shared-vars-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 8px;
-}
-
-.mop-template-vars-subtitle {
-  font-size: 11px;
-  color: var(--text-secondary, #666);
-  margin-bottom: 8px;
-}
-
-/* ===== API Variable Badge ===== */
-
-.mop-var-api-badge {
-  display: inline-block;
-  margin-left: 4px;
-  font-size: 11px;
-  color: #dcdcaa;
-  cursor: help;
-}
-
-/* ===== Per-Device Variable Grid (Table) ===== */
-
-.mop-per-device-grid-wrapper {
-  overflow-x: auto;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 4px;
-}
-
-.mop-per-device-grid {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.mop-per-device-grid thead th {
-  padding: 6px 10px;
-  text-align: left;
-  font-weight: 500;
-  font-size: 11px;
-  color: var(--text-secondary, #aaa);
-  background: var(--bg-tertiary, #252525);
-  border-bottom: 1px solid var(--border-color, #333);
-  white-space: nowrap;
-}
-
-.mop-per-device-grid tbody tr {
-  border-bottom: 1px solid var(--border-color, #2a2a2a);
-}
-
-.mop-per-device-grid tbody tr:last-child {
-  border-bottom: none;
-}
-
-.mop-per-device-grid tbody tr:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.mop-per-device-grid td {
-  padding: 4px 6px;
-  vertical-align: middle;
-}
-
-.mop-per-device-grid-device {
-  min-width: 140px;
-  white-space: nowrap;
-}
-
-.mop-per-device-grid thead .mop-per-device-grid-device {
-  min-width: 140px;
-}
-
-.mop-per-device-name {
-  display: block;
-  font-weight: 500;
-  color: var(--text-primary, #e0e0e0);
-  font-size: 12px;
-}
-
-.mop-per-device-host {
-  display: block;
-  font-size: 10px;
-  color: var(--text-secondary, #888);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.mop-per-device-type {
-  display: inline-block;
-  font-size: 9px;
-  color: var(--text-secondary, #666);
-  background: var(--bg-tertiary, #252525);
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-top: 2px;
-}
-
-.mop-per-device-input {
-  width: 100%;
-  padding: 4px 6px;
-  background: var(--bg-secondary, #1e1e1e);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 3px;
-  color: var(--text-primary, #e0e0e0);
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.mop-per-device-input:focus {
-  border-color: var(--accent-color, #4fc1ff);
-  outline: none;
-}
-
-.mop-per-device-input::placeholder {
-  color: var(--text-secondary, #555);
-  font-style: italic;
-}
-
-/* ===== Template Detail Description ===== */
-
-.mop-template-detail-desc {
-  display: block;
-  font-size: 12px;
-  color: var(--text-secondary, #888);
-  margin-top: 4px;
-}
-
 /* ===== Template Search ===== */
 
 .mop-template-search {
@@ -3186,7 +2994,8 @@
   border-bottom: 1px solid var(--border-color, #3c3c3c);
 }
 
-.mop-test-terminal-input input {
+.mop-test-terminal-input input,
+.mop-test-terminal-input textarea {
   flex: 1;
   background: var(--bg-primary, #1e1e1e);
   border: 1px solid var(--border-color, #3c3c3c);
@@ -3195,12 +3004,16 @@
   padding: 5px 8px;
   font-size: 12px;
   font-family: var(--font-mono, 'Menlo', 'Monaco', 'Courier New', monospace);
+  line-height: 16px;
+  resize: none;
   outline: none;
 }
-.mop-test-terminal-input input:focus {
+.mop-test-terminal-input input:focus,
+.mop-test-terminal-input textarea:focus {
   border-color: var(--accent-color, #0078d4);
 }
-.mop-test-terminal-input input:disabled {
+.mop-test-terminal-input input:disabled,
+.mop-test-terminal-input textarea:disabled {
   opacity: 0.5;
 }
 
@@ -3651,15 +3464,6 @@
   font-weight: 600;
 }
 
-/* Source label in main row */
-.mop-step-source-label {
-  color: var(--text-secondary);
-  font-style: italic;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 /* Source type badge (API / Script) */
 .mop-step-source-badge {
   display: inline-flex;
@@ -3693,19 +3497,6 @@
   background: rgba(99, 102, 241, 0.15);
   color: #818cf8;
   border: 1px solid rgba(99, 102, 241, 0.3);
-}
-
-.mop-step-deploy-services {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  color: var(--text-secondary, #858585);
-  padding-left: 4px;
-}
-
-.mop-step-deploy-service {
-  font-family: var(--font-family-mono, monospace);
 }
 
 .mop-step-deployment-link-placeholder {
@@ -3900,3 +3691,554 @@
   margin-bottom: 8px;
 }
 
+/* ============================================================================
+   MOP fix pass — header banner, execute-tab drivers, executions list,
+   assertion pills, phase notes
+   ============================================================================ */
+
+/* Dismissible save / execution error banner in the workspace header */
+.mop-workspace-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px 6px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.mop-workspace-banner.error {
+  background: rgba(244, 71, 71, 0.1);
+  border: 1px solid rgba(244, 71, 71, 0.3);
+  color: #f44747;
+}
+.mop-workspace-banner-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.mop-workspace-banner-dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+.mop-workspace-banner-dismiss:hover {
+  opacity: 1;
+}
+
+/* Execute tab is keyboard-focusable (Enter / S / N) */
+.mop-execute-tab:focus {
+  outline: none;
+}
+.mop-execute-tab:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-color, #0078d4);
+}
+
+.mop-execute-finished-label {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+/* Phase button + "Run anyway" override */
+.mop-execute-phase-btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mop-execute-run-anyway {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #858585);
+  font-size: 10px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.mop-execute-run-anyway:hover {
+  color: #dcdcaa;
+}
+
+/* Manual-mode driver bar */
+.mop-execute-manual-bar {
+  flex-wrap: wrap;
+}
+.mop-execute-manual-hint {
+  font-size: 10px;
+  color: var(--text-tertiary, #6e7681);
+  white-space: nowrap;
+}
+
+/* Run rollback (device header) */
+.mop-execute-rollback-btn.run {
+  border-color: rgba(206, 145, 120, 0.5);
+  color: #ce9178;
+}
+.mop-execute-rollback-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mop-execute-rollback-btn:disabled:hover {
+  background: transparent;
+}
+
+/* "Run pending (n)" on a phase group header */
+.mop-execute-run-pending-btn {
+  padding: 1px 8px;
+  border: 1px solid rgba(79, 193, 255, 0.4);
+  border-radius: 3px;
+  background: transparent;
+  color: #4fc1ff;
+  font-size: 10px;
+  cursor: pointer;
+}
+.mop-execute-run-pending-btn:hover {
+  background: rgba(79, 193, 255, 0.12);
+}
+
+/* Device header extras */
+.mop-execute-flavor-badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-secondary, #858585);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.mop-execute-device-skipped {
+  font-size: 10px;
+  color: #858585;
+  font-style: italic;
+}
+
+/* Step row markers */
+.mop-execute-step-scope {
+  font-size: 10px;
+  color: var(--text-tertiary, #6e7681);
+  white-space: nowrap;
+}
+.mop-execute-step-error-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(244, 71, 71, 0.2);
+  color: #f44747;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+/* Assertion results */
+.mop-assertion-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+}
+.mop-assertion-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-family: var(--font-mono, 'Menlo', 'Monaco', 'Courier New', monospace);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mop-assertion-pill.pass {
+  background: rgba(78, 201, 176, 0.15);
+  color: #4ec9b0;
+  border: 1px solid rgba(78, 201, 176, 0.35);
+}
+.mop-assertion-pill.fail {
+  background: rgba(244, 71, 71, 0.15);
+  color: #f44747;
+  border: 1px solid rgba(244, 71, 71, 0.35);
+}
+.mop-assertion-pill.small {
+  padding: 0 6px;
+  font-size: 9px;
+}
+
+/* Step failure reason in the output pane */
+.mop-execute-error-message {
+  margin: 0;
+  padding: 6px 12px;
+  background: rgba(244, 71, 71, 0.08);
+  border-bottom: 1px solid rgba(244, 71, 71, 0.3);
+  color: #f44747;
+  font-size: 11px;
+  font-family: var(--font-mono, 'Menlo', 'Monaco', 'Courier New', monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Notes after a phase / rollback */
+.mop-execute-phase-notes {
+  padding: 6px 12px;
+  background: var(--bg-secondary, #252526);
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  font-size: 11px;
+}
+.mop-execute-phase-notes-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary, #6e7681);
+  margin-bottom: 2px;
+}
+.mop-execute-phase-note {
+  color: var(--text-secondary, #858585);
+}
+.mop-execute-phase-note.error {
+  color: #f44747;
+}
+
+/* Executions list (personal mode) */
+.mop-execute-executions {
+  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  background: var(--bg-secondary, #252526);
+}
+.mop-execute-executions-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.mop-execute-executions-list {
+  max-height: 180px;
+  overflow-y: auto;
+}
+.mop-execute-executions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px 4px 28px;
+  font-size: 11px;
+  border-top: 1px solid var(--border-color, #3c3c3c);
+}
+.mop-execute-executions-row.current {
+  background: rgba(79, 193, 255, 0.06);
+}
+.mop-execute-executions-status {
+  min-width: 70px;
+  font-weight: 600;
+}
+.mop-execute-executions-name {
+  color: var(--text-primary, #cccccc);
+}
+.mop-execute-executions-meta {
+  color: var(--text-tertiary, #6e7681);
+}
+.mop-execute-executions-current {
+  font-size: 10px;
+  color: var(--text-tertiary, #6e7681);
+  padding: 0 8px;
+}
+
+/* Dialog textarea (abort reason) */
+.mop-workspace-dialog-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 4px;
+  background: var(--bg-primary, #1e1e1e);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  color: var(--text-primary, #cccccc);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+.mop-workspace-dialog-textarea:focus {
+  border-color: var(--accent-color, #0078d4);
+}
+
+/* ============================================================================
+   Plan variables (P1-11): Plan-tab card, Devices-tab overrides, Execute-tab
+   pre-start banner
+   ============================================================================ */
+
+.mop-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.mop-variables-card {
+  background: var(--bg-secondary, #252526);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.mop-variables-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.mop-variables-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-primary, #cccccc);
+  cursor: pointer;
+  padding: 2px 0;
+  font: inherit;
+}
+
+.mop-variables-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #858585);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mop-variables-count {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-tertiary, #2d2d2d);
+  color: var(--text-secondary, #858585);
+}
+
+.mop-variables-warn-count {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(220, 220, 170, 0.15);
+  color: #dcdcaa;
+}
+.mop-variables-warn-count.error {
+  background: rgba(244, 71, 71, 0.15);
+  color: #f44747;
+}
+
+.mop-variables-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-secondary, #858585);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mop-variables-hint code,
+.mop-variables-chip code {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10.5px;
+  background: var(--bg-tertiary, #2d2d2d);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.mop-variables-body {
+  padding: 0 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mop-variables-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #dcdcaa;
+}
+.mop-variables-chips-label {
+  color: var(--text-secondary, #858585);
+}
+.mop-variables-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(220, 220, 170, 0.35);
+  background: rgba(220, 220, 170, 0.08);
+}
+.mop-variables-chip-btn {
+  background: none;
+  border: none;
+  color: var(--accent-color, #0078d4);
+  cursor: pointer;
+  font-size: 10.5px;
+  padding: 0 4px;
+}
+.mop-variables-chip-btn:hover {
+  text-decoration: underline;
+}
+
+.mop-variables-empty {
+  font-size: 12px;
+  color: var(--text-secondary, #858585);
+}
+
+.mop-variables-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.mop-variables-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #858585);
+  padding: 2px 6px 4px 0;
+}
+.mop-variables-table td {
+  padding: 3px 6px 3px 0;
+  vertical-align: top;
+}
+.mop-variables-col-required {
+  width: 60px;
+  text-align: center;
+}
+.mop-variables-col-actions {
+  width: 32px;
+  text-align: right;
+}
+.mop-variables-table td.mop-variables-col-required {
+  text-align: center;
+  padding-top: 8px;
+}
+
+.mop-variables-input {
+  width: 100%;
+  background: var(--bg-tertiary, #2d2d2d);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  color: var(--text-primary, #cccccc);
+  font-size: 12px;
+  padding: 4px 6px;
+  outline: none;
+  font-family: inherit;
+}
+.mop-variables-input.mono {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+.mop-variables-input:focus {
+  border-color: var(--accent-color, #0078d4);
+}
+.mop-variables-input.invalid {
+  border-color: #f44747;
+}
+.mop-variables-error {
+  font-size: 10.5px;
+  color: #f44747;
+  margin-top: 2px;
+}
+
+/* Devices tab: per-device overrides (row expansion) */
+.mop-device-vars-toggle {
+  background: none;
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  color: var(--text-secondary, #858585);
+  cursor: pointer;
+  font-size: 10.5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.mop-device-vars-toggle:hover,
+.mop-device-vars-toggle.active {
+  color: var(--text-primary, #cccccc);
+  border-color: var(--accent-color, #0078d4);
+}
+.mop-device-vars-toggle.overridden {
+  color: var(--accent-color, #0078d4);
+}
+
+.mop-device-vars-panel {
+  margin: -2px 0 6px 34px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary, #2d2d2d);
+  border: 1px solid var(--border-color, #3c3c3c);
+  border-radius: 3px;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.mop-device-vars-panel-title {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #858585);
+}
+.mop-device-vars-name {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--text-secondary, #858585);
+}
+.mop-device-vars-name .required {
+  color: #f48747;
+  margin-left: 2px;
+}
+
+/* Execute tab: pre-start variable issues */
+.mop-variable-issues {
+  margin: 8px 12px 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.mop-variable-issues-title {
+  font-weight: 600;
+}
+.mop-variable-issues ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.mop-variable-issues code {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+/* Execute preview: a resolved command carrying a template tooltip */
+.mop-execute-step-command.resolved {
+  text-decoration: underline dotted var(--text-secondary, #858585);
+  text-underline-offset: 3px;
+}
+
+/* Review: analysis provenance */
+.mop-review-ai-source {
+  font-size: 11px;
+  color: var(--text-secondary, #858585);
+  margin: 4px 0 8px;
+}
+.mop-review-ai-source.rules {
+  color: #dcdcaa;
+}

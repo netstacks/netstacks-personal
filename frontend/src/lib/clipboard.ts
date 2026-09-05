@@ -1,5 +1,12 @@
+import type { ClipProvenance } from '../types/clip'
+import { useClipStore } from '../stores/clipStore'
+
 /**
  * copyToClipboard — three-tier copy that works everywhere we ship.
+ *
+ * On success the text is also recorded in clipboard history with its
+ * provenance (default: an anonymous in-app copy). Pass a provenance from
+ * call sites that know the session/device the text came from.
  *
  * Order:
  *   1. @tauri-apps/plugin-clipboard-manager — preferred inside the
@@ -13,7 +20,23 @@
  *
  * Returns true on success.
  */
-export async function copyToClipboard(text: string): Promise<boolean> {
+export async function copyToClipboard(
+  text: string,
+  provenance: ClipProvenance = { source: 'app-copy' },
+): Promise<boolean> {
+  const ok = await copyWithoutHistory(text)
+  if (ok) {
+    // History capture never blocks or fails the copy itself.
+    void useClipStore.getState().capture(text, provenance)
+  }
+  return ok
+}
+
+/**
+ * Write to the OS clipboard WITHOUT recording a history entry — for re-copying
+ * something that is already in history (the palette's Copy action).
+ */
+export async function copyWithoutHistory(text: string): Promise<boolean> {
   // 1. Tauri plugin (works inside the bundled app even when
   //    navigator.clipboard is locked down by the WebView).
   try {

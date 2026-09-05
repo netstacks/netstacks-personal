@@ -56,6 +56,25 @@ export interface MopStep {
   device_ids?: string[];              // Only when scope = 'specific'
 }
 
+/**
+ * Plan-level variable: `{{name}}` in step commands / expected outputs /
+ * quick-action variables / script args resolves to `value` (or the device's
+ * override from `Change.device_variables`). Built-ins `{{device.host}}`,
+ * `{{device.name}}` and `{{device.type}}` always win over user variables.
+ */
+export interface MopVariable {
+  /** ^[A-Za-z_][A-Za-z0-9_]*$, unique per plan (case-sensitive). */
+  name: string;
+  /** Plan-level default; may be "". */
+  value: string;
+  description?: string;
+  /** true → every device must resolve to a non-empty value before start. */
+  required: boolean;
+}
+
+/** `{ <session_id>: { <variable name>: <value> } }` — blank/absent = inherit the plan default. */
+export type MopDeviceVariables = Record<string, Record<string, string>>;
+
 export interface Change {
   id: string;
   session_id?: string | null;
@@ -73,6 +92,16 @@ export interface Change {
   updated_at: string;
   executed_at?: string;
   completed_at?: string;
+  // Plan metadata (persisted since the MOP fix pass; older agents omit them)
+  risk_level?: string | null;
+  change_ticket?: string | null;
+  tags?: string[];
+  // Every session selected in the Devices tab. `session_id` stays as the
+  // primary/legacy target for older agents.
+  session_ids?: string[];
+  // Plan-level variables + per-session overrides (older agents omit both)
+  variables?: MopVariable[];
+  device_variables?: MopDeviceVariables;
 }
 
 export interface NewChange {
@@ -83,6 +112,12 @@ export interface NewChange {
   device_overrides?: Record<string, MopStep[]>;
   document_id?: string;
   created_by: string;
+  risk_level?: string | null;
+  change_ticket?: string | null;
+  tags?: string[];
+  session_ids?: string[];
+  variables?: MopVariable[];
+  device_variables?: MopDeviceVariables;
 }
 
 export interface UpdateChange {
@@ -98,11 +133,22 @@ export interface UpdateChange {
   ai_analysis?: string | null;
   executed_at?: string | null;
   completed_at?: string | null;
+  // null clears the field on the agent (double-option in Rust)
+  risk_level?: string | null;
+  change_ticket?: string | null;
+  tags?: string[];
+  session_ids?: string[];
+  // Whole-list / whole-map replacement (no "clear" distinct from empty)
+  variables?: MopVariable[];
+  device_variables?: MopDeviceVariables;
 }
 
+// Snapshots are owned by either a Change (manual pre/post) or a MOP
+// execution (phase snapshots) — at least one of the two ids is set.
 export interface Snapshot {
   id: string;
-  change_id: string;
+  change_id?: string | null;
+  execution_id?: string | null;
   snapshot_type: 'pre' | 'post';
   commands: string[];
   output: string;
@@ -110,7 +156,8 @@ export interface Snapshot {
 }
 
 export interface NewSnapshot {
-  change_id: string;
+  change_id?: string | null;
+  execution_id?: string | null;
   snapshot_type: 'pre' | 'post';
   commands: string[];
   output: string;

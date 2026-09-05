@@ -1,4 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { copyToClipboard, readClipboardText } from './lib/clipboard'
+import { useClipStore } from './stores/clipStore'
+import ClipHistoryPalette from './components/clip/ClipHistoryPalette'
+import PastePreview from './components/clip/PastePreview'
+import type { Clip } from './types/clip'
 import { createPortal } from 'react-dom'
 import { useClampedMenuPosition } from './hooks/useClampedMenuPosition'
 import './App.css'
@@ -53,6 +58,7 @@ import SftpEditorTab from './components/SftpEditorTab'
 import { useSftpStore } from './stores/sftpStore'
 import { useTunnelStore } from './stores/tunnelStore'
 import { useActiveTopologyStore } from './stores/activeTopologyStore'
+import { isTabDirtyById } from './stores/dirtyTabsStore'
 import { useTopologyAICallbacks } from './hooks/useTopologyAICallbacks'
 import { buildTopologySeed } from './lib/aiTopologySeed'
 import { resolveDocSaveTarget } from './lib/docSaveTargets'
@@ -77,6 +83,9 @@ import type { QuickAction } from './api/quickActions'
 import { executeQuickAction } from './api/quickActions'
 import type { QuickActionResult, ApiResource } from './types/quickAction'
 import ApiResourceDialog from './components/ApiResourceDialog'
+import ApiRequestTab from './components/api/ApiRequestTab'
+import { revealApiClient } from './components/api/apiClientEvents'
+import type { ApiRequestTabInit } from './types/apiRequest'
 import type { GlobalSnippet } from './api/snippets'
 import { useMultiSend } from './hooks/useMultiSend'
 import { useKeyboard, formatShortcut, loadKeybindingsFromBackend } from './hooks/useKeyboard'
@@ -101,11 +110,13 @@ import type { Script } from './api/scripts'
 import { getScript } from './api/scripts'
 import { updateDocument, listDocuments, getDocument, createDocument, type Document, type DocumentCategory, type ContentType } from './api/docs'
 import type { SearchHit } from './api/search'
-import { createChange } from './api/changes'
-import { createMopStep, type MopStep } from './types/change'
+import { createChange, updateChange } from './api/changes'
+import { createMopStep, type MopStep, type MopVariable } from './types/change'
 import type { AiContext } from './api/ai'
 import { getDiscoveryPrompt, getWorkspaceInitPrompt, DEFAULT_WORKSPACE_INIT_PROMPT, DEFAULT_AI_DISCOVERY_PROMPT } from './api/ai'
 import { registerFormAiContext } from './lib/aiFormContext'
+import { getMopTabSummary } from './lib/mopAiContext'
+import type { LiveEditorState } from './lib/aiLiveContext'
 import { CLI_FLAVOR_META } from './lib/cliFlavorMeta'
 import { aiToolInitFilename } from './lib/aiToolInitFile'
 import { LocalFileOps } from './lib/fileOps'
@@ -129,7 +140,6 @@ import { useSettings } from './hooks/useSettings'
 import { useMode } from './hooks/useMode'
 import { useCapabilitiesStore } from './stores/capabilitiesStore'
 import { EnrichmentProvider } from './contexts/EnrichmentContext'
-import { MopExecutionProvider, useMopExecutionOptional } from './contexts/MopExecutionContext'
 import { AuthProvider } from './components/auth/AuthProvider'
 import TroubleshootingDialog from './components/TroubleshootingDialog'
 import DeviceEditDialog from './components/DeviceEditDialog'
@@ -137,6 +147,7 @@ import WorkspaceTab from './components/workspace/WorkspaceTab'
 import WorkspaceNewDialog from './components/workspace/WorkspaceNewDialog'
 import WorkspacesPanel, { addSavedWorkspace } from './components/workspace/WorkspacesPanel'
 import { MenuBridge } from './commands/menuBridge'
+import { dispatchMopCommand } from './hooks/useMopCommandBridge'
 import { useActiveContextStore, useCommand, dispatchCommand, getActiveContext, type ActiveContext } from './commands'
 import { getPlatform } from './utils/platform'
 import TopBar from './components/TopBar'
@@ -162,7 +173,7 @@ import { logger } from './lib/logger'
 const isTauri = '__TAURI_INTERNALS__' in window
 
 // Tab type discriminator
-type TabType = 'terminal' | 'document' | 'topology' | 'device-detail' | 'link-detail' | 'mop' | 'sftp-editor' | 'script' | 'api-response' | 'settings' | 'incident-detail' | 'alert-detail' | 'stack-detail' | 'backup-history' | 'config-template' | 'config-stack' | 'config-instance' | 'config-deployment' | 'workspace' | 'scratchpad' | 'agent-run' | 'ai-chat'
+type TabType = 'terminal' | 'document' | 'topology' | 'device-detail' | 'link-detail' | 'mop' | 'sftp-editor' | 'script' | 'api-response' | 'api-request' | 'settings' | 'incident-detail' | 'alert-detail' | 'stack-detail' | 'backup-history' | 'config-template' | 'config-stack' | 'config-instance' | 'config-deployment' | 'workspace' | 'scratchpad' | 'agent-run' | 'ai-chat'
 
 // Status for document tabs
 type DocumentStatus = 'saved' | 'modified' | 'new'
@@ -255,6 +266,11 @@ interface Tab {
   apiResponseData?: string
   apiResponseStatus?: number
   apiResponseDurationMs?: number
+  // API request tab (Postman-style editor over a saved or draft request)
+  apiRequestInit?: ApiRequestTabInit
+  /** Saved request id; null while the tab is an unsaved draft. */
+  apiRequestActionId?: string | null
+  apiRequestDirty?: boolean
   // Incident/Alert detail
   incidentId?: string
   alertId?: string
@@ -696,6 +712,10 @@ function AppContent() {
   useEffect(() => { localStorage.setItem('netstacks-sidebar-width', String(sidebarWidth)) }, [sidebarWidth])
   const [isResizing, setIsResizing] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [clipHistoryOpen, setClipHistoryOpen] = useState(false)
+  // Editable paste dialog target: which terminal tab receives the paste, and
+  // whether the user asked for a raw (untransformed) paste.
+  const [pastePreview, setPastePreview] = useState<{ text: string; tabId: string; raw: boolean } | null>(null)
   const [aiChatOpen, setAiChatOpen] = useState(false)
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
   const [aiExpandTrigger, setAiExpandTrigger] = useState(0)
@@ -751,13 +771,12 @@ function AppContent() {
   const [quickConnectOpen, setQuickConnectOpen] = useState(false)
   const [quickConnectInitialHost, setQuickConnectInitialHost] = useState<string | undefined>(undefined)
   const [showAbout, setShowAbout] = useState(false)
-  // Scratchpad: the floating-panel state lives here so minimize/restore
-  // doesn't lose the buffer. `exists` flips true on first open and stays
-  // until the user explicitly closes (which also clears content).
+  // Scratchpad: `exists` mounts the floating panel and stays true across
+  // minimize/restore (the panel keeps its own buffer while mounted) until
+  // the user closes it or pops it to a tab, which unmounts and discards.
   const [scratchpadExists, setScratchpadExists] = useState(false)
   const [scratchpadMinimized, setScratchpadMinimized] = useState(false)
   const [scratchpadMaximized, setScratchpadMaximized] = useState(false)
-  const [scratchpadContent, setScratchpadContent] = useState('')
   const [showNewWorkspace, setShowNewWorkspace] = useState(false)
   const [deployAgentDialogOpen, setDeployAgentDialogOpen] = useState(false)
   const [remoteWindowDeploying, setRemoteWindowDeploying] = useState(false)
@@ -1056,7 +1075,36 @@ function AppContent() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined)
 
   // Open settings as a tab (VS Code style) - deduplicates to single settings tab
+  // Derived from tab state (not the ref map) so render stays pure; the handle
+  // itself is only read inside event handlers.
+  const activeTabIsTerminal = tabs.some(t => t.id === activeTabId && t.type === 'terminal')
+
+  // Paste a history clip into the active terminal tab through xterm's paste path.
+  // App-level pastes (clipboard history) use the terminal's own smart paste,
+  // so the confirm-dialog / preset decision lives in exactly one place.
+  const pasteClipIntoActiveTerminal = (clip: Clip) => {
+    const handle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined
+    if (!handle) {
+      showToast('No active terminal to paste into', 'warning')
+      return
+    }
+    handle.pasteSmart(clip.text)
+  }
+
+  // API resources + saved requests moved out of Settings into the API
+  // section of the Workspaces sidebar. Kept as a helper so the old deep
+  // links (AI tool, command palette, status-bar "Manage…") land there.
+  const openApiClient = useCallback(() => {
+    setActiveView('workspaces')
+    setSidebarOpen(true)
+    revealApiClient()
+  }, [])
+
   const openSettingsTab = useCallback((tab?: SettingsTab) => {
+    if (tab === 'apiResources' || tab === 'quickCalls') {
+      openApiClient()
+      return
+    }
     setSettingsInitialTab(tab)
     const existing = tabs.find(t => isSettingsTab(t))
     if (existing) {
@@ -1071,7 +1119,7 @@ function AppContent() {
       setTabs(prev => [...prev, newTab])
       setActiveTabId('settings')
     }
-  }, [tabs])
+  }, [tabs, openApiClient])
 
   const openWorkspaceTab = useCallback(async (config: WorkspaceConfig) => {
     const existingTab = tabs.find(t => t.type === 'workspace' && t.workspaceConfig?.id === config.id)
@@ -1773,6 +1821,29 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
     setActiveTabId(newTabId)
   }, [])
 
+  // Open a saved request (or a blank draft against a resource) in an API
+  // request tab. A saved request that is already open is focused instead.
+  const handleOpenApiRequestTab = useCallback((init: ApiRequestTabInit) => {
+    if (init.action) {
+      const existing = tabsRef.current.find(t => t.type === 'api-request' && t.apiRequestActionId === init.action!.id)
+      if (existing) {
+        setActiveTabId(existing.id)
+        return
+      }
+    }
+    const newTabId = `api-request-${Date.now()}`
+    const newTab: Tab = {
+      id: newTabId,
+      type: 'api-request',
+      title: init.action?.name ?? 'New Request',
+      status: 'ready' as const,
+      apiRequestInit: init,
+      apiRequestActionId: init.action?.id ?? null,
+    }
+    setTabs(prev => [...prev, newTab])
+    setActiveTabId(newTabId)
+  }, [])
+
   // Actually run the call with the given variables (extracted into its own
   // closure so the variable-prompt dialog can call it on submit).
   const runQuickCall = useCallback(async (call: QuickAction, vars: Record<string, string>) => {
@@ -1881,8 +1952,8 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
 
   // Handle manage quick calls - opens settings to quick calls tab
   const handleManageQuickCalls = useCallback(() => {
-    openSettingsTab('quickCalls')
-  }, [openSettingsTab])
+    openApiClient()
+  }, [openApiClient])
 
   // Handle manage tunnels - opens settings to tunnels tab
   const handleManageTunnels = useCallback(() => {
@@ -2997,6 +3068,8 @@ def main(command: str = "show version"):
 
   // True when closing `tab` would discard user edits. Script tabs have no
   // dirty flag — compare the live editor buffer against the last-saved Script.
+  // Tabs whose editor state lives in their own component (MopWorkspace)
+  // publish to dirtyTabsStore via setTabDirty(tabId, dirty).
   const isTabDirty = useCallback((tab: Tab): boolean => {
     if (tab.type === 'sftp-editor') return !!tab.sftpDirty
     if (tab.type === 'document') return tab.status === 'modified' || tab.status === 'new' || !!tab.unsavedDoc
@@ -3005,7 +3078,7 @@ def main(command: str = "show version"):
       if (!handle) return false
       return handle.getContent() !== tab.scriptData.content || handle.getName() !== tab.scriptData.name
     }
-    return false
+    return isTabDirtyById(tab.id)
   }, [])
 
   // Single unsaved-changes prompt shared by closeTab and every bulk closer
@@ -5040,57 +5113,6 @@ def main(command: str = "show version"):
   }, [tabs, closeContextMenu, handleOpenConsole, setSessionSettingsConsoleIntent, setSessionSettingsSession])
 
 
-  // Register MOP wizard "open session" callback so clicking a device in the
-  // execution dashboard opens its terminal tab and minimizes the wizard
-  const mopContext = useMopExecutionOptional()
-  useEffect(() => {
-    if (!mopContext) return
-    const handleOpenSession = async (sessionId: string) => {
-      // Check for existing tab with this sessionId
-      const existingTab = tabsRef.current.find(t =>
-        t.sessionId === sessionId && t.type === 'terminal'
-      )
-      if (existingTab) {
-        // Reconnect if disconnected, otherwise just activate
-        if (existingTab.status === 'disconnected' || existingTab.status === 'error') {
-          const handle = terminalRefs.current.get(existingTab.id)
-          if (handle) handle.reconnect()
-        }
-        setActiveTabId(existingTab.id)
-        return
-      }
-      // Fetch session and create new terminal tab
-      try {
-        const session = await getSession(sessionId)
-        const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
-        const newId = `ssh-${session.id}-${Date.now()}`
-        const newTab: Tab = {
-          id: newId,
-          type: 'terminal',
-          title: session.name,
-          sessionId: session.id,
-          profileId: session.profile_id,
-          protocol: session.protocol || 'ssh',
-          cliFlavor: session.cli_flavor,
-          terminalTheme,
-          fontSize,
-          fontFamily,
-          scrollbackLines,
-          autoReconnect,
-          reconnectDelay,
-          color: session.color || undefined,
-          status: 'connecting'
-        }
-        setTabs(prev => [...prev, newTab])
-        setActiveTabId(newId)
-      } catch (err) {
-        console.error('Failed to open session from MOP wizard:', err)
-      }
-    }
-    mopContext.setOnOpenSession(handleOpenSession)
-    return () => mopContext.setOnOpenSession(null)
-  }, [mopContext, getEffectiveFontSettings])
-
   // Handle bulk connect for multiple sessions
   const handleBulkConnect = useCallback(async (sessionIds: string[]): Promise<void> => {
     if (sessionIds.length === 0) return
@@ -5429,15 +5451,10 @@ def main(command: str = "show version"):
       }))
   }, [tabs])
 
-  // Define available commands
+  // Define available commands. Anything registered via useCommand() below
+  // (New Terminal, Settings, Quick Connect…) must NOT be repeated here — the
+  // palette merges both lists and showed duplicates (NS-APP-24).
   const commands: Command[] = [
-    {
-      id: 'new-terminal',
-      label: 'New Terminal',
-      category: 'Terminal',
-      shortcut: formatShortcut(keyboard.getBinding('newTerminal')),
-      action: createTerminal
-    },
     {
       id: 'view-sessions',
       label: 'View: Show Sessions',
@@ -5457,13 +5474,6 @@ def main(command: str = "show version"):
       }
     },
     {
-      id: 'open-settings',
-      label: 'Open Settings',
-      category: 'Preferences',
-      shortcut: formatShortcut(keyboard.getBinding('settings')),
-      action: () => openSettingsTab()
-    },
-    {
       id: 'about',
       label: 'About NetStacks',
       category: 'Help',
@@ -5475,13 +5485,6 @@ def main(command: str = "show version"):
       category: 'View',
       shortcut: formatShortcut(keyboard.getBinding('toggleSidebar')),
       action: () => setSidebarOpen(prev => !prev)
-    },
-    {
-      id: 'quick-connect',
-      label: 'Quick Connect',
-      category: 'Sessions',
-      shortcut: formatShortcut(keyboard.getBinding('quickConnect')),
-      action: () => setQuickConnectOpen(true)
     },
     {
       id: 'ai-chat',
@@ -5564,7 +5567,6 @@ def main(command: str = "show version"):
     setScratchpadExists(false)
     setScratchpadMinimized(false)
     setScratchpadMaximized(false)
-    setScratchpadContent('')
   }, [])
   const handleMinimizeScratchpad = useCallback(() => {
     setScratchpadMinimized(true)
@@ -5572,8 +5574,7 @@ def main(command: str = "show version"):
   const handleToggleScratchpadMax = useCallback(() => {
     setScratchpadMaximized(m => !m)
   }, [])
-  const handlePopScratchpadToTab = useCallback(() => {
-    const initialContent = scratchpadContent
+  const handlePopScratchpadToTab = useCallback((initialContent: string) => {
     const newTab: Tab = {
       id: `scratchpad-${Date.now()}`,
       type: 'scratchpad',
@@ -5583,13 +5584,12 @@ def main(command: str = "show version"):
     }
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newTab.id)
-    // Floating panel is done — clear in-memory state so a future open
-    // starts fresh. The tab owns its own buffer from here.
+    // Floating panel is done — unmount it so a future open starts fresh.
+    // The tab owns its own buffer from here.
     setScratchpadExists(false)
     setScratchpadMinimized(false)
     setScratchpadMaximized(false)
-    setScratchpadContent('')
-  }, [scratchpadContent])
+  }, [])
 
   // Handle File → Save / Cmd+S for the active tab. Dispatches
   // `netstacks:save-document` with the tab id; the tab's component
@@ -5696,9 +5696,15 @@ def main(command: str = "show version"):
       if (!tab) return null
       return { name: tab.title, cliFlavor: tab.cliFlavor }
     },
-    getEditorState: (): { path: string; dirty: boolean } | null => {
+    getEditorState: (): LiveEditorState | null => {
       const activeTab = tabs.find(t => t.id === activeTabId)
-      if (!activeTab || !isDocumentTab(activeTab)) return null
+      if (!activeTab) return null
+      if (isMopTab(activeTab)) {
+        // MopWorkspace publishes its summary keyed by tab id
+        const mop = getMopTabSummary(activeTab.id)
+        return mop ? { path: activeTab.title, dirty: mop.dirty, mop } : null
+      }
+      if (!isDocumentTab(activeTab)) return null
       return {
         path: activeTab.title,
         dirty: activeTab.status === 'modified',
@@ -5714,7 +5720,13 @@ def main(command: str = "show version"):
       const tab = tabs.find(t => t.id === activeTabId)
       if (!tab) return undefined
       const ctx: AiContext = { sessionName: tab.title }
-      const flavor = tab.type === 'terminal' ? tab.cliFlavor : undefined
+      let flavor = tab.type === 'terminal' ? tab.cliFlavor : undefined
+      if (isMopTab(tab)) {
+        // Dominant CLI flavor of the MOP's selected devices (set when they all agree)
+        const mop = getMopTabSummary(tab.id)
+        flavor = mop?.cliFlavor
+        if (mop) ctx.sessionName = `MOP: ${mop.name}`
+      }
       if (flavor && flavor !== 'auto') {
         const meta = CLI_FLAVOR_META[flavor]
         ctx.cliFlavor = flavor
@@ -5895,6 +5907,7 @@ def main(command: str = "show version"):
 
   // AI Agent: Create MOP (Method of Procedure)
   const handleCreateMop = useCallback(async (params: {
+    mop_id?: string;
     name: string;
     description?: string;
     session_ids: string[];
@@ -5902,6 +5915,7 @@ def main(command: str = "show version"):
     changes: Array<{ command: string; description?: string }>;
     post_checks: Array<{ command: string; description?: string; expected_output?: string }>;
     rollback?: Array<{ command: string; description?: string }>;
+    variables?: MopVariable[];
   }): Promise<{ changeId: string; changeName: string }> => {
     // Build MOP steps array
     const mopSteps: MopStep[] = []
@@ -5937,15 +5951,34 @@ def main(command: str = "show version"):
       }
     }
 
-    // Create the change using the first session_id as the primary target
-    // Note: In the future we may want to support multi-session MOPs
+    // `session_id` stays the primary/legacy target; `session_ids` carries
+    // every device so the Devices tab preselects all of them.
     const primarySessionId = params.session_ids[0]
+
+    if (params.mop_id) {
+      // Edit the existing Change in place (the open MOP from the live
+      // context) instead of creating a second one.
+      const change = await updateChange(params.mop_id, {
+        session_id: primarySessionId,
+        session_ids: params.session_ids,
+        name: params.name,
+        description: params.description ?? undefined,
+        mop_steps: mopSteps,
+        // Only replace the declared variables when the tool sent some;
+        // per-device overrides are left untouched.
+        ...(params.variables ? { variables: params.variables } : {}),
+      })
+      showToast(`MOP "${change.name}" updated`, 'success')
+      return { changeId: change.id, changeName: change.name }
+    }
 
     const change = await createChange({
       session_id: primarySessionId,
+      session_ids: params.session_ids,
       name: params.name,
       description: params.description || `MOP for ${params.session_ids.length} device(s): ${params.name}`,
       mop_steps: mopSteps,
+      variables: params.variables ?? [],
       created_by: 'AI Assistant',
     })
 
@@ -6045,6 +6078,7 @@ def main(command: str = "show version"):
     keyboard.registerAction('quickLookTemplates', () => showDocsCategory('templates'))
     keyboard.registerAction('quickLookOutputs', () => showDocsCategory('outputs'))
     keyboard.registerAction('scratchpadOpen', () => handleOpenScratchpad())
+    keyboard.registerAction('clipboardHistory', () => setClipHistoryOpen(true))
     // Menu-backed actions: on macOS the native accelerator fires these; on
     // Windows/Linux (HTML menu bar) this is the only key path they have.
     keyboard.registerAction('newSession', () => { void dispatchCommand('file.new-session', getActiveContext()) })
@@ -6092,6 +6126,7 @@ def main(command: str = "show version"):
       keyboard.unregisterAction('groupSelectedTabs')
       keyboard.unregisterAction('saveTabsAsGroup')
       keyboard.unregisterAction('scratchpadOpen')
+      keyboard.unregisterAction('clipboardHistory')
       keyboard.unregisterAction('newSession')
       keyboard.unregisterAction('newDocument')
       keyboard.unregisterAction('zoomIn')
@@ -6203,6 +6238,39 @@ def main(command: str = "show version"):
     when: (ctx) => ctx.activeTabType === 'terminal',
     run: () => openTerminalFind(),
   })
+  // Clipboard history (docs/clipboard-history-plan.md) ------------
+  useCommand({
+    id: 'edit.clipboard-history', label: 'Clipboard: History…', category: 'edit',
+    description: 'Search everything copied inside NetStacks; Enter pastes into the active terminal.',
+    accelerator: defaultAccelerator('clipboardHistory'),
+    run: () => setClipHistoryOpen(true),
+  })
+  useCommand({
+    id: 'edit.paste-preview', label: 'Clipboard: Paste with preview…', category: 'edit',
+    description: 'Show the OS clipboard next to what the paste-hygiene preset will send, then paste into the active terminal.',
+    when: (ctx) => ctx.activeTabType === 'terminal',
+    run: async () => {
+      const text = await readClipboardText()
+      if (!text) {
+        showToast('OS clipboard is empty or unreadable', 'warning')
+        return
+      }
+      if (activeTabId && terminalRefs.current.has(activeTabId)) setPastePreview({ text, tabId: activeTabId, raw: false })
+    },
+  })
+  useCommand({
+    id: 'edit.clipboard-import', label: 'Clipboard: Import from OS clipboard', category: 'edit',
+    description: 'Record the current OS clipboard contents in clipboard history (the only way external text enters history).',
+    run: async () => {
+      const text = await readClipboardText()
+      if (!text) {
+        showToast('OS clipboard is empty or unreadable', 'warning')
+        return
+      }
+      const clip = await useClipStore.getState().capture(text, { source: 'os-import' })
+      showToast(clip ? 'Imported into clipboard history' : 'Clipboard history is disabled in Settings', clip ? 'success' : 'warning')
+    },
+  })
 
   // View ----------------------------------------------------------
   useCommand({
@@ -6313,8 +6381,12 @@ def main(command: str = "show version"):
   // Each entry jumps to the corresponding Settings tab. openSettingsTab
   // already accepts an optional initial-tab arg.
   useCommand({
-    id: 'tools.quick-actions', label: 'Quick Actions…', category: 'tools',
-    run: () => openSettingsTab('quickCalls'),
+    id: 'tools.quick-actions', label: 'API Client…', category: 'tools',
+    run: () => openApiClient(),
+  })
+  useCommand({
+    id: 'tools.api-new-request', label: 'API Client: New Request', category: 'tools',
+    run: () => handleOpenApiRequestTab({}),
   })
   useCommand({
     id: 'tools.snippets', label: 'Snippets…', category: 'tools',
@@ -6354,6 +6426,40 @@ def main(command: str = "show version"):
     description: 'Open a quick-notes scratchpad. Saves to the active workspace, or to Docs › Notes.',
     accelerator: defaultAccelerator('scratchpadOpen'),
     run: () => handleOpenScratchpad(),
+  })
+
+  // MOP -----------------------------------------------------------
+  // Execution commands route to the active MopWorkspace through
+  // `netstacks:mop-command`; the workspace publishes the `mop` flags
+  // that gate them (useMopCommandBridge).
+  useCommand({
+    id: 'file.new-mop', label: 'New MOP', category: 'file',
+    run: () => handleOpenMopTab(),
+  })
+  useCommand({
+    id: 'mop.save', label: 'Save MOP', category: 'mop',
+    when: (ctx) => ctx.activeTabType === 'mop',
+    run: () => { handleSaveActiveDocument() },
+  })
+  useCommand({
+    id: 'mop.start', label: 'Start Execution', category: 'mop',
+    when: (ctx) => ctx.mop?.canStart === true,
+    run: () => { if (activeTabId) dispatchMopCommand(activeTabId, 'start') },
+  })
+  useCommand({
+    id: 'mop.run-next', label: 'Run Next Step', category: 'mop',
+    when: (ctx) => ctx.mop?.canRunNext === true,
+    run: () => { if (activeTabId) dispatchMopCommand(activeTabId, 'run-next') },
+  })
+  useCommand({
+    id: 'mop.abort', label: 'Abort Execution…', category: 'mop',
+    when: (ctx) => ctx.mop?.canAbort === true,
+    run: () => { if (activeTabId) dispatchMopCommand(activeTabId, 'abort') },
+  })
+  useCommand({
+    id: 'mop.complete', label: 'Complete Execution', category: 'mop',
+    when: (ctx) => ctx.mop?.canComplete === true,
+    run: () => { if (activeTabId) dispatchMopCommand(activeTabId, 'complete') },
   })
 
   // AI ------------------------------------------------------------
@@ -6559,7 +6665,7 @@ def main(command: str = "show version"):
         shortcut: '\u2318X',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>,
         action: () => {
-          navigator.clipboard.writeText(selection).catch(() => {})
+          void copyToClipboard(selection, { source: 'app-copy', tabType: 'context-menu' })
           document.execCommand('delete')
         }
       })
@@ -6572,7 +6678,7 @@ def main(command: str = "show version"):
         shortcut: '\u2318C',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
         action: () => {
-          navigator.clipboard.writeText(selection).catch(() => {})
+          void copyToClipboard(selection, { source: 'app-copy', tabType: 'context-menu' })
         }
       })
     }
@@ -6584,7 +6690,8 @@ def main(command: str = "show version"):
         shortcut: '\u2318V',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
         action: () => {
-          navigator.clipboard.readText().then(text => {
+          readClipboardText().then(text => {
+            if (!text) return
             if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
               const start = target.selectionStart ?? target.value.length
               const end = target.selectionEnd ?? start
@@ -6687,6 +6794,7 @@ def main(command: str = "show version"):
           enterpriseTargetPort={tab.enterpriseTargetPort}
           isJumpbox={tab.isJumpbox}
           onEnterpriseSessionId={(sid) => updateTabSessionId(tab.id, sid)}
+          onReviewPaste={(text, raw) => setPastePreview({ text, tabId: tab.id, raw })}
           aiOverlordActive={aiOverlordActive}
           onOverlordAnnotationClick={(reason, text, highlightType) => {
             // Open AI side panel with context about this finding
@@ -6952,8 +7060,29 @@ def main(command: str = "show version"):
     } else if (isSettingsTab(tab)) {
       return (
         <div className="settings-tab-content">
-          <SettingsPanel initialTab={settingsInitialTab} onOpenApiResponseTab={handleOpenApiResponseTab} />
+          <SettingsPanel initialTab={settingsInitialTab} />
         </div>
+      )
+    } else if (tab.type === 'api-request' && tab.apiRequestInit) {
+      return (
+        <ApiRequestTab
+          tabId={tab.id}
+          init={tab.apiRequestInit}
+          onDirtyChange={(dirty) => {
+            setTabs(prev => prev.map(t => {
+              if (t.id !== tab.id || t.apiRequestDirty === dirty) return t
+              const name = t.apiRequestInit?.action?.name ?? 'New Request'
+              return { ...t, apiRequestDirty: dirty, title: dirty ? `${name} *` : name }
+            }))
+          }}
+          onSaved={(action) => {
+            setTabs(prev => prev.map(t =>
+              t.id === tab.id
+                ? { ...t, title: action.name, apiRequestActionId: action.id, apiRequestInit: { ...t.apiRequestInit, action }, apiRequestDirty: false }
+                : t
+            ))
+          }}
+        />
       )
     } else if (tab.type === 'api-response' && tab.apiResponseData) {
       return (
@@ -7109,6 +7238,9 @@ def main(command: str = "show version"):
       // push to ActiveContext directly when their commands depend on it.
       selectionCount: selectedSessionIds.length,
       isEnterprise,
+      // MopWorkspace re-publishes its execution flags via
+      // useMopCommandBridge whenever its tab is the active one.
+      mop: null,
     }
     useActiveContextStore.getState().setContext(next)
   }, [activeTabId, tabs, activeView, isEnterprise, selectedSessionIds])
@@ -7126,6 +7258,7 @@ def main(command: str = "show version"):
           aiPanelOpen={!aiPanelCollapsed && aiChatOpen}
           onToggleAiPanel={toggleAiPanel}
           onOpenCommandCenter={() => setCommandPaletteOpen(true)}
+          onOpenClipboardHistory={() => setClipHistoryOpen(true)}
           menuSlot={platform === 'macos' ? undefined : <MenuBar />}
           windowControlsSlot={platform === 'macos' ? undefined : <WindowControls />}
         />
@@ -7358,6 +7491,8 @@ def main(command: str = "show version"):
                 onOpenScript={handleOpenScript}
                 onNewScript={handleNewScript}
                 onAIGenerate={() => setAiScriptGeneratorOpen(true)}
+                onOpenApiRequest={handleOpenApiRequestTab}
+                onApiRunResult={handleOpenApiResponseTab}
               />
             )}
             {activeView === 'sftp' && (
@@ -8168,6 +8303,33 @@ def main(command: str = "show version"):
         onNavigate={handleNavigateHit}
       />
 
+      {/* Clipboard history (mounted only while open — see NS-UI-15) */}
+      {clipHistoryOpen && (
+        <ClipHistoryPalette
+          onClose={() => setClipHistoryOpen(false)}
+          canPaste={activeTabIsTerminal}
+          onPaste={(clip) => pasteClipIntoActiveTerminal(clip)}
+          onPreview={(clip) => { if (activeTabId) setPastePreview({ text: clip.text, tabId: activeTabId, raw: false }) }}
+        />
+      )}
+
+      {/* Paste preview — mounted only while open */}
+      {pastePreview && (
+        <PastePreview
+          text={pastePreview.text}
+          flavor={tabs.find(t => t.id === pastePreview.tabId)?.cliFlavor ?? 'auto'}
+          targetName={tabs.find(t => t.id === pastePreview.tabId)?.title ?? 'terminal'}
+          initialRaw={pastePreview.raw}
+          onClose={() => setPastePreview(null)}
+          onPaste={(text) => {
+            const handle = terminalRefs.current.get(pastePreview.tabId)
+            if (handle) handle.paste(text)
+            else showToast('That terminal is no longer open', 'warning')
+            setPastePreview(null)
+          }}
+        />
+      )}
+
 
       {/* Force Touch action popover (macOS force-click on terminal selection) */}
       <ForceTouchPopover
@@ -8784,18 +8946,17 @@ def main(command: str = "show version"):
       />
 
       {/* Scratchpad — transient Monaco editor for quick notes */}
-      <Scratchpad
-        open={scratchpadExists}
-        minimized={scratchpadMinimized}
-        maximized={scratchpadMaximized}
-        content={scratchpadContent}
-        onContentChange={setScratchpadContent}
-        onMinimize={handleMinimizeScratchpad}
-        onToggleMaximize={handleToggleScratchpadMax}
-        onPopToTab={handlePopScratchpadToTab}
-        onClose={handleCloseScratchpad}
-        activeWorkspace={activeWsConfig}
-      />
+      {scratchpadExists && (
+        <Scratchpad
+          minimized={scratchpadMinimized}
+          maximized={scratchpadMaximized}
+          onMinimize={handleMinimizeScratchpad}
+          onToggleMaximize={handleToggleScratchpadMax}
+          onPopToTab={handlePopScratchpadToTab}
+          onClose={handleCloseScratchpad}
+          activeWorkspace={activeWsConfig}
+        />
+      )}
 
       {/* New Workspace Dialog */}
       {showNewWorkspace && (
@@ -8956,14 +9117,12 @@ def main(command: str = "show version"):
   )
 }
 
-// Wrapper component that provides the TabSelectionProvider, EnrichmentProvider, and MopExecutionProvider contexts
+// Wrapper component that provides the TabSelectionProvider and EnrichmentProvider contexts
 function App() {
   return (
     <TabSelectionProvider>
       <EnrichmentProvider>
-        <MopExecutionProvider>
-          <AppContent />
-        </MopExecutionProvider>
+        <AppContent />
       </EnrichmentProvider>
     </TabSelectionProvider>
   )

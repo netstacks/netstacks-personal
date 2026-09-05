@@ -28,6 +28,11 @@ export function formatBytes(bytes: number): string {
   );
   const value = bytes / Math.pow(1024, exponent);
 
+  // Whole bytes never need decimals ("11 B", not "11.0 B").
+  if (exponent === 0) {
+    return `${Math.round(value)} B`;
+  }
+
   // Use different precision based on size
   if (value >= 100) {
     return `${Math.round(value)} ${units[exponent]}`;

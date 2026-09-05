@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { copyToClipboard } from '../lib/clipboard'
 import { useTunnelStore, SESSION_TUNNEL_PREFIX } from '../stores/tunnelStore'
 import { formatTunnelSpec, formatUptime, startTunnel, stopTunnel, reconnectTunnel } from '../api/tunnels'
 import type { TunnelWithState } from '../api/tunnels'
@@ -108,7 +109,7 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
       switch (action) {
         case 'stop': await stopTunnel(tunnel.id); break
         case 'reconnect': await reconnectTunnel(tunnel.id); break
-        case 'copy': await navigator.clipboard.writeText(`${tunnel.bind_address}:${tunnel.local_port}`); break
+        case 'copy': await copyToClipboard(`${tunnel.bind_address}:${tunnel.local_port}`, { source: 'app-copy', tabType: 'tunnels' }); break
         case 'edit': onManageTunnels(); onClose(); break
       }
       useTunnelStore.getState().fetchTunnels()

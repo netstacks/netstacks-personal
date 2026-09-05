@@ -948,6 +948,41 @@
   margin-left: 2px;
 }
 
+/* Tool-result rows: collapsible result, red state on failure (NS-AI-37) */
+.ai-side-panel-command-result {
+  margin: 2px 0;
+}
+.ai-side-panel-command-result > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.ai-side-panel-command-result > summary::-webkit-details-marker {
+  display: none;
+}
+.ai-side-panel-command-inline.failed {
+  color: var(--color-error, #f14c4c);
+  background: rgba(241, 76, 76, 0.08);
+}
+.ai-side-panel-command-output {
+  margin: 2px 0 4px;
+  padding: 6px 10px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  border-left: 2px solid var(--color-border, rgba(255, 255, 255, 0.12));
+  border-radius: 0 4px 4px 0;
+}
+.ai-side-panel-command-result.failed .ai-side-panel-command-output {
+  color: var(--color-text-primary);
+  border-left-color: var(--color-error, #f14c4c);
+}
+
 .ai-side-panel-code {
   display: block;
   padding: 8px 10px;

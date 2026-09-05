@@ -1,4 +1,7 @@
 -- NetStacks Database Schema
+-- NOTE: `CREATE [UNIQUE] INDEX` lines (one statement per line) are executed AFTER the
+-- column migrations in db/mod.rs, so an index may reference a column added by a
+-- migration. Keep index statements on a single line.
 -- Version: 1
 
 -- Folders for organizing items (sessions, topologies, etc.)
@@ -121,6 +124,21 @@ CREATE TABLE IF NOT EXISTS snippets (
     sort_order INTEGER DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Clipboard history (docs/clipboard-history-plan.md). Text is scrubbed of
+-- credential patterns before insert; unpinned rows are pruned by retention.
+CREATE TABLE IF NOT EXISTS clips (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    provenance TEXT NOT NULL DEFAULT '{}',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    line_ending TEXT NOT NULL DEFAULT 'none',
+    bytes INTEGER NOT NULL DEFAULT 0,
+    lines INTEGER NOT NULL DEFAULT 0,
+    redacted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_clips_created_at ON clips(created_at);
 
 -- Scripts (Python automation scripts)
 CREATE TABLE IF NOT EXISTS scripts (
@@ -315,23 +333,36 @@ CREATE TABLE IF NOT EXISTS changes (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     executed_at TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    device_overrides TEXT,
+    document_id TEXT,
+    risk_level TEXT,                          -- low, medium, high, critical
+    change_ticket TEXT,
+    tags TEXT NOT NULL DEFAULT '[]',          -- JSON array of strings
+    session_ids TEXT NOT NULL DEFAULT '[]',   -- JSON array of session ids (Devices tab selection)
+    variables TEXT NOT NULL DEFAULT '[]',     -- JSON array of MopVariable ({{name}} placeholders)
+    device_variables TEXT NOT NULL DEFAULT '{}' -- JSON { session_id: { name: value } }
 );
 
 CREATE INDEX IF NOT EXISTS idx_changes_session_id ON changes(session_id);
 CREATE INDEX IF NOT EXISTS idx_changes_status ON changes(status);
 CREATE INDEX IF NOT EXISTS idx_changes_created_at ON changes(created_at);
 
+-- A snapshot is owned by either a Change (plan) or a MOP execution (NS-MOP-1);
+-- mop_executions is created further down — SQLite resolves FK targets lazily.
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,
-    change_id TEXT NOT NULL REFERENCES changes(id) ON DELETE CASCADE,
+    change_id TEXT REFERENCES changes(id) ON DELETE CASCADE,
+    execution_id TEXT REFERENCES mop_executions(id) ON DELETE CASCADE,
     snapshot_type TEXT NOT NULL,
     commands TEXT NOT NULL DEFAULT '[]',
     output TEXT NOT NULL DEFAULT '',
-    captured_at TEXT NOT NULL DEFAULT (datetime('now'))
+    captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (change_id IS NOT NULL OR execution_id IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_change_id ON snapshots(change_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_execution_id ON snapshots(execution_id);
 
 -- Saved topologies (Phase 20.1)
 CREATE TABLE IF NOT EXISTS topologies (
@@ -510,6 +541,7 @@ CREATE TABLE IF NOT EXISTS mop_executions (
     status TEXT NOT NULL DEFAULT 'pending',
     current_phase TEXT,
     ai_analysis TEXT,
+    ai_analysis_meta TEXT,        -- JSON MopAnalysisMeta {risk_level, recommendations, source, model, analyzed_at}
     ai_autonomy_level INTEGER,
     pause_after_pre_checks INTEGER NOT NULL DEFAULT 1,
     pause_after_changes INTEGER NOT NULL DEFAULT 1,
@@ -536,6 +568,8 @@ CREATE TABLE IF NOT EXISTS mop_execution_devices (
     device_name TEXT,
     device_host TEXT,
     role TEXT,                    -- stack role
+    cli_flavor TEXT,              -- Session.cli_flavor wire string, resolved when the device is added
+    variables TEXT,               -- JSON { name: value }: resolved plan variables for this device
     device_order INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
     current_step_id TEXT,
@@ -574,7 +608,9 @@ CREATE TABLE IF NOT EXISTS mop_execution_steps (
     script_id TEXT,
     script_args TEXT,
     paired_step_id TEXT,
-    output_format TEXT
+    output_format TEXT,
+    assertion_results TEXT,       -- JSON array of AssertionResult
+    error_message TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_mop_exec_steps_device ON mop_execution_steps(execution_device_id);

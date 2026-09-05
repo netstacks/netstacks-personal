@@ -57,7 +57,6 @@ pub enum ConnectionMode {
     Controller { url: String },
 }
 
-
 fn default_folder_scope() -> String {
     "session".to_string()
 }
@@ -182,7 +181,6 @@ pub enum AuthType {
     Key,
 }
 
-
 /// Connection protocol for sessions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -192,7 +190,6 @@ pub enum Protocol {
     Ssh,
     Telnet,
 }
-
 
 impl Protocol {
     /// Parse a stored protocol string; anything but "telnet" is SSH.
@@ -231,6 +228,23 @@ pub enum CliFlavor {
     Fortinet,
 }
 
+impl CliFlavor {
+    /// The wire/persisted form (same kebab-case string serde produces), so
+    /// callers can store or compare a flavor without a serde round-trip.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Linux => "linux",
+            Self::CiscoIos => "cisco-ios",
+            Self::CiscoIosXr => "cisco-ios-xr",
+            Self::CiscoNxos => "cisco-nxos",
+            Self::Juniper => "juniper",
+            Self::Arista => "arista",
+            Self::Paloalto => "paloalto",
+            Self::Fortinet => "fortinet",
+        }
+    }
+}
 
 /// Decrypted credential (only exists in memory)
 #[derive(Debug, Clone)]
@@ -425,7 +439,10 @@ impl std::fmt::Debug for NewCredential {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NewCredential")
             .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
-            .field("key_passphrase", &self.key_passphrase.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "key_passphrase",
+                &self.key_passphrase.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
@@ -496,6 +513,55 @@ pub struct UpdateSnippet {
     pub name: Option<String>,
     pub command: Option<String>,
     pub sort_order: Option<i32>,
+}
+
+// === Clipboard History ===
+
+/// One recorded in-app copy (docs/clipboard-history-plan.md §2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Clip {
+    pub id: String,
+    /// Stored text — already scrubbed when `redacted` is true.
+    pub text: String,
+    pub created_at: DateTime<Utc>,
+    /// Where the copy came from (source, session, device, CLI flavor…). Opaque
+    /// JSON owned by the frontend.
+    pub provenance: serde_json::Value,
+    pub pinned: bool,
+    /// lf | crlf | cr | mixed | none, classified by the frontend on capture.
+    pub line_ending: String,
+    pub bytes: i64,
+    pub lines: i64,
+    /// A credential pattern matched on capture and was replaced in `text`.
+    pub redacted: bool,
+}
+
+/// Request to record a clip.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewClip {
+    pub text: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default = "default_clip_line_ending")]
+    pub line_ending: String,
+    #[serde(default)]
+    pub pinned: bool,
+    /// Retention applied after the insert: keep at most this many unpinned clips.
+    #[serde(default)]
+    pub retain_max: Option<i64>,
+    /// Retention applied after the insert: drop unpinned clips older than this.
+    #[serde(default)]
+    pub retain_hours: Option<i64>,
+}
+
+fn default_clip_line_ending() -> String {
+    "none".to_string()
+}
+
+/// Request to update a clip. Only `Some` fields are written.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct UpdateClip {
+    pub pinned: Option<bool>,
 }
 
 // === Custom Commands ===
@@ -625,8 +691,12 @@ pub struct Script {
     pub approved: bool,
 }
 
-fn default_script_created_by() -> String { "user".to_string() }
-fn default_script_approved() -> bool { true }
+fn default_script_created_by() -> String {
+    "user".to_string()
+}
+fn default_script_approved() -> bool {
+    true
+}
 
 /// Request to create a new script
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1139,7 +1209,10 @@ impl Default for ConsoleProtocolMappings {
         let mut by_manufacturer = std::collections::HashMap::new();
         by_manufacturer.insert("opengear".to_string(), Protocol::Ssh);
         by_manufacturer.insert("cisco".to_string(), Protocol::Telnet);
-        Self { default: Protocol::Ssh, by_manufacturer }
+        Self {
+            default: Protocol::Ssh,
+            by_manufacturer,
+        }
     }
 }
 
@@ -1329,7 +1402,6 @@ pub struct LibreNmsPortStats {
     pub oper_status: Option<String>,
 }
 
-
 // === NetStacks-Crawler (Netdisco) Models ===
 
 /// NetStacks-Crawler device from /api/v1/device
@@ -1442,7 +1514,6 @@ pub enum PortForwardType {
     Dynamic,
 }
 
-
 /// Port forward configuration for SSH sessions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortForward {
@@ -1479,7 +1550,6 @@ pub enum TunnelStatus {
     Reconnecting,
     Failed,
 }
-
 
 /// Persistent tunnel definition (stored in SQLite)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1582,10 +1652,18 @@ pub struct TunnelWithState {
     pub state: TunnelRuntimeState,
 }
 
-fn default_ssh_port() -> u16 { 22 }
-fn default_bind_address() -> String { "127.0.0.1".to_string() }
-fn default_true() -> bool { true }
-fn default_max_retries() -> u32 { 10 }
+fn default_ssh_port() -> u16 {
+    22
+}
+fn default_bind_address() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_max_retries() -> u32 {
+    10
+}
 
 // === Highlight Rules (Phase 11) ===
 
@@ -1713,7 +1791,6 @@ pub enum ChangeStatus {
     Rejected,
 }
 
-
 impl ChangeStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -1748,14 +1825,19 @@ impl ChangeStatus {
 /// A step in a Method of Procedure (MOP)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MopStep {
+    /// Omitted on input → a fresh UUID, so clients (and the AI mop tool) do
+    /// not have to fabricate ids for new steps.
+    #[serde(default = "new_uuid_string")]
     pub id: String,
+    #[serde(default)]
     pub order: i32,
-    pub step_type: String,        // "pre_check" | "change" | "post_check" | "rollback"
+    pub step_type: String, // "pre_check" | "change" | "post_check" | "rollback"
     pub command: String,
     pub description: Option<String>,
     pub expected_output: Option<String>,
-    pub status: String,           // "pending" | "running" | "passed" | "failed" | "skipped"
-    pub output: Option<String>,   // Captured output when executed
+    #[serde(default = "default_mop_step_status")]
+    pub status: String, // "pending" | "running" | "passed" | "failed" | "skipped"
+    pub output: Option<String>, // Captured output when executed
     pub executed_at: Option<DateTime<Utc>>,
     // Execution source routing
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1786,6 +1868,48 @@ pub struct MopStep {
     pub deploy_metadata: Option<serde_json::Value>,
 }
 
+fn new_uuid_string() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+fn default_mop_step_status() -> String {
+    "pending".to_string()
+}
+
+/// A plan-level variable referenced from step commands / expected output /
+/// quick-action variables / script args as `{{name}}` (whitespace inside the
+/// braces is tolerated). `value` is the plan default; `Change.device_variables`
+/// overrides it per session. The `device.*` built-ins are derived at run time
+/// and can never be declared here.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MopVariable {
+    /// `^[A-Za-z_][A-Za-z0-9_]*$`, unique per plan (case-sensitive).
+    pub name: String,
+    #[serde(default)]
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// `true` → every device must resolve to a non-empty value before start.
+    #[serde(default)]
+    pub required: bool,
+}
+
+impl MopVariable {
+    /// `^[A-Za-z_][A-Za-z0-9_]*$` and not a `device.*` built-in.
+    pub fn is_valid_name(name: &str) -> bool {
+        let mut chars = name.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+            _ => return false,
+        }
+        chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+}
+
+/// `{ <session_id>: { <variable name>: <value> } }`
+pub type DeviceVariableMap =
+    std::collections::HashMap<String, std::collections::HashMap<String, String>>;
+
 /// A change control record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Change {
@@ -1798,10 +1922,27 @@ pub struct Change {
     /// Per-device step overrides keyed by session ID (JSON)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_overrides: Option<std::collections::HashMap<String, Vec<MopStep>>>,
+    /// Plan-level `{{name}}` variables with their defaults.
+    #[serde(default)]
+    pub variables: Vec<MopVariable>,
+    /// Per-session overrides of `variables` (`{ session_id: { name: value } }`).
+    #[serde(default)]
+    pub device_variables: DeviceVariableMap,
     pub pre_snapshot_id: Option<String>,
     pub post_snapshot_id: Option<String>,
     pub ai_analysis: Option<String>,
     pub document_id: Option<String>,
+    /// "low" | "medium" | "high" | "critical" (free-form on the wire)
+    #[serde(default)]
+    pub risk_level: Option<String>,
+    #[serde(default)]
+    pub change_ticket: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Sessions selected in the Devices tab (personal mode); `session_id`
+    /// stays as the legacy single-device pointer.
+    #[serde(default)]
+    pub session_ids: Vec<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -1820,7 +1961,21 @@ pub struct NewChange {
     #[serde(default)]
     pub device_overrides: Option<std::collections::HashMap<String, Vec<MopStep>>>,
     #[serde(default)]
+    pub variables: Vec<MopVariable>,
+    #[serde(default)]
+    pub device_variables: DeviceVariableMap,
+    #[serde(default)]
     pub document_id: Option<String>,
+    #[serde(default)]
+    pub risk_level: Option<String>,
+    #[serde(default)]
+    pub change_ticket: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub session_ids: Vec<String>,
+    /// Author stamp. Empty/absent → the agent records the OS user it runs as (NS-FEAT-28).
+    #[serde(default)]
     pub created_by: String,
 }
 
@@ -1834,6 +1989,10 @@ pub struct UpdateChange {
     pub mop_steps: Option<Vec<MopStep>>,
     #[serde(default, deserialize_with = "double_option")]
     pub device_overrides: Option<Option<std::collections::HashMap<String, Vec<MopStep>>>>,
+    /// Whole list replaces the stored one (send `[]` to clear).
+    pub variables: Option<Vec<MopVariable>>,
+    /// Whole map replaces the stored one (send `{}` to clear).
+    pub device_variables: Option<DeviceVariableMap>,
     #[serde(default, deserialize_with = "double_option")]
     pub document_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -1848,6 +2007,12 @@ pub struct UpdateChange {
     pub executed_at: Option<Option<DateTime<Utc>>>,
     #[serde(default, deserialize_with = "double_option")]
     pub completed_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub risk_level: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub change_ticket: Option<Option<String>>,
+    pub tags: Option<Vec<String>>,
+    pub session_ids: Option<Vec<String>>,
 }
 
 impl Change {
@@ -1861,10 +2026,16 @@ impl Change {
             status: ChangeStatus::Draft,
             mop_steps: data.mop_steps,
             device_overrides: data.device_overrides,
+            variables: data.variables,
+            device_variables: data.device_variables,
             pre_snapshot_id: None,
             post_snapshot_id: None,
             ai_analysis: None,
             document_id: data.document_id,
+            risk_level: data.risk_level,
+            change_ticket: data.change_ticket,
+            tags: data.tags,
+            session_ids: data.session_ids,
             created_by: data.created_by,
             created_at: now,
             updated_at: now,
@@ -1910,6 +2081,24 @@ impl Change {
         if let Some(comp_at) = update.completed_at {
             self.completed_at = comp_at;
         }
+        if let Some(risk) = update.risk_level {
+            self.risk_level = risk;
+        }
+        if let Some(ticket) = update.change_ticket {
+            self.change_ticket = ticket;
+        }
+        if let Some(tags) = update.tags {
+            self.tags = tags;
+        }
+        if let Some(variables) = update.variables {
+            self.variables = variables;
+        }
+        if let Some(device_variables) = update.device_variables {
+            self.device_variables = device_variables;
+        }
+        if let Some(ids) = update.session_ids {
+            self.session_ids = ids;
+        }
         self.updated_at = Utc::now();
     }
 }
@@ -1918,17 +2107,25 @@ impl Change {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub id: String,
-    pub change_id: String,
-    pub snapshot_type: String,    // "pre" | "post"
-    pub commands: Vec<String>,    // Commands that were run to capture state
-    pub output: String,           // Captured output (combined)
+    /// Owner when captured for a Change (plan). Exactly one of
+    /// `change_id` / `execution_id` is set (NS-MOP-1).
+    pub change_id: Option<String>,
+    /// Owner when captured by a MOP execution phase.
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    pub snapshot_type: String, // "pre" | "post"
+    pub commands: Vec<String>, // Commands that were run to capture state
+    pub output: String,        // Captured output (combined)
     pub captured_at: DateTime<Utc>,
 }
 
 /// Request to create a new snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewSnapshot {
-    pub change_id: String,
+    #[serde(default)]
+    pub change_id: Option<String>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
     pub snapshot_type: String,
     pub commands: Vec<String>,
     pub output: String,
@@ -1939,6 +2136,7 @@ impl Snapshot {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             change_id: data.change_id,
+            execution_id: data.execution_id,
             snapshot_type: data.snapshot_type,
             commands: data.commands,
             output: data.output,
@@ -2019,7 +2217,6 @@ pub struct TopologyConnection {
     pub created_at: DateTime<Utc>,
 
     // === Enhanced routing and styling (Phase 27-02) ===
-
     /// Waypoints for connection routing (JSON array of {x, y})
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waypoints: Option<String>,
@@ -2087,7 +2284,6 @@ pub struct CreateConnectionRequest {
     pub label: Option<String>,
 
     // === Enhanced routing and styling (Phase 27-02) ===
-
     /// Waypoints for connection routing (JSON array of {x, y})
     #[serde(default)]
     pub waypoints: Option<String>,
@@ -2420,10 +2616,10 @@ pub struct LayoutTab {
 pub struct Layout {
     pub id: String,
     pub name: String,
-    pub session_ids: Vec<String>,       // Legacy: terminal-only (stored as JSON in DB)
-    pub tabs: Option<Vec<LayoutTab>>,   // New: mixed tab types (stored as JSON in DB)
-    pub orientation: String,             // "horizontal" or "vertical"
-    pub sizes: Option<Vec<f64>>,        // Pane percentages, stored as JSON
+    pub session_ids: Vec<String>, // Legacy: terminal-only (stored as JSON in DB)
+    pub tabs: Option<Vec<LayoutTab>>, // New: mixed tab types (stored as JSON in DB)
+    pub orientation: String,      // "horizontal" or "vertical"
+    pub sizes: Option<Vec<f64>>,  // Pane percentages, stored as JSON
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -2544,9 +2740,9 @@ impl std::str::FromStr for ApiResourceAuthType {
 /// A step in a multi-step authentication flow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthFlowStep {
-    pub method: String,          // GET, POST, etc.
-    pub path: String,            // e.g. "/api/v1/login"
-    pub body: Option<String>,    // JSON body template with {{variables}}
+    pub method: String,       // GET, POST, etc.
+    pub path: String,         // e.g. "/api/v1/login"
+    pub body: Option<String>, // JSON body template with {{variables}}
     /// Per-step request headers (templated), e.g. {"Accept":"application/json"}.
     /// Defaults to empty for backward compatibility with existing rows.
     #[serde(default)]
@@ -2556,8 +2752,8 @@ pub struct AuthFlowStep {
     /// step act like a Basic-Auth login that returns a token in the response.
     #[serde(default)]
     pub use_basic_auth: bool,
-    pub extract_path: String,    // JSON path to extract from response
-    pub store_as: String,        // Variable name to store extracted value
+    pub extract_path: String, // JSON path to extract from response
+    pub store_as: String,     // Variable name to store extracted value
 }
 
 /// Encrypted credential bundle for an API resource.
@@ -2614,11 +2810,21 @@ pub struct CreateApiResourceRequest {
     pub test_path: Option<String>,
 }
 
-fn default_auth_type() -> ApiResourceAuthType { ApiResourceAuthType::None }
-fn default_headers() -> serde_json::Value { serde_json::json!({}) }
-fn default_custom_headers() -> serde_json::Value { serde_json::json!([]) }
-fn default_verify_ssl() -> bool { true }
-fn default_timeout() -> i32 { 30 }
+fn default_auth_type() -> ApiResourceAuthType {
+    ApiResourceAuthType::None
+}
+fn default_headers() -> serde_json::Value {
+    serde_json::json!({})
+}
+fn default_custom_headers() -> serde_json::Value {
+    serde_json::json!([])
+}
+fn default_verify_ssl() -> bool {
+    true
+}
+fn default_timeout() -> i32 {
+    30
+}
 
 /// Request to update an API resource
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2684,9 +2890,15 @@ pub struct CreateQuickActionRequest {
     pub category: Option<String>,
 }
 
-fn default_method() -> String { "GET".to_string() }
-fn default_path() -> String { "/".to_string() }
-fn default_icon() -> Option<String> { Some("zap".to_string()) }
+fn default_method() -> String {
+    "GET".to_string()
+}
+fn default_path() -> String {
+    "/".to_string()
+}
+fn default_icon() -> Option<String> {
+    Some("zap".to_string())
+}
 
 /// Request to update a quick action
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2742,6 +2954,11 @@ pub struct QuickActionResult {
     /// Response Content-Type, surfaced with raw_text for diagnosing non-JSON.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Response headers as received, with secret-looking values (Set-Cookie,
+    /// tokens) redacted the same way as `sent_headers`. None when the request
+    /// never got a response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_headers: Option<Vec<(String, String)>>,
 }
 
 /// Request to execute a quick action inline (without saving)
@@ -2831,8 +3048,12 @@ pub struct CreateAgentDefinitionRequest {
     pub max_tokens: i32,
 }
 
-fn default_max_iterations() -> i32 { 15 }
-fn default_max_tokens() -> i32 { 4096 }
+fn default_max_iterations() -> i32 {
+    15
+}
+fn default_max_tokens() -> i32 {
+    4096
+}
 
 /// Request to update an agent definition (all fields optional for partial update)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3120,6 +3341,9 @@ pub struct MopExecution {
     pub status: ExecutionStatus,
     pub current_phase: Option<String>,
     pub ai_analysis: Option<String>,
+    /// Provenance of `ai_analysis` (risk, recommendations, source, model).
+    #[serde(default)]
+    pub ai_analysis_meta: Option<MopAnalysisMeta>,
     pub ai_autonomy_level: Option<i32>,
     pub on_failure: String,
     pub pause_after_pre_checks: bool,
@@ -3132,6 +3356,20 @@ pub struct MopExecution {
     pub completed_at: Option<DateTime<Utc>>,
     /// JSON-encoded checkpoint for resume capability
     pub last_checkpoint: Option<String>,
+}
+
+/// Stored alongside `MopExecution.ai_analysis` (`mop_executions.ai_analysis_meta`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MopAnalysisMeta {
+    /// "low" | "medium" | "high" | "critical" | "unknown"
+    pub risk_level: String,
+    #[serde(default)]
+    pub recommendations: Vec<String>,
+    /// "ai" | "rules"
+    pub source: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub analyzed_at: DateTime<Utc>,
 }
 
 fn default_created_by() -> String {
@@ -3179,6 +3417,8 @@ pub struct UpdateMopExecution {
     #[serde(default, deserialize_with = "double_option")]
     pub ai_analysis: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
+    pub ai_analysis_meta: Option<Option<MopAnalysisMeta>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub ai_autonomy_level: Option<Option<i32>>,
     pub on_failure: Option<String>,
     pub pause_after_pre_checks: Option<bool>,
@@ -3207,6 +3447,7 @@ impl MopExecution {
             status: ExecutionStatus::Pending,
             current_phase: None,
             ai_analysis: None,
+            ai_analysis_meta: None,
             ai_autonomy_level: data.ai_autonomy_level,
             on_failure: data.on_failure,
             pause_after_pre_checks: data.pause_after_pre_checks.unwrap_or(true),
@@ -3242,6 +3483,9 @@ impl MopExecution {
         }
         if let Some(analysis) = update.ai_analysis {
             self.ai_analysis = analysis;
+        }
+        if let Some(meta) = update.ai_analysis_meta {
+            self.ai_analysis_meta = meta;
         }
         if let Some(autonomy) = update.ai_autonomy_level {
             self.ai_autonomy_level = autonomy;
@@ -3288,6 +3532,14 @@ pub struct MopExecutionDevice {
     pub device_host: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// `Session.cli_flavor` wire string ("cisco-ios", "juniper", …) resolved
+    /// when the device was added; drives the config-mode wrapper.
+    #[serde(default)]
+    pub cli_flavor: Option<String>,
+    /// Final resolved `{{name}}` map for this device (plan defaults ∪ device
+    /// overrides). The `device.*` built-ins are derived, never stored.
+    #[serde(default)]
+    pub variables: Option<std::collections::HashMap<String, String>>,
     pub device_order: i32,
     pub status: DeviceExecutionStatus,
     pub current_step_id: Option<String>,
@@ -3315,6 +3567,12 @@ pub struct NewMopExecutionDevice {
     pub device_host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_flavor: Option<String>,
+    /// Resolved variable map; computed from the plan by the agent when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
     pub device_order: i32,
 }
 
@@ -3322,6 +3580,10 @@ pub struct NewMopExecutionDevice {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateMopExecutionDevice {
     pub device_order: Option<i32>,
+    pub device_name: Option<String>,
+    pub device_host: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub cli_flavor: Option<Option<String>>,
     pub status: Option<DeviceExecutionStatus>,
     #[serde(default, deserialize_with = "double_option")]
     pub current_step_id: Option<Option<String>>,
@@ -3357,6 +3619,8 @@ impl MopExecutionDevice {
             device_name,
             device_host,
             role: data.role,
+            cli_flavor: data.cli_flavor,
+            variables: data.variables,
             device_order: data.device_order,
             status: DeviceExecutionStatus::Pending,
             current_step_id: None,
@@ -3372,6 +3636,15 @@ impl MopExecutionDevice {
     pub fn apply_update(&mut self, update: UpdateMopExecutionDevice) {
         if let Some(order) = update.device_order {
             self.device_order = order;
+        }
+        if let Some(name) = update.device_name {
+            self.device_name = name;
+        }
+        if let Some(host) = update.device_host {
+            self.device_host = host;
+        }
+        if let Some(flavor) = update.cli_flavor {
+            self.cli_flavor = flavor;
         }
         if let Some(status) = update.status {
             self.status = status;
@@ -3493,6 +3766,12 @@ pub struct MopPackageProcedure {
     pub steps: Vec<MopPackageStep>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_overrides: Option<std::collections::HashMap<String, Vec<MopPackageStep>>>,
+    /// Plan-level `{{name}}` variables.
+    #[serde(default)]
+    pub variables: Vec<MopVariable>,
+    /// Per-device overrides keyed like `device_overrides` ("name (host)" on the wire).
+    #[serde(default)]
+    pub device_variables: DeviceVariableMap,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document: Option<MopPackageDocument>,
 }
@@ -3508,11 +3787,17 @@ pub struct MopPackageLineage {
     pub forked_from: Option<String>,
 }
 
-fn default_revision() -> i32 { 1 }
+fn default_revision() -> i32 {
+    1
+}
 
 impl Default for MopPackageLineage {
     fn default() -> Self {
-        Self { revision: 1, parent_id: None, forked_from: None }
+        Self {
+            revision: 1,
+            parent_id: None,
+            forked_from: None,
+        }
     }
 }
 
@@ -3589,6 +3874,15 @@ pub struct MopImportResult {
     pub warnings: Vec<String>,
 }
 
+/// One evaluated `expected_output` assertion (NS-MOP-2). `assertion` is the
+/// source line ("CONTAINS: up", "TEXT: …" for the advisory plain-text form).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssertionResult {
+    pub assertion: String,
+    pub passed: bool,
+    pub detail: String,
+}
+
 /// MOP Execution Step - per-step, per-device execution state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MopExecutionStep {
@@ -3616,6 +3910,13 @@ pub struct MopExecutionStep {
     pub script_args: Option<serde_json::Value>, // Record<string, unknown>
     pub paired_step_id: Option<String>,
     pub output_format: Option<String>, // "text" | "json"
+    /// Per-assertion verdicts from the last run (None = never evaluated).
+    #[serde(default)]
+    pub assertion_results: Option<Vec<AssertionResult>>,
+    /// Why the step failed / was skipped (transport error, vendor CLI error
+    /// line, failed assertion, "not run: …").
+    #[serde(default)]
+    pub error_message: Option<String>,
 }
 
 fn default_execution_source() -> String {
@@ -3681,6 +3982,10 @@ pub struct UpdateMopExecutionStep {
     pub paired_step_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub output_format: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub assertion_results: Option<Option<Vec<AssertionResult>>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub error_message: Option<Option<String>>,
 }
 
 impl MopExecutionStep {
@@ -3708,6 +4013,8 @@ impl MopExecutionStep {
             script_args: data.script_args,
             paired_step_id: data.paired_step_id,
             output_format: data.output_format,
+            assertion_results: None,
+            error_message: None,
         }
     }
 
@@ -3768,6 +4075,12 @@ impl MopExecutionStep {
         }
         if let Some(fmt) = update.output_format {
             self.output_format = fmt;
+        }
+        if let Some(results) = update.assertion_results {
+            self.assertion_results = results;
+        }
+        if let Some(err) = update.error_message {
+            self.error_message = err;
         }
     }
 }
@@ -3840,6 +4153,79 @@ pub struct UpdateGroupRequest {
 mod tests {
     use super::*;
 
+    /// A plan step may omit the instance fields (`id`, `order`, `status`,
+    /// `output`, `executed_at`) — the workspace and the AI mop tool should
+    /// not have to fabricate them.
+    #[test]
+    fn mop_step_deserializes_with_omitted_instance_fields() {
+        let step: MopStep =
+            serde_json::from_str(r#"{"step_type":"change","command":"show version"}"#).unwrap();
+        assert_eq!(step.id.len(), 36, "id must default to a fresh UUID");
+        assert_eq!(step.order, 0);
+        assert_eq!(step.status, "pending");
+        assert!(step.output.is_none());
+        assert!(step.executed_at.is_none());
+        assert!(step.description.is_none());
+
+        let other: MopStep =
+            serde_json::from_str(r#"{"step_type":"change","command":"x"}"#).unwrap();
+        assert_ne!(step.id, other.id, "each omitted id must be unique");
+
+        // Explicit values still win.
+        let explicit: MopStep = serde_json::from_str(
+            r#"{"id":"s1","order":3,"status":"passed","step_type":"pre_check","command":"show ip int br"}"#,
+        )
+        .unwrap();
+        assert_eq!(explicit.id, "s1");
+        assert_eq!(explicit.order, 3);
+        assert_eq!(explicit.status, "passed");
+    }
+
+    /// The new Change metadata fields are optional on input and `null` clears
+    /// them on update (double-option), while `tags` / `session_ids` default
+    /// to empty lists.
+    #[test]
+    fn change_metadata_fields_default_and_clear() {
+        let new: NewChange =
+            serde_json::from_str(r#"{"name":"n","mop_steps":[],"created_by":"u"}"#).unwrap();
+        assert!(new.risk_level.is_none());
+        assert!(new.tags.is_empty());
+        assert!(new.session_ids.is_empty());
+
+        let keep: UpdateChange = serde_json::from_str(r#"{"name":"x"}"#).unwrap();
+        assert_eq!(keep.risk_level, None);
+        assert_eq!(keep.tags, None);
+        let clear: UpdateChange =
+            serde_json::from_str(r#"{"risk_level":null,"change_ticket":null}"#).unwrap();
+        assert_eq!(clear.risk_level, Some(None));
+        assert_eq!(clear.change_ticket, Some(None));
+        let set: UpdateChange = serde_json::from_str(
+            r#"{"risk_level":"high","tags":["bgp"],"session_ids":["s1","s2"]}"#,
+        )
+        .unwrap();
+        assert_eq!(set.risk_level, Some(Some("high".to_string())));
+        assert_eq!(set.tags, Some(vec!["bgp".to_string()]));
+        assert_eq!(set.session_ids.as_ref().map(|v| v.len()), Some(2));
+    }
+
+    #[test]
+    fn cli_flavor_as_str_matches_serde_form() {
+        for flavor in [
+            CliFlavor::Auto,
+            CliFlavor::Linux,
+            CliFlavor::CiscoIos,
+            CliFlavor::CiscoIosXr,
+            CliFlavor::CiscoNxos,
+            CliFlavor::Juniper,
+            CliFlavor::Arista,
+            CliFlavor::Paloalto,
+            CliFlavor::Fortinet,
+        ] {
+            let wire = serde_json::to_value(&flavor).unwrap();
+            assert_eq!(wire.as_str().unwrap(), flavor.as_str());
+        }
+    }
+
     /// Regression: `Option<Option<T>>` update fields must distinguish
     /// absent (keep) from `null` (clear) from a value (set). Without
     /// `double_option`, serde folds `null` into `None` and nothing nullable
@@ -3850,9 +4236,10 @@ mod tests {
         assert_eq!(absent.folder_id, None, "absent field must mean 'keep'");
         assert_eq!(absent.jump_host_id, None);
 
-        let cleared: UpdateSession =
-            serde_json::from_str(r#"{"folder_id":null,"jump_host_id":null,"font_size_override":null}"#)
-                .unwrap();
+        let cleared: UpdateSession = serde_json::from_str(
+            r#"{"folder_id":null,"jump_host_id":null,"font_size_override":null}"#,
+        )
+        .unwrap();
         assert_eq!(cleared.folder_id, Some(None), "null must mean 'clear'");
         assert_eq!(cleared.jump_host_id, Some(None));
         assert_eq!(cleared.font_size_override, Some(None));
@@ -3948,7 +4335,10 @@ mod tests {
             ApiResourceAuthType::from_str("custom_header").unwrap(),
             ApiResourceAuthType::CustomHeader
         );
-        assert_eq!(ApiResourceAuthType::CustomHeader.to_string(), "custom_header");
+        assert_eq!(
+            ApiResourceAuthType::CustomHeader.to_string(),
+            "custom_header"
+        );
     }
 
     #[test]
@@ -4021,7 +4411,11 @@ mod tests {
             local_port_oper_status: None,
         };
         let json = serde_json::to_string(&bare).unwrap();
-        assert!(!json.contains("local_port_in_rate_bps"), "bare link should not emit stat keys: {}", json);
+        assert!(
+            !json.contains("local_port_in_rate_bps"),
+            "bare link should not emit stat keys: {}",
+            json
+        );
         let back: LibreNmsLink = serde_json::from_str(&json).unwrap();
         assert_eq!(back.local_port, "eth0");
     }
@@ -4040,7 +4434,9 @@ pub struct PickedField {
     #[serde(default = "default_field_format")]
     pub format: String,
 }
-fn default_field_format() -> String { "string".into() }
+fn default_field_format() -> String {
+    "string".into()
+}
 
 /// A matcher recognises tokens in terminal output. Each matcher has one or
 /// more regex patterns and a list of source assignments (which HTTP calls
@@ -4064,7 +4460,9 @@ pub struct EnrichmentMatcher {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
-fn default_matcher_priority() -> i32 { 10 }
+fn default_matcher_priority() -> i32 {
+    10
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEnrichmentMatcherRequest {
@@ -4111,8 +4509,12 @@ pub struct EnrichmentSource {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
-fn default_source_kind() -> String { "api_resource".into() }
-fn default_http_method() -> String { "GET".into() }
+fn default_source_kind() -> String {
+    "api_resource".into()
+}
+fn default_http_method() -> String {
+    "GET".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEnrichmentSourceRequest {
@@ -4137,7 +4539,7 @@ pub struct UpdateEnrichmentSourceRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     #[serde(default, deserialize_with = "double_option")]
-    pub api_resource_id: Option<Option<String>>,  // double-Option so caller can clear
+    pub api_resource_id: Option<Option<String>>, // double-Option so caller can clear
     pub method: Option<String>,
     pub path_template: Option<String>,
     pub response_unwrap: Option<String>,

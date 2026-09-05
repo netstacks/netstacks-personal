@@ -714,7 +714,9 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
       {activeView === 'schedules' && isEnterprise ? (
         <ScheduledTasksPanel
           onViewHistory={(scheduleId) => {
+            // Runs of a schedule show up as tasks — jump to the Tasks view (NS-FEAT-29).
             logger.log('[AgentsPanel] View history for schedule:', scheduleId);
+            setActiveView('tasks');
           }}
         />
       ) : (

@@ -17,9 +17,9 @@ use std::sync::Arc;
 use crate::api::AppState;
 
 use super::providers::{
-    create_provider, AiContext, AiError, AiProvider, AiProviderConfig, ChatMessage,
-    AgentMessage, AgentContent, AgentContentBlock, AgentResponse, AgentChatOptions, TokenUsage,
-    StreamEvent,
+    create_provider, AgentChatOptions, AgentContent, AgentContentBlock, AgentMessage,
+    AgentResponse, AiContext, AiError, AiProvider, AiProviderConfig, ChatMessage, StreamEvent,
+    TokenUsage,
 };
 use super::sanitizer::SanitizingProvider;
 
@@ -92,6 +92,12 @@ pub struct ChatRequest {
     /// Optional model override (uses saved settings if not specified)
     #[serde(default)]
     pub model: Option<String>,
+    /// Explicit opt-in to the AI Engineer onboarding interview. Only the side
+    /// panel's setup conversation sets this; helper features (autocomplete,
+    /// commit messages, digests…) never do, so they are not hijacked by the
+    /// interviewer prompt or profile extraction (NS-AI-33).
+    #[serde(default)]
+    pub onboarding: bool,
 }
 
 /// Response body for chat completion
@@ -116,29 +122,30 @@ pub async fn chat_completion(
         });
     }
 
-    // Check onboarding state
-    let is_onboarded = crate::db::ai_profile::is_onboarded(&state.pool)
-        .await
-        .unwrap_or(false);
+    let onboarding_mode = onboarding_interview_requested(&state, req.onboarding).await;
 
     // Load AI provider config (honouring per-request provider/model overrides).
     // Surface the REAL reason on failure instead of silently falling back to
     // the Mock provider's generic "AI not configured" message.
-    let config = match load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await.0 {
-        Ok(cfg) => Some(cfg),
-        Err(reason) => {
-            tracing::warn!("AI config load failed: {}", reason);
-            return Err(AiApiError {
-                error: reason,
-                code: "NOT_CONFIGURED".to_string(),
-            });
-        }
-    };
+    let config =
+        match load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref())
+            .await
+            .0
+        {
+            Ok(cfg) => Some(cfg),
+            Err(reason) => {
+                tracing::warn!("AI config load failed: {}", reason);
+                return Err(AiApiError {
+                    error: reason,
+                    code: "NOT_CONFIGURED".to_string(),
+                });
+            }
+        };
 
     // Create provider and make request (with sanitization)
     let provider = wrap_provider(create_provider(config), &state);
 
-    if !is_onboarded {
+    if onboarding_mode {
         // Onboarding mode: use onboarding system prompt
         let mut onboarding_messages = vec![ChatMessage {
             role: "system".to_string(),
@@ -149,7 +156,9 @@ pub async fn chat_completion(
         let response = provider.chat_completion(onboarding_messages, None).await?;
 
         // Extract profile fields from the conversation (best-effort, non-blocking)
-        let all_messages: Vec<ChatMessage> = req.messages.iter()
+        let all_messages: Vec<ChatMessage> = req
+            .messages
+            .iter()
             .chain(std::iter::once(&ChatMessage {
                 role: "assistant".to_string(),
                 content: response.clone(),
@@ -157,39 +166,7 @@ pub async fn chat_completion(
             .cloned()
             .collect();
 
-        // Spawn extraction as background task to not block the response
-        let pool = state.pool.clone();
-        let extraction_provider = wrap_provider(
-            create_provider(
-                load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await.0.ok()
-            ),
-            &state,
-        );
-        tokio::spawn(async move {
-            // Re-check onboarding — user may have completed it via Settings while we were chatting
-            let already_onboarded = crate::db::ai_profile::is_onboarded(&pool)
-                .await
-                .unwrap_or(false);
-            if already_onboarded {
-                return;
-            }
-            if let Ok(update) = super::onboarding::extract_profile_fields(
-                extraction_provider.as_ref(),
-                &all_messages,
-            ).await {
-                let mut profile = crate::db::ai_profile::get_profile(&pool)
-                    .await
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
-
-                update.apply_to(&mut profile);
-
-                if let Err(e) = crate::db::ai_profile::upsert_profile(&pool, &profile).await {
-                    tracing::warn!("Failed to save onboarding profile update: {}", e);
-                }
-            }
-        });
+        spawn_profile_extraction(state.clone(), all_messages, req.provider.clone(), req.model.clone());
 
         return Ok(Json(ChatResponse {
             response,
@@ -213,7 +190,10 @@ pub async fn chat_completion(
         }),
     };
     let response = provider.chat_completion(req.messages, context).await?;
-    Ok(Json(ChatResponse { response, onboarding: None }))
+    Ok(Json(ChatResponse {
+        response,
+        onboarding: None,
+    }))
 }
 
 // === Generate Script Endpoint ===
@@ -268,15 +248,19 @@ pub async fn generate_script(
 
     // Load AI provider config (honouring per-request overrides); surface the
     // real failure reason rather than degrading to the Mock provider.
-    let config = match load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await.0 {
-        Ok(cfg) => Some(cfg),
-        Err(reason) => {
-            return Err(AiApiError {
-                error: reason,
-                code: "NOT_CONFIGURED".to_string(),
-            });
-        }
-    };
+    let config =
+        match load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref())
+            .await
+            .0
+        {
+            Ok(cfg) => Some(cfg),
+            Err(reason) => {
+                return Err(AiApiError {
+                    error: reason,
+                    code: "NOT_CONFIGURED".to_string(),
+                });
+            }
+        };
 
     // Create provider (with sanitization)
     let provider = wrap_provider(create_provider(config), &state);
@@ -303,10 +287,8 @@ pub async fn generate_script(
         .ok()
         .flatten();
     let system_content = if let Some(profile) = ai_profile {
-        let personality = profile.compile_for_feature(
-            super::profile::AiFeature::ScriptGeneration,
-            8000,
-        );
+        let personality =
+            profile.compile_for_feature(super::profile::AiFeature::ScriptGeneration, 8000);
         format!("{}\n\n{}", personality, script_prompt)
     } else {
         script_prompt
@@ -361,10 +343,7 @@ fn parse_script_response(response: &str) -> (String, String) {
         }
         _ => {
             // No code block found, return as-is
-            (
-                response.to_string(),
-                "Script generated by AI".to_string(),
-            )
+            (response.to_string(), "Script generated by AI".to_string())
         }
     }
 }
@@ -401,7 +380,9 @@ struct AiSettingsConfig {
     verify_ssl: bool,
 }
 
-fn default_verify_ssl() -> bool { true }
+fn default_verify_ssl() -> bool {
+    true
+}
 
 /// Per-provider endpoint overrides. `ai.provider_config` only describes the
 /// ACTIVE provider, so the frontend (`setAiProviderOverrides` in
@@ -501,7 +482,11 @@ fn resolve_provider_settings(
         ResolvedProviderSettings {
             model: None,
             base_url: override_url,
-            verify_ssl: overrides.verify_ssl.get(provider_name).copied().unwrap_or(true),
+            verify_ssl: overrides
+                .verify_ssl
+                .get(provider_name)
+                .copied()
+                .unwrap_or(true),
             api_format: None,
         }
     }
@@ -517,7 +502,10 @@ async fn saved_provider_settings(
     let overrides = match dp.get_setting("ai.provider_overrides").await {
         Ok(v) => parse_provider_overrides(v),
         Err(e) => {
-            tracing::warn!("Failed to read ai.provider_overrides, using defaults: {}", e);
+            tracing::warn!(
+                "Failed to read ai.provider_overrides, using defaults: {}",
+                e
+            );
             AiProviderOverrides::default()
         }
     };
@@ -554,14 +542,26 @@ pub async fn load_ai_config(
     // --- Parse ai.provider_config -> AiSettingsConfig ---
     let settings_value = match dp.get_setting("ai.provider_config").await {
         Ok(v) if !v.is_null() => v,
-        Ok(_) => return (Err("AI provider not configured. Go to Settings > AI to select a provider and model.".into()), None),
+        Ok(_) => return (
+            Err(
+                "AI provider not configured. Go to Settings > AI to select a provider and model."
+                    .into(),
+            ),
+            None,
+        ),
         Err(e) => return (Err(format!("Failed to read AI settings: {}", e)), None),
     };
 
     // The frontend may wrap the value as {"value": "<json string>"}.
     let config_value = match unwrap_setting_json(settings_value) {
         Ok(v) if !v.is_null() => v,
-        Ok(_) => return (Err("AI provider not configured. Go to Settings > AI to select a provider and model.".into()), None),
+        Ok(_) => return (
+            Err(
+                "AI provider not configured. Go to Settings > AI to select a provider and model."
+                    .into(),
+            ),
+            None,
+        ),
         Err(e) => return (Err(e), None),
     };
     let settings: AiSettingsConfig = match serde_json::from_value(config_value) {
@@ -573,7 +573,10 @@ pub async fn load_ai_config(
     let overrides = match dp.get_setting("ai.provider_overrides").await {
         Ok(v) => parse_provider_overrides(v),
         Err(e) => {
-            tracing::warn!("Failed to read ai.provider_overrides, using defaults: {}", e);
+            tracing::warn!(
+                "Failed to read ai.provider_overrides, using defaults: {}",
+                e
+            );
             AiProviderOverrides::default()
         }
     };
@@ -597,7 +600,10 @@ pub async fn load_ai_config(
         Some(m) => m,
         None => {
             return (
-                Err(format!("No model configured for {}. Choose a model in Settings > AI.", provider_name)),
+                Err(format!(
+                    "No model configured for {}. Choose a model in Settings > AI.",
+                    provider_name
+                )),
                 custom_prompt,
             );
         }
@@ -609,20 +615,45 @@ pub async fn load_ai_config(
     // --- Providers that don't require a vault API key ---
     if provider_name == "ollama" {
         let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
-        return (Ok(AiProviderConfig::Ollama { model, base_url: url, verify_ssl }), custom_prompt);
+        return (
+            Ok(AiProviderConfig::Ollama {
+                model,
+                base_url: url,
+                verify_ssl,
+            }),
+            custom_prompt,
+        );
     }
     if provider_name == "litellm" {
         let url = base_url.unwrap_or_else(|| "http://localhost:4000".to_string());
         let api_key = dp.get_api_key("ai.litellm").await.ok().flatten();
-        return (Ok(AiProviderConfig::LiteLLM { model, base_url: url, api_key, verify_ssl }), custom_prompt);
+        return (
+            Ok(AiProviderConfig::LiteLLM {
+                model,
+                base_url: url,
+                api_key,
+                verify_ssl,
+            }),
+            custom_prompt,
+        );
     }
     if provider_name == "custom" {
-        let api_key = dp.get_api_key("ai.custom").await.ok().flatten().unwrap_or_default();
+        let api_key = dp
+            .get_api_key("ai.custom")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         // OAuth2/header settings belong to the active config; only apply them
         // when that config actually describes the custom provider.
         let oauth2 = if same_provider && settings.auth_mode.as_deref() == Some("oauth2") {
-            match (settings.oauth2_token_url.clone(), settings.oauth2_client_id.clone()) {
-                (Some(token_url), Some(client_id)) if !token_url.is_empty() && !client_id.is_empty() => {
+            match (
+                settings.oauth2_token_url.clone(),
+                settings.oauth2_client_id.clone(),
+            ) {
+                (Some(token_url), Some(client_id))
+                    if !token_url.is_empty() && !client_id.is_empty() =>
+                {
                     Some(super::oauth2::OAuth2Config {
                         token_url,
                         client_id,
@@ -636,11 +667,22 @@ pub async fn load_ai_config(
         } else {
             None
         };
+        // A custom endpoint without a base URL can only produce reqwest's
+        // opaque "builder error" — reject it up front (NS-AI-35).
+        let base_url = match base_url.filter(|u| !u.trim().is_empty()) {
+            Some(u) => u,
+            None => {
+                return (
+                    Err("Custom provider has no Base URL. Set the endpoint in Settings → AI → Custom.".to_string()),
+                    custom_prompt,
+                );
+            }
+        };
         return (
             Ok(AiProviderConfig::Custom {
                 api_key,
                 model,
-                base_url: base_url.unwrap_or_default(),
+                base_url,
                 oauth2,
                 api_format: resolved.api_format,
                 verify_ssl,
@@ -664,19 +706,56 @@ pub async fn load_ai_config(
 
     // --- Keyed providers: require an unlocked vault + a non-empty key ---
     if !dp.is_unlocked() {
-        return (Err("Vault is locked. Unlock the vault to access AI API keys.".into()), custom_prompt);
+        return (
+            Err("Vault is locked. Unlock the vault to access AI API keys.".into()),
+            custom_prompt,
+        );
     }
     let key_type = format!("ai.{}", provider_name);
     let api_key = match dp.get_api_key(&key_type).await {
         Ok(Some(key)) if !key.is_empty() => key,
-        Ok(Some(_)) => return (Err(format!("API key for {} is empty. Re-enter it in Settings → AI → {}.", provider_name, provider_name)), custom_prompt),
-        Ok(None) => return (Err(format!("No API key saved for {}. Add one in Settings → AI → {}.", provider_name, provider_name)), custom_prompt),
-        Err(e) => return (Err(format!("Failed to read API key for {}: {}", provider_name, e)), custom_prompt),
+        Ok(Some(_)) => {
+            return (
+                Err(format!(
+                    "API key for {} is empty. Re-enter it in Settings → AI → {}.",
+                    provider_name, provider_name
+                )),
+                custom_prompt,
+            )
+        }
+        Ok(None) => {
+            return (
+                Err(format!(
+                    "No API key saved for {}. Add one in Settings → AI → {}.",
+                    provider_name, provider_name
+                )),
+                custom_prompt,
+            )
+        }
+        Err(e) => {
+            return (
+                Err(format!(
+                    "Failed to read API key for {}: {}",
+                    provider_name, e
+                )),
+                custom_prompt,
+            )
+        }
     };
 
     let config = match provider_name {
-        "anthropic" => Ok(AiProviderConfig::Anthropic { api_key, model, base_url, verify_ssl }),
-        "openai" => Ok(AiProviderConfig::OpenAI { api_key, model, base_url, verify_ssl }),
+        "anthropic" => Ok(AiProviderConfig::Anthropic {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }),
+        "openai" => Ok(AiProviderConfig::OpenAI {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }),
         "openrouter" => {
             // Convenience: a bare `claude-*` slug on OpenRouter needs the
             // `anthropic/` vendor prefix to resolve.
@@ -685,7 +764,12 @@ pub async fn load_ai_config(
             } else {
                 model
             };
-            Ok(AiProviderConfig::OpenRouter { api_key, model, base_url, verify_ssl })
+            Ok(AiProviderConfig::OpenRouter {
+                api_key,
+                model,
+                base_url,
+                verify_ssl,
+            })
         }
         other => Err(format!("Unknown AI provider: {}", other)),
     };
@@ -700,9 +784,11 @@ pub async fn load_ai_config_from_provider(
     provider_override: Option<&str>,
     model_override: Option<&str>,
 ) -> Option<AiProviderConfig> {
-    load_ai_config(data_provider, provider_override, model_override).await.0.ok()
+    load_ai_config(data_provider, provider_override, model_override)
+        .await
+        .0
+        .ok()
 }
-
 
 // === Agent Chat Endpoint (with Tool Support) ===
 
@@ -727,6 +813,9 @@ pub struct AgentChatRequest {
     /// Allow AI to execute configuration changes on devices (default: false = read-only)
     #[serde(default)]
     pub allow_config_changes: bool,
+    /// Explicit opt-in to the AI Engineer onboarding interview (see `ChatRequest::onboarding`).
+    #[serde(default)]
+    pub onboarding: bool,
 }
 
 /// A message in the agent chat (can contain tool results)
@@ -895,6 +984,15 @@ Work methodically:
 
 Be concise and practical. Network engineers appreciate direct, actionable information."#;
 
+/// The onboarding interview runs only when the caller opted in AND no profile
+/// has been completed yet (NS-AI-33).
+async fn onboarding_interview_requested(state: &AppState, opted_in: bool) -> bool {
+    if !opted_in {
+        return false;
+    }
+    !crate::db::ai_profile::is_onboarded(&state.pool).await.unwrap_or(false)
+}
+
 /// Prepared context for agent chat requests (shared between streaming and non-streaming)
 pub(crate) struct AgentChatContext {
     pub system_prompt: String,
@@ -902,7 +1000,8 @@ pub(crate) struct AgentChatContext {
     pub messages: Vec<AgentMessage>,
     pub tools: Option<Vec<serde_json::Value>>,
     pub max_tokens: Option<u32>,
-    pub is_onboarded: bool,
+    /// True only for an opted-in onboarding turn while no profile is complete.
+    pub onboarding_mode: bool,
     pub provider_override: Option<String>,
     pub model_override: Option<String>,
 }
@@ -924,10 +1023,7 @@ pub(crate) async fn prepare_agent_chat(
         });
     }
 
-    // Check onboarding state
-    let is_onboarded = crate::db::ai_profile::is_onboarded(&state.pool)
-        .await
-        .unwrap_or(false);
+    let onboarding_mode = onboarding_interview_requested(state, req.onboarding).await;
 
     // Save provider/model refs before consuming req fields
     let provider_override = req.provider;
@@ -962,7 +1058,8 @@ pub(crate) async fn prepare_agent_chat(
         state.provider.as_ref(),
         provider_override.as_deref(),
         model_override.as_deref(),
-    ).await;
+    )
+    .await;
     let config = match config_result {
         Ok(c) => c,
         Err(reason) => {
@@ -985,24 +1082,41 @@ pub(crate) async fn prepare_agent_chat(
             content: match m.content {
                 AgentChatContent::Text(text) => AgentContent::Text(text),
                 AgentChatContent::Blocks(blocks) => AgentContent::Blocks(
-                    blocks.into_iter().map(|b| match b {
-                        AgentChatBlock::Text { text } => AgentContentBlock::Text { text },
-                        AgentChatBlock::ToolUse { id, name, input } => {
-                            AgentContentBlock::ToolUse { id, name, input }
-                        }
-                        AgentChatBlock::ToolResult { tool_use_id, content, is_error } => {
-                            AgentContentBlock::ToolResult { tool_use_id, content, is_error }
-                        }
-                    }).collect()
+                    blocks
+                        .into_iter()
+                        .map(|b| match b {
+                            AgentChatBlock::Text { text } => AgentContentBlock::Text { text },
+                            AgentChatBlock::ToolUse { id, name, input } => {
+                                AgentContentBlock::ToolUse { id, name, input }
+                            }
+                            AgentChatBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            },
+                        })
+                        .collect(),
                 ),
             },
         })
         .collect();
 
-    // Use system prompt: onboarding > request override > saved config > default
+    // Use system prompt: onboarding (opt-in) > request override > saved config > default
     // When onboarded, prepend the AI engineer profile personality to the system prompt
-    let mut system_prompt = if !is_onboarded && req_system_prompt.is_none() {
-        super::onboarding::ONBOARDING_SYSTEM_PROMPT.to_string()
+    let mut system_prompt = if onboarding_mode {
+        // Interviewer persona first; keep the caller's tool/platform context
+        // underneath so the agent stays capable during the interview.
+        match req_system_prompt
+            .as_deref()
+            .filter(|p| !p.trim().is_empty())
+        {
+            Some(p) => format!("{}\n\n{}", super::onboarding::ONBOARDING_SYSTEM_PROMPT, p),
+            None => super::onboarding::ONBOARDING_SYSTEM_PROMPT.to_string(),
+        }
     } else {
         let base_prompt = req_system_prompt
             .or(custom_prompt)
@@ -1018,23 +1132,20 @@ pub(crate) async fn prepare_agent_chat(
             .flatten()
             .unwrap_or_default();
 
-        let personality = profile.compile_for_feature(
-            super::profile::AiFeature::Agents,
-            8000,
-        );
+        let personality = profile.compile_for_feature(super::profile::AiFeature::Agents, 8000);
         format!("{}\n\n{}", personality, base_prompt)
     };
 
     // Inject AI memories into system prompt
-    let memories_result: Vec<(String, String)> = sqlx::query_as(
-        "SELECT content, category FROM ai_memory ORDER BY updated_at DESC LIMIT 30"
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let memories_result: Vec<(String, String)> =
+        sqlx::query_as("SELECT content, category FROM ai_memory ORDER BY updated_at DESC LIMIT 30")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     if !memories_result.is_empty() {
-        let memory_lines: Vec<String> = memories_result.iter()
+        let memory_lines: Vec<String> = memories_result
+            .iter()
             .map(|(content, category)| format!("- [{}] {}", category, content))
             .collect();
         system_prompt = format!(
@@ -1063,7 +1174,7 @@ The user has enabled AI Configuration Changes. The previous read-only safety rul
         messages,
         tools,
         max_tokens,
-        is_onboarded,
+        onboarding_mode,
         provider_override,
         model_override,
     })
@@ -1077,14 +1188,15 @@ pub async fn agent_chat(
     let ctx = prepare_agent_chat(&state, req).await?;
 
     // Clone messages for onboarding extraction before they're consumed
-    let messages_for_extraction = if !ctx.is_onboarded {
+    let messages_for_extraction = if ctx.onboarding_mode {
         Some(ctx.messages.clone())
     } else {
         None
     };
 
     // Make the agent chat request (works with any provider that supports it)
-    let response: AgentResponse = match ctx.provider
+    let response: AgentResponse = match ctx
+        .provider
         .agent_chat(
             ctx.system_prompt.clone(),
             ctx.messages,
@@ -1126,64 +1238,14 @@ pub async fn agent_chat(
     };
 
     // During onboarding, extract profile fields from the conversation
-    if let Some(extraction_messages) = messages_for_extraction {
-        if let Some(response_text) = &text {
-            // Build ChatMessage list for extraction from agent messages
-            let mut chat_messages: Vec<ChatMessage> = extraction_messages.iter()
-                .filter_map(|m| {
-                    let content = match &m.content {
-                        AgentContent::Text(t) => t.clone(),
-                        AgentContent::Blocks(blocks) => blocks.iter()
-                            .filter_map(|b| match b {
-                                AgentContentBlock::Text { text } => Some(text.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    };
-                    if content.is_empty() { None } else {
-                        Some(ChatMessage { role: m.role.clone(), content })
-                    }
-                })
-                .collect();
-            chat_messages.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response_text.clone(),
-            });
-
-            let pool = state.pool.clone();
-            let extraction_provider = wrap_provider(
-                create_provider(
-                    load_ai_config_with_overrides(&state, ctx.provider_override.as_deref(), ctx.model_override.as_deref()).await.0.ok()
-                ),
-                &state,
-            );
-            tokio::spawn(async move {
-                // Re-check onboarding — user may have completed it via Settings while we were chatting
-                let already_onboarded = crate::db::ai_profile::is_onboarded(&pool)
-                    .await
-                    .unwrap_or(false);
-                if already_onboarded {
-                    return;
-                }
-                if let Ok(update) = super::onboarding::extract_profile_fields(
-                    extraction_provider.as_ref(),
-                    &chat_messages,
-                ).await {
-                    let mut profile = crate::db::ai_profile::get_profile(&pool)
-                        .await
-                        .ok()
-                        .flatten()
-                        .unwrap_or_default();
-
-                    update.apply_to(&mut profile);
-
-                    if let Err(e) = crate::db::ai_profile::upsert_profile(&pool, &profile).await {
-                        tracing::warn!("Failed to save onboarding profile update: {}", e);
-                    }
-                }
-            });
-        }
+    if let (Some(extraction_messages), Some(response_text)) = (messages_for_extraction, &text) {
+        spawn_onboarding_extraction(
+            state.clone(),
+            &extraction_messages,
+            response_text.clone(),
+            ctx.provider_override.clone(),
+            ctx.model_override.clone(),
+        );
     }
 
     Ok(Json(AgentChatResponse {
@@ -1192,6 +1254,83 @@ pub async fn agent_chat(
         stop_reason: response.stop_reason,
         usage: response.usage,
     }))
+}
+
+/// Background profile-field extraction for an onboarding turn (NS-AI-33).
+/// Everything — including loading the AI config — happens off the request
+/// path, so neither the JSON reply nor the SSE close waits on it. Best-effort:
+/// failures only log.
+fn spawn_profile_extraction(
+    state: Arc<AppState>,
+    chat_messages: Vec<ChatMessage>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+) {
+    tokio::spawn(async move {
+        // Re-check onboarding — user may have completed it via Settings while we were chatting
+        if crate::db::ai_profile::is_onboarded(&state.pool).await.unwrap_or(false) {
+            return;
+        }
+        let extraction_provider = wrap_provider(
+            create_provider(
+                load_ai_config_with_overrides(&state, provider_override.as_deref(), model_override.as_deref())
+                    .await
+                    .0
+                    .ok(),
+            ),
+            &state,
+        );
+        if let Ok(update) =
+            super::onboarding::extract_profile_fields(extraction_provider.as_ref(), &chat_messages).await
+        {
+            let mut profile = crate::db::ai_profile::get_profile(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            update.apply_to(&mut profile);
+            if let Err(e) = crate::db::ai_profile::upsert_profile(&state.pool, &profile).await {
+                tracing::warn!("Failed to save onboarding profile update: {}", e);
+            }
+        }
+    });
+}
+
+/// Agent-chat variant: flattens the agent message blocks to plain chat
+/// messages (text only) plus the assistant's reply, then hands off.
+fn spawn_onboarding_extraction(
+    state: Arc<AppState>,
+    messages: &[AgentMessage],
+    response_text: String,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+) {
+    let mut chat_messages: Vec<ChatMessage> = messages
+        .iter()
+        .filter_map(|m| {
+            let content = match &m.content {
+                AgentContent::Text(t) => t.clone(),
+                AgentContent::Blocks(blocks) => blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        AgentContentBlock::Text { text } => Some(text.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            };
+            if content.is_empty() {
+                None
+            } else {
+                Some(ChatMessage { role: m.role.clone(), content })
+            }
+        })
+        .collect();
+    chat_messages.push(ChatMessage {
+        role: "assistant".to_string(),
+        content: response_text,
+    });
+    spawn_profile_extraction(state, chat_messages, provider_override, model_override);
 }
 
 /// POST /api/ai/agent-chat-stream - Streaming agent chat via SSE
@@ -1213,6 +1352,16 @@ pub async fn agent_chat_stream_handler(
     let messages = ctx.messages;
     let tools = ctx.tools;
     let provider = ctx.provider;
+    // Onboarding interview turns persist extracted profile fields once the
+    // stream has finished — the streaming path used to skip this, so the
+    // interview could never complete (NS-AI-33).
+    let messages_for_extraction = if ctx.onboarding_mode {
+        Some(messages.clone())
+    } else {
+        None
+    };
+    let provider_override = ctx.provider_override;
+    let model_override = ctx.model_override;
 
     let sse_stream = async_stream::stream! {
         use futures::StreamExt;
@@ -1223,10 +1372,14 @@ pub async fn agent_chat_stream_handler(
             tools,
             options,
         );
+        let mut response_text = String::new();
 
         while let Some(result) = stream.next().await {
             match result {
                 Ok(event) => {
+                    if let StreamEvent::ContentDelta { text } = &event {
+                        response_text.push_str(text);
+                    }
                     let json = serde_json::to_string(&event).unwrap_or_default();
                     yield Ok(Event::default().data(json));
                 }
@@ -1236,6 +1389,18 @@ pub async fn agent_chat_stream_handler(
                     yield Ok(Event::default().data(json));
                     break;
                 }
+            }
+        }
+
+        if let Some(extraction_messages) = messages_for_extraction {
+            if !response_text.trim().is_empty() {
+                spawn_onboarding_extraction(
+                    state.clone(),
+                    &extraction_messages,
+                    response_text,
+                    provider_override,
+                    model_override,
+                );
             }
         }
     };
@@ -1258,7 +1423,7 @@ async fn load_ai_config_with_overrides(
 // === AI Highlight Analysis Endpoint ===
 
 use super::highlight::{
-    AnalyzeHighlightsRequest, AnalyzeHighlightsResponse, build_system_prompt, parse_ai_response,
+    build_system_prompt, parse_ai_response, AnalyzeHighlightsRequest, AnalyzeHighlightsResponse,
 };
 
 /// POST /api/ai/analyze-highlights - Analyze terminal output for highlights
@@ -1275,18 +1440,18 @@ pub async fn analyze_highlights(
 
     // Limit output size to avoid excessive API costs
     let output = if req.output.len() > 10000 {
-        tracing::debug!("Truncating highlight analysis input from {} to 10000 bytes", req.output.len());
+        tracing::debug!(
+            "Truncating highlight analysis input from {} to 10000 bytes",
+            req.output.len()
+        );
         &req.output[..req.output.floor_char_boundary(10000)]
     } else {
         &req.output
     };
 
     // Load AI provider config, with optional per-feature overrides
-    let (config, _) = load_ai_config_with_overrides(
-        &state,
-        req.provider.as_deref(),
-        req.model.as_deref(),
-    ).await;
+    let (config, _) =
+        load_ai_config_with_overrides(&state, req.provider.as_deref(), req.model.as_deref()).await;
 
     // Create provider and make request (with sanitization)
     let provider = wrap_provider(create_provider(config.ok()), &state);
@@ -1325,9 +1490,7 @@ pub async fn analyze_highlights(
         .to_string();
     let highlights = parse_ai_response(&full_response, output);
 
-    Ok(Json(AnalyzeHighlightsResponse {
-        highlights,
-    }))
+    Ok(Json(AnalyzeHighlightsResponse { highlights }))
 }
 
 // === Sanitization Test Endpoint ===
@@ -1360,11 +1523,7 @@ pub async fn test_sanitization(
     }
 
     // Always load fresh (bypass cache) for testing
-    let result = super::sanitizer::test_sanitization(
-        state.provider.as_ref(),
-        &req.text,
-    )
-    .await;
+    let result = super::sanitizer::test_sanitization(state.provider.as_ref(), &req.text).await;
 
     Ok(Json(SanitizationTestResponse {
         sanitized: result.sanitized,
@@ -1378,13 +1537,14 @@ pub async fn test_sanitization(
 use super::profile::AiEngineerProfile;
 
 /// GET /api/ai/profile — returns the current profile or null
-pub async fn get_ai_profile(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_ai_profile(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::db::ai_profile::get_profile(&state.pool).await {
         Ok(profile) => Json(serde_json::json!({ "profile": profile })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1395,30 +1555,35 @@ pub async fn update_ai_profile(
 ) -> impl IntoResponse {
     match crate::db::ai_profile::upsert_profile(&state.pool, &profile).await {
         Ok(_) => Json(serde_json::json!({ "success": true })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
 /// DELETE /api/ai/profile — delete profile (triggers re-onboarding)
-pub async fn reset_ai_profile(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn reset_ai_profile(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::db::ai_profile::delete_profile(&state.pool).await {
         Ok(_) => Json(serde_json::json!({ "success": true })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
 /// GET /api/ai/profile/status — check if onboarding is complete
-pub async fn get_ai_profile_status(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_ai_profile_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::db::ai_profile::is_onboarded(&state.pool).await {
         Ok(onboarded) => Json(serde_json::json!({ "onboarded": onboarded })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -1428,13 +1593,16 @@ pub async fn get_knowledge_pack_sizes() -> impl IntoResponse {
     let core_size = crate::ai::knowledge_packs::core_pack().len();
     let total_budget: usize = 5000; // max_context_chars(8000) - reserved(3000)
 
-    let packs: Vec<serde_json::Value> = sizes.iter().map(|(category, name, size)| {
-        serde_json::json!({
-            "category": category,
-            "name": name,
-            "size": size,
+    let packs: Vec<serde_json::Value> = sizes
+        .iter()
+        .map(|(category, name, size)| {
+            serde_json::json!({
+                "category": category,
+                "name": name,
+                "size": size,
+            })
         })
-    }).collect();
+        .collect();
 
     Json(serde_json::json!({
         "total_budget": total_budget,
@@ -1456,10 +1624,20 @@ pub struct ProviderModelsResponse {
 
 /// Map a fetch result into the wire response. Errors degrade to an empty list
 /// with `source: "error"` so the UI can fall back to manual entry.
-fn shape_models_response(result: Result<Vec<crate::ai::models::ModelInfo>, String>) -> ProviderModelsResponse {
+fn shape_models_response(
+    result: Result<Vec<crate::ai::models::ModelInfo>, String>,
+) -> ProviderModelsResponse {
     match result {
-        Ok(models) => ProviderModelsResponse { models, source: "live".into(), error: None },
-        Err(e) => ProviderModelsResponse { models: Vec::new(), source: "error".into(), error: Some(e) },
+        Ok(models) => ProviderModelsResponse {
+            models,
+            source: "live".into(),
+            error: None,
+        },
+        Err(e) => ProviderModelsResponse {
+            models: Vec::new(),
+            source: "error".into(),
+            error: Some(e),
+        },
     }
 }
 
@@ -1490,7 +1668,11 @@ pub async fn list_provider_models(
     let cache = crate::ai::models::global_cache();
     if !refresh {
         if let Some(models) = cache.get(&provider) {
-            return Json(ProviderModelsResponse { models, source: "live".into(), error: None });
+            return Json(ProviderModelsResponse {
+                models,
+                source: "live".into(),
+                error: None,
+            });
         }
     }
 
@@ -1526,9 +1708,10 @@ mod model_listing_tests {
 
     #[test]
     fn shapes_success_as_live() {
-        let out = shape_models_response(Ok(vec![
-            ModelInfo { id: "gpt-4o".into(), display_name: "GPT-4o".into() }
-        ]));
+        let out = shape_models_response(Ok(vec![ModelInfo {
+            id: "gpt-4o".into(),
+            display_name: "GPT-4o".into(),
+        }]));
         assert_eq!(out.source, "live");
         assert_eq!(out.models.len(), 1);
         assert!(out.error.is_none());
@@ -1571,28 +1754,42 @@ mod ai_config_resolution_tests {
     #[test]
     fn parses_standalone_wrapped_and_bare_override_shapes() {
         let wrapped = overrides();
-        assert_eq!(wrapped.base_urls.get("litellm").map(String::as_str), Some(" http://litellm:4000 "));
+        assert_eq!(
+            wrapped.base_urls.get("litellm").map(String::as_str),
+            Some(" http://litellm:4000 ")
+        );
         assert_eq!(wrapped.verify_ssl.get("litellm"), Some(&false));
 
-        let bare = parse_provider_overrides(json!({ "base_urls": { "ollama": "http://gpu:11434" } }));
-        assert_eq!(bare.base_urls.get("ollama").map(String::as_str), Some("http://gpu:11434"));
+        let bare =
+            parse_provider_overrides(json!({ "base_urls": { "ollama": "http://gpu:11434" } }));
+        assert_eq!(
+            bare.base_urls.get("ollama").map(String::as_str),
+            Some("http://gpu:11434")
+        );
         assert!(bare.verify_ssl.is_empty());
 
         assert!(parse_provider_overrides(json!(null)).base_urls.is_empty());
-        assert!(parse_provider_overrides(json!({ "value": "" })).base_urls.is_empty());
-        assert!(parse_provider_overrides(json!({ "value": "{not json" })).base_urls.is_empty());
+        assert!(parse_provider_overrides(json!({ "value": "" }))
+            .base_urls
+            .is_empty());
+        assert!(parse_provider_overrides(json!({ "value": "{not json" }))
+            .base_urls
+            .is_empty());
     }
 
     #[test]
     fn active_provider_uses_its_own_config() {
         let s = settings("custom", Some(" https://gw.example/v1 "), false);
         let r = resolve_provider_settings(Some(&s), &overrides(), "custom");
-        assert_eq!(r, ResolvedProviderSettings {
-            model: Some("active-model".into()),
-            base_url: Some("https://gw.example/v1".into()),
-            verify_ssl: false,
-            api_format: Some("gemini".into()),
-        });
+        assert_eq!(
+            r,
+            ResolvedProviderSettings {
+                model: Some("active-model".into()),
+                base_url: Some("https://gw.example/v1".into()),
+                verify_ssl: false,
+                api_format: Some("gemini".into()),
+            }
+        );
     }
 
     #[test]
@@ -1600,7 +1797,10 @@ mod ai_config_resolution_tests {
         let s = settings("litellm", None, true);
         let r = resolve_provider_settings(Some(&s), &overrides(), "litellm");
         assert_eq!(r.base_url.as_deref(), Some("http://litellm:4000"));
-        assert!(r.verify_ssl, "active config's verify_ssl wins over the override map");
+        assert!(
+            r.verify_ssl,
+            "active config's verify_ssl wins over the override map"
+        );
     }
 
     #[test]
@@ -1609,38 +1809,69 @@ mod ai_config_resolution_tests {
         // format; a request for litellm must not pick any of that up.
         let s = settings("custom", Some("https://gw.example/v1"), false);
         let r = resolve_provider_settings(Some(&s), &overrides(), "litellm");
-        assert_eq!(r, ResolvedProviderSettings {
-            model: None,
-            base_url: Some("http://litellm:4000".into()),
-            verify_ssl: false,
-            api_format: None,
-        });
+        assert_eq!(
+            r,
+            ResolvedProviderSettings {
+                model: None,
+                base_url: Some("http://litellm:4000".into()),
+                verify_ssl: false,
+                api_format: None,
+            }
+        );
 
         // No override at all -> provider defaults.
         let r = resolve_provider_settings(Some(&s), &overrides(), "anthropic");
-        assert_eq!(r, ResolvedProviderSettings { model: None, base_url: None, verify_ssl: true, api_format: None });
+        assert_eq!(
+            r,
+            ResolvedProviderSettings {
+                model: None,
+                base_url: None,
+                verify_ssl: true,
+                api_format: None
+            }
+        );
     }
 
     #[test]
     fn no_saved_config_uses_overrides_only() {
         // Model listing before the first Save: no ai.provider_config at all.
         let r = resolve_provider_settings(None, &overrides(), "litellm");
-        assert_eq!(r, ResolvedProviderSettings {
-            model: None,
-            base_url: Some("http://litellm:4000".into()),
-            verify_ssl: false,
-            api_format: None,
-        });
+        assert_eq!(
+            r,
+            ResolvedProviderSettings {
+                model: None,
+                base_url: Some("http://litellm:4000".into()),
+                verify_ssl: false,
+                api_format: None,
+            }
+        );
         let r = resolve_provider_settings(None, &overrides(), "anthropic");
-        assert_eq!(r, ResolvedProviderSettings { model: None, base_url: None, verify_ssl: true, api_format: None });
+        assert_eq!(
+            r,
+            ResolvedProviderSettings {
+                model: None,
+                base_url: None,
+                verify_ssl: true,
+                api_format: None
+            }
+        );
     }
 
     #[test]
     fn unwrap_setting_json_handles_all_shapes() {
         assert_eq!(unwrap_setting_json(json!(null)).unwrap(), json!(null));
-        assert_eq!(unwrap_setting_json(json!({ "value": "{\"a\":1}" })).unwrap(), json!({ "a": 1 }));
-        assert_eq!(unwrap_setting_json(json!({ "a": 1 })).unwrap(), json!({ "a": 1 }));
-        assert_eq!(unwrap_setting_json(json!("{\"a\":1}")).unwrap(), json!({ "a": 1 }));
+        assert_eq!(
+            unwrap_setting_json(json!({ "value": "{\"a\":1}" })).unwrap(),
+            json!({ "a": 1 })
+        );
+        assert_eq!(
+            unwrap_setting_json(json!({ "a": 1 })).unwrap(),
+            json!({ "a": 1 })
+        );
+        assert_eq!(
+            unwrap_setting_json(json!("{\"a\":1}")).unwrap(),
+            json!({ "a": 1 })
+        );
         assert!(unwrap_setting_json(json!({ "value": "nope" })).is_err());
     }
 }

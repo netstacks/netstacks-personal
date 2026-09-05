@@ -40,6 +40,7 @@ const INITIAL: ActiveContext = {
   activeSidebarView: null,
   selectionCount: 0,
   isEnterprise: false,
+  mop: null,
 }
 
 interface ActiveContextStore extends ActiveContext {
@@ -66,6 +67,7 @@ export const useActiveContextStore = create<ActiveContextStore>()(
         activeSidebarView: s.activeSidebarView,
         selectionCount: s.selectionCount,
         isEnterprise: s.isEnterprise,
+        mop: s.mop,
       }
     },
   })),

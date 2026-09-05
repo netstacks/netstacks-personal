@@ -30,7 +30,12 @@ import { resolveProvider } from '../lib/aiProviderResolver'
 import type { WorkspaceConfig } from '../types/workspace'
 
 interface ScratchpadEditorProps {
-  value: string
+  /**
+   * Text at mount. Monaco owns the buffer afterwards (uncontrolled), so a
+   * burst of keystrokes is never overwritten by a stale React value;
+   * observe edits via `onChange`.
+   */
+  initialValue: string
   onChange: (value: string) => void
   activeWorkspace: WorkspaceConfig | null
   /** Called after a successful save. */
@@ -136,13 +141,13 @@ const TRANSFORMS: ReadonlyArray<TransformDef> = [
   { id: 'lower', label: 'lower case', fn: (s: string) => s.toLowerCase() },
 ]
 
-export default function ScratchpadEditor({ value, onChange, activeWorkspace, onSaved }: ScratchpadEditorProps) {
+export default function ScratchpadEditor({ initialValue, onChange, activeWorkspace, onSaved }: ScratchpadEditorProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
   const editorFont = useEditorFontSettings()
   const activeWorkspaceRef = useRef(activeWorkspace)
   activeWorkspaceRef.current = activeWorkspace
-  const valueRef = useRef(value)
-  valueRef.current = value
+  // Latest buffer text, for the Cmd+S action registered once on mount.
+  const valueRef = useRef(initialValue)
   const onSavedRef = useRef(onSaved)
   onSavedRef.current = onSaved
 
@@ -346,8 +351,12 @@ Rules:
           height="100%"
           theme="vs-dark"
           language="plaintext"
-          value={value}
-          onChange={(v) => onChange(v ?? '')}
+          defaultValue={initialValue}
+          onChange={(v) => {
+            const text = v ?? ''
+            valueRef.current = text
+            onChange(text)
+          }}
           onMount={handleMount}
           options={{
             ...editorFont,

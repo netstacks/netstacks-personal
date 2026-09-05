@@ -463,7 +463,7 @@ export default function WorkspaceNewDialog({
                 setCustomCommand(e.target.value)
                 setTouched(t => ({ ...t, customCommand: true }))
               }}
-              placeholder="e.g. aider --model claude-3.5-sonnet"
+              placeholder="e.g. aider --model sonnet"
             />
           </div>
         )}

@@ -9,6 +9,7 @@
  */
 
 import { getClient, getCurrentMode } from './client';
+import { SUGGESTED_MODEL } from '../lib/aiModelDefaults';
 import type { AgentTask } from '../types/tasks';
 
 const isEnterprise = () => getCurrentMode() === 'enterprise';
@@ -94,7 +95,7 @@ export async function createAgentDefinition(req: CreateAgentDefinitionRequest): 
       ...req,
       agent_type: 'custom',
       provider: req.provider || 'anthropic',
-      model: req.model || 'claude-sonnet-4-5-20250929',
+      model: req.model || SUGGESTED_MODEL.anthropic,
     };
     const response = await client.http.post('/agents', body);
     return response.data;

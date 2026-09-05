@@ -1,4 +1,5 @@
 import { logger } from '../lib/logger'
+import { shareInFlight } from '../lib/inflight';
 /**
  * useAIAgent - Unified hook for AI agent interactions
  *
@@ -17,10 +18,12 @@ import { logger } from '../lib/logger'
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { getAvailableTools, type AgentTool } from '../lib/agentTools';
+import { getAvailableTools, type AgentTool, NAVIGABLE_SETTINGS_TABS } from '../lib/agentTools';
 import { getSettings } from './useSettings';
 import { validateReadOnlyCommands, type ValidationResult } from '../lib/readOnlyFilter';
 import { parseAiCommandArray } from '../lib/aiJson';
+import type { MopVariable } from '../types/change';
+import { validateVariableName } from '../lib/mopVariables';
 import { getClient } from '../api/client';
 import { lookupOui, lookupDns, lookupWhois, lookupAsn } from '../api/lookup';
 import { friendlyAiError } from '../api/aiErrors';
@@ -133,6 +136,38 @@ interface StreamEventError { type: 'error'; message: string }
 type StreamEvent = StreamEventContentDelta | StreamEventToolUseStart | StreamEventToolInputDelta | StreamEventToolUseEnd | StreamEventDone | StreamEventError
 
 // Cumulative token usage tracking
+
+/** Parse the `variables` argument of the create_mop tool. Returns the list or an error message. */
+export function parseMopVariablesInput(raw: string): MopVariable[] | string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return 'variables must be a JSON array of {"name", "value", "description", "required"} objects.';
+  }
+  if (!Array.isArray(parsed)) return 'variables must be a JSON array.';
+  const out: MopVariable[] = [];
+  const seen = new Set<string>();
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object' || typeof (item as { name?: unknown }).name !== 'string') {
+      return 'Each variable needs a string "name".';
+    }
+    const v = item as { name: string; value?: unknown; description?: unknown; required?: unknown };
+    const name = v.name.trim();
+    const err = validateVariableName(name);
+    if (err) return `variables: ${err}`;
+    if (seen.has(name)) return `variables: "${name}" is declared more than once.`;
+    seen.add(name);
+    out.push({
+      name,
+      value: v.value == null ? '' : String(v.value),
+      description: typeof v.description === 'string' && v.description.trim() ? v.description : undefined,
+      required: v.required === true,
+    });
+  }
+  return out;
+}
+
 export interface CumulativeTokenUsage {
   inputTokens: number;
   outputTokens: number;
@@ -256,6 +291,8 @@ export interface BulkImportResult {
 
 // MOP creation parameters
 export interface CreateMopParams {
+  /** Update this existing MOP in place instead of creating a new one. */
+  mop_id?: string;
   name: string;
   description?: string;
   session_ids: string[];
@@ -263,6 +300,8 @@ export interface CreateMopParams {
   changes: Array<{ command: string; description?: string }>;
   post_checks: Array<{ command: string; description?: string; expected_output?: string }>;
   rollback?: Array<{ command: string; description?: string }>;
+  /** Plan variables referenced as {{name}} in steps. */
+  variables?: MopVariable[];
 }
 
 // MOP creation result
@@ -322,6 +361,11 @@ export interface UseAIAgentOptions {
   // AI Provider selection (optional - uses saved settings if not provided)
   provider?: AiProviderType;
   model?: string;
+
+  // AI Engineer onboarding interview. Only the side panel's setup conversation
+  // turns this on; the agent applies the interviewer prompt + profile
+  // extraction ONLY to requests that carry it (NS-AI-33).
+  onboardingMode?: boolean;
 
   // Document access callbacks (optional)
   onListDocuments?: (category?: DocumentCategory) => Promise<Document[]>;
@@ -730,6 +774,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     permissionMode = 'auto' as PermissionMode,
     provider,
     model,
+    onboardingMode = false,
     onListDocuments,
     onReadDocument,
     onSearchDocuments,
@@ -829,6 +874,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const loopPromiseRef = useRef<Promise<void> | null>(null);
   // Per-instance sanitized<->original tool-name map (see sanitizeToolName).
   const toolNameMapRef = useRef<ToolNameMap>(new Map());
+  const onboardingModeRef = useRef(onboardingMode);
+  useEffect(() => { onboardingModeRef.current = onboardingMode; }, [onboardingMode]);
 
   // CLI-flavor overrides set by the AI via `set_session_cli_flavor` after
   // probing a session whose stored flavor was 'auto' (or wrong). Reads in
@@ -914,7 +961,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const [aiTerminalMode, setAiTerminalMode] = useState(false);
   useEffect(() => {
     if (getCurrentMode() === 'enterprise') return;
-    getClient().http.get('/settings/ai.terminal_mode')
+    shareInFlight('settings:ai.terminal_mode', () => getClient().http.get('/settings/ai.terminal_mode'))
       .then((res) => {
         // The settings endpoint has returned both a bare JSON bool and a
         // `{ value: 'true' }` wrapper over time — accept either encoding.
@@ -2687,11 +2734,13 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
         const name = input.name as string;
         const description = input.description as string | undefined;
+        const mopId = typeof input.mop_id === 'string' && input.mop_id.trim() ? input.mop_id.trim() : undefined;
         const sessionIdsStr = input.session_ids as string;
         const preChecksStr = input.pre_checks as string;
         const changesStr = input.changes as string;
         const postChecksStr = input.post_checks as string;
         const rollbackStr = input.rollback as string | undefined;
+        const variablesStr = typeof input.variables === 'string' ? input.variables : undefined;
 
         // Parse session IDs
         const sessionIds = sessionIdsStr.split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -2718,6 +2767,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
           rollback = rb as Array<{ command: string; description?: string }>;
         }
 
+        // Plan variables: [{name, value?, description?, required?}] with valid, unique names.
+        let variables: MopVariable[] | undefined;
+        if (variablesStr && variablesStr.trim()) {
+          const parsed = parseMopVariablesInput(variablesStr);
+          if (typeof parsed === 'string') return { content: parsed, is_error: true };
+          variables = parsed;
+        }
+
         if (!preChecks) {
           return { content: 'pre_checks must be a JSON array of objects each with a non-empty "command" string.', is_error: true };
         }
@@ -2730,6 +2787,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
         try {
           const result = await onCreateMop({
+            mop_id: mopId,
             name,
             description,
             session_ids: sessionIds,
@@ -2737,6 +2795,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
             changes,
             post_checks: postChecks,
             rollback,
+            variables,
           });
 
           return {
@@ -2744,7 +2803,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
               success: true,
               change_id: result.changeId,
               change_name: result.changeName,
-              message: `MOP "${result.changeName}" created successfully. The user can now review and execute it in the Changes tab.`,
+              updated: !!mopId,
+              message: mopId
+                ? `MOP "${result.changeName}" updated in place. The open workspace reloads it on its next save/open.`
+                : `MOP "${result.changeName}" created successfully. The user can now review and execute it in the Changes tab.`,
               steps_created: {
                 pre_checks: preChecks.length,
                 changes: changes.length,
@@ -3101,6 +3163,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
       case 'navigate_to_settings': {
         const tab = input.tab as string | undefined;
+        if (tab && !(NAVIGABLE_SETTINGS_TABS as readonly string[]).includes(tab)) {
+          return { content: `Unknown settings tab "${tab}". Valid tabs: ${NAVIGABLE_SETTINGS_TABS.join(', ')}`, is_error: true };
+        }
         if (onNavigateToSettingsRef.current) {
           onNavigateToSettingsRef.current(tab);
           return { content: `Opened Settings${tab ? ` → ${tab}` : ''}`, is_error: false };
@@ -3199,19 +3264,23 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         // output (the terminal transcript); other tools get a compact row.
         const sessionId = typeof toolUse.input.session_id === 'string' ? toolUse.input.session_id : '';
         const session = sessions.find(s => s.id === sessionId);
+        // exitCode carries the error state so the panel can show failed tool
+        // calls as failures instead of a uniform green check (NS-AI-37).
         if (toolUse.name === 'run_command' || toolUse.name === 'run_console_command') {
           addMessage(createCommandResultMessage(
             describeToolCall(toolUse.name, toolUse.input),
             result.content,
             sessionId,
-            session?.name || sessionId
+            session?.name || sessionId,
+            result.is_error ? 1 : 0
           ));
         } else {
           addMessage(createCommandResultMessage(
             describeToolCall(toolUse.name, toolUse.input),
             displayToolResult(result.content, result.is_error),
             sessionId,
-            session?.name || ''
+            session?.name || '',
+            result.is_error ? 1 : 0
           ));
         }
 
@@ -3248,7 +3317,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       model?: string;
       max_tokens?: number;
       system_prompt?: string;
+      onboarding?: boolean;
     } = { messages, tools };
+    if (onboardingModeRef.current) requestBody.onboarding = true;
 
     // AUDIT FIX (EXEC-002): the legacy `allow_config_changes` request-body
     // field is no longer sent — the backend ignores it. Use
@@ -3261,6 +3332,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         agentTypeRef.current,
         isEnterprise,
         promptOverridesRef.current,
+        // Describe config-backup tools only when the controller offers them (NS-AI-36)
+        { hasBackupTools: serverToolNamesRef.current.has('search_config_backups') },
       );
     }
 
@@ -3364,7 +3437,9 @@ Guidelines:
       model?: string;
       max_tokens?: number;
       system_prompt?: string;
+      onboarding?: boolean;
     } = { messages, tools };
+    if (onboardingModeRef.current) requestBody.onboarding = true;
 
     // AUDIT FIX (EXEC-002): the legacy `allow_config_changes` request-body
     // field is no longer sent — the backend ignores it. Use
@@ -3377,6 +3452,8 @@ Guidelines:
         agentTypeRef.current,
         isEnterprise,
         promptOverridesRef.current,
+        // Describe config-backup tools only when the controller offers them (NS-AI-36)
+        { hasBackupTools: serverToolNamesRef.current.has('search_config_backups') },
       );
     }
 

@@ -21,6 +21,43 @@ export interface WorkspaceStateSummary {
 
 const MORE_LINE = /(--\s*more\s*--|---\(?\s*more[^\n]*\)?---|<--- more --->)/i
 
+/**
+ * Prompt-line detectors per CLI flavor: the whole line is a prompt plus the
+ * command echoed after it. Shared by the live-context parser and the clipboard
+ * `strip-prompts` transform so there is one definition of "what a prompt looks
+ * like" in the frontend. Deliberately strict about the token *before* the
+ * `>`/`#` so config lines such as `banner motd #` or `description WAN>Core`
+ * are not mistaken for prompts.
+ */
+const PROMPT_LINE: Record<'cisco' | 'juniper' | 'paloalto' | 'linux', RegExp> = {
+  // hostname>, hostname#, hostname(config-if)#, RP/0/RP0/CPU0:xr#
+  cisco: /^[\w./:-]+(\([\w./:-]*\))?[>#]\s?.*$/,
+  // user@host> / user@host# (Junos); the {master:0} banner is not a prompt
+  juniper: /^[\w.-]+@[\w.-]+[>#%]\s?.*$/,
+  // admin@fw> / admin@fw(active)# / admin@fw#
+  paloalto: /^[\w.-]+@[\w.-]+(\([\w.-]*\))?[>#]\s?.*$/,
+  // user@host:~/dir$ / [user@host dir]# / bash-5.1$
+  linux: /^(\[[^\]]*\]|[\w.-]+@[\w.-]+:[^$#\n]*|[\w.-]+)[$#]\s?.*$/,
+}
+
+export function isPromptLine(line: string, flavor: CliFlavor): boolean {
+  const l = line.trimEnd()
+  if (!l) return false
+  switch (flavor) {
+    case 'juniper': return PROMPT_LINE.juniper.test(l)
+    case 'paloalto': return PROMPT_LINE.paloalto.test(l)
+    case 'linux': return PROMPT_LINE.linux.test(l)
+    case 'cisco-ios':
+    case 'cisco-ios-xr':
+    case 'cisco-nxos':
+    case 'arista':
+    case 'fortinet':
+      return PROMPT_LINE.cisco.test(l)
+    default:
+      return Object.values(PROMPT_LINE).some((re) => re.test(l))
+  }
+}
+
 /** Strip pager fragments and the backspace/redraw artifacts they leave behind. */
 export function collapsePaging(buffer: string): string {
   return buffer
@@ -126,10 +163,47 @@ export function computeStateSummary(buffer: string, flavor: CliFlavor): Workspac
   }
 }
 
+/** Compact view of an open MOP tab (published by MopWorkspace, see lib/mopAiContext.ts). */
+export interface MopLiveSummary {
+  id: string | null
+  name: string
+  dirty: boolean
+  stepCounts: { pre_check: number; change: number; post_check: number; rollback: number }
+  devices: string[]
+  platforms: string[]
+  /** Set when every target shares one CLI flavor. */
+  cliFlavor?: CliFlavor
+  execution: { id: string; status: string; passed: number; failed: number; total: number } | null
+}
+
+/** What the active editor-ish tab is: a document (Zone 2) or an open MOP workspace. */
+export interface LiveEditorState {
+  path: string
+  dirty: boolean
+  /** Present when the active tab is a MOP workspace. */
+  mop?: MopLiveSummary
+}
+
 export interface LiveContextDeps {
   getBuffer: (sessionId: string, lines: number) => string | null
   getSession: (sessionId: string) => { name: string; host?: string; cliFlavor?: CliFlavor } | null
-  getEditorState?: () => { path: string; dirty: boolean } | null
+  getEditorState?: () => LiveEditorState | null
+}
+
+/** One-paragraph description of an open MOP for the live context envelope. */
+export function formatMopSummary(mop: MopLiveSummary): string {
+  const c = mop.stepCounts
+  const lines: string[] = []
+  lines.push(`Open MOP: "${mop.name}"${mop.id ? ` (id ${mop.id})` : ' (unsaved draft, no id yet)'}${mop.dirty ? ' — unsaved changes' : ''}`)
+  lines.push(`  Steps: ${c.pre_check} pre-checks, ${c.change} changes, ${c.post_check} post-checks, ${c.rollback} rollback`)
+  lines.push(`  Devices (${mop.devices.length}): ${mop.devices.length ? mop.devices.join(', ') : 'none selected'}${mop.platforms.length ? ` | Platforms: ${mop.platforms.join(', ')}` : ''}`)
+  if (mop.execution) {
+    lines.push(`  Execution ${mop.execution.id}: ${mop.execution.status}, ${mop.execution.passed}/${mop.execution.total} passed${mop.execution.failed ? `, ${mop.execution.failed} failed` : ''}`)
+  } else {
+    lines.push('  Execution: none started')
+  }
+  if (mop.id) lines.push(`  To edit this MOP use create_mop with mop_id="${mop.id}" (updates in place); get_mop returns its full steps.`)
+  return lines.join('\n')
 }
 
 function formatSummary(s: WorkspaceStateSummary, flavor: CliFlavor, host: string): string {
@@ -196,7 +270,8 @@ export async function buildLiveContext(activeSessionId: string | null, deps: Liv
 
     if (includeEditor && deps.getEditorState) {
       const ed = deps.getEditorState()
-      if (ed) sections.push(`Editor (Zone 2): open ${ed.path}${ed.dirty ? ' (unsaved changes)' : ''}`)
+      if (ed?.mop) sections.push(formatMopSummary(ed.mop))
+      else if (ed) sections.push(`Editor (Zone 2): open ${ed.path}${ed.dirty ? ' (unsaved changes)' : ''}`)
     }
 
     if (!header && !sections.length) return ''

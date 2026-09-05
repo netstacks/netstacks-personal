@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { copyToClipboard } from '../lib/clipboard'
 import AITabInput from './AITabInput'
 import './AlertDetailTab.css'
 import {
@@ -234,7 +235,7 @@ export default function AlertDetailTab({
 
   const copyPayload = () => {
     if (alert?.raw_payload) {
-      navigator.clipboard.writeText(JSON.stringify(alert.raw_payload, null, 2))
+      void copyToClipboard(JSON.stringify(alert.raw_payload, null, 2), { source: 'app-copy', tabType: 'alert-detail' })
     }
   }
 

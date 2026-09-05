@@ -34,7 +34,17 @@ pub(crate) type ExecResponder = Arc<dyn Fn(&str) -> Option<ExecResponse> + Send 
 pub(crate) struct ShellScript {
     pub prompt: String,
     pub responder: Arc<dyn Fn(&str) -> String + Send + Sync>,
+    /// Optional low-level override consulted first. Returning `Some(chunks)`
+    /// makes the server echo the line and then write each `(delay, text)`
+    /// chunk verbatim after sleeping `delay` — no automatic prompt, so a
+    /// test can script a hung command, a `--More--` pager, or a
+    /// `Enter value:` line that is NOT a prompt. A bare space typed with no
+    /// pending input (pager continue) is delivered as the line `" "`.
+    pub raw_responder: Option<RawShellResponder>,
 }
+
+pub(crate) type RawShellResponder =
+    Arc<dyn Fn(&str) -> Option<Vec<(std::time::Duration, String)>> + Send + Sync>;
 
 /// Configuration for the test SSH server.
 #[derive(Clone)]
@@ -72,7 +82,10 @@ pub(crate) struct TestServer {
 
 impl TestServer {
     fn new(cfg: Arc<TestServerConfig>) -> Self {
-        TestServer { cfg, shell_line: String::new() }
+        TestServer {
+            cfg,
+            shell_line: String::new(),
+        }
     }
 }
 
@@ -86,11 +99,7 @@ impl Server for TestServer {
 impl russh::server::Handler for TestServer {
     type Error = russh::Error;
 
-    async fn auth_password(
-        &mut self,
-        user: &str,
-        password: &str,
-    ) -> Result<Auth, Self::Error> {
+    async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         if let Some((u, p)) = &self.cfg.accept_password {
             if user == u && password == p {
                 return Ok(Auth::Accept);
@@ -190,8 +199,25 @@ impl russh::server::Handler for TestServer {
         };
         for b in data {
             match b {
+                b' ' if self.shell_line.is_empty() && script.raw_responder.is_some() => {
+                    let raw = script.raw_responder.clone().expect("checked is_some");
+                    match raw(" ") {
+                        Some(chunks) => {
+                            write_raw_chunks(session.handle(), channel, String::new(), chunks)
+                        }
+                        None => self.shell_line.push(' '),
+                    }
+                }
                 b'\n' | b'\r' => {
                     let line = std::mem::take(&mut self.shell_line);
+                    if let Some(chunks) = script
+                        .raw_responder
+                        .as_ref()
+                        .and_then(|raw| raw(line.trim()))
+                    {
+                        write_raw_chunks(session.handle(), channel, format!("{line}\r\n"), chunks);
+                        continue;
+                    }
                     let mut output = (script.responder)(line.trim());
                     if !output.is_empty() && !output.ends_with('\n') {
                         output.push_str("\r\n");
@@ -225,19 +251,43 @@ impl russh::server::Handler for TestServer {
             }
             if !response.stderr.is_empty() {
                 // ext = 1 = stderr per RFC 4254
-                let _ = handle.extended_data(channel, 1, response.stderr.into()).await;
+                let _ = handle
+                    .extended_data(channel, 1, response.stderr.into())
+                    .await;
             }
             if eof_first {
                 let _ = handle.eof(channel).await;
-                let _ = handle.exit_status_request(channel, response.exit_status).await;
+                let _ = handle
+                    .exit_status_request(channel, response.exit_status)
+                    .await;
             } else {
-                let _ = handle.exit_status_request(channel, response.exit_status).await;
+                let _ = handle
+                    .exit_status_request(channel, response.exit_status)
+                    .await;
                 let _ = handle.eof(channel).await;
             }
             let _ = handle.close(channel).await;
         });
         Ok(())
     }
+}
+
+/// Write `echo` then each raw chunk after its delay, off the handler task.
+fn write_raw_chunks(
+    handle: russh::server::Handle,
+    channel: ChannelId,
+    echo: String,
+    chunks: Vec<(std::time::Duration, String)>,
+) {
+    tokio::spawn(async move {
+        if !echo.is_empty() {
+            let _ = handle.data(channel, echo.into_bytes().into()).await;
+        }
+        for (delay, text) in chunks {
+            tokio::time::sleep(delay).await;
+            let _ = handle.data(channel, text.into_bytes().into()).await;
+        }
+    });
 }
 
 /// Bridge a russh server channel <-> a real TCP socket.
@@ -308,8 +358,18 @@ pub(crate) async fn start_test_server(cfg: TestServerConfig) -> SocketAddr {
 }
 
 /// Generate an ephemeral Ed25519 key for testing.
+/// Host key for fake test servers. One key is shared by every server in the
+/// test process: servers bind random loopback ports, and if the OS hands a
+/// later test a port an earlier test already trusted (TOFU), a *different*
+/// key would be refused as "host key changed". Tests that need a genuinely
+/// distinct key can call `PrivateKey::random` directly.
 pub(crate) fn ephemeral_ed25519() -> PrivateKey {
-    PrivateKey::random(&mut rand::rngs::OsRng, ssh_key::Algorithm::Ed25519).unwrap()
+    static SHARED: std::sync::OnceLock<PrivateKey> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            PrivateKey::random(&mut rand::rngs::OsRng, ssh_key::Algorithm::Ed25519).unwrap()
+        })
+        .clone()
 }
 
 /// Write a temporary key file for publickey auth tests. Returns the path.
@@ -342,7 +402,7 @@ pub(crate) async fn start_jump_and_target(
         exec_responder: None,
         eof_before_exit_status: false,
         shell: None,
-            host_key: ephemeral_ed25519(),
+        host_key: ephemeral_ed25519(),
     })
     .await;
 
@@ -353,7 +413,7 @@ pub(crate) async fn start_jump_and_target(
         exec_responder: None,
         eof_before_exit_status: false,
         shell: None,
-            host_key: ephemeral_ed25519(),
+        host_key: ephemeral_ed25519(),
     })
     .await;
 
