@@ -2622,6 +2622,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
             title: session.name,
             sessionId: session.id,
             profileId: session.profile_id,
+            protocol: session.protocol || 'ssh',
             cliFlavor: session.cli_flavor,
             terminalTheme,
             fontSize,
@@ -2652,6 +2653,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
             title: sessionByIp.name,
             sessionId: sessionByIp.id,
             profileId: sessionByIp.profile_id,
+            protocol: sessionByIp.protocol || 'ssh',
             cliFlavor: sessionByIp.cli_flavor,
             terminalTheme,
             fontSize,
@@ -6795,6 +6797,12 @@ def main(command: str = "show version"):
           isJumpbox={tab.isJumpbox}
           onEnterpriseSessionId={(sid) => updateTabSessionId(tab.id, sid)}
           onReviewPaste={(text, raw) => setPastePreview({ text, tabId: tab.id, raw })}
+          onAskAIContext={(ctx) => handleAskAISeed(
+            `This device (${tab.title}) has a recorded incident${ctx.ticket_ref ? ` (${ctx.ticket_ref})` : ''}: ${ctx.issue}`
+            + (ctx.root_cause ? `\nRoot cause: ${ctx.root_cause}` : '')
+            + (ctx.resolution ? `\nResolution: ${ctx.resolution}` : '')
+            + `\n\nIs what I'm seeing in this session related, and what should I check first?`,
+          )}
           aiOverlordActive={aiOverlordActive}
           onOverlordAnnotationClick={(reason, text, highlightType) => {
             // Open AI side panel with context about this finding

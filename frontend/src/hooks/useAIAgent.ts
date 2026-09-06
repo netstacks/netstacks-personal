@@ -914,10 +914,17 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const autoSendTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
     if (initialMessages && initialMessages.length > 0) {
-      setMessages(capDisplayMessages(initialMessages));
+      // Auto-send: if the last message is from the user and we haven't already
+      // sent it. sendMessage adds that message to the transcript and the model
+      // history itself, so it must not be seeded here as well or the question
+      // shows up twice (NS-AI-44).
+      const lastMsg = initialMessages[initialMessages.length - 1];
+      const autoSend = lastMsg?.type === 'user' && lastMsg.id !== autoSendTriggeredRef.current;
+      const seeded = autoSend ? initialMessages.slice(0, -1) : initialMessages;
+      setMessages(capDisplayMessages(seeded));
       // Rebuild conversation history
       const history: AgentChatMessage[] = [];
-      for (const msg of initialMessages) {
+      for (const msg of seeded) {
         if (msg.type === 'user') {
           history.push({ role: 'user', content: msg.content });
         } else if (msg.type === 'agent-thinking') {
@@ -926,9 +933,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       }
       conversationRef.current = history;
 
-      // Auto-send: if last message is user and we haven't already sent it
-      const lastMsg = initialMessages[initialMessages.length - 1];
-      if (lastMsg?.type === 'user' && lastMsg.id !== autoSendTriggeredRef.current) {
+      if (autoSend) {
         autoSendTriggeredRef.current = lastMsg.id;
         // Defer to next tick so state is settled; cleared on unmount / change
         // so it can't fire into an unmounted hook.
