@@ -270,7 +270,8 @@ const AIFloatingChat = ({
     }
     prompt += userMessage
 
-    sendMessage(prompt)
+    // Envelopes (session, selection) go to the model; the bubble shows what was typed.
+    sendMessage(prompt, userMessage)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

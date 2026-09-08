@@ -450,7 +450,12 @@ export interface UseAIAgentReturn {
   messages: AgentMessage[];
   agentState: AgentState;
   pendingCommands: PendingCommand[];
-  sendMessage: (content: string) => Promise<void>;
+  /**
+   * Send a turn. `displayContent`, when given, is what the transcript shows
+   * for the user bubble; `content` is what the model receives (it may carry
+   * session/selection envelopes the user should not see echoed back).
+   */
+  sendMessage: (content: string, displayContent?: string) => Promise<void>;
   approveCommands: () => void;
   rejectCommands: () => void;
   stopAgent: () => void;
@@ -3974,7 +3979,7 @@ Guidelines:
   }, [callAgentApiStream, processToolCalls, addMessage, availableTools, singleTurn, provider, globalTokenTracker]);
 
   // Send a new message to the agent
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, displayContent?: string) => {
     logger.log('[AI Agent] sendMessage called with:', content.slice(0, 100));
     if (!content.trim()) {
       logger.log('[AI Agent] Blocked: empty content');
@@ -3987,7 +3992,7 @@ Guidelines:
 
     logger.log('[AI Agent] Proceeding with message');
     // Add user message to UI (plain — the envelope is model-only)
-    addMessage(createUserMessage(content));
+    addMessage(createUserMessage(displayContent ?? content));
 
     // A Stop mid-tool flips the state to idle before the previous loop has
     // actually unwound. Wait for it rather than starting a second loop that

@@ -91,6 +91,10 @@ interface TopologyCanvasProps {
   visibleLayers?: LayerVisibility;
   /** Enable marquee selection (typically when currentTool is 'select') */
   marqueeEnabled?: boolean;
+  /** Enable left-button pan on empty space AND over devices (typically when
+   *  currentTool is 'pan'). Middle-button drag and Space+drag always pan,
+   *  regardless of this flag. */
+  panEnabled?: boolean;
   /** Callback when marquee selection completes */
   onMarqueeSelect?: (ids: Set<string>, additive?: boolean) => void;
 }
@@ -186,6 +190,7 @@ export default function TopologyCanvas({
   showPortStats = false,
   visibleLayers,
   marqueeEnabled = false,
+  panEnabled = false,
   onMarqueeSelect,
 }: TopologyCanvasProps) {
   const { settings } = useSettings();
@@ -220,6 +225,12 @@ export default function TopologyCanvas({
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0, viewOffsetX: 0, viewOffsetY: 0 });
+
+  // Space held → temporary pan mode regardless of the active tool. Tracked on
+  // window so it works without canvas focus; the ref mirrors the state so the
+  // mousedown handler sees it without waiting for a re-render.
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceHeldRef = useRef(false);
 
   // Device dragging state
   const [draggingDevice, setDraggingDevice] = useState<{
@@ -1683,7 +1694,7 @@ export default function TopologyCanvas({
    * Handle mouse move for hover detection, panning, and device dragging
    */
   const handleMouseMove = useCallback(
-    (event: React.MouseEvent<HTMLCanvasElement>) => {
+    (event: React.MouseEvent<HTMLCanvasElement> | MouseEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -1924,9 +1935,11 @@ export default function TopologyCanvas({
         setCursorWorldPosition({ x: worldX, y: worldY });
       }
 
-      // Update cursor style - show crosshair in drawing mode, grab for devices
-      if (drawingConnection) {
-        canvas.style.cursor = device ? 'crosshair' : 'crosshair';
+      // Update cursor style - grab in pan mode, crosshair in drawing mode, grab for devices
+      if (panEnabled || spaceHeldRef.current) {
+        canvas.style.cursor = 'grab';
+      } else if (drawingConnection) {
+        canvas.style.cursor = 'crosshair';
       } else if (device) {
         canvas.style.cursor = 'grab';
       } else if (connection) {
@@ -1935,16 +1948,17 @@ export default function TopologyCanvas({
         canvas.style.cursor = 'default';
       }
     },
-    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findConnectionAtPosition, hoveredDevice, hoveredConnection, isPanning, draggingDevice, draggingGroupStarts, draggingAnnotation, resizingAnnotation, zoom, canvasSize.width, drawingConnection, connectionSource, onConnectionHover, onDeviceHover, marquee]
+    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findConnectionAtPosition, hoveredDevice, hoveredConnection, isPanning, draggingDevice, draggingGroupStarts, draggingAnnotation, resizingAnnotation, zoom, canvasSize.width, drawingConnection, connectionSource, onConnectionHover, onDeviceHover, marquee, panEnabled]
   );
 
   /**
-   * Handle mouse leave
+   * Handle mouse leave. Only hover state is cleared here — an in-progress
+   * pan/drag/marquee keeps tracking the pointer via window listeners (see
+   * the interaction effect below), so leaving the canvas never aborts it.
    */
   const handleMouseLeave = useCallback(() => {
     setHoveredDevice(null);
     setHoveredConnection(null);
-    setIsPanning(false);
     setCursorWorldPosition(null);
 
     // Clear device hover timeout and callback
@@ -1966,29 +1980,29 @@ export default function TopologyCanvas({
     if (onConnectionHover) {
       onConnectionHover(null);
     }
-    // If dragging, save position on leave (same as mouse up)
-    if (draggingDevice) {
-      const finalPos = localDevicePositions.get(draggingDevice.id);
-      if (draggingGroupStarts && onGroupPositionChange) {
-        // Group drag
-        const moves: { deviceId: string; x: number; y: number }[] = [];
-        for (const [id, pos] of localDevicePositions) {
-          moves.push({ deviceId: id, x: pos.x, y: pos.y });
-        }
-        onGroupPositionChange(moves);
-      } else if (finalPos && onDevicePositionChange) {
-        // Single device drag
-        onDevicePositionChange(draggingDevice.id, finalPos.x, finalPos.y);
-      }
-      setDraggingDevice(null);
-      setDraggingGroupStarts(null);
-      setLocalDevicePositions(new Map());
+    const interacting = isPanning || draggingDevice || draggingAnnotation || resizingAnnotation || marquee;
+    const canvas = canvasRef.current;
+    if (canvas && !interacting) {
+      canvas.style.cursor = panEnabled || spaceHeldRef.current ? 'grab' : 'default';
     }
+  }, [isPanning, draggingDevice, draggingAnnotation, resizingAnnotation, marquee, panEnabled, onConnectionHover, onDeviceHover]);
+
+  /**
+   * Begin a pan from the given canvas-relative screen position
+   */
+  const startPan = useCallback((screenX: number, screenY: number) => {
+    setIsPanning(true);
+    panStartRef.current = {
+      x: screenX,
+      y: screenY,
+      viewOffsetX: viewOffset.x,
+      viewOffsetY: viewOffset.y,
+    };
     const canvas = canvasRef.current;
     if (canvas) {
-      canvas.style.cursor = 'default';
+      canvas.style.cursor = 'grabbing';
     }
-  }, [draggingDevice, draggingGroupStarts, localDevicePositions, onDevicePositionChange, onGroupPositionChange, onConnectionHover, onDeviceHover]);
+  }, [viewOffset]);
 
   /**
    * Handle mouse down for device selection, dragging, and pan start
@@ -2001,16 +2015,26 @@ export default function TopologyCanvas({
       // Notify parent to close any overlays (detail cards, etc.)
       onCanvasMouseDown?.();
 
-      // Only the left button drives canvas interaction here. Right/middle
-      // clicks are handled entirely by onContextMenu — without this guard a
+      const rect = canvas.getBoundingClientRect();
+      const screenX = event.clientX - rect.left;
+      const screenY = event.clientY - rect.top;
+
+      // Pan wins over every other interaction when the pan tool is active;
+      // middle-button drag and Space+drag pan regardless of the tool.
+      const wantsPan = panEnabled || event.button === 1 || spaceHeldRef.current;
+      if (wantsPan && (event.button === 0 || event.button === 1)) {
+        // Stop the browser's middle-click autoscroll / text-selection gesture
+        event.preventDefault();
+        startPan(screenX, screenY);
+        return;
+      }
+
+      // Only the left button drives canvas interaction here. Right clicks
+      // are handled entirely by onContextMenu — without this guard a
       // right-click near a link falls through to the connection-click branch
       // below and pops the link-detail card *in addition to* the device
       // context menu.
       if (event.button !== 0) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
 
       const worldX = screenToWorldX(screenX);
       const worldY = screenToWorldY(screenY);
@@ -2153,14 +2177,7 @@ export default function TopologyCanvas({
           );
         } else {
           // Default: start panning
-          setIsPanning(true);
-          panStartRef.current = {
-            x: screenX,
-            y: screenY,
-            viewOffsetX: viewOffset.x,
-            viewOffsetY: viewOffset.y,
-          };
-          canvas.style.cursor = 'grabbing';
+          startPan(screenX, screenY);
         }
         // Deselect when clicking empty space
         if (selectedDeviceId === undefined) {
@@ -2170,14 +2187,14 @@ export default function TopologyCanvas({
         onAnnotationSelect?.(null);
       }
     },
-    [screenToWorldX, screenToWorldY, findDeviceAtPosition, findResizeHandleAtPosition, findAnnotationAtPosition, findConnectionAtPosition, getDevicePosition, getAnnotationPosition, onConnectionClick, viewOffset, selectedDeviceId, selectedDeviceIds, topology, drawingConnection, onDeviceClickForConnection, onCanvasMouseDown, onEmptySpaceClick, onAnnotationSelect, marqueeEnabled]
+    [screenToWorldX, screenToWorldY, findDeviceAtPosition, findResizeHandleAtPosition, findAnnotationAtPosition, findConnectionAtPosition, getDevicePosition, getAnnotationPosition, onConnectionClick, startPan, selectedDeviceId, selectedDeviceIds, topology, drawingConnection, onDeviceClickForConnection, onCanvasMouseDown, onEmptySpaceClick, onAnnotationSelect, marqueeEnabled, panEnabled]
   );
 
   /**
    * Handle mouse up to stop panning or device dragging
    */
   const handleMouseUp = useCallback(
-    (event: React.MouseEvent<HTMLCanvasElement>) => {
+    (event: React.MouseEvent<HTMLCanvasElement> | MouseEvent) => {
       const canvas = canvasRef.current;
 
       // Handle marquee selection end
@@ -2327,12 +2344,61 @@ export default function TopologyCanvas({
           const worldX = screenToWorldX(screenX);
           const worldY = screenToWorldY(screenY);
           const device = findDeviceAtPosition(worldX, worldY);
-          canvas.style.cursor = device ? 'grab' : 'default';
+          canvas.style.cursor = panEnabled || spaceHeldRef.current || device ? 'grab' : 'default';
         }
       }
     },
-    [isPanning, draggingDevice, draggingGroupStarts, localDevicePositions, draggingAnnotation, localAnnotationPositions, resizingAnnotation, localAnnotationSizes, topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, onDevicePositionChange, onGroupPositionChange, onDeviceClick, onAnnotationPositionChange, onAnnotationSizeChange, marquee, selectedDeviceIds, onMarqueeSelect]
+    [isPanning, draggingDevice, draggingGroupStarts, localDevicePositions, draggingAnnotation, localAnnotationPositions, resizingAnnotation, localAnnotationSizes, topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, onDevicePositionChange, onGroupPositionChange, onDeviceClick, onAnnotationPositionChange, onAnnotationSizeChange, marquee, selectedDeviceIds, onMarqueeSelect, panEnabled]
   );
+
+  // While a pan/drag/resize/marquee is in progress, track the pointer on
+  // window so leaving the canvas (or the webview bounds) doesn't abort it.
+  // The canvas's own React move/up handlers are detached meanwhile so a
+  // mouseup over the canvas isn't processed twice.
+  const interactionActive = isPanning || !!draggingDevice || !!draggingAnnotation || !!resizingAnnotation || !!marquee;
+  useEffect(() => {
+    if (!interactionActive) return;
+    const handleWindowMouseMove = (event: MouseEvent) => handleMouseMove(event);
+    const handleWindowMouseUp = (event: MouseEvent) => handleMouseUp(event);
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [interactionActive, handleMouseMove, handleMouseUp]);
+
+  // Space-bar tracking for temporary pan mode. Ignored while typing in an
+  // input/textarea/contenteditable; released on window blur so a Cmd+Tab
+  // mid-press can't leave the canvas stuck in pan mode.
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+    };
+    const setHeld = (held: boolean) => {
+      if (spaceHeldRef.current === held) return;
+      spaceHeldRef.current = held;
+      setSpaceHeld(held);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat || isEditableTarget(event.target)) return;
+      setHeld(true);
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') setHeld(false);
+    };
+    const handleBlur = () => setHeld(false);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
 
   /**
    * Handle double-click for device action, annotation editing, or empty space (finishing line drawing)
@@ -2481,7 +2547,7 @@ export default function TopologyCanvas({
    * Handle wheel for zoom centered on mouse position
    */
   const handleWheel = useCallback(
-    (event: React.WheelEvent<HTMLCanvasElement>) => {
+    (event: WheelEvent) => {
       event.preventDefault();
 
       const canvas = canvasRef.current;
@@ -2551,6 +2617,23 @@ export default function TopologyCanvas({
       });
     }
   }, [zoom, viewOffset, canvasSize]);
+
+  // Wheel zoom is attached natively with { passive: false }: React's onWheel
+  // is registered as a passive listener in WebKit, so preventDefault() there
+  // is ignored and the webview scrolls instead of zooming. The handler goes
+  // through a ref so the listener isn't re-bound on every zoom/pan change.
+  const handleWheelRef = useRef(handleWheel);
+  useEffect(() => {
+    handleWheelRef.current = handleWheel;
+  }, [handleWheel]);
+  const hasTopology = topology !== null;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (event: WheelEvent) => handleWheelRef.current(event);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, [hasTopology]);
 
   /**
    * Handle canvas resize
@@ -2666,14 +2749,13 @@ export default function TopologyCanvas({
       <canvas
         ref={canvasRef}
         className="topology-canvas"
-        style={{ cursor: isPanning ? 'grabbing' : onEmptySpaceClick ? 'crosshair' : 'default' }}
+        style={{ cursor: isPanning ? 'grabbing' : panEnabled || spaceHeld ? 'grab' : onEmptySpaceClick ? 'crosshair' : 'default' }}
         onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
+        onMouseUp={interactionActive ? undefined : handleMouseUp}
+        onMouseMove={interactionActive ? undefined : handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
-        onWheel={handleWheel}
       />
 
       {/* Zoom controls overlay */}

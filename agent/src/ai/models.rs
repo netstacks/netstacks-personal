@@ -60,8 +60,21 @@ async fn get_json(req: reqwest::RequestBuilder, provider: &str) -> Result<serde_
     let resp = req.send().await.map_err(|e| format!("{provider} request failed: {e}"))?;
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
+    // A web page where JSON was expected is a Base URL pointing at a site, not
+    // an API; say that instead of pasting the page into the settings card.
+    let is_html = {
+        let head: String = text.trim_start().chars().take(64).collect::<String>().to_ascii_lowercase();
+        head.starts_with("<!doctype html") || head.starts_with("<html")
+    };
+    if is_html {
+        return Err(format!(
+            "{provider} returned an HTML page (HTTP {status}) instead of JSON — the Base URL probably \
+             points at a website or the wrong proxy. Check Settings → AI → {provider} → Base URL."
+        ));
+    }
     if !status.is_success() {
-        return Err(format!("{provider} returned {status}: {}", text.trim()));
+        let body: String = text.trim().chars().take(400).collect();
+        return Err(format!("{provider} returned {status}: {body}"));
     }
     serde_json::from_str(&text).map_err(|e| format!("{provider} sent invalid JSON: {e}"))
 }
@@ -160,7 +173,8 @@ pub async fn fetch_models(
             Ok(parse_openai_style(&body))
         }
         "openrouter" => {
-            let base = base_url.filter(|u| !u.is_empty()).map(trim)
+            let base = base_url.filter(|u| !u.is_empty())
+                .map(super::providers::normalize_openrouter_base_url)
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
             let mut req = client.get(format!("{base}/models"));
             if let Some(key) = api_key.filter(|k| !k.is_empty()) {

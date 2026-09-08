@@ -7259,6 +7259,10 @@ def main(command: str = "show version"):
         {/* CommandRegistry ↔ native menu bridge. Mounted at the root so
             it stays alive for the whole session. Doesn't render anything. */}
         <MenuBridge />
+        {/* The title bar only makes sense inside the desktop window; the
+            browser build (controller /terminal/) keeps the space. Command
+            palette, sidebar and AI panel remain reachable via shortcuts. */}
+        {isTauri && (
         <TopBar
           platform={platform}
           sidebarOpen={sidebarOpen}
@@ -7270,6 +7274,7 @@ def main(command: str = "show version"):
           menuSlot={platform === 'macos' ? undefined : <MenuBar />}
           windowControlsSlot={platform === 'macos' ? undefined : <WindowControls />}
         />
+        )}
         <div className="app-body" data-testid="app-body">
         {/* Activity Bar */}
         <div className="activity-bar" data-testid="activity-bar">

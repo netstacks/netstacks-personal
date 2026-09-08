@@ -198,9 +198,11 @@ const AIInlinePopup = ({
       if (sessionId && sessionName) {
         prompt = `[Working on session: ${sessionName} (ID: ${sessionId})]\n\n`
       }
-      prompt += intent ? `${intent}\n\n${selectedText}` : selectedText
+      const shown = intent ? `${intent}\n\n${selectedText}` : selectedText
+      prompt += shown
 
-      sendMessage(prompt)
+      // The session envelope is for the model; the bubble shows the request.
+      sendMessage(prompt, shown)
     }
   }, [isOpen, providerInitialized, selectedText, action, sessionId, sessionName, messages.length, sendMessage])
 

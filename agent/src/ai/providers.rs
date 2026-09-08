@@ -5,7 +5,7 @@
 //! - MockProvider: Placeholder responses when no API key configured
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1647,6 +1647,9 @@ struct OpenAIFunctionCall {
 /// OpenAI API response format
 #[derive(Debug, Deserialize)]
 struct OpenAIResponse {
+    /// Absent when the provider returns an `error` body with HTTP 200
+    /// (OpenRouter does this for upstream failures) — see `parse_openai_compat`.
+    #[serde(default)]
     choices: Vec<OpenAIChoice>,
     #[serde(default)]
     error: Option<OpenAIError>,
@@ -1664,6 +1667,7 @@ struct OpenAIUsage {
 /// OpenAI API response with tool calls
 #[derive(Debug, Deserialize)]
 struct OpenAIAgentResponse {
+    #[serde(default)]
     choices: Vec<OpenAIAgentChoice>,
     #[serde(default)]
     error: Option<OpenAIError>,
@@ -1673,21 +1677,24 @@ struct OpenAIAgentResponse {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIChoice {
+    /// Some gateways send `"message": null` on an errored choice.
+    #[serde(default, deserialize_with = "null_default")]
     message: OpenAIResponseMessage,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIAgentChoice {
+    #[serde(default, deserialize_with = "null_default")]
     message: OpenAIAgentResponseMessage,
     finish_reason: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct OpenAIResponseMessage {
     content: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct OpenAIAgentResponseMessage {
     content: Option<String>,
     #[serde(default)]
@@ -1699,6 +1706,101 @@ struct OpenAIError {
     message: String,
     #[serde(rename = "type")]
     error_type: Option<String>,
+}
+
+/// Deserialize `null` as `T::default()` (serde's `default` only covers a
+/// missing field).
+fn null_default<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// Parse an OpenAI-compatible JSON body. Unlike `Response::json()`, a decode
+/// failure keeps the provider's own `error.message` when the body is an error
+/// envelope (OpenRouter returns those with HTTP 200), and otherwise quotes the
+/// start of the body so the failure can be diagnosed from the UI/log instead
+/// of reading as "error decoding response body".
+fn parse_openai_compat<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, AiError> {
+    match serde_json::from_str::<T>(body) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            if let Some(msg) = provider_error_message(body) {
+                return Err(AiError::RequestFailed(msg));
+            }
+            if let Some(msg) = html_body_message(body) {
+                return Err(AiError::InvalidResponse(msg));
+            }
+            let snippet: String = body.chars().take(300).collect();
+            Err(AiError::InvalidResponse(format!(
+                "Failed to parse response: {} — body starts: {}",
+                e,
+                snippet.trim()
+            )))
+        }
+    }
+}
+
+/// `error.message` (plus `error.code` when present) from an OpenAI-style error
+/// envelope, or `None` when the body is not one.
+fn provider_error_message(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let err = v.get("error")?;
+    let message = err
+        .get("message")
+        .and_then(|m| m.as_str())
+        .map(str::to_string)
+        .or_else(|| err.as_str().map(str::to_string))?;
+    Some(match err.get("code") {
+        Some(code) if !code.is_null() => format!("{} (code {})", message, code),
+        _ => message,
+    })
+}
+
+/// A web page where JSON was expected means the request hit a site, not an
+/// API — almost always a base URL missing its API path (OpenRouter's is
+/// `/api/v1`). Say so instead of quoting 300 characters of HTML.
+fn html_body_message(body: &str) -> Option<String> {
+    let head: String = body.trim_start().chars().take(64).collect::<String>().to_ascii_lowercase();
+    if head.starts_with("<!doctype html") || head.starts_with("<html") {
+        Some(
+            "Provider returned an HTML page instead of JSON. The provider's Base URL is \
+             probably missing its API path — OpenRouter expects https://openrouter.ai/api/v1, \
+             OpenAI https://api.openai.com/v1. Check Settings → AI → Base URL."
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Accept the base URLs people actually type for OpenRouter (`openrouter.ai`,
+/// `https://openrouter.ai`, `https://openrouter.ai/api`) and turn them into
+/// the API root. Anything else (a proxy or gateway) is returned unchanged,
+/// minus a trailing slash.
+pub(crate) fn normalize_openrouter_base_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    let with_scheme = if trimmed.contains("://") { trimmed.to_string() } else { format!("https://{trimmed}") };
+    let host_and_path = with_scheme.split("://").nth(1).unwrap_or("");
+    let (host, path) = host_and_path.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((host_and_path, String::new()));
+    if host.eq_ignore_ascii_case("openrouter.ai") && matches!(path.as_str(), "" | "/api" | "/api/v1") {
+        "https://openrouter.ai/api/v1".to_string()
+    } else {
+        with_scheme
+    }
+}
+
+/// Read and parse an OpenAI-compatible response body (see `parse_openai_compat`).
+async fn decode_openai_compat<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, AiError> {
+    let body = response
+        .text()
+        .await
+        .map_err(|e| AiError::InvalidResponse(format!("Failed to read response body: {}", e)))?;
+    parse_openai_compat(&body)
 }
 
 // ===== OpenAI-compatible streaming chunk types =====
@@ -2917,6 +3019,21 @@ fn anthropic_tools_to_openai(tools: Option<Vec<serde_json::Value>>) -> Option<Ve
 ///    `stream_options: { include_usage: true }`. Callers should set that.
 ///
 /// The literal line `data: [DONE]` marks end of stream.
+/// Error for a streaming request that returned a non-SSE body and no events.
+fn non_sse_stream_error(body: &str) -> AiError {
+    match provider_error_message(body) {
+        Some(msg) => AiError::RequestFailed(msg),
+        None if html_body_message(body).is_some() => AiError::InvalidResponse(html_body_message(body).unwrap_or_default()),
+        None => {
+            let snippet: String = body.chars().take(300).collect();
+            AiError::InvalidResponse(format!(
+                "Provider returned no stream events — body starts: {}",
+                snippet.trim()
+            ))
+        }
+    }
+}
+
 fn parse_openai_compatible_stream(
     response: reqwest::Response,
 ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send>> {
@@ -2931,6 +3048,12 @@ fn parse_openai_compatible_stream(
         // we've already emitted ToolUseStart for that index (so we know to emit
         // ToolUseEnd before starting a new one or before ending the stream).
         let mut active_tool_index: Option<usize> = None;
+        // Lines that are not SSE (`data:` / `event:` / comments). A provider
+        // that answers a streaming request with a plain JSON error body (HTTP
+        // 200, OpenRouter) lands here; if the stream then ends without a single
+        // event we report that body instead of a silent empty answer.
+        let mut non_sse_body = String::new();
+        let mut emitted_any = false;
 
         loop {
             // Once a terminal `finish_reason` has been seen, well-behaved
@@ -2966,10 +3089,15 @@ fn parse_openai_compatible_stream(
                 let line = buffer[..newline_pos].trim().to_string();
                 buffer = buffer[newline_pos + 1..].to_string();
 
-                if line.is_empty() || line.starts_with("event:") || line == ":" {
+                if line.is_empty() || line.starts_with("event:") || line.starts_with(':') {
                     continue;
                 }
-                let Some(data) = line.strip_prefix("data: ") else { continue; };
+                let Some(data) = line.strip_prefix("data:").map(str::trim_start) else {
+                    if non_sse_body.len() < 4000 {
+                        non_sse_body.push_str(&line);
+                    }
+                    continue;
+                };
 
                 // OpenAI marks end of stream with the literal "[DONE]" sentinel.
                 if data.trim() == "[DONE]" {
@@ -3017,6 +3145,7 @@ fn parse_openai_compatible_stream(
                         if active_tool_index.take().is_some() {
                             yield Ok(StreamEvent::ToolUseEnd);
                         }
+                        emitted_any = true;
                         yield Ok(StreamEvent::ContentDelta { text });
                     }
                 }
@@ -3038,6 +3167,7 @@ fn parse_openai_compatible_stream(
                                 .and_then(|f| f.name.clone())
                                 .unwrap_or_default();
                             active_tool_index = Some(tc.index);
+                            emitted_any = true;
                             yield Ok(StreamEvent::ToolUseStart { id, name });
                         }
 
@@ -3068,8 +3198,19 @@ fn parse_openai_compatible_stream(
             }
         }
 
-        // Stream ended without an explicit [DONE] sentinel — emit Done so the
-        // client doesn't hang.
+        // A body with no trailing newline never completed a line above; a
+        // one-line JSON error envelope is exactly that shape.
+        let tail = buffer.trim();
+        if !tail.is_empty() && !tail.starts_with("data:") && !tail.starts_with("event:") && !tail.starts_with(':') && non_sse_body.len() < 4000 {
+            non_sse_body.push_str(tail);
+        }
+        // Stream ended without an explicit [DONE] sentinel. If the provider
+        // never produced an event, whatever it did send is the real answer —
+        // usually an error envelope — so report that rather than an empty turn.
+        if !emitted_any && stop_reason.is_none() && !non_sse_body.trim().is_empty() {
+            yield Err(non_sse_stream_error(&non_sse_body));
+            return;
+        }
         if active_tool_index.take().is_some() {
             yield Ok(StreamEvent::ToolUseEnd);
         }
@@ -3132,10 +3273,7 @@ impl AiProvider for OpenAIProvider {
             .send_request(self.client.post(&url).json(&request))
             .await?;
 
-        let api_response: OpenAIResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3289,10 +3427,7 @@ impl AiProvider for OpenAIProvider {
             .send_request(self.client.post(&url).json(&request))
             .await?;
 
-        let api_response: OpenAIAgentResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3474,10 +3609,7 @@ impl AiProvider for OllamaProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3769,10 +3901,7 @@ impl OllamaProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIAgentResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -3943,8 +4072,9 @@ impl OpenRouterProvider {
             api_key,
             model: model.unwrap_or_else(default_openrouter_model),
             base_url: base_url
-                .map(|u| u.trim().trim_end_matches('/').to_string())
+                .map(|u| u.trim().to_string())
                 .filter(|u| !u.is_empty())
+                .map(|u| normalize_openrouter_base_url(&u))
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
             client,
         })
@@ -4013,10 +4143,7 @@ impl AiProvider for OpenRouterProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -4179,10 +4306,7 @@ impl AiProvider for OpenRouterProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIAgentResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -4423,10 +4547,7 @@ impl AiProvider for LiteLLMProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -4593,10 +4714,7 @@ impl AiProvider for LiteLLMProvider {
             return Err(AiError::from_http_status(status, error_text));
         }
 
-        let api_response: OpenAIAgentResponse = response
-            .json()
-            .await
-            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
 
         if let Some(error) = api_response.error {
             return Err(AiError::RequestFailed(format!(
@@ -4941,6 +5059,73 @@ pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn openai_compat_error_envelope_with_http_200_is_reported_as_provider_error() {
+        // OpenRouter answers upstream failures with HTTP 200 and no `choices`.
+        let body = r#"{"error":{"message":"Provider returned error","code":502},"user_id":"u_1"}"#;
+        // Both response shapes decode with empty `choices`, so the call sites'
+        // `if let Some(error)` branch reports the provider's message.
+        let agent: OpenAIAgentResponse = parse_openai_compat(body).expect("choices is optional");
+        assert!(agent.choices.is_empty());
+        assert_eq!(agent.error.expect("error kept").message, "Provider returned error");
+        let chat: OpenAIResponse = parse_openai_compat(body).expect("choices is optional");
+        assert!(chat.choices.is_empty());
+        // When the target shape cannot decode the envelope at all, the
+        // provider's message still wins over serde's wording.
+        match parse_openai_compat::<OpenAIUsage>(body) {
+            Err(AiError::RequestFailed(msg)) => assert_eq!(msg, "Provider returned error (code 502)"),
+            other => panic!("expected RequestFailed, got {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn openai_compat_null_message_and_garbage_bodies_decode_or_quote_the_body() {
+        let body = r#"{"choices":[{"message":null,"finish_reason":"error"}]}"#;
+        let parsed: OpenAIAgentResponse = parse_openai_compat(body).expect("null message tolerated");
+        assert!(parsed.choices[0].message.content.is_none());
+        assert_eq!(parsed.choices[0].finish_reason.as_deref(), Some("error"));
+
+        match parse_openai_compat::<OpenAIAgentResponse>("upstream connect error or disconnect/reset before headers") {
+            Err(AiError::InvalidResponse(msg)) => assert!(msg.contains("body starts: upstream connect error"), "{msg}"),
+            other => panic!("expected InvalidResponse, got {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn openrouter_base_url_is_normalised_to_the_api_root() {
+        for typed in ["openrouter.ai", "https://openrouter.ai", "https://openrouter.ai/", "https://openrouter.ai/api", "https://OpenRouter.ai/api/v1/"] {
+            assert_eq!(normalize_openrouter_base_url(typed), "https://openrouter.ai/api/v1", "input {typed}");
+        }
+        // Proxies and gateways are left alone (trailing slash dropped).
+        assert_eq!(normalize_openrouter_base_url("https://llm-gw.corp.example/openrouter/v1/"), "https://llm-gw.corp.example/openrouter/v1");
+        assert_eq!(normalize_openrouter_base_url("https://openrouter.ai/api/v2"), "https://openrouter.ai/api/v2");
+    }
+
+    #[test]
+    fn html_page_instead_of_json_points_at_the_base_url() {
+        let html = "<!DOCTYPE html><html lang=\"en-US\"><head><meta charSet=\"utf-8\"/></head><body>OpenRouter</body></html>";
+        match parse_openai_compat::<OpenAIAgentResponse>(html) {
+            Err(AiError::InvalidResponse(msg)) => assert!(msg.contains("Base URL") && msg.contains("openrouter.ai/api/v1"), "{msg}"),
+            other => panic!("expected InvalidResponse, got {:?}", other.map(|_| ())),
+        }
+        match non_sse_stream_error(html) {
+            AiError::InvalidResponse(msg) => assert!(msg.contains("HTML page"), "{msg}"),
+            other => panic!("expected InvalidResponse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_sse_stream_body_becomes_an_error_not_silence() {
+        match non_sse_stream_error(r#"{"error":{"message":"Rate limit exceeded","code":429}}"#) {
+            AiError::RequestFailed(msg) => assert_eq!(msg, "Rate limit exceeded (code 429)"),
+            other => panic!("expected RequestFailed, got {other:?}"),
+        }
+        match non_sse_stream_error("upstream timeout") {
+            AiError::InvalidResponse(msg) => assert!(msg.contains("upstream timeout")),
+            other => panic!("expected InvalidResponse, got {other:?}"),
+        }
+    }
     use super::*;
 
     fn msg(role: &str, content: &str) -> ChatMessage {

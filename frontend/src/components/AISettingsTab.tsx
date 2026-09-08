@@ -1370,6 +1370,7 @@ export default function AISettingsTab() {
                       <span className="form-hint">
                         {p.type === 'ollama' ? `Default: ${DEFAULT_OLLAMA_URL}` :
                          p.type === 'litellm' ? `Default: ${DEFAULT_LITELLM_URL}` :
+                         p.type === 'openrouter' ? 'Leave empty for https://openrouter.ai/api/v1. A gateway URL must include its API path; https://openrouter.ai on its own is a web page, not the API.' :
                          'Leave empty to use the default API endpoint. Set to use a proxy or gateway.'}
                       </span>
                     </div>

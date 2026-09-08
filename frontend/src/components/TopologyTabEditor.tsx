@@ -2615,6 +2615,7 @@ export default function TopologyTabEditor({
               setLinkDetailCard(null);
             }}
             onEmptySpaceClick={handleEmptySpaceClickWithClear}
+            panEnabled={currentTool === 'pan'}
             onEmptySpaceDoubleClick={currentTool === 'line' ? handleEmptySpaceDoubleClick : undefined}
             annotations={visibleLayers.annotations ? annotations : []}
             selectedAnnotationId={selectedAnnotationId ?? undefined}
