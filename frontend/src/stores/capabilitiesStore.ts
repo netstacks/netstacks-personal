@@ -200,7 +200,12 @@ export const useCapabilitiesStore = create<CapabilitiesState>((set, get) => ({
 
     const result: Array<{ pluginName: string; displayName: string; panel: PluginTerminalPanelInfo }> = [];
 
+    // A plugin is identified by name; a controller that reports the same plugin
+    // more than once (one row per organization) must not yield duplicate panels.
+    const seen = new Set<string>();
     for (const plugin of capabilities.plugins) {
+      if (seen.has(plugin.name)) continue;
+      seen.add(plugin.name);
       for (const panel of plugin.terminal_panels) {
         result.push({
           pluginName: plugin.name,

@@ -11,9 +11,28 @@ export interface User {
   is_active: boolean;
   created_at: string;
   last_login: string | null;
+  /** Active organization (differs from home_org_id while a platform admin has switched context) */
   org_id?: string;
+  /** The user's real organization */
+  home_org_id?: string;
+  /** Platform super-admin: may list organizations and switch the active org */
+  is_platform_admin?: boolean;
   roles?: string[];
   permissions?: string[];
+}
+
+/** Organization summary from GET /admin/organizations (platform admins only). */
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+}
+
+/** Response from POST /auth/switch-org: a re-minted access token for the target org. */
+export interface SwitchOrgResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  active_org_id: string;
 }
 
 /**
@@ -99,4 +118,17 @@ export interface AuthState {
   clearError: () => void;
   setUser: (user: User) => void;
   setCertInfo: (certInfo: SignedCertInfo | null) => void;
+
+  /**
+   * Bumped whenever the session's active organization changes. AuthProvider
+   * keys the app subtree on it so every org-scoped view remounts and refetches.
+   */
+  sessionEpoch: number;
+  /**
+   * Switch the active organization (platform admins only). Re-mints the access
+   * token for `orgId`, refreshes user + capabilities, then bumps sessionEpoch.
+   * `beforeRemount` runs after the token switch and before the remount (used
+   * to drop cached queries so nothing from the previous org survives).
+   */
+  switchOrg: (orgId: string, beforeRemount?: () => void) => Promise<void>;
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { copyToClipboard } from '../lib/clipboard'
 import AITabInput from './AITabInput'
 import './AlertDetailTab.css'
@@ -162,6 +162,12 @@ export default function AlertDetailTab({
   // Payload
   const [payloadExpanded, setPayloadExpanded] = useState(false)
 
+  // The parent passes a fresh onTitleChange on every render; reading it through a
+  // ref keeps fetchData stable so the fetch effect runs once per id instead of
+  // re-running (and re-fetching) after each title update it causes itself.
+  const onTitleChangeRef = useRef(onTitleChange)
+  onTitleChangeRef.current = onTitleChange
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -172,13 +178,13 @@ export default function AlertDetailTab({
       ])
       setAlert(alertData)
       setTriageEvents(events)
-      onTitleChange(alertData.title)
+      onTitleChangeRef.current(alertData.title)
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load alert'))
     } finally {
       setLoading(false)
     }
-  }, [alertId, onTitleChange])
+  }, [alertId])
 
   useEffect(() => {
     fetchData()

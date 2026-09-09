@@ -3,8 +3,10 @@ import { getClient } from './client';
 import type {
   LoginRequest,
   LoginResponse,
+  OrganizationSummary,
   RefreshRequest,
   RefreshResponse,
+  SwitchOrgResponse,
   User,
 } from '../types/auth';
 
@@ -54,6 +56,28 @@ export async function getCurrentUser(): Promise<User> {
   const client = getClient();
   const response = await client.http.get<User>('/auth/me');
   return response.data;
+}
+
+/**
+ * Switch the active organization context (platform admins only).
+ * The refresh token is unchanged; a refresh resets the active org to home.
+ */
+export async function switchOrg(orgId: string): Promise<SwitchOrgResponse> {
+  const client = getClient();
+  const response = await client.http.post<SwitchOrgResponse>('/auth/switch-org', { org_id: orgId });
+  return response.data;
+}
+
+/**
+ * List organizations (platform admins only; 403 otherwise).
+ */
+export async function listOrganizations(): Promise<OrganizationSummary[]> {
+  const client = getClient();
+  const { data } = await client.http.get<
+    { organizations?: OrganizationSummary[] } | OrganizationSummary[]
+  >('/admin/organizations');
+  const raw = Array.isArray(data) ? data : (data?.organizations ?? []);
+  return raw.map((o) => ({ id: o.id, name: o.name }));
 }
 
 /**

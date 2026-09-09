@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './IncidentDetailTab.css'
 import {
   getIncident,
@@ -108,6 +108,12 @@ export default function IncidentDetailTab({
   const [posting, setPosting] = useState(false)
 
   // -- Fetch incident + comments --
+  // The parent passes a fresh onTitleChange on every render; reading it through a
+  // ref keeps fetchData stable so the fetch effect runs once per id instead of
+  // re-running (and re-fetching) after each title update it causes itself.
+  const onTitleChangeRef = useRef(onTitleChange)
+  onTitleChangeRef.current = onTitleChange
+
   const fetchData = useCallback(async () => {
     if (!incidentId) return
     setLoading(true)
@@ -119,13 +125,13 @@ export default function IncidentDetailTab({
       ])
       setIncident(inc)
       setComments(cmts)
-      onTitleChange(inc.title)
+      onTitleChangeRef.current(inc.title)
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load incident'))
     } finally {
       setLoading(false)
     }
-  }, [incidentId, onTitleChange])
+  }, [incidentId])
 
   useEffect(() => {
     fetchData()

@@ -25,6 +25,10 @@ import { formatTunnelSpec } from '../api/tunnels'
 import type { TroubleshootingSession } from '../types/troubleshooting'
 import { useMode } from '../hooks/useMode'
 import { useAuthStore } from '../stores/authStore'
+import { listOrganizations } from '../api/auth'
+import { getErrorMessage } from '../api/errors'
+import type { OrganizationSummary } from '../types/auth'
+import { useQueryClient } from '@tanstack/react-query'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import type { CertStatus } from '../api/cert'
 import { listMcpServers, connectMcpServer, type McpServer } from '../api/mcp'
@@ -283,6 +287,30 @@ export default function StatusBar({
   const { isEnterprise, controllerUrl } = useMode()
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const user = useAuthStore((state) => state.user)
+  const switchOrg = useAuthStore((state) => state.switchOrg)
+  const queryClient = useQueryClient()
+
+  // Organization switcher (platform admins): the list is loaded when the
+  // controller popover opens; switching re-mints the token and remounts the app.
+  const [organizations, setOrganizations] = useState<OrganizationSummary[] | null>(null)
+  const [orgSwitching, setOrgSwitching] = useState(false)
+  const [orgError, setOrgError] = useState<string | null>(null)
+  const canSwitchOrg = isEnterprise && isAuthenticated && !!user?.is_platform_admin
+  const activeOrgName = organizations?.find((o) => o.id === user?.org_id)?.name
+
+  const handleSwitchOrg = useCallback(async (orgId: string) => {
+    if (!orgId || orgId === user?.org_id) return
+    setOrgSwitching(true)
+    setOrgError(null)
+    try {
+      // Drop every cached query so nothing from the previous organization survives the remount
+      await switchOrg(orgId, () => queryClient.clear())
+    } catch (err) {
+      setOrgError(getErrorMessage(err, 'Failed to switch organization'))
+    } finally {
+      setOrgSwitching(false)
+    }
+  }, [switchOrg, queryClient, user?.org_id])
   const capabilities = useCapabilitiesStore(state => state.capabilities)
   const hasFeature = useCapabilitiesStore(state => state.hasFeature)
   const instanceName = capabilities?.instance_name || 'Controller'
@@ -313,6 +341,15 @@ export default function StatusBar({
       setPermissionsExpanded(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (!showControllerInfo || !canSwitchOrg || organizations !== null) return
+    let cancelled = false
+    listOrganizations()
+      .then((orgs) => { if (!cancelled) setOrganizations(orgs) })
+      .catch(() => { if (!cancelled) setOrganizations([]) })
+    return () => { cancelled = true }
+  }, [showControllerInfo, canSwitchOrg, organizations])
 
   useEffect(() => {
     if (showControllerInfo) {
@@ -482,7 +519,28 @@ export default function StatusBar({
                 {user?.org_id && (
                   <div className="controller-info-section">
                     <div className="controller-info-heading">Organization</div>
-                    <div className="controller-info-detail">{user.org_id.slice(0, 8)}…</div>
+                    {canSwitchOrg && organizations && organizations.length > 0 ? (
+                      <>
+                        <select
+                          className="controller-info-select"
+                          value={user.org_id}
+                          disabled={orgSwitching}
+                          onChange={(e) => { void handleSwitchOrg(e.target.value) }}
+                          aria-label="Switch organization"
+                          title="Platform administrator: open the terminal in another organization"
+                        >
+                          {organizations.map((org) => (
+                            <option key={org.id} value={org.id}>
+                              {org.name}{org.id === user.home_org_id ? ' (home)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {orgSwitching && <div className="controller-info-detail">Switching…</div>}
+                        {orgError && <div className="controller-info-detail controller-info-error">{orgError}</div>}
+                      </>
+                    ) : (
+                      <div className="controller-info-detail">{activeOrgName ?? `${user.org_id.slice(0, 8)}…`}</div>
+                    )}
                   </div>
                 )}
 

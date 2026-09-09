@@ -24,6 +24,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      sessionEpoch: 0,
 
       /**
        * Log in with username/email and password.
@@ -99,6 +100,15 @@ export const useAuthStore = create<AuthState>()(
             useCapabilitiesStore.getState().fetchCapabilities().catch((err) => {
               console.warn('[authStore] Failed to fetch capabilities after login:', err);
               // Don't fail login if capabilities fetch fails - graceful degradation
+            });
+          }
+
+          // Deep link: /terminal/?org=<id> opens a platform admin straight into
+          // that organization (the Admin UI's org switcher can link here).
+          const requestedOrg = requestedOrgFromLocation();
+          if (requestedOrg && user.is_platform_admin && requestedOrg !== user.org_id) {
+            get().switchOrg(requestedOrg).catch((err) => {
+              console.warn('[authStore] Could not open requested organization:', err);
             });
           }
         } catch (error: unknown) {
@@ -197,6 +207,14 @@ export const useAuthStore = create<AuthState>()(
             accessToken: response.access_token,
             refreshToken: response.refresh_token,
           });
+
+          // A refreshed token is always minted for the home org; re-apply the
+          // active org so a platform admin's switched session survives refresh.
+          const { user } = get();
+          if (user?.is_platform_admin && user.org_id && user.home_org_id && user.org_id !== user.home_org_id) {
+            const switched = await authApi.switchOrg(user.org_id);
+            set({ accessToken: switched.access_token });
+          }
         } catch (error) {
           // Refresh failed - clear auth state completely
           set({
@@ -286,8 +304,41 @@ export const useAuthStore = create<AuthState>()(
       setCertInfo: (certInfo) => {
         set({ certInfo });
       },
+
+      switchOrg: async (orgId: string, beforeRemount?: () => void) => {
+        const { user } = get();
+        if (!user?.is_platform_admin) {
+          throw new Error('Only platform administrators can switch organizations');
+        }
+        if (orgId === user.org_id) return;
+
+        const switched = await authApi.switchOrg(orgId);
+        // The new token is scoped to the target org; /auth/me reflects it.
+        set({ accessToken: switched.access_token });
+        const refreshed = await authApi.getCurrentUser();
+        set({ user: refreshed });
+
+        // Capabilities carry org-scoped plugin panels and permissions.
+        try {
+          await useCapabilitiesStore.getState().fetchCapabilities();
+        } catch (err) {
+          console.warn('[authStore] Failed to refetch capabilities after org switch:', err);
+        }
+
+        beforeRemount?.();
+        set((state) => ({ sessionEpoch: state.sessionEpoch + 1 }));
+      },
     })
 );
+
+/** `?org=<id>` from the page URL (web build deep link); null when absent. */
+function requestedOrgFromLocation(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('org');
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Connect auth store to Controller client for JWT interceptors.

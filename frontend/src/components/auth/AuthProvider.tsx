@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { Fragment, useEffect, useState, useRef, useCallback } from 'react';
 import { useAuthStore, connectAuthStoreToClient } from '../../stores/authStore';
 import { useMode } from '../../hooks/useMode';
 import { useProactiveRefresh } from '../../hooks/useProactiveRefresh';
@@ -33,6 +33,8 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const { isEnterprise, isInitialized, controllerUrl } = useMode();
   const isAuthenticated = useAuthStore(state => state.isAuthenticated);
+  // Remount the app when the active organization changes (see authStore.switchOrg)
+  const sessionEpoch = useAuthStore(state => state.sessionEpoch);
   const isLoading = useAuthStore(state => state.isLoading);
   const [isChecking, setIsChecking] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -390,7 +392,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Enterprise mode - authenticated
   return (
-    <>
+    <Fragment key={sessionEpoch}>
       <NetworkStatusBanner />
       {children}
       {showWarning && (
@@ -399,7 +401,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           onStaySignedIn={resetTimer}
         />
       )}
-    </>
+    </Fragment>
   );
 }
 

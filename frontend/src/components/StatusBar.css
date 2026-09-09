@@ -313,6 +313,25 @@
   word-break: break-all;
 }
 
+.controller-info-select {
+  width: 100%;
+  margin-top: 2px;
+  padding: 3px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: var(--bg-secondary, #313244);
+  color: var(--text-primary, #cdd6f4);
+  border: 1px solid var(--border-color, #3b3b4f);
+}
+
+.controller-info-select:disabled {
+  opacity: 0.6;
+}
+
+.controller-info-error {
+  color: var(--error-color, #f38ba8);
+}
+
 .controller-info-badges {
   display: flex;
   flex-wrap: wrap;
