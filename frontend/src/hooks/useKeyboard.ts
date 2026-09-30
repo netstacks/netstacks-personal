@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
-import { getClient } from '../api/client'
+import { getClient, getCurrentMode } from '../api/client'
 
 // Action identifiers for all keyboard shortcuts
 export type KeyboardAction =
@@ -243,6 +243,29 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const STORAGE_KEY = 'netstacks-keybindings'
 /** Agent settings key (`/settings/:key`) the overrides are mirrored to. */
 const BACKEND_SETTING_KEY = 'keybindings'
+
+/**
+ * Where a PER-USER preference belongs.
+ *
+ * Keybindings used to be written to `/settings/<key>`, which on the Controller
+ * is `terminal_set_setting` (routes/settings.rs:218): it requires
+ * `RequirePermission::<SystemManage>` and upserts ONE GLOBAL row. So in
+ * enterprise a non-admin's rebind 403'd — swallowed below, so it looked saved
+ * until reload — and an admin's bindings overwrote everyone else's.
+ *
+ * `/user-settings/<key>` (routes/user_settings.rs:64) is per-user
+ * (`ON CONFLICT (user_id, key)`) and needs only an authenticated user. Both
+ * return raw JSONB, so the shape the loader expects is unchanged.
+ *
+ * Standalone keeps `/settings`, which there is the LOCAL agent's own endpoint,
+ * not the Controller's.
+ *
+ * NB `api/ai.ts:170` has an identical private helper. Deliberately not imported
+ * here: that module is ~1500 lines and this store should not depend on it.
+ */
+function settingsPrefix(): string {
+  return getCurrentMode() === 'enterprise' ? '/user-settings' : '/settings'
+}
 
 // Parse a keybinding string into components
 export function parseKeybinding(binding: string): {
@@ -510,9 +533,26 @@ export function findKeybindingConflict(actionId: KeyboardAction, bindingStr: str
 /** Mirror the overrides to the agent so they follow the user's profile. */
 export async function saveKeybindingsToBackend(): Promise<void> {
   try {
-    await getClient().http.put(`/settings/${BACKEND_SETTING_KEY}`, customBindings)
+    await getClient().http.put(`${settingsPrefix()}/${BACKEND_SETTING_KEY}`, customBindings)
   } catch (err) {
+    // This used to be console.error ONLY, which is why the failure described
+    // above was invisible: a non-admin's rebind 403'd and still looked saved
+    // until the next reload. Surface it.
+    //
+    // Lazy-import the toast module the way commands/registry.ts does — this
+    // store is deliberately framework-agnostic, and a static import would
+    // create a dependency cycle into a component.
     console.error('Failed to save keybindings to backend:', err)
+    import('../components/Toast')
+      .then(({ showToast }) => {
+        showToast(
+          'Could not save your keyboard shortcuts to the server — they will revert on reload.',
+          'error',
+        )
+      })
+      .catch(() => {
+        /* toast module unavailable; the console.error above still stands */
+      })
   }
 }
 
@@ -523,7 +563,7 @@ export async function saveKeybindingsToBackend(): Promise<void> {
  */
 export async function loadKeybindingsFromBackend(): Promise<void> {
   try {
-    const { data } = await getClient().http.get(`/settings/${BACKEND_SETTING_KEY}`)
+    const { data } = await getClient().http.get(`${settingsPrefix()}/${BACKEND_SETTING_KEY}`)
     if (data && typeof data === 'object' && Object.keys(data).length > 0) {
       commitBindings(sanitizeCustomBindings(data), true)
     }

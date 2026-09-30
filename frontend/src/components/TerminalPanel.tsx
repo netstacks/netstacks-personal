@@ -50,7 +50,10 @@ export default function TerminalPanel({ isOpen, onClose }: TerminalPanelProps) {
     broadcast
   } = useMultiSend()
 
-  const canSftp = useCapabilitiesStore(s => s.hasFeature)('local_sftp')
+  // Enterprise emits `central_sftp`, NOT `local_sftp`, so checking only the
+  // latter left the SFTP menu item permanently disabled in enterprise even
+  // though /api/sftp is mounted. App.tsx:584 already checks both.
+  const canSftp = useCapabilitiesStore(s => s.hasFeature('local_sftp') || s.hasFeature('central_sftp'))
 
   // Saved-session records for tabs bound to a session, so the terminal gets
   // the session's Terminal-tab settings (scrollback, auto-reconnect, delay).

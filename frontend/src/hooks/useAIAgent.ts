@@ -967,10 +967,26 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       .catch(() => { promptOverridesRef.current = {}; });
   }, []);
 
-  // Check if AI terminal mode (remote file tools) is enabled
+  // Check if AI terminal mode (remote file tools) is enabled.
+  //
+  // Standalone reads the `ai.terminal_mode` setting directly. Enterprise used to
+  // just return early here, so `aiTerminalMode` stayed false forever and fed
+  // `hasRemoteFiles: false` below — meaning the admin's "Allow AI Terminal Mode"
+  // switch could never have any effect on the terminal. The Controller gates the
+  // `ai_terminal_mode` CAPABILITY on that exact setting
+  // (routes/capabilities.rs:76-81); the terminal simply never read it (zero
+  // references repo-wide). Read the capability instead of bailing out.
+  //
+  // NB: do NOT "fix" this by pointing the standalone setting calls at
+  // `ai.terminal_mode_enabled` — that key lives on the admin-only global
+  // settings route, which a non-admin cannot write.
   const [aiTerminalMode, setAiTerminalMode] = useState(false);
+  const aiTerminalModeCapability = useCapabilitiesStore(s => s.hasFeature('ai_terminal_mode'));
   useEffect(() => {
-    if (getCurrentMode() === 'enterprise') return;
+    if (getCurrentMode() === 'enterprise') {
+      setAiTerminalMode(aiTerminalModeCapability);
+      return;
+    }
     shareInFlight('settings:ai.terminal_mode', () => getClient().http.get('/settings/ai.terminal_mode'))
       .then((res) => {
         // The settings endpoint has returned both a bare JSON bool and a
@@ -978,7 +994,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         setAiTerminalMode(res.data === true || res.data?.value === 'true');
       })
       .catch(() => { /* not set, default false */ });
-  }, []);
+  }, [aiTerminalModeCapability]);
 
   // Fetch MCP tools from connected servers (standalone mode only)
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);

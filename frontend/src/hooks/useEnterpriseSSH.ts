@@ -38,6 +38,13 @@ export interface UseEnterpriseSSHOptions {
   host?: string;
   /** Target port to connect to (overrides credential port) */
   port?: number;
+  /**
+   * Connection protocol. The Controller's /ws/ssh accepts `protocol` and
+   * defaults to "ssh" (ws/handler.rs:128,429), branching to TelnetBackend when
+   * it is "telnet". This hook previously never sent it, so a telnet session
+   * definition was dialled with an SSH handshake.
+   */
+  protocol?: 'ssh' | 'telnet';
   /** Terminal type (e.g., xterm-256color) */
   term?: string;
   /** Terminal columns */
@@ -99,6 +106,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
     sessionDefinitionId,
     host,
     port,
+    protocol,
     term = 'xterm-256color',
     cols = 80,
     rows = 24,
@@ -230,6 +238,11 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
       if (port) {
         path += `&port=${port}`;
       }
+      // Without this the Controller defaults to "ssh", so telnet devices got an
+      // SSH handshake on port 23.
+      if (protocol) {
+        path += `&protocol=${encodeURIComponent(protocol)}`;
+      }
       if (sessionDefinitionId) {
         path += `&session_id=${sessionDefinitionId}`;
       }
@@ -278,6 +291,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
                 if (profileId) redirectPath += `&profile_id=${encodeURIComponent(profileId)}`;
                 if (host) redirectPath += `&host=${encodeURIComponent(host)}`;
                 if (port) redirectPath += `&port=${port}`;
+                if (protocol) redirectPath += `&protocol=${encodeURIComponent(protocol)}`;
                 if (sessionDefinitionId) redirectPath += `&session_id=${sessionDefinitionId}`;
 
                 // Add auth token
@@ -428,6 +442,10 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
     sessionDefinitionId,
     host,
     port,
+    // `protocol` is read inside connect() when building the URL; host/port are
+    // listed here for the same reason, so omitting it would let a telnet tab
+    // reconnect with a stale protocol.
+    protocol,
     autoReconnect,
     maxReconnectAttempts,
     calculateBackoffDelay,

@@ -85,7 +85,15 @@ export type EnterpriseFeature =
   | 'sso'
   | 'knowledge_base'
   | 'central_sftp'
-  | 'terminal_deenrollment';
+  | 'terminal_deenrollment'
+  /**
+   * Emitted by the Controller (models/capabilities.rs enterprise()) and gated on
+   * the `ai.terminal_mode_enabled` admin setting (routes/capabilities.rs:76-81).
+   * It was missing from this union because nothing in the terminal ever read it —
+   * which was the bug: the admin's "Allow AI Terminal Mode" switch could not
+   * affect the terminal at all.
+   */
+  | 'ai_terminal_mode';
 
 /**
  * Known local-only feature names.

@@ -8,7 +8,7 @@ import { openExternalUrl } from '../lib/openExternal';
 
 // WsMessage binary protocol types (matches controller's ws::protocol)
 const MSG_TYPE_DATA = 0x01;
-const MSG_TYPE_RESIZE = 0x02;
+// 0x02 (Resize) is deliberately not listed: a viewer never resizes the host's PTY.
 const MSG_TYPE_PING = 0x03;
 const MSG_TYPE_PONG = 0x04;
 const MSG_TYPE_CLOSE = 0x05;
@@ -20,6 +20,10 @@ interface SessionInfo {
   session_id: string;
   permission: string;
   viewer_id: string;
+  // The host's terminal geometry. Null when the controller could not read the
+  // session metadata, in which case the viewer keeps its fitted size.
+  terminal_cols?: number | null;
+  terminal_rows?: number | null;
 }
 
 interface SharedTerminalProps {
@@ -54,18 +58,24 @@ export default function SharedTerminal({ token, controllerUrl }: SharedTerminalP
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
 
-  const handleResize = useCallback(() => {
-    if (!fitRef.current || !xtermRef.current || !wsRef.current) return;
-    fitRef.current.fit();
-    const cols = xtermRef.current.cols;
-    const rows = xtermRef.current.rows;
-    // Send resize message
-    const payload = new Uint8Array(4);
-    const dv = new DataView(payload.buffer);
-    dv.setUint16(0, cols);
-    dv.setUint16(2, rows);
-    if (wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(encodeWsMessage(MSG_TYPE_RESIZE, payload));
+  // The host's geometry, once announced; null until the session_info frame
+  // arrives, or if the host's metadata could not be read.
+  const hostGeomRef = useRef<{ cols: number; rows: number } | null>(null);
+
+  // Adopt the host's geometry instead of our own container's. Fitting to the
+  // viewer's window and sending a Resize repaints the host's PTY at the
+  // viewer's size, garbling output for the host and every other viewer.
+  // Fitting survives only as the fallback for when no geometry is known.
+  const applyGeometry = useCallback(() => {
+    const xterm = xtermRef.current;
+    if (!xterm) return;
+    const geom = hostGeomRef.current;
+    if (!geom) {
+      fitRef.current?.fit();
+      return;
+    }
+    if (xterm.cols !== geom.cols || xterm.rows !== geom.rows) {
+      xterm.resize(geom.cols, geom.rows);
     }
   }, []);
 
@@ -134,6 +144,14 @@ export default function SharedTerminal({ token, controllerUrl }: SharedTerminalP
             const infoText = new TextDecoder().decode(payload);
             const info = JSON.parse(infoText) as SessionInfo;
             setSessionInfo(info);
+            // Size to the host rather than to this window.
+            if (typeof info.terminal_cols === 'number' && info.terminal_cols > 0 &&
+                typeof info.terminal_rows === 'number' && info.terminal_rows > 0) {
+              hostGeomRef.current = { cols: info.terminal_cols, rows: info.terminal_rows };
+              if (xterm.cols !== info.terminal_cols || xterm.rows !== info.terminal_rows) {
+                xterm.resize(info.terminal_cols, info.terminal_rows);
+              }
+            }
           } catch {
             // Ignore parse errors
           }
@@ -165,9 +183,17 @@ export default function SharedTerminal({ token, controllerUrl }: SharedTerminalP
     // Note: User input forwarding is handled by the separate useEffect
     // that depends on sessionInfo, ensuring the permission check works correctly
 
-    // Handle window resize
+    // A container resize must not change the PTY. Re-assert the host's
+    // geometry when we know it; fit only while it is still unknown.
     const resizeObserver = new ResizeObserver(() => {
-      fit.fit();
+      const geom = hostGeomRef.current;
+      if (!geom) {
+        fit.fit();
+        return;
+      }
+      if (xterm.cols !== geom.cols || xterm.rows !== geom.rows) {
+        xterm.resize(geom.cols, geom.rows);
+      }
     });
     resizeObserver.observe(terminalRef.current);
 
@@ -187,9 +213,9 @@ export default function SharedTerminal({ token, controllerUrl }: SharedTerminalP
 
   // Handle resize when window changes
   useEffect(() => {
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [handleResize]);
+    window.addEventListener('resize', applyGeometry);
+    return () => window.removeEventListener('resize', applyGeometry);
+  }, [applyGeometry]);
 
   // Forward input after session info is known
   useEffect(() => {

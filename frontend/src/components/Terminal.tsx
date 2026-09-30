@@ -866,6 +866,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     sessionDefinitionId: enterpriseSessionDefinitionId,
     host: enterpriseTargetHost,
     port: enterpriseTargetPort,
+    // Forward only what the Controller understands ("ssh" | "telnet"); a
+    // 'console' tab keeps its existing behaviour by omitting the param.
+    protocol: protocol === 'telnet' || protocol === 'ssh' ? protocol : undefined,
     cols: fitAddonRef.current ? terminalRef.current?.cols || 80 : 80,
     rows: fitAddonRef.current ? terminalRef.current?.rows || 24 : 24,
     autoReconnect,

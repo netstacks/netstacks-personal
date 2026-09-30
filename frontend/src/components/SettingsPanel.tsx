@@ -724,7 +724,12 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
         )}
 
         {/* Workspaces settings tab */}
-        {activeTab === 'workspaces' && (
+        {/* The nav item for this tab is gated at :534 ({!isEnterprise && …}),
+            but the BODY was not — so the tab stayed reachable in enterprise
+            through the settings search index, and with it
+            WorkspaceSettingsTab's /settings/workspace-defaults GET/PUT, which
+            hit the admin-only global settings route (S1). */}
+        {activeTab === 'workspaces' && !isEnterprise && (
           <WorkspaceSettingsTab />
         )}
 

@@ -1095,10 +1095,16 @@ function AppContent() {
   // section of the Workspaces sidebar. Kept as a helper so the old deep
   // links (AI tool, command palette, status-bar "Manage…") land there.
   const openApiClient = useCallback(() => {
+    // M1: these deep links (AI tool, command palette, status-bar "Manage…")
+    // would otherwise navigate to a panel that is gated off in enterprise,
+    // leaving an empty sidebar. The API section itself is gated on the
+    // `local_integrations` capability, which enterprise does not emit, so
+    // there is nothing to show there either way.
+    if (isEnterprise) return
     setActiveView('workspaces')
     setSidebarOpen(true)
     revealApiClient()
-  }, [])
+  }, [isEnterprise])
 
   const openSettingsTab = useCallback((tab?: SettingsTab) => {
     if (tab === 'apiResources' || tab === 'quickCalls') {
@@ -1389,10 +1395,14 @@ function AppContent() {
   }, [tabs, activeTabId])
 
   useEffect(() => {
-    if (isWorkspaceTabActive) {
+    // M1: the other entry points are gated, but PERSISTED tab state can still
+    // restore a workspace tab in enterprise. Without this guard that would set
+    // activeView='workspaces' against a now-gated panel render — an empty
+    // sidebar, i.e. a regression introduced by the gating itself.
+    if (isWorkspaceTabActive && !isEnterprise) {
       setActiveView('workspaces')
     }
-  }, [isWorkspaceTabActive])
+  }, [isWorkspaceTabActive, isEnterprise])
 
   // Auto-collapse sidebar when unpinned and clicking main area.
   // React events bubble through portal trees, so a click on a file in the
@@ -6618,7 +6628,15 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'navigation.view-workspaces', label: 'Show Workspaces', category: 'navigation',
-    run: () => { setActiveView('workspaces'); setSidebarOpen(true) },
+    // M1: gated in enterprise, where the panel has no backing surface. `when`
+    // must be used rather than wrapping this hook in a conditional — useCommand
+    // is a hook, and this codebase has already been bitten by that
+    // (useEnterpriseSSH's `enabled` option exists because a ternary "violated
+    // the Rules of Hooks (NS-TERM-13)"). Note `when` renders the palette row
+    // DISABLED rather than hiding it (CommandPalette.tsx:56), so guard `run`
+    // too instead of relying on the gate alone.
+    when: () => !isEnterprise,
+    run: () => { if (isEnterprise) return; setActiveView('workspaces'); setSidebarOpen(true) },
   })
 
   // Help ----------------------------------------------------------
@@ -7357,6 +7375,15 @@ def main(command: str = "show version"):
                 </svg>
               </button>
             )}
+            {/* M1: the Workspaces panel's entire backing surface is agent-only
+                — the Controller serves no /workspace routes (git ops, local
+                file ops), so in enterprise this panel loads and every call
+                fails. Every other item in this rail is already guarded
+                (showSessionsTab, canTopology, canDocs, canChanges, canAgents,
+                canStacks, sftpConnectionCount); this one was the sole
+                exception, and the matching Settings tab IS gated the same way
+                at SettingsPanel.tsx:534. */}
+            {!isEnterprise && (
             <button
               className={`activity-bar-item ${activeView === 'workspaces' ? 'active' : ''}`}
               onClick={() => handleActivityClick('workspaces')}
@@ -7367,6 +7394,7 @@ def main(command: str = "show version"):
                 <path d="M12 11V17M9 14H15" strokeLinecap="round" />
               </svg>
             </button>
+            )}
           </div>
           <div className="activity-bar-bottom">
             <button
@@ -7489,7 +7517,12 @@ def main(command: str = "show version"):
             {activeView === 'stacks' && canStacks && (
               <ConfigPanel onOpenTemplateTab={handleOpenConfigTemplateTab} onOpenStackTab={handleOpenConfigStackTab} onOpenInstanceTab={handleOpenInstanceTab} onCreateTemplate={handleCreateConfigTemplate} onCreateStack={handleCreateConfigStack} />
             )}
-            {activeView === 'workspaces' && (
+            {/* M1: the panel itself. Its backing surface (F2 git ops, F3 local
+                file ops) does not exist on the Controller, so in enterprise it
+                rendered and every call failed. Entry points are gated above, so
+                this guard should never be the one that fires — it is here so a
+                path I have not found cannot resurrect the broken panel. */}
+            {activeView === 'workspaces' && !isEnterprise && (
               <WorkspacesPanel
                 onOpenWorkspace={openWorkspaceTab}
                 onNewWorkspace={() => setShowNewWorkspace(true)}
