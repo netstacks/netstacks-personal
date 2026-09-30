@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   listApiResources,
   deleteApiResource,
@@ -7,6 +7,7 @@ import {
   deleteQuickAction,
   executeQuickAction,
   testApiResource,
+  createApiResource,
 } from '../../api/quickActions'
 import { listNetBoxSources } from '../../api/netboxSources'
 import { listLibreNmsSources } from '../../api/librenms'
@@ -21,6 +22,9 @@ import ContextMenu from '../ContextMenu'
 import type { MenuItem } from '../ContextMenu'
 import { confirmDialog } from '../ConfirmDialog'
 import { showToast } from '../Toast'
+import { copyToClipboard } from '../../lib/clipboard'
+import { downloadFile } from '../../lib/formatters'
+import { buildShareFile, parseShareFile, planImport, serializeShareFile, shareFileName, toCreateRequest } from '../../lib/quickActionShare'
 import { notifyApiClientChanged, useApiClientChanged, API_CLIENT_REVEAL_EVENT } from './apiClientEvents'
 import './ApiClientSection.css'
 
@@ -62,6 +66,7 @@ const Icons = {
 type MenuTarget =
   | { kind: 'resource'; resource: ApiResource }
   | { kind: 'action'; action: QuickAction }
+  | { kind: 'selection'; actions: QuickAction[] }
 
 export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal }: ApiClientSectionProps) {
   const [resources, setResources] = useState<ApiResource[]>([])
@@ -73,6 +78,12 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
   const [expanded, setExpanded] = usePersistedState<Record<string, boolean>>('apiClient.expanded', {})
 
   const [resourceDialog, setResourceDialog] = useState<{ resource: ApiResource | null } | null>(null)
+  // Multi-select of saved requests: Cmd/Ctrl+click toggles, Shift+click
+  // extends within a resource, plain click opens (unchanged). Right-click
+  // on a selected row acts on the whole selection.
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const lastClickedRef = useRef<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null)
 
@@ -240,16 +251,148 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
     }
   }, [onOpenRequest])
 
+  const selectedActions = useMemo(() => actions.filter((a) => selected.has(a.id)), [actions, selected])
+
+  const handleRowClick = (e: React.MouseEvent, action: QuickAction, list: QuickAction[]) => {
+    if (e.shiftKey && lastClickedRef.current) {
+      const ids = list.map((a) => a.id)
+      const from = ids.indexOf(lastClickedRef.current)
+      const to = ids.indexOf(action.id)
+      if (from >= 0 && to >= 0) {
+        const [lo, hi] = from < to ? [from, to] : [to, from]
+        setSelected((prev) => {
+          const next = new Set(prev)
+          ids.slice(lo, hi + 1).forEach((id) => next.add(id))
+          return next
+        })
+        return
+      }
+    }
+    if (e.metaKey || e.ctrlKey) {
+      setSelected((prev) => {
+        const next = new Set(prev)
+        if (next.has(action.id)) next.delete(action.id)
+        else next.add(action.id)
+        return next
+      })
+      lastClickedRef.current = action.id
+      return
+    }
+    lastClickedRef.current = action.id
+    setSelected(new Set())
+    onOpenRequest({ action })
+  }
+
+  const openActionMenu = (e: React.MouseEvent, action: QuickAction) => {
+    if (selected.has(action.id) && selected.size > 1) {
+      openMenu(e, { kind: 'selection', actions: actions.filter((a) => selected.has(a.id)) })
+    } else {
+      setSelected(new Set([action.id]))
+      lastClickedRef.current = action.id
+      openMenu(e, { kind: 'action', action })
+    }
+  }
+
+  const shareActions = useCallback(async (list: QuickAction[], mode: 'file' | 'clipboard') => {
+    if (list.length === 0) return
+    const text = serializeShareFile(buildShareFile(list, resources))
+    if (mode === 'clipboard') {
+      const ok = await copyToClipboard(text)
+      showToast(ok ? `Copied ${list.length} request${list.length === 1 ? '' : 's'} as JSON` : 'Copy failed', ok ? 'success' : 'error')
+      return
+    }
+    downloadFile(text, shareFileName(list), 'application/json')
+    showToast(`Exported ${list.length} request${list.length === 1 ? '' : 's'} (credentials are never included)`, 'success')
+  }, [resources])
+
+  const importFromText = useCallback(async (text: string) => {
+    let file
+    try {
+      file = parseShareFile(text)
+    } catch (e) {
+      showToast(getErrorMessage(e, 'Cannot import this file'), 'error')
+      return
+    }
+    const plan = planImport(file, resources, actions)
+    const createdResources: string[] = []
+    const resourceIds = new Map<string, string>()
+    try {
+      for (const c of plan.createResources) {
+        const r = await createApiResource(c.request)
+        resourceIds.set(`create:${c.key}`, r.id)
+        createdResources.push(r.name)
+      }
+      let created = 0
+      const skipped: string[] = []
+      for (const item of plan.requests) {
+        if (item.skipped) { skipped.push(`${item.shared.name}: ${item.skipped}`); continue }
+        const rid = item.resourceRef.startsWith('create:') ? resourceIds.get(item.resourceRef) : item.resourceRef
+        if (!rid) { skipped.push(`${item.shared.name}: resource not created`); continue }
+        await createQuickAction(toCreateRequest(item, rid))
+        created += 1
+      }
+      notifyApiClientChanged()
+      const parts = [`Imported ${created} request${created === 1 ? '' : 's'}`]
+      if (createdResources.length) parts.push(`created ${createdResources.length} resource${createdResources.length === 1 ? '' : 's'} (${createdResources.join(', ')}) — add credentials before use`)
+      if (skipped.length) parts.push(`skipped ${skipped.length}`)
+      showToast(parts.join('; '), skipped.length || createdResources.length ? 'warning' : 'success')
+      if (skipped.length) console.warn('[ApiClientSection] import skipped:', skipped)
+    } catch (e) {
+      notifyApiClientChanged()
+      showToast(getErrorMessage(e, 'Import failed part-way; check the list'), 'error')
+    }
+  }, [resources, actions])
+
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await importFromText(await file.text())
+  }
+
+  const removeActions = useCallback(async (list: QuickAction[]) => {
+    const ok = await confirmDialog({
+      title: `Delete ${list.length} saved requests?`,
+      body: <>{list.map((a) => a.name).join(', ')}</>,
+      confirmLabel: 'Delete',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      for (const a of list) await deleteQuickAction(a.id)
+      setSelected(new Set())
+      notifyApiClientChanged()
+    } catch (e) {
+      showToast(getErrorMessage(e, 'Failed to delete'), 'error')
+    }
+  }, [])
+
   const menuItems: MenuItem[] = useMemo(() => {
     if (!menuTarget) return []
     if (menuTarget.kind === 'resource') {
       const r = menuTarget.resource
+      const own = actionsByResource[r.id] ?? []
       return [
         { id: 'new', label: 'New request', action: () => onOpenRequest({ resourceId: r.id }) },
         { id: 'test', label: 'Test connection', action: () => void testResource(r) },
         { id: 'd1', label: '', divider: true, action: () => {} },
+        { id: 'selectall', label: `Select all requests (${own.length})`, disabled: own.length === 0, action: () => setSelected(new Set(own.map((a) => a.id))) },
+        { id: 'share', label: 'Share all requests…', disabled: own.length === 0, action: () => void shareActions(own, 'file') },
+        { id: 'import', label: 'Import requests…', action: () => fileInputRef.current?.click() },
+        { id: 'd2', label: '', divider: true, action: () => {} },
         { id: 'edit', label: 'Edit…', action: () => setResourceDialog({ resource: r }) },
         { id: 'delete', label: 'Delete', action: () => void removeResource(r) },
+      ]
+    }
+    if (menuTarget.kind === 'selection') {
+      const list = menuTarget.actions
+      const n = list.length
+      return [
+        { id: 'share', label: `Share ${n} selected…`, action: () => void shareActions(list, 'file') },
+        { id: 'copy', label: `Copy ${n} selected as JSON`, action: () => void shareActions(list, 'clipboard') },
+        { id: 'd1', label: '', divider: true, action: () => {} },
+        { id: 'clear', label: 'Clear selection', action: () => setSelected(new Set()) },
+        { id: 'delete', label: `Delete ${n} selected`, action: () => void removeActions(list) },
       ]
     }
     const a = menuTarget.action
@@ -257,10 +400,13 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
       { id: 'open', label: 'Open', action: () => onOpenRequest({ action: a }) },
       { id: 'run', label: 'Run', action: () => void runAction(a) },
       { id: 'd1', label: '', divider: true, action: () => {} },
+      { id: 'share', label: 'Share…', action: () => void shareActions([a], 'file') },
+      { id: 'copy', label: 'Copy as JSON', action: () => void shareActions([a], 'clipboard') },
       { id: 'dup', label: 'Duplicate', action: () => void duplicateAction(a) },
+      { id: 'd2', label: '', divider: true, action: () => {} },
       { id: 'delete', label: 'Delete', action: () => void removeAction(a) },
     ]
-  }, [menuTarget, onOpenRequest, testResource, removeResource, runAction, duplicateAction, removeAction])
+  }, [menuTarget, onOpenRequest, testResource, removeResource, runAction, duplicateAction, removeAction, actionsByResource, shareActions, removeActions])
 
   return (
     <div className="api-client-section">
@@ -325,9 +471,9 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
                   return (
                     <div
                       key={action.id}
-                      className="api-client-row request"
-                      onClick={() => onOpenRequest({ action })}
-                      onContextMenu={(e) => openMenu(e, { kind: 'action', action })}
+                      className={`api-client-row request${selected.has(action.id) ? ' selected' : ''}`}
+                      onClick={(e) => handleRowClick(e, action, list)}
+                      onContextMenu={(e) => openActionMenu(e, action)}
                       title={`${action.method} ${action.path}${action.description ? `\n${action.description}` : ''}`}
                     >
                       <span className="api-client-method" data-method={action.method}>{action.method}</span>
@@ -348,7 +494,7 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
                         <button
                           className="api-client-row-btn"
                           title="More"
-                          onClick={(e) => openMenu(e, { kind: 'action', action })}
+                          onClick={(e) => openActionMenu(e, action)}
                         >
                           {Icons.more}
                         </button>
@@ -363,10 +509,26 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
       })}
 
       {!loading && resources.length > 0 && (
-        <button className="api-client-add-link" onClick={() => setResourceDialog({ resource: null })}>
-          {Icons.plus} Add API resource
+        <div className="api-client-footer">
+          <button className="api-client-add-link" onClick={() => setResourceDialog({ resource: null })}>
+            {Icons.plus} Add API resource
+          </button>
+          <button className="api-client-add-link" onClick={() => fileInputRef.current?.click()} title="Import saved requests from a NetStacks JSON file">
+            Import requests…
+          </button>
+          {selectedActions.length > 0 && (
+            <span className="api-client-selection-hint">
+              {selectedActions.length} selected — right-click to share
+            </span>
+          )}
+        </div>
+      )}
+      {!loading && resources.length === 0 && (
+        <button className="api-client-add-link" onClick={() => fileInputRef.current?.click()}>
+          Import requests…
         </button>
       )}
+      <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={(e) => void handleFileImport(e)} />
 
       <ContextMenu position={menuPos} onClose={closeMenu} items={menuItems} />
 

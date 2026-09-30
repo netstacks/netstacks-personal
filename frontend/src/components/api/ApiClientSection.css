@@ -168,3 +168,22 @@
 }
 
 @keyframes api-client-spin { to { transform: rotate(360deg); } }
+
+/* multi-select of saved requests */
+.api-client-row.request.selected {
+  background: color-mix(in srgb, var(--color-accent, #4a8cff) 22%, transparent);
+}
+.api-client-row.request.selected:hover {
+  background: color-mix(in srgb, var(--color-accent, #4a8cff) 30%, transparent);
+}
+.api-client-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.api-client-selection-hint {
+  font-size: 11px;
+  color: var(--color-text-muted, #888);
+  padding: 4px 8px;
+}

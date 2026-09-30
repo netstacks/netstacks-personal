@@ -5,6 +5,10 @@ import { getErrorMessage } from '../api/errors'
 interface JsonViewerProps {
   content: string;
   filename?: string; // Reserved for future use (e.g., display in header)
+  /** When set, keys and indexes become clickable and report their dot/bracket path. */
+  onKeyClick?: (path: string) => void;
+  /** Path to highlight (e.g. the current extract path). */
+  highlightPath?: string;
 }
 
 // Icons
@@ -70,6 +74,8 @@ interface JsonNodeProps {
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
   isLast?: boolean;
+  onKeyClick?: (path: string) => void;
+  highlightPath?: string;
 }
 
 function JsonNode({
@@ -79,6 +85,8 @@ function JsonNode({
   expandedPaths,
   onToggle,
   isLast = false,
+  onKeyClick,
+  highlightPath,
 }: JsonNodeProps) {
   const isExpandable = value !== null && typeof value === 'object';
   const isExpanded = expandedPaths.has(path);
@@ -109,15 +117,27 @@ function JsonNode({
     return null;
   };
 
-  // Render key/name part
+  // Render key/name part. With onKeyClick the name doubles as a button that
+  // hands back this node's path (results[0].comments) so an extract path can
+  // be set by clicking instead of typing.
   const renderName = (): React.ReactNode => {
     if (name === null) return null;
+    const highlighted = highlightPath !== undefined && highlightPath !== '' && highlightPath === path;
+    const clickable = onKeyClick !== undefined;
+    const cls = (base: string) => `${base}${clickable ? ' json-key-clickable' : ''}${highlighted ? ' json-key-highlight' : ''}`;
+    const onClick = clickable
+      ? (e: React.MouseEvent) => {
+          e.stopPropagation();
+          onKeyClick(path);
+        }
+      : undefined;
+    const title = clickable ? `Use ${path} as the extract path` : undefined;
     if (typeof name === 'number') {
-      return <span className="json-index">{name}</span>;
+      return <span className={cls('json-index')} onClick={onClick} title={title}>{name}</span>;
     }
     return (
       <>
-        <span className="json-key">"{name}"</span>
+        <span className={cls('json-key')} onClick={onClick} title={title}>"{name}"</span>
         <span className="json-punctuation">: </span>
       </>
     );
@@ -167,6 +187,8 @@ function JsonNode({
                   name={key}
                   value={val}
                   path={childPath}
+                  onKeyClick={onKeyClick}
+                  highlightPath={highlightPath}
                   expandedPaths={expandedPaths}
                   onToggle={onToggle}
                   isLast={idx === entries.length - 1}
@@ -185,18 +207,14 @@ function JsonNode({
   );
 }
 
-function JsonViewer({ content }: JsonViewerProps) {
-  const [parseError, setParseError] = useState<string | null>(null);
-
-  // Parse JSON
-  const parsedData = useMemo(() => {
+function JsonViewer({ content, onKeyClick, highlightPath }: JsonViewerProps) {
+  // Parse JSON: data and error are derived together so no state is set
+  // during render.
+  const { parsedData, parseError } = useMemo<{ parsedData: unknown; parseError: string | null }>(() => {
     try {
-      const data = JSON.parse(content);
-      setParseError(null);
-      return data;
+      return { parsedData: JSON.parse(content), parseError: null };
     } catch (err) {
-      setParseError(getErrorMessage(err, 'Invalid JSON'));
-      return null;
+      return { parsedData: null, parseError: getErrorMessage(err, 'Invalid JSON') };
     }
   }, [content]);
 
@@ -206,24 +224,25 @@ function JsonViewer({ content }: JsonViewerProps) {
     return getPathsToDepth(parsedData, 2, '');
   }, [parsedData]);
 
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(initialExpanded);
-
-  // Reset expanded state when content changes
-  useMemo(() => {
-    setExpandedPaths(initialExpanded);
-  }, [initialExpanded]);
+  // Expanded state is keyed by the content it was built for, so a new
+  // response resets the tree without setting state during render.
+  const [expandedState, setExpandedState] = useState<{ forContent: string; paths: Set<string> }>(
+    () => ({ forContent: content, paths: initialExpanded })
+  );
+  const expandedPaths = expandedState.forContent === content ? expandedState.paths : initialExpanded;
 
   const togglePath = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
+    setExpandedState((prev) => {
+      const base = prev.forContent === content ? prev.paths : initialExpanded;
+      const next = new Set(base);
       if (next.has(path)) {
         next.delete(path);
       } else {
         next.add(path);
       }
-      return next;
+      return { forContent: content, paths: next };
     });
-  }, []);
+  }, [content, initialExpanded]);
 
   // Render error state
   if (parseError) {
@@ -253,6 +272,8 @@ function JsonViewer({ content }: JsonViewerProps) {
         expandedPaths={expandedPaths}
         onToggle={togglePath}
         isLast={true}
+        onKeyClick={onKeyClick}
+        highlightPath={highlightPath}
       />
     </div>
   );

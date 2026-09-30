@@ -55,23 +55,25 @@ enum PathSegment {
 
 fn parse_path_segments(path: &str) -> Vec<PathSegment> {
     let mut segments = Vec::new();
-    let mut chars = path.chars().peekable();
+    // Paths come straight from a text field; stray whitespace around the path
+    // or a key (a trailing space after `comments`) must not turn into a miss.
+    let mut chars = path.trim().chars().peekable();
     let mut current_key = String::new();
 
     while let Some(&ch) = chars.peek() {
         match ch {
             '.' => {
-                if !current_key.is_empty() {
-                    segments.push(PathSegment::Key(current_key.clone()));
-                    current_key.clear();
+                if !current_key.trim().is_empty() {
+                    segments.push(PathSegment::Key(current_key.trim().to_string()));
                 }
+                current_key.clear();
                 chars.next();
             }
             '[' => {
-                if !current_key.is_empty() {
-                    segments.push(PathSegment::Key(current_key.clone()));
-                    current_key.clear();
+                if !current_key.trim().is_empty() {
+                    segments.push(PathSegment::Key(current_key.trim().to_string()));
                 }
+                current_key.clear();
                 chars.next(); // consume '['
                 let mut idx_str = String::new();
                 while let Some(&c) = chars.peek() {
@@ -99,8 +101,8 @@ fn parse_path_segments(path: &str) -> Vec<PathSegment> {
         }
     }
 
-    if !current_key.is_empty() {
-        segments.push(PathSegment::Key(current_key));
+    if !current_key.trim().is_empty() {
+        segments.push(PathSegment::Key(current_key.trim().to_string()));
     }
 
     segments
@@ -400,6 +402,19 @@ pub async fn execute_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_json_extract_index_then_key_on_paginated_response() {
+        let json = serde_json::json!({
+            "count": 14944,
+            "results": [{"comments": "OS Version: 12.3R8.7", "config_context": {"FLIGHT": "NA"}}]
+        });
+        assert_eq!(json_extract(&json, "results[0].comments"), Some(serde_json::json!("OS Version: 12.3R8.7")));
+        assert_eq!(json_extract(&json, "results[0].config_context.FLIGHT"), Some(serde_json::json!("NA")));
+        assert_eq!(json_extract(&json, " results[0].comments "), Some(serde_json::json!("OS Version: 12.3R8.7")));
+        assert_eq!(json_extract(&json, "results[0]. comments\t"), Some(serde_json::json!("OS Version: 12.3R8.7")));
+        assert_eq!(json_extract(&json, "results[0].comments."), Some(serde_json::json!("OS Version: 12.3R8.7")));
+    }
 
     #[test]
     fn test_json_extract_simple_key() {

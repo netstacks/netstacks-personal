@@ -13,6 +13,7 @@ import { copyToClipboard } from '../../lib/clipboard'
 import { getErrorMessage } from '../../api/errors'
 import { setTabDirty } from '../../stores/dirtyTabsStore'
 import JsonViewer from '../JsonViewer'
+import { jsonExtract, formatExtracted } from '../../lib/jsonExtract'
 import { JsonEditor, PathInput } from './RequestEditors'
 import { notifyApiClientChanged, useApiClientChanged } from './apiClientEvents'
 import './ApiRequestTab.css'
@@ -337,6 +338,16 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
     setActiveHistoryId(entry.id)
   }
 
+  // Live preview of the extract path against the last JSON response, so the
+  // path can be tuned without another call. `undefined` = miss, `null` = a
+  // JSON null hit. Non-JSON bodies fall back to what the agent reported.
+  const liveExtracted = useMemo(() => {
+    if (!result || result.raw_body === undefined || result.raw_body === null) return undefined
+    if (!draft.jsonExtractPath.trim()) return undefined
+    return jsonExtract(result.raw_body, draft.jsonExtractPath)
+  }, [result, draft.jsonExtractPath])
+  const canPreview = !!result && result.raw_body !== undefined && result.raw_body !== null
+
   const body = result ? formatBody(result) : null
 
   return (
@@ -513,7 +524,7 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
                 placeholder="results[0].name"
               />
               <span className="api-request-hint">
-                Dot/bracket path into the JSON response. The extracted value is what Quick Calls show in toasts and what the AI gets back.
+                Dot/bracket path into the JSON response; it is evaluated live against the last response as you type, or click a key in the response body to use its path. The extracted value is what Quick Calls show in toasts and what the AI gets back.
               </span>
             </div>
           )}
@@ -570,13 +581,19 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
 
         {result?.warning && <div className="api-response-banner warn">{result.warning}</div>}
         {result?.error && !result.success && <div className="api-response-banner error">{result.error}</div>}
-        {result && draft.jsonExtractPath && (
+        {result && draft.jsonExtractPath.trim() && (
           <div className="api-response-extract">
             <span className="label">Extracted</span>
-            {result.extracted_value !== undefined && result.extracted_value !== null ? (
-              <code>{typeof result.extracted_value === 'string' ? result.extracted_value : JSON.stringify(result.extracted_value)}</code>
+            {canPreview ? (
+              liveExtracted !== undefined ? (
+                <code>{formatExtracted(liveExtracted)}</code>
+              ) : (
+                <code className="miss">no match for {draft.jsonExtractPath.trim()}</code>
+              )
+            ) : result.extracted_value !== undefined && result.extracted_value !== null ? (
+              <code>{formatExtracted(result.extracted_value)}</code>
             ) : (
-              <code className="miss">no match for {draft.jsonExtractPath}</code>
+              <code className="miss">no match for {draft.jsonExtractPath.trim()}</code>
             )}
           </div>
         )}
@@ -584,7 +601,16 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
         <div className="api-response-body">
           {result && respTab === 'body' && body && (
             body.isJson
-              ? <JsonViewer content={body.text} />
+              ? (
+                <JsonViewer
+                  content={body.text}
+                  highlightPath={draft.jsonExtractPath.trim()}
+                  onKeyClick={(path) => {
+                    update('jsonExtractPath', path)
+                    setReqTab('extract')
+                  }}
+                />
+              )
               : body.text
                 ? <pre className="api-response-raw">{body.text}</pre>
                 : <div className="api-response-placeholder">Empty body</div>

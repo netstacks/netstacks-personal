@@ -820,3 +820,17 @@
 .jinja-stats {
   display: inline-block;
 }
+
+/* JsonViewer: clickable keys (extract-path picking) */
+.json-key-clickable {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.json-key-clickable:hover {
+  background: color-mix(in srgb, var(--accent, #4a8cff) 22%, transparent);
+  text-decoration: underline dotted;
+}
+.json-key-highlight {
+  background: color-mix(in srgb, var(--accent, #4a8cff) 35%, transparent);
+  outline: 1px solid var(--accent, #4a8cff);
+}
