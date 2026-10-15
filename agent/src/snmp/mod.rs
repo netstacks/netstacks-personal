@@ -66,8 +66,10 @@ impl SnmpDest {
     }
 }
 
-/// Default SNMP operation timeout (5 seconds)
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Default SNMP operation timeout.
+/// 15 s covers slow/high-latency devices (NCS-5500, CRS) while still
+/// catching unreachable targets faster than most SNMP tools' defaults.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Maximum entries to collect during a WALK before stopping (safety limit)
 const MAX_WALK_ENTRIES: usize = 10_000;
