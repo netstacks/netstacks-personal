@@ -14,9 +14,12 @@ import { showToast } from './Toast'
 import { confirmDialog } from './ConfirmDialog'
 import { useMode } from '../hooks/useMode'
 import AITabInput from './AITabInput'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
 import './SettingsTunnels.css'
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter'
 type ForwardType = 'local' | 'remote' | 'dynamic'
 
 // The agent refuses to start a Remote (-R) forward ("not yet implemented",
@@ -42,6 +45,14 @@ function isLoopbackAddress(value: string): boolean {
   const octets = ipv4.slice(1, 5).map((o) => parseInt(o, 10))
   if (octets.some((o) => o < 0 || o > 255)) return false
   return octets[0] === 127
+}
+
+/** Status-dot modifier per tunnel state (idle/disconnected keeps the plain dot). */
+const TUNNEL_DOT: Partial<Record<TunnelWithState['status'], string>> = {
+  connected: ' settings-status-dot--ok',
+  connecting: ' settings-status-dot--busy',
+  reconnecting: ' settings-status-dot--busy',
+  failed: ' settings-status-dot--error',
 }
 
 export default function SettingsTunnels() {
@@ -271,28 +282,33 @@ export default function SettingsTunnels() {
   }
 
   return (
-    <div className="settings-content">
-      <div className="settings-category">
-        <div className="settings-category-header">
-          <h3 className="settings-category-title">SSH Tunnels</h3>
+    <SettingsSection
+        title="SSH Tunnels"
+        help={{
+          topic: 'SSH tunnels',
+          prompt: `Help me set up SSH tunnels in NetStacks. I have ${tunnels.length} tunnel(s)`
+            + (tunnels.length ? ` (${tunnels.map(t => `${t.name}: ${t.forward_type}`).join(', ')})` : '')
+            + '. Explain local (-L) vs dynamic SOCKS5 (-D) forwards, which profile and jump host a tunnel uses, bind address and ports (and why binding beyond loopback is risky), auto-start, and give an example for reaching a device web UI behind a bastion.',
+        }}
+        actions={
           <button
-            className="settings-btn settings-btn-primary"
+            className="ns-btn ns-btn--small"
             onClick={() => { resetForm(); refreshDropdownSources(); setShowForm(true) }}
           >
-            + New Tunnel
+            + New tunnel
           </button>
-        </div>
+        }
+      >
 
         {showForm && (
-          <div className="tunnel-form">
-            <h4 className="tunnel-form-title">{editingId ? 'Edit Tunnel' : 'Create Tunnel'}</h4>
+          <div className="settings-form">
+            <h4 className="settings-form-title">{editingId ? 'Edit Tunnel' : 'Create Tunnel'}</h4>
 
-            <div className="tunnel-form-row">
-              <div className="tunnel-form-field">
-                <label className="setting-label">Name</label>
+            <div className="settings-form-row">
+              <div className="form-group">
+                <label>Name</label>
                 <AITabInput
                   type="text"
-                  className="setting-input"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="My Tunnel"
@@ -310,22 +326,22 @@ export default function SettingsTunnels() {
               </div>
             </div>
 
-            <div className="tunnel-form-row">
-              <div className="tunnel-form-field">
-                <label className="setting-label">SSH Host</label>
-                <input
+            <div className="settings-form-row">
+              <div className="form-group">
+                <label>SSH Host</label>
+                <input data-ai-fill="off"
                   type="text"
-                  className="setting-input"
+                  className="ns-input"
                   value={host}
                   onChange={e => setHost(e.target.value)}
                   placeholder="192.168.1.1"
                 />
               </div>
-              <div className="tunnel-form-field tunnel-form-field-small">
-                <label className="setting-label">Port</label>
-                <input
+              <div className="form-group form-group--narrow">
+                <label>Port</label>
+                <input aria-label="Port"
                   type="number"
-                  className="setting-input"
+                  className="ns-input"
                   value={port}
                   min={1}
                   max={65535}
@@ -334,10 +350,10 @@ export default function SettingsTunnels() {
               </div>
             </div>
 
-            <div className="tunnel-form-row">
-              <div className="tunnel-form-field">
-                <label className="setting-label">Credential Profile</label>
-                <select className="setting-select" value={profileId} onChange={e => setProfileId(e.target.value)}>
+            <div className="settings-form-row">
+              <div className="form-group">
+                <label>Credential Profile</label>
+                <select aria-label="Credential Profile" className="ns-select" value={profileId} onChange={e => setProfileId(e.target.value)}>
                   <option value="">Select profile...</option>
                   {profiles.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -345,9 +361,9 @@ export default function SettingsTunnels() {
                 </select>
               </div>
               {!isEnterprise && (
-              <div className="tunnel-form-field">
-                <label className="setting-label">Jump (optional)</label>
-                <select className="setting-select" value={jumpSelection} onChange={e => setJumpSelection(e.target.value)}>
+              <div className="form-group">
+                <label>Jump (optional)</label>
+                <select aria-label="Jump (optional)" className="ns-select" value={jumpSelection} onChange={e => setJumpSelection(e.target.value)}>
                   {(() => {
                     const profile = profiles.find(p => p.id === profileId)
                     let inheritedName = 'direct'
@@ -380,11 +396,11 @@ export default function SettingsTunnels() {
               )}
             </div>
 
-            <div className="tunnel-form-row">
-              <div className="tunnel-form-field">
-                <label className="setting-label">Forward Type</label>
-                <select
-                  className="setting-select"
+            <div className="settings-form-row">
+              <div className="form-group">
+                <label>Forward Type</label>
+                <select aria-label="Forward Type"
+                  className="ns-select"
                   value={forwardType}
                   onChange={e => setForwardType(e.target.value as ForwardType)}
                 >
@@ -395,14 +411,14 @@ export default function SettingsTunnels() {
                   <option value="dynamic">Dynamic (-D) SOCKS5</option>
                 </select>
                 {forwardType === 'remote' && (
-                  <div className="setting-description tunnel-error">{REMOTE_UNSUPPORTED}</div>
+                  <p className="form-hint settings-error">{REMOTE_UNSUPPORTED}</p>
                 )}
               </div>
-              <div className="tunnel-form-field tunnel-form-field-small">
-                <label className="setting-label">Local Port</label>
-                <input
+              <div className="form-group form-group--narrow">
+                <label>Local Port</label>
+                <input aria-label="Local Port"
                   type="number"
-                  className="setting-input"
+                  className="ns-input"
                   value={localPort}
                   min={1}
                   max={65535}
@@ -411,21 +427,21 @@ export default function SettingsTunnels() {
               </div>
               {forwardType !== 'dynamic' && (
                 <>
-                  <div className="tunnel-form-field">
-                    <label className="setting-label">Remote Host</label>
-                    <input
+                  <div className="form-group">
+                    <label>Remote Host</label>
+                    <input data-ai-fill="off"
                       type="text"
-                      className="setting-input"
+                      className="ns-input"
                       value={remoteHost}
                       onChange={e => setRemoteHost(e.target.value)}
                       placeholder="localhost"
                     />
                   </div>
-                  <div className="tunnel-form-field tunnel-form-field-small">
-                    <label className="setting-label">Remote Port</label>
-                    <input
+                  <div className="form-group form-group--narrow">
+                    <label>Remote Port</label>
+                    <input aria-label="Remote Port"
                       type="number"
-                      className="setting-input"
+                      className="ns-input"
                       value={remotePort}
                       min={1}
                       max={65535}
@@ -436,8 +452,8 @@ export default function SettingsTunnels() {
               )}
             </div>
 
-            <div className="tunnel-form-toggles">
-              <label className="tunnel-form-toggle">
+            <div className="settings-form-checks">
+              <label>
                 <input
                   type="checkbox"
                   checked={autoStart}
@@ -445,7 +461,7 @@ export default function SettingsTunnels() {
                 />
                 Auto-start
               </label>
-              <label className="tunnel-form-toggle">
+              <label>
                 <input
                   type="checkbox"
                   checked={autoReconnect}
@@ -453,11 +469,11 @@ export default function SettingsTunnels() {
                 />
                 Auto-reconnect
               </label>
-              <label className="tunnel-form-toggle">
+              <label>
                 Max retries
                 <input
                   type="number"
-                  className="setting-input tunnel-retries-input"
+                  className="ns-input tunnels-retries-input"
                   value={maxRetries}
                   onChange={e => setMaxRetries(e.target.value)}
                   min={0}
@@ -466,99 +482,52 @@ export default function SettingsTunnels() {
               </label>
             </div>
 
-            <div className="tunnel-form-actions">
-              <button className="settings-btn" onClick={resetForm}>Cancel</button>
-              <button className="settings-btn settings-btn-primary" onClick={handleSave}>
-                {editingId ? 'Save Changes' : 'Create Tunnel'}
-              </button>
-            </div>
+            <DialogFooter
+              primary={{ label: editingId ? 'Save Changes' : 'Create Tunnel', onClick: handleSave }}
+              onCancel={resetForm}
+              inline
+            />
           </div>
         )}
-      </div>
 
-      {loadError && !showForm ? (
-        <div className="settings-category">
-          <div className="setting-item">
-            <div className="setting-description tunnel-load-error" style={{ textAlign: 'center', padding: 'var(--spacing-lg) 0' }}>
-              Failed to load tunnels: {loadError}
-              <button className="btn-secondary" style={{ marginLeft: 12 }} onClick={() => fetchTunnels()}>
-                Retry
-              </button>
-            </div>
+        {loadError && !showForm ? (
+          <p className="settings-error">
+            Failed to load tunnels: {loadError}{' '}
+            <button className="ns-btn ns-btn--small" onClick={() => fetchTunnels()}>Retry</button>
+          </p>
+        ) : tunnels.length === 0 && !showForm ? (
+          <p className="form-hint">No SSH tunnels yet. Create a tunnel to forward ports through SSH connections.</p>
+        ) : tunnels.length > 0 && (
+          <div className="settings-group">
+            {tunnels.map(tunnel => (
+              <SettingsItem
+                key={tunnel.id}
+                leading={<span className={`settings-status-dot${TUNNEL_DOT[tunnel.status] ?? ''}`} role="img" aria-label={tunnel.status} />}
+                title={tunnel.name}
+                badges={tunnel.auto_start && <span className="settings-badge">auto-start</span>}
+                meta={
+                  <>
+                    <code>{formatTunnelSpec(tunnel)}</code>
+                    {tunnel.uptime_secs !== null && tunnel.uptime_secs > 0 && <span>{formatUptime(tunnel.uptime_secs)}</span>}
+                    {tunnel.forward_type === 'remote' && <span className="settings-error">{REMOTE_UNSUPPORTED}</span>}
+                    {tunnel.last_error && tunnel.status === 'failed' && <span className="settings-error">{tunnel.last_error}</span>}
+                  </>
+                }
+                actions={
+                  <>
+                    {isActive(tunnel) ? (
+                      <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleToggle(tunnel)}>Stop</button>
+                    ) : (
+                      <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleToggle(tunnel)}>Start</button>
+                    )}
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleEdit(tunnel)}>Edit</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(tunnel)}>Delete</button>
+                  </>
+                }
+              />
+            ))}
           </div>
-        </div>
-      ) : tunnels.length === 0 && !showForm ? (
-        <div className="settings-category">
-          <div className="setting-item">
-            <div className="setting-description" style={{ textAlign: 'center', padding: 'var(--spacing-lg) 0' }}>
-              No SSH tunnels configured. Create a tunnel to forward ports through SSH connections.
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="tunnel-list">
-          {tunnels.map(tunnel => (
-            <div key={tunnel.id} className="tunnel-card">
-              <div className={`tunnel-dot ${tunnel.status}`} />
-              <div className="tunnel-info">
-                <div className="tunnel-name">{tunnel.name}</div>
-                <div className="tunnel-meta">
-                  <span className="tunnel-spec">{formatTunnelSpec(tunnel)}</span>
-                  {tunnel.uptime_secs !== null && tunnel.uptime_secs > 0 && (
-                    <span className="tunnel-uptime">{formatUptime(tunnel.uptime_secs)}</span>
-                  )}
-                  {tunnel.auto_start && (
-                    <span className="tunnel-badge">auto-start</span>
-                  )}
-                </div>
-                {tunnel.forward_type === 'remote' && (
-                  <div className="tunnel-error" title={REMOTE_UNSUPPORTED}>
-                    {REMOTE_UNSUPPORTED}
-                  </div>
-                )}
-                {tunnel.last_error && tunnel.status === 'failed' && (
-                  <div className="tunnel-error" title={tunnel.last_error}>
-                    {tunnel.last_error}
-                  </div>
-                )}
-              </div>
-              <div className="tunnel-actions">
-                {isActive(tunnel) ? (
-                  <button
-                    className="tunnel-action stop"
-                    onClick={() => handleToggle(tunnel)}
-                    title="Stop"
-                  >
-                    Stop
-                  </button>
-                ) : (
-                  <button
-                    className="tunnel-action start"
-                    onClick={() => handleToggle(tunnel)}
-                    title="Start"
-                  >
-                    Start
-                  </button>
-                )}
-                <button
-                  className="tunnel-action"
-                  onClick={() => handleEdit(tunnel)}
-                  title="Edit"
-                >
-                  Edit
-                </button>
-                <button
-                  className="tunnel-action danger"
-                  onClick={() => handleDelete(tunnel)}
-                  title="Delete"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+        )}
+      </SettingsSection>
   )
 }

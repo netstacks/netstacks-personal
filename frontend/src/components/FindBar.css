@@ -33,7 +33,7 @@
   max-width: 300px;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
@@ -84,7 +84,6 @@
   border: none;
   border-radius: 3px;
   color: var(--color-text-secondary);
-  cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
@@ -116,7 +115,6 @@
   width: 24px;
   height: 24px;
   border-radius: 3px;
-  cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
@@ -143,7 +141,7 @@
 }
 
 .find-bar-option:has(input:checked) span {
-  color: white;
+  color: var(--color-text-on-accent);
 }
 
 .find-bar-close {
@@ -157,7 +155,6 @@
   border: none;
   border-radius: 3px;
   color: var(--color-text-secondary);
-  cursor: pointer;
   margin-left: auto;
   transition: background var(--transition-fast), color var(--transition-fast);
 }

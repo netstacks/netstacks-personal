@@ -10,6 +10,7 @@ import { useAgentTasksStore } from '../hooks/useAgentTasks';
 import { getTaskMessages } from '../api/tasks';
 import type { AgentTask, TaskMessage } from '../types/tasks';
 import AgentActivity from './AgentActivity';
+import Tooltip from './Tooltip';
 
 const EMPTY: TaskMessage[] = [];
 
@@ -124,29 +125,28 @@ export default function SubagentNode({
       }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div
+      <Tooltip label="Drag to move · double-click to open as a tab"><div
         className="saw-node-header"
         onPointerDown={onHeadDown}
         onPointerMove={onHeadMove}
         onPointerUp={endDrag}
         onDoubleClick={onOpenRun}
-        title="Drag to move · double-click to open as a tab"
       >
-        <button
+        <Tooltip label={expanded ? 'Collapse' : 'Expand'}><button
           className="saw-node-expand"
           onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-          title={expanded ? 'Collapse' : 'Expand'}
+          aria-label={expanded ? 'Collapse' : 'Expand'}
         >
           <svg className={`saw-chevron${expanded ? ' open' : ''}`} viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5">
             <polyline points="9 6 15 12 9 18" />
           </svg>
-        </button>
+        </button></Tooltip>
         <span className={`saw-node-status status-${task.status}`}>
           {isRunning && <span className="saw-dot" />}
           {STATUS_LABEL[task.status] ?? task.status}
         </span>
         <span className={`saw-node-kind kind-${kind.toLowerCase()}`}>{kind}</span>
-      </div>
+      </div></Tooltip>
 
       <div className="saw-node-title" onDoubleClick={onOpenRun} title={title}>{title}</div>
 
@@ -157,13 +157,12 @@ export default function SubagentNode({
       )}
 
       {expanded && (
-        <div
+        <Tooltip label="Resize"><div
           className="saw-node-resize"
           onPointerDown={onRezDown}
           onPointerMove={onRezMove}
           onPointerUp={endRez}
-          title="Resize"
-        />
+        /></Tooltip>
       )}
     </div>
   );

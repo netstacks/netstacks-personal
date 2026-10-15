@@ -7,6 +7,7 @@
 
 import type { NextStepSuggestion } from '../hooks/useNextStepSuggestions';
 import './NextStepSuggestions.css';
+import Tooltip from './Tooltip';
 
 interface NextStepSuggestionsProps {
   suggestions: NextStepSuggestion[];
@@ -51,9 +52,9 @@ export function NextStepSuggestions({
         <span className="next-step-title">
           Suggested Next Steps
         </span>
-        <button className="next-step-dismiss" onClick={onDismiss} title="Dismiss">
+        <Tooltip label="Dismiss"><button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={onDismiss}>
           &times;
-        </button>
+        </button></Tooltip>
       </div>
 
       {loading ? (
@@ -63,27 +64,24 @@ export function NextStepSuggestions({
       ) : (
         <div className="next-step-list">
           {suggestions.map((suggestion, index) => (
-            <button
-              key={index}
+            <Tooltip key={index} label={suggestion.description}><button
               className="next-step-item"
               onClick={() => onUseSuggestion(suggestion.command)}
-              title={suggestion.description}
             >
-              <span className="next-step-icon" title={CATEGORY_LABELS[suggestion.category]}>
+              <Tooltip label={CATEGORY_LABELS[suggestion.category]}><span className="next-step-icon">
                 {CATEGORY_ICONS[suggestion.category]}
-              </span>
+              </span></Tooltip>
               <div className="next-step-content">
                 <code className="next-step-command">{suggestion.command}</code>
                 <span className="next-step-description">{suggestion.description}</span>
               </div>
-              <span
+              <Tooltip label={`${suggestion.confidence} confidence`}><span
                 className="next-step-confidence"
                 style={{ color: CONFIDENCE_COLORS[suggestion.confidence] }}
-                title={`${suggestion.confidence} confidence`}
               >
                 {suggestion.confidence === 'high' ? '\u25CF' : suggestion.confidence === 'medium' ? '\u25D0' : '\u25CB'}
-              </span>
-            </button>
+              </span></Tooltip>
+            </button></Tooltip>
           ))}
         </div>
       )}

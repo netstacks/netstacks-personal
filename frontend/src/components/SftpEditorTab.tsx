@@ -4,7 +4,7 @@ import { confirmDialog } from './ConfirmDialog';
 import './SftpEditorTab.css';
 
 import { getErrorMessage } from '../api/errors'
-import { displayShortcut } from '../hooks/useKeyboard'
+import Tooltip from './Tooltip';
 interface SftpEditorTabProps {
   /** Owning tab id — File → Save / Cmd+S arrive as `netstacks:save-document` with this id. */
   tabId: string;
@@ -194,7 +194,7 @@ export default function SftpEditorTab({
       <div className="sftp-editor">
         <div className="sftp-editor-load-error">
           <div className="sftp-editor-load-error-message">{loadError}</div>
-          <button onClick={loadFile}>Retry</button>
+          <button className="ns-btn ns-btn--primary" onClick={loadFile}>Retry</button>
         </div>
       </div>
     );
@@ -216,24 +216,22 @@ export default function SftpEditorTab({
           )}
         </div>
         <div className="sftp-editor-actions">
-          <button
-            className="sftp-editor-btn primary"
+          <Tooltip label="Save" shortcut="Cmd+S"><button
+            className="ns-btn ns-btn--primary"
             onClick={handleSave}
             disabled={!isDirty || saving}
-            title={`Save (${displayShortcut('Cmd+S')})`}
           >
             {Icons.save}
             Save
-          </button>
-          <button
-            className="sftp-editor-btn"
+          </button></Tooltip>
+          <Tooltip label="Reload from server"><button
+            className="ns-btn"
             onClick={handleReload}
             disabled={saving}
-            title="Reload from server"
           >
             {Icons.reload}
             Reload
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
@@ -242,7 +240,7 @@ export default function SftpEditorTab({
         <div className="sftp-editor-error">
           <span>{error}</span>
           <button
-            className="sftp-editor-error-dismiss"
+            className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger"
             onClick={() => setError(null)}
           >
             Dismiss
@@ -255,7 +253,7 @@ export default function SftpEditorTab({
         <div className="sftp-editor-gutter" ref={gutterRef}>
           <div className="sftp-editor-line-numbers">{lineNumbers}</div>
         </div>
-        <textarea
+        <textarea data-ai-fill="off" aria-label="File content"
           ref={textareaRef}
           className="sftp-editor-textarea"
           value={content}

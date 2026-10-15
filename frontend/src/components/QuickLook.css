@@ -72,13 +72,13 @@
 }
 
 .quicklook-badge.category-notes {
-  background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
 }
 
 .quicklook-badge.category-templates {
-  background: rgba(33, 150, 243, 0.15);
-  color: #2196f3;
+  background: var(--color-accent-tint-15);
+  color: var(--color-accent);
 }
 
 .quicklook-badge.category-outputs {
@@ -87,18 +87,18 @@
 }
 
 .quicklook-badge.category-backups {
-  background: rgba(255, 152, 0, 0.15);
-  color: #ff9800;
+  background: rgba(var(--color-warning-rgb), 0.15);
+  color: var(--color-warning);
 }
 
 .quicklook-badge.category-history {
   background: rgba(96, 125, 139, 0.15);
-  color: #607d8b;
+  color: var(--color-text-muted);
 }
 
 .quicklook-badge-editing {
-  background: rgba(255, 193, 7, 0.15);
-  color: #ffc107;
+  background: rgba(var(--color-warning-rgb), 0.15);
+  color: var(--color-warning);
 }
 
 .quicklook-header-actions {
@@ -109,31 +109,7 @@
 
 .quicklook-header-btn {
   display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
-  height: 28px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.quicklook-header-btn:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-}
-
-.quicklook-header-btn.active {
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
-}
-
-.quicklook-close-btn:hover {
-  background: rgba(244, 67, 54, 0.1);
-  color: #f44336;
 }
 
 /* Content */
@@ -142,6 +118,7 @@
   min-height: 200px;
   max-height: 350px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--spacing-md);
 }
 
@@ -213,41 +190,10 @@
 
 .quicklook-btn {
   display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-small);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.quicklook-btn:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-hover);
-}
-
-.quicklook-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .quicklook-btn svg {
   flex-shrink: 0;
-}
-
-.quicklook-btn-primary {
-  background: var(--color-accent-bg);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.quicklook-btn-primary:hover {
-  background: var(--color-accent);
-  color: var(--color-bg-primary);
 }
 
 /* Viewer overrides for compact display */

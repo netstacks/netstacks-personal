@@ -9,7 +9,7 @@
 }
 
 .ai-tab-wrapper.focused .ai-tab-input {
-  border-color: var(--color-accent, #0078d4);
+  border-color: var(--color-accent);
 }
 
 .ai-tab-input {
@@ -33,16 +33,27 @@ textarea.ai-tab-input {
   align-items: center;
   gap: 2px;
   padding: 2px 6px;
-  background: var(--color-bg-secondary, #252525);
-  border: 1px solid var(--color-border, #3e3e3e);
-  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   font-size: 10px;
   font-weight: 600;
-  color: var(--color-text-secondary, #858585);
+  color: var(--color-text-secondary);
   pointer-events: none;
   user-select: none;
   white-space: nowrap;
   letter-spacing: 0.3px;
+}
+
+.ai-tab-badge svg {
+  color: var(--color-text-accent);
+}
+
+/* No AI provider: say so instead of offering Tab (Tab then moves focus). */
+.ai-tab-badge--muted {
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-text-tertiary);
 }
 
 textarea ~ .ai-tab-badge {
@@ -68,8 +79,8 @@ textarea ~ .ai-tab-loading {
 .ai-tab-spinner {
   width: 12px;
   height: 12px;
-  border: 2px solid var(--color-border, #3e3e3e);
-  border-top-color: var(--color-accent, #0078d4);
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: ai-tab-spin 0.6s linear infinite;
 }

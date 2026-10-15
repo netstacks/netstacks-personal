@@ -6,9 +6,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import type { QuickAction } from '../types/quickAction'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import './QuickCallVariablesDialog.css'
 
+import DialogFooter from './DialogFooter'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 interface Props {
   call: QuickAction
   variables: string[]
@@ -30,7 +32,6 @@ export default function QuickCallVariablesDialog({ call, variables, onSubmit, on
 
   // Escape + backdrop click go through the shared overlay hook (the old
   // element-level onKeyDown only fired while focus was inside the dialog).
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onCancel })
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {
@@ -40,41 +41,34 @@ export default function QuickCallVariablesDialog({ call, variables, onSubmit, on
   }
 
   return (
-    <div className="qcv-dialog-overlay" {...backdropProps}>
-      <div className="qcv-dialog" {...contentProps} onKeyDown={handleKeyDown}>
-        <div className="qcv-dialog-header">
-          <h2>Run &ldquo;{call.name}&rdquo;</h2>
-          <button className="qcv-dialog-close" onClick={onCancel} title="Cancel">×</button>
-        </div>
-        <div className="qcv-dialog-content">
-          <p className="qcv-dialog-hint">
-            This Quick Call needs the following variables. They&rsquo;ll be substituted into{' '}
-            <code>{call.method} {call.path}</code>.
-          </p>
-          {variables.map((name, i) => (
-            <div key={name} className="qcv-field">
-              <label htmlFor={`qcv-${name}`}>
-                <code>{`{{${name}}}`}</code>
-              </label>
-              <input
-                id={`qcv-${name}`}
-                ref={i === 0 ? firstInputRef : undefined}
-                type="text"
-                value={values[name] ?? ''}
-                onChange={(e) => setValues({ ...values, [name]: e.target.value })}
-                placeholder={`Value for ${name}`}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="qcv-dialog-footer">
-          <button className="qcv-btn-secondary" onClick={onCancel}>Cancel</button>
-          <button className="qcv-btn-primary" onClick={() => onSubmit(values)} disabled={!canSubmit}>
-            Run
-          </button>
-        </div>
+    <ModalFrame id="quick-call-variables" onDismiss={onCancel} className="qcv-dialog" onKeyDown={handleKeyDown} label="Quick Call Variables">
+      <div className="qcv-dialog-header">
+        <h2>Run &ldquo;{call.name}&rdquo;</h2>
+        <Tooltip label="Cancel"><button aria-label="Cancel" className="ns-btn ns-btn--ghost ns-icon-btn qcv-dialog-close" onClick={onCancel}>×</button></Tooltip>
       </div>
-    </div>
+      <div className="qcv-dialog-content">
+        <p className="qcv-dialog-hint">
+          This Quick Call needs the following variables. They&rsquo;ll be substituted into{' '}
+          <code>{call.method} {call.path}</code>.
+        </p>
+        {variables.map((name, i) => (
+          <div key={name} className="qcv-field">
+            <label htmlFor={`qcv-${name}`}>
+              <code>{`{{${name}}}`}</code>
+            </label>
+            <input data-ai-fill="off" className="ns-input"
+              id={`qcv-${name}`}
+              ref={i === 0 ? firstInputRef : undefined}
+              type="text"
+              value={values[name] ?? ''}
+              onChange={(e) => setValues({ ...values, [name]: e.target.value })}
+              placeholder={`Value for ${name}`}
+            />
+          </div>
+        ))}
+      </div>
+      <DialogFooter primary={{ label: 'Run', onClick: () => onSubmit(values), disabled: !canSubmit }} onCancel={onCancel} />
+    </ModalFrame>
   )
 }
 

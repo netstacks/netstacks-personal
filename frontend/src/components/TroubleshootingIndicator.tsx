@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TroubleshootingSession } from '../types/troubleshooting';
 import { formatElapsed } from '../lib/formatters';
 import './TroubleshootingIndicator.css';
+import Tooltip from './Tooltip';
 
 interface TroubleshootingIndicatorProps {
   session: TroubleshootingSession;
@@ -94,21 +95,20 @@ export default function TroubleshootingIndicator({
 
   return (
     <div className="troubleshooting-indicator-container">
-      <button
+      <Tooltip label="Troubleshooting session in progress - Click for options"><button
         ref={indicatorRef}
         className="troubleshooting-indicator"
         onClick={handleTogglePopover}
-        title="Troubleshooting session in progress - Click for options"
       >
         <span className="troubleshooting-indicator-dot" />
         <span className="troubleshooting-indicator-name">
           {truncate(session.name, 20)}
         </span>
         <span className="troubleshooting-indicator-duration">{duration}</span>
-        <span className="troubleshooting-indicator-count" title={`${entryCount} entries recorded`}>
+        <Tooltip label={`${entryCount} entries recorded`}><span className="troubleshooting-indicator-count">
           {entryCount}
-        </span>
-      </button>
+        </span></Tooltip>
+      </button></Tooltip>
 
       {showPopover && (
         <div ref={popoverRef} className="troubleshooting-indicator-popover">
@@ -159,7 +159,7 @@ export default function TroubleshootingIndicator({
           <div className="troubleshooting-popover-actions">
             {!session.topologyId && (
               <button
-                className="troubleshooting-popover-btn secondary"
+                className="ns-btn"
                 onClick={handleAttachTopology}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
@@ -181,7 +181,7 @@ export default function TroubleshootingIndicator({
               </div>
             )}
             <button
-              className="troubleshooting-popover-btn primary"
+              className="ns-btn ns-btn--primary"
               onClick={handleEndSession}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">

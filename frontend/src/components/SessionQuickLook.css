@@ -4,8 +4,8 @@
   position: fixed;
   z-index: 1100;
   width: 420px;
-  background: rgba(30, 30, 30, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   box-shadow:
     0 4px 6px rgba(0, 0, 0, 0.3),
@@ -33,7 +33,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 12px 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border);
   background: rgba(0, 0, 0, 0.2);
 }
 
@@ -50,9 +50,9 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  background: rgba(33, 150, 243, 0.2);
-  border-radius: 6px;
-  color: #2196f3;
+  background: var(--color-accent-tint-20);
+  border-radius: var(--radius-control);
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 
@@ -66,7 +66,7 @@
 .session-quicklook-title {
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -74,27 +74,8 @@
 
 .session-quicklook-ip {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-}
-
-.session-quicklook-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.session-quicklook-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
 }
 
 /* Terminal Preview */
@@ -104,11 +85,11 @@
 }
 
 .session-quicklook-terminal {
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: var(--font-family-mono);
   font-size: 11px;
   line-height: 1.5;
-  background: #1a1a1a;
-  border-radius: 6px;
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-control);
   padding: 10px 12px;
   min-height: 80px;
 }
@@ -118,44 +99,44 @@
 }
 
 .session-quicklook-terminal-line.prompt {
-  color: #e5e5e5;
+  color: var(--color-text-primary);
 }
 
 .session-quicklook-terminal-line.prompt .user {
-  color: #4caf50;
+  color: var(--color-success);
 }
 
 .session-quicklook-terminal-line.prompt .separator {
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .session-quicklook-terminal-line.prompt .path {
-  color: #2196f3;
+  color: var(--color-accent);
 }
 
 .session-quicklook-terminal-line.prompt .prompt-char {
-  color: #e5e5e5;
+  color: var(--color-text-primary);
   margin-left: 4px;
 }
 
 .session-quicklook-terminal-line.output {
-  color: #999;
+  color: var(--color-text-secondary);
   margin: 4px 0;
 }
 
 .session-quicklook-terminal-line .cursor {
-  color: #4caf50;
-  animation: blink 1s step-end infinite;
+  color: var(--color-success);
+  animation: quicklook-cursor-blink 1s step-end infinite;
 }
 
-@keyframes blink {
+@keyframes quicklook-cursor-blink {
   50% { opacity: 0; }
 }
 
 .session-quicklook-preview-hint {
   text-align: center;
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--color-text-muted);
   margin-top: 8px;
 }
 
@@ -165,7 +146,7 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .session-quicklook-info-item {
@@ -176,14 +157,14 @@
 
 .session-quicklook-info-item .label {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .session-quicklook-info-item .value {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--color-text-primary);
 }
 
 .session-quicklook-info-item .value.status-active {
@@ -205,61 +186,27 @@
   padding: 12px 16px;
 }
 
-.session-quicklook-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 1;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.session-quicklook-action:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
-}
-
-.session-quicklook-action.primary {
-  background: rgba(33, 150, 243, 0.15);
-  border-color: rgba(33, 150, 243, 0.3);
-  color: #2196f3;
-}
-
-.session-quicklook-action.primary:hover {
-  background: rgba(33, 150, 243, 0.25);
-  border-color: rgba(33, 150, 243, 0.5);
-}
-
-.session-quicklook-action svg {
-  flex-shrink: 0;
-}
-
 /* Footer */
 .session-quicklook-footer {
   text-align: center;
   padding: 8px 16px;
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--color-text-muted);
   background: rgba(0, 0, 0, 0.15);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--color-border);
 }
 
 .session-quicklook-footer kbd {
   display: inline-block;
   padding: 1px 5px;
   font-size: 10px;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-family: var(--font-family-mono);
+  background: var(--color-fill-strong);
+  border: 1px solid var(--color-border);
   border-radius: 3px;
   margin: 0 2px;
+}
+
+.session-quicklook-action {
+  flex: 1;
 }

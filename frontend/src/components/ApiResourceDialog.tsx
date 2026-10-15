@@ -17,12 +17,14 @@ import type {
 import { PasswordInput } from './PasswordInput'
 import AskAiHelp from './AskAiHelp'
 import AITabInput from './AITabInput'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import { notifyApiClientChanged } from './api/apiClientEvents'
 import './ApiResourceDialog.css'
 
 // Icons
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 const Icons = {
   plus: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
@@ -100,7 +102,8 @@ function HeadersTable({ value, onChange }: HeadersTableProps) {
     <div className="headers-table">
       {rows.map((row, i) => (
         <div key={row.id} className="headers-row">
-          <input
+          <input data-ai-fill="off"
+            className="ns-input"
             type="text"
             placeholder="Header"
             value={row.k}
@@ -110,7 +113,8 @@ function HeadersTable({ value, onChange }: HeadersTableProps) {
               commit(next)
             }}
           />
-          <input
+          <input data-ai-fill="off"
+            className="ns-input"
             type="text"
             placeholder="Value"
             value={row.v}
@@ -122,8 +126,9 @@ function HeadersTable({ value, onChange }: HeadersTableProps) {
           />
           <button
             type="button"
-            className="btn-icon-small"
+            className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
             onClick={() => commit(rows.filter((_, j) => j !== i))}
+            aria-label="Remove row"
           >
             ×
           </button>
@@ -131,7 +136,7 @@ function HeadersTable({ value, onChange }: HeadersTableProps) {
       ))}
       <button
         type="button"
-        className="btn-small"
+        className="ns-btn ns-btn--small"
         onClick={() =>
           commit([...rows, { id: crypto.randomUUID(), k: '', v: '' }])
         }
@@ -363,291 +368,289 @@ export default function ApiResourceDialog({
     }
   }
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose })
 
   return (
-    <div className="api-resource-dialog-overlay" {...backdropProps}>
-      <div className="api-resource-dialog" {...contentProps}>
-        <div className="api-resource-dialog-header">
-          <h2>{isEdit ? 'Edit API Resource' : 'Add API Resource'}</h2>
-          <AskAiHelp prompt="Help me fill out this API Resource form. Explain Base URL, Test Path, and which Authentication type to pick (none / bearer token / basic / api-key header / custom header / multi-step), and how to set it up for the external API I'm integrating." />
-          <button className="api-resource-dialog-close" onClick={onClose} title="Close">{Icons.x}</button>
+    <ModalFrame id="api-resource" onDismiss={onClose} className="api-resource-dialog" label="API Resource">
+      <div className="api-resource-dialog-header">
+        <h2>{isEdit ? 'Edit API Resource' : 'Add API Resource'}</h2>
+        <AskAiHelp
+          topic="API Resources"
+          prompt={`Help me fill out this API Resource form. So far: name "${name || '(empty)'}", base URL "${baseUrl || '(empty)'}", test path "${testPath || '(empty)'}", authentication ${authType}. `
+            + "Explain Base URL, Test Path and which authentication type fits (none / bearer token / basic / api-key header / custom header / multi-step login) for the API I'm integrating, and what to enter in each field. Never ask me to paste the secret into the chat."}
+        />
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">{Icons.x}</button></Tooltip>
+      </div>
+
+      <div className="api-resource-dialog-content">
+        {error && <div className="api-resource-dialog-error">{error}</div>}
+
+        <div className="form-section">
+          <h3>Basic Info</h3>
+          <div className="form-group">
+            <label>Name</label>
+            <AITabInput
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onAIValue={(v) => setName(v)}
+              aiField="api_resource_name"
+              aiPlaceholder="Friendly name for this API resource"
+              aiContext={{ baseUrl }}
+              placeholder="e.g., SolarWinds Production"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Base URL</label>
+            <input data-ai-fill="off" className="ns-input" type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
+          </div>
+
+          <div className="form-group">
+            <label>Test Path (optional)</label>
+            <AITabInput value={testPath} onChange={(e) => setTestPath(e.target.value)} placeholder="/api/v1/swagger.json" aiField="API test path" aiPlaceholder="A cheap GET path on this API that returns 200 when the URL and credentials are right (e.g. a status or version endpoint)" aiContext={{ name, baseUrl }} onAIValue={setTestPath} />
+            <small className="form-hint">Path the Test Connection button hits. Defaults to / if blank.</small>
+          </div>
         </div>
 
-        <div className="api-resource-dialog-content">
-          {error && <div className="api-resource-dialog-error">{error}</div>}
-
-          <div className="form-section">
-            <h3>Basic Info</h3>
-            <div className="form-group">
-              <label>Name</label>
-              <AITabInput
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onAIValue={(v) => setName(v)}
-                aiField="api_resource_name"
-                aiPlaceholder="Friendly name for this API resource"
-                aiContext={{ baseUrl }}
-                placeholder="e.g., SolarWinds Production"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Base URL</label>
-              <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
-            </div>
-
-            <div className="form-group">
-              <label>Test Path (optional)</label>
-              <input type="text" value={testPath} onChange={(e) => setTestPath(e.target.value)} placeholder="/api/v1/swagger.json" />
-              <small className="form-hint">Path the Test Connection button hits. Defaults to / if blank.</small>
-            </div>
-          </div>
-
-          <div className="form-section">
-            <h3>Authentication</h3>
-            <div className="form-group">
-              <label>Type</label>
-              <select value={authType} onChange={(e) => setAuthType(e.target.value as ApiResourceAuthType)}>
-                {Object.entries(AUTH_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-
-            {authType === 'bearer_token' && (
-              <div className="form-group">
-                <label>Bearer Token</label>
-                <PasswordInput value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'Token'} />
-              </div>
-            )}
-
-            {authType === 'basic' && (
-              <>
-                <div className="form-group">
-                  <label>Username</label>
-                  <input type="text" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : ''} />
-                </div>
-                <div className="form-group">
-                  <label>Password</label>
-                  <PasswordInput value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : ''} />
-                </div>
-              </>
-            )}
-
-            {authType === 'api_key_header' && (
-              <>
-                <div className="form-group">
-                  <label>Header Name</label>
-                  <input type="text" value={authHeaderName} onChange={(e) => setAuthHeaderName(e.target.value)} placeholder="X-API-Key" />
-                </div>
-                <div className="form-group">
-                  <label>API Key</label>
-                  <PasswordInput value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'Key value'} />
-                </div>
-              </>
-            )}
-
-            {authType === 'custom_header' && (
-              <div className="form-group">
-                <label>Credential / Token</label>
-                <PasswordInput value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'Token value'} />
-                <span className="form-hint">Available as <code>{`{{token}}`}</code> in Post-Auth Headers below.</span>
-              </div>
-            )}
-          </div>
-
-          {authType === 'multi_step' && (
-            <div className="form-section auth-flow-section">
-              <div className="auth-flow-header">
-                <label>Authentication Flow</label>
-                <button className="btn-small" onClick={addAuthFlowStep}>{Icons.plus} Add Step</button>
-              </div>
-              <div className="form-group">
-                <label>Username</label>
-                <input type="text" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'For {{username}} variable'} />
-              </div>
-              <div className="form-group">
-                <label>Password</label>
-                <PasswordInput value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder={isEdit ? '(unchanged)' : 'For {{password}} variable'} />
-              </div>
-              {authFlow.map((step, index) => (
-                <div key={stepRids[index] ?? index} className="auth-flow-step">
-                  <div className="auth-flow-step-header">
-                    <span>Step {index + 1}</span>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        className="btn-small"
-                        onClick={() => handleTestStep(index)}
-                        disabled={stepTesting === index}
-                        title={
-                          resource?.id
-                            ? `Run step ${index + 1} against the saved resource`
-                            : `Run step ${index + 1} against the in-progress configuration`
-                        }
-                      >
-                        {stepTesting === index ? 'Testing…' : '▶ Test'}
-                      </button>
-                      <button className="btn-icon-small" onClick={() => removeAuthFlowStep(index)}>{Icons.trash}</button>
-                    </div>
-                  </div>
-                  <div className="auth-flow-step-fields">
-                    <select value={step.method} onChange={(e) => updateAuthFlowStep(index, 'method', e.target.value)}>
-                      <option value="GET">GET</option>
-                      <option value="POST">POST</option>
-                      <option value="PUT">PUT</option>
-                    </select>
-                    <input type="text" value={step.path} onChange={(e) => updateAuthFlowStep(index, 'path', e.target.value)} placeholder="/api/v1/login" />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={!!step.use_basic_auth}
-                        onChange={(e) => toggleStepBasicAuth(index, e.target.checked)}
-                      />
-                      Send HTTP Basic Auth using the resource's username/password
-                    </label>
-                  </div>
-                  <div className="form-group">
-                    <label>Headers (optional)</label>
-                    <HeadersTable
-                      value={step.headers ?? {}}
-                      onChange={(next) => updateAuthFlowStepPartial(index, { headers: next })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Body Template (optional)</label>
-                    <textarea value={step.body || ''} onChange={(e) => updateAuthFlowStep(index, 'body', e.target.value)} placeholder='{"username":"{{username}}","password":"{{password}}"}' rows={2} />
-                  </div>
-                  <div className="auth-flow-step-fields">
-                    <input type="text" value={step.extract_path} onChange={(e) => updateAuthFlowStep(index, 'extract_path', e.target.value)} placeholder="Extract path (e.g., api_key)" />
-                    <input type="text" value={step.store_as} onChange={(e) => updateAuthFlowStep(index, 'store_as', e.target.value)} placeholder="Store as (e.g., api_key)" />
-                  </div>
-
-                  {stepResults[index] && (
-                    <div className={`step-test-result ${stepResults[index].success ? 'ok' : 'err'}`}>
-                      <div className="step-test-result-row">
-                        <strong>{stepResults[index].success ? '✓ Success' : '✗ Failed'}</strong>
-                        <span className="step-test-meta">
-                          HTTP {stepResults[index].status_code} · {stepResults[index].duration_ms}ms
-                        </span>
-                      </div>
-                      {stepResults[index].url && (
-                        <div className="step-test-meta-row">
-                          <span className="step-test-label">URL</span>
-                          <code>{stepResults[index].url}</code>
-                        </div>
-                      )}
-                      {stepResults[index].extracted_value && (
-                        <div className="step-test-meta-row">
-                          <span className="step-test-label">
-                            Captured <code>{`{{${stepResults[index].store_as}}}`}</code>
-                          </span>
-                          <code className="step-test-value">{stepResults[index].extracted_value}</code>
-                        </div>
-                      )}
-                      {stepResults[index].error && (
-                        <div className="step-test-error">{stepResults[index].error}</div>
-                      )}
-                      {stepResults[index].response_preview && (
-                        <details className="step-test-body">
-                          <summary>Response body (first 1000 chars)</summary>
-                          <pre>{stepResults[index].response_preview}</pre>
-                        </details>
-                      )}
-                    </div>
-                  )}
-                </div>
+        <div className="form-section">
+          <h3>Authentication</h3>
+          <div className="form-group">
+            <label>Type</label>
+            <select aria-label="Type" className="ns-select" value={authType} onChange={(e) => setAuthType(e.target.value as ApiResourceAuthType)}>
+              {Object.entries(AUTH_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
               ))}
+            </select>
+          </div>
+
+          {authType === 'bearer_token' && (
+            <div className="form-group">
+              <label>Bearer Token</label>
+              <PasswordInput value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'Token'} />
             </div>
           )}
 
-          <div className="form-section">
-            <h3>Post-Auth Headers</h3>
-            <HeadersTable value={customHeaders} onChange={setCustomHeaders} />
-            <span className="form-hint">
-              Headers applied to every request, after any built-in auth.
-              Templates: <code>{`{{token}}`}</code> for the vault credential,
-              plus any variables extracted by the multi-step auth flow above (e.g.{' '}
-              <code>{`{{api_key}}`}</code>).
-            </span>
-          </div>
-
-          <div className="form-section">
-            <h3>Default Headers</h3>
-            <HeadersTable value={defaultHeaders} onChange={setDefaultHeaders} />
-          </div>
-
-          <div className="form-section">
-            <h3>Advanced</h3>
-            <div className="form-row">
-              <label className="checkbox-label">
-                <input type="checkbox" checked={verifySsl} onChange={(e) => setVerifySsl(e.target.checked)} />
-                Verify SSL
-              </label>
-              <div className="form-group inline">
-                <label>Timeout (sec)</label>
-                <input type="number" value={timeoutSecs} onChange={(e) => setTimeoutSecs(parseInt(e.target.value) || 30)} min={1} max={300} style={{ width: 70 }} />
+          {authType === 'basic' && (
+            <>
+              <div className="form-group">
+                <label>Username</label>
+                <input data-ai-fill="off" className="ns-input" type="text" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : ''} />
               </div>
-            </div>
-          </div>
-
-          {testResult && (() => {
-            let resultClass: string;
-            let icon: React.ReactNode;
-            let message: string;
-            if (!testResult.success) {
-              resultClass = 'failure';
-              icon = Icons.x;
-              message = `Failed: ${testResult.error}`;
-            } else if (testResult.warning) {
-              resultClass = 'warning';
-              icon = Icons.warning;
-              message = testResult.warning;
-            } else {
-              resultClass = 'success';
-              icon = Icons.check;
-              message = `Connected (${testResult.duration_ms}ms)`;
-            }
-            return (
-            <div className={`test-result ${resultClass}`}>
-              <div className="test-result-row">
-                {icon}
-                <span>{message}</span>
+              <div className="form-group">
+                <label>Password</label>
+                <PasswordInput value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : ''} />
               </div>
-              {testResult.sent_url && (
-                <div className="test-result-meta">
-                  <span className="test-result-label">URL</span>
-                  <code>{testResult.sent_url}</code>
-                </div>
-              )}
-              {testResult.sent_headers && testResult.sent_headers.length > 0 && (
-                <div className="test-result-meta">
-                  <span className="test-result-label">Sent headers</span>
-                  <code className="test-result-headers">
-                    {testResult.sent_headers.map(([k, v]) => `${k}: ${v}`).join('\n')}
-                  </code>
-                </div>
-              )}
+            </>
+          )}
+
+          {authType === 'api_key_header' && (
+            <>
+              <div className="form-group">
+                <label>Header Name</label>
+                <AITabInput value={authHeaderName} onChange={(e) => setAuthHeaderName(e.target.value)} placeholder="X-API-Key" aiField="API key header name" aiPlaceholder="The HTTP header this API expects the key in" aiContext={{ name, baseUrl }} onAIValue={setAuthHeaderName} />
+              </div>
+              <div className="form-group">
+                <label>API Key</label>
+                <PasswordInput value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'Key value'} />
+              </div>
+            </>
+          )}
+
+          {authType === 'custom_header' && (
+            <div className="form-group">
+              <label>Credential / Token</label>
+              <PasswordInput value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'Token value'} />
+              <span className="form-hint">Available as <code>{`{{token}}`}</code> in Post-Auth Headers below.</span>
             </div>
-            );
-          })()}
+          )}
         </div>
 
-        <div className="api-resource-dialog-footer">
-          <button className="btn-secondary" onClick={handleTest} disabled={testing}>
+        {authType === 'multi_step' && (
+          <div className="form-section auth-flow-section">
+            <div className="auth-flow-header">
+              <label>Authentication Flow</label>
+              <button className="ns-btn ns-btn--small" onClick={addAuthFlowStep}>{Icons.plus} Add Step</button>
+            </div>
+            <div className="form-group">
+              <label>Username</label>
+              <input data-ai-fill="off" className="ns-input" type="text" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} placeholder={isEdit ? '(unchanged if blank)' : 'For {{username}} variable'} />
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <PasswordInput value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder={isEdit ? '(unchanged)' : 'For {{password}} variable'} />
+            </div>
+            {authFlow.map((step, index) => (
+              <div key={stepRids[index] ?? index} className="auth-flow-step">
+                <div className="auth-flow-step-header">
+                  <span>Step {index + 1}</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <Tooltip label={
+                        resource?.id
+                          ? `Run step ${index + 1} against the saved resource`
+                          : `Run step ${index + 1} against the in-progress configuration`
+                      }><button
+                      className="ns-btn ns-btn--small"
+                      onClick={() => handleTestStep(index)}
+                      disabled={stepTesting === index}
+                    >
+                      {stepTesting === index ? 'Testing…' : '▶ Test'}
+                    </button></Tooltip>
+                    <button className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn" onClick={() => removeAuthFlowStep(index)} aria-label="Remove step">{Icons.trash}</button>
+                  </div>
+                </div>
+                <div className="auth-flow-step-fields">
+                  <select aria-label="HTTP method" className="ns-select" value={step.method} onChange={(e) => updateAuthFlowStep(index, 'method', e.target.value)}>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                  </select>
+                  <AITabInput aria-label="Login path" value={step.path} onChange={(e) => updateAuthFlowStep(index, 'path', e.target.value)} placeholder="/api/v1/login" aiField="login request path" aiPlaceholder="Path of this API's login/token endpoint" aiContext={{ name, baseUrl, method: step.method }} onAIValue={(v) => updateAuthFlowStep(index, 'path', v)} />
+                </div>
+                <div className="form-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!!step.use_basic_auth}
+                      onChange={(e) => toggleStepBasicAuth(index, e.target.checked)}
+                    />
+                    Send HTTP Basic Auth using the resource's username/password
+                  </label>
+                </div>
+                <div className="form-group">
+                  <label>Headers (optional)</label>
+                  <HeadersTable
+                    value={step.headers ?? {}}
+                    onChange={(next) => updateAuthFlowStepPartial(index, { headers: next })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Body Template (optional)</label>
+                  <AITabInput as="textarea" aria-label="Body template" value={step.body || ''} onChange={(e) => updateAuthFlowStep(index, 'body', e.target.value)} placeholder='{"username":"{{username}}","password":"{{password}}"}' rows={2} aiField="login request body template" aiPlaceholder="JSON body for the login request using {{username}} / {{password}} placeholders, never real credentials" aiContext={{ name, baseUrl, method: step.method, path: step.path }} onAIValue={(v) => updateAuthFlowStep(index, 'body', v)} />
+                </div>
+                <div className="auth-flow-step-fields">
+                  <AITabInput value={step.extract_path} onChange={(e) => updateAuthFlowStep(index, 'extract_path', e.target.value)} placeholder="Extract path (e.g., api_key)" aiField="response extract path" aiPlaceholder="Dot path to the token in the login response JSON" aiContext={{ name, baseUrl, path: step.path, body: step.body }} onAIValue={(v) => updateAuthFlowStep(index, 'extract_path', v)} />
+                  <AITabInput value={step.store_as} onChange={(e) => updateAuthFlowStep(index, 'store_as', e.target.value)} placeholder="Store as (e.g., api_key)" aiField="variable name" aiPlaceholder="Variable name later steps and requests use for the extracted value" aiContext={{ extractPath: step.extract_path }} onAIValue={(v) => updateAuthFlowStep(index, 'store_as', v)} />
+                </div>
+
+                {stepResults[index] && (
+                  <div className={`step-test-result ${stepResults[index].success ? 'ok' : 'err'}`}>
+                    <div className="step-test-result-row">
+                      <strong>{stepResults[index].success ? '✓ Success' : '✗ Failed'}</strong>
+                      <span className="step-test-meta">
+                        HTTP {stepResults[index].status_code} · {stepResults[index].duration_ms}ms
+                      </span>
+                    </div>
+                    {stepResults[index].url && (
+                      <div className="step-test-meta-row">
+                        <span className="step-test-label">URL</span>
+                        <code>{stepResults[index].url}</code>
+                      </div>
+                    )}
+                    {stepResults[index].extracted_value && (
+                      <div className="step-test-meta-row">
+                        <span className="step-test-label">
+                          Captured <code>{`{{${stepResults[index].store_as}}}`}</code>
+                        </span>
+                        <code className="step-test-value">{stepResults[index].extracted_value}</code>
+                      </div>
+                    )}
+                    {stepResults[index].error && (
+                      <div className="step-test-error">{stepResults[index].error}</div>
+                    )}
+                    {stepResults[index].response_preview && (
+                      <details className="step-test-body">
+                        <summary>Response body (first 1000 chars)</summary>
+                        <pre>{stepResults[index].response_preview}</pre>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="form-section">
+          <h3>Post-Auth Headers</h3>
+          <HeadersTable value={customHeaders} onChange={setCustomHeaders} />
+          <span className="form-hint">
+            Headers applied to every request, after any built-in auth.
+            Templates: <code>{`{{token}}`}</code> for the vault credential,
+            plus any variables extracted by the multi-step auth flow above (e.g.{' '}
+            <code>{`{{api_key}}`}</code>).
+          </span>
+        </div>
+
+        <div className="form-section">
+          <h3>Default Headers</h3>
+          <HeadersTable value={defaultHeaders} onChange={setDefaultHeaders} />
+        </div>
+
+        <div className="form-section">
+          <h3>Advanced</h3>
+          <div className="form-row">
+            <label className="checkbox-label">
+              <input type="checkbox" checked={verifySsl} onChange={(e) => setVerifySsl(e.target.checked)} />
+              Verify SSL
+            </label>
+            <div className="form-group inline">
+              <label>Timeout (sec)</label>
+              <input aria-label="Timeout (sec)" className="ns-input" type="number" value={timeoutSecs} onChange={(e) => setTimeoutSecs(parseInt(e.target.value) || 30)} min={1} max={300} style={{ width: 70 }} />
+            </div>
+          </div>
+        </div>
+
+        {testResult && (() => {
+          let resultClass: string;
+          let icon: React.ReactNode;
+          let message: string;
+          if (!testResult.success) {
+            resultClass = 'failure';
+            icon = Icons.x;
+            message = `Failed: ${testResult.error}`;
+          } else if (testResult.warning) {
+            resultClass = 'warning';
+            icon = Icons.warning;
+            message = testResult.warning;
+          } else {
+            resultClass = 'success';
+            icon = Icons.check;
+            message = `Connected (${testResult.duration_ms}ms)`;
+          }
+          return (
+          <div className={`test-result ${resultClass}`}>
+            <div className="test-result-row">
+              {icon}
+              <span>{message}</span>
+            </div>
+            {testResult.sent_url && (
+              <div className="test-result-meta">
+                <span className="test-result-label">URL</span>
+                <code>{testResult.sent_url}</code>
+              </div>
+            )}
+            {testResult.sent_headers && testResult.sent_headers.length > 0 && (
+              <div className="test-result-meta">
+                <span className="test-result-label">Sent headers</span>
+                <code className="test-result-headers">
+                  {testResult.sent_headers.map(([k, v]) => `${k}: ${v}`).join('\n')}
+                </code>
+              </div>
+            )}
+          </div>
+          );
+        })()}
+      </div>
+
+      <DialogFooter
+        primary={{ label: saving ? 'Saving...' : isEdit ? 'Update' : 'Create', onClick: handleSave, disabled: saving }}
+        onCancel={onClose}
+        leading={
+          <button className="ns-btn" onClick={handleTest} disabled={testing}>
             {testing ? 'Testing...' : 'Test Connection'}
           </button>
-          <div className="api-resource-dialog-footer-right">
-            <button className="btn-secondary" onClick={onClose}>Cancel</button>
-            <button className="btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+        }
+      />
+    </ModalFrame>
   )
 }

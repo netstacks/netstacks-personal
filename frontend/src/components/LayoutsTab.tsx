@@ -15,7 +15,9 @@ import {
 import { confirmDialog } from './ConfirmDialog'
 import { showToast } from './Toast'
 import { useSubmitting } from '../hooks/useSubmitting'
-import './RecordingsTab.css'
+import SearchField from './SearchField'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
 
 import { getErrorMessage } from '../api/errors'
 function formatDate(iso: string): string {
@@ -121,125 +123,74 @@ export default function LayoutsTab() {
     : layouts
 
   return (
-    <div className="recordings-tab settings-content">
-      <div className="settings-section">
-        <div className="recordings-header">
-          <div>
-            <h3>Saved Layouts</h3>
-            <p className="settings-section-description">
-              Tab arrangements you've saved from the tab-group menu's
-              "Save as Layout…" action. Rename for context or delete to
-              clean house. Loading a saved layout is still done from the
-              tab-group menu next to your current tabs.
-            </p>
-          </div>
-          <button
-            className="btn-secondary"
-            onClick={load}
-            disabled={loading || submitting}
-            title="Refresh"
-          >
-            Refresh
-          </button>
-        </div>
+    <SettingsSection
+      title="Saved Layouts"
+      description="Tab arrangements saved with the tab-group menu's “Save as Layout…”. Rename them for context or delete to clean house; load a layout from the tab-group menu next to your current tabs."
+      actions={
+        <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={load} disabled={loading || submitting}>
+          Refresh
+        </button>
+      }
+    >
+      {error && <p className="settings-error">{error}</p>}
 
-        {error && <div className="settings-error">{error}</div>}
-
-        {loading ? (
-          <p className="settings-note">Loading…</p>
-        ) : layouts.length === 0 ? (
-          <p className="settings-note">
-            No saved layouts yet. Right-click a tab group and choose "Save
-            as Layout…" to add one.
-          </p>
-        ) : (
-          <>
-            <input
-              type="text"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by name or shape"
-              className="settings-input"
-              style={{ marginBottom: 12 }}
-            />
-
-            <div className="recordings-list">
-              {filtered.length === 0 ? (
-                <p className="settings-note">No matches.</p>
-              ) : (
-                filtered.map((l) => (
-                  <div key={l.id} className="recordings-item">
-                    <div className="recordings-item-info">
-                      {editingId === l.id ? (
-                        <input
-                          type="text"
-                          value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          className="recordings-item-rename"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveEdit(l)
-                            else if (e.key === 'Escape') cancelEdit()
-                          }}
-                        />
-                      ) : (
-                        <div className="recordings-item-name">{l.name}</div>
-                      )}
-                      <div className="recordings-item-meta">
-                        <span>{describeLayout(l)}</span>
-                        <span>·</span>
-                        <span title={l.updatedAt}>{formatDate(l.updatedAt)}</span>
-                      </div>
-                    </div>
-                    <div className="recordings-item-actions">
-                      {editingId === l.id ? (
-                        <>
-                          <button
-                            className="btn-secondary"
-                            onClick={cancelEdit}
-                            disabled={submitting}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            className="btn-primary"
-                            onClick={() => saveEdit(l)}
-                            disabled={submitting}
-                          >
-                            {submitting ? 'Saving…' : 'Save'}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="btn-secondary"
-                            onClick={() => startEdit(l)}
-                            disabled={submitting}
-                          >
-                            Rename
-                          </button>
-                          <button
-                            className="btn-danger"
-                            onClick={() => handleDelete(l)}
-                            disabled={submitting}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
+      {loading ? (
+        <p className="form-hint">Loading…</p>
+      ) : layouts.length === 0 ? (
+        <p className="form-hint">No saved layouts yet. Right-click a tab group and choose “Save as Layout…” to add one.</p>
+      ) : (
+        <>
+          <SearchField value={filter} onChange={setFilter} placeholder="Filter by name or shape" />
+          {filtered.length === 0 ? (
+            <p className="form-hint">No matches.</p>
+          ) : (
+            <div className="settings-group">
+              {filtered.map((l) => (
+                <SettingsItem
+                  key={l.id}
+                  title={editingId === l.id ? (
+                    <input data-ai-fill="off"
+                        className="ns-input"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEdit(l)
+                          else if (e.key === 'Escape') cancelEdit()
+                        }}
+                        autoFocus
+                        disabled={submitting}
+                        aria-label="Layout name"
+                      />
+                  ) : l.name}
+                  meta={
+                    <>
+                      <span>{describeLayout(l)}</span>
+                      <span title={l.updatedAt}>{formatDate(l.updatedAt)}</span>
+                    </>
+                  }
+                  actions={editingId === l.id ? (
+                    <>
+                        <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={cancelEdit} disabled={submitting}>Cancel</button>
+                        <button className="ns-btn ns-btn--small ns-btn--primary" onClick={() => saveEdit(l)} disabled={submitting}>
+                          {submitting ? 'Saving…' : 'Save'}
+                        </button>
+                      </>
+                  ) : (
+                    <>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => startEdit(l)} disabled={submitting}>Rename</button>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(l)} disabled={submitting}>Delete</button>
+                    </>
+                  )}
+                />
+              ))}
             </div>
-
-            <p className="settings-note">
-              Showing {filtered.length} of {layouts.length}{' '}
-              {layouts.length === 1 ? 'layout' : 'layouts'}.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+          <p className="form-hint">
+            Showing {filtered.length} of {layouts.length}{' '}
+            {layouts.length === 1 ? 'layout' : 'layouts'}.
+          </p>
+        </>
+      )}
+    </SettingsSection>
   )
 }

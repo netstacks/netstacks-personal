@@ -79,7 +79,7 @@ const DEFAULT_MAX_TOKENS: usize = 4096;
 const DEFAULT_TEMPERATURE: f64 = 0.7;
 
 /// Default system prompt
-const DEFAULT_SYSTEM_PROMPT: &str = "You are a network automation assistant. You help users gather information from network devices using SSH commands. You have access to tools for querying devices and executing read-only commands. Be concise and focus on the task at hand.
+const DEFAULT_SYSTEM_PROMPT: &str = "You are a network automation assistant. You help users gather information from network devices using SSH commands. You have access to tools for querying devices and executing commands, which are read-only unless the user has enabled AI Config Mode. Be concise and focus on the task at hand.
 
 WORKFLOW: Use a plan-execute-analyze rhythm:
 - Plan: Decide what commands to run upfront. Batch related commands using the 'commands' array.
@@ -241,10 +241,11 @@ async fn load_setting_string(provider: &Arc<dyn DataProvider>, key: &str) -> Opt
 
 /// Execute ReAct loop for a task, optionally using an AgentDefinition for config overrides
 ///
-/// AUDIT FIX (EXEC-017): `approval_service` is consulted before every
-/// mutating tool dispatch (`tasks::approvals::is_mutating_tool`). The
-/// frontend polls for pending approvals scoped to this task_id and
-/// resolves them via REST.
+/// Every tool call is resolved against the user's permission settings
+/// (`tasks::permissions::resolve`, live config mode from `config_mode`):
+/// denied calls never run, and calls the resolver sends to the user park on
+/// `approval_service` (AUDIT FIX EXEC-017). The frontend polls for pending
+/// approvals scoped to this task_id and resolves them via REST.
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_react_loop_with_agent(
     task_id: &str,
@@ -257,6 +258,7 @@ pub async fn execute_react_loop_with_agent(
     agent_definition: Option<AgentDefinition>,
     sanitizer_cache: Arc<RwLock<Option<Sanitizer>>>,
     approval_service: Arc<super::approvals::TaskApprovalService>,
+    config_mode: crate::ai::config_mode::ConfigModeHandle,
     permit_guard: &mut super::PermitGuard,
 ) -> Result<Value, ReactError> {
     info!(task_id = %task_id, prompt_len = prompt.len(), "ReAct loop entry");
@@ -414,17 +416,22 @@ pub async fn execute_react_loop_with_agent(
 
                     // AUDIT FIX (EXEC-009): re-validate every LLM-emitted
                     // tool_use against per-tool policy BEFORE dispatching.
+                    use super::permissions::{resolve, Decision, PermissionContext};
                     use super::tools::output_validator::{validate_tool_use, ValidationOutcome};
                     let validation = validate_tool_use(&tool_name, &tool_input);
 
-                    // AUDIT FIX (EXEC-017): mutating tools must be
-                    // explicitly approved by the user per invocation.
-                    // Read-only tools and validator-blocked calls skip
-                    // the prompt entirely (no point asking the user to
-                    // approve something we already rejected).
-                    let needs_approval = matches!(validation, ValidationOutcome::Allow)
-                        && super::approvals::is_mutating_tool(&tool_name);
-                    let approval_decision = if needs_approval {
+                    // Resolve against the user's permission settings, read per
+                    // call so a mid-task change applies. Validator-blocked
+                    // calls skip the resolver entirely (no point asking the
+                    // user to approve something we already rejected).
+                    let decision = match validation {
+                        ValidationOutcome::Allow => {
+                            let ctx = PermissionContext::load(&data_provider, &config_mode).await;
+                            Some(resolve(&tool_name, &tool_input, &ctx))
+                        }
+                        ValidationOutcome::Block(_) => None,
+                    };
+                    let approval_decision = if let Some(Decision::Ask(reason)) = &decision {
                         broadcaster.send(TaskProgressEvent::new(
                             task_id.to_string(),
                             TaskStatus::Running,
@@ -439,6 +446,7 @@ pub async fn execute_react_loop_with_agent(
                             .request(
                                 task_id.to_string(),
                                 super::approvals::InteractionKind::Approval,
+                                format!("Approve tool: {} — {}", tool_name, reason),
                                 tool_name.clone(),
                                 tool_input.clone(),
                                 &cancel_token,
@@ -484,6 +492,15 @@ pub async fn execute_react_loop_with_agent(
                              If you intend this command, ask the user to confirm explicitly.",
                             reason
                         )
+                    } else if let Some(Decision::Deny(reason)) = decision {
+                        warn!(
+                            target: "audit",
+                            task_id = %task_id,
+                            tool = %tool_name,
+                            reason = %reason,
+                            "permission settings denied LLM tool_use"
+                        );
+                        format!("Tool call denied by the user's permission settings: {}", reason)
                     } else if let Some(tool) = registry.get(&tool_name) {
                         broadcaster.send(TaskProgressEvent::new(
                             task_id.to_string(),

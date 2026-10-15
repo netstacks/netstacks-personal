@@ -16,6 +16,7 @@
    * (see useClampedMenuPosition). */
   max-height: calc(100vh - 16px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   overflow-x: hidden;
 }
 
@@ -38,17 +39,22 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-primary);
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-base);
   font-family: var(--font-family);
-  cursor: pointer;
   text-align: left;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.context-menu-item:hover:not(:disabled) {
+.context-menu-item:hover:not(:disabled),
+.context-menu-item:focus-visible {
   background: var(--color-bg-hover);
+}
+
+/* Keyboard focus highlights the row like a native menu, without a ring. */
+.context-menu-item:focus-visible {
+  box-shadow: none;
 }
 
 .context-menu-item:disabled,
@@ -96,11 +102,7 @@
   stroke: var(--color-accent);
 }
 
-/* Submenu support */
-.context-menu-submenu-container {
-  position: relative;
-}
-
+/* Submenu rows */
 .context-menu-item-submenu {
   justify-content: space-between;
 }
@@ -109,62 +111,6 @@
   font-size: 10px;
   color: var(--color-text-secondary);
   margin-left: auto;
-}
-
-.context-menu-submenu {
-  position: absolute;
-  left: 100%;
-  top: 0;
-  min-width: 180px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  padding: var(--spacing-xs);
-  display: none;
-  z-index: 3001;
-}
-
-.context-menu-submenu-container:hover .context-menu-submenu {
-  display: block;
-}
-
-/* Status dot for tabs in submenu */
-.context-menu-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.context-menu-status-dot.connected {
-  background: var(--color-success);
-}
-
-.context-menu-status-dot.connecting {
-  background: var(--color-warning);
-}
-
-.context-menu-status-dot.disconnected {
-  background: var(--color-error);
-}
-
-.context-menu-status-dot.local {
-  background: var(--color-text-secondary);
-}
-
-/* Section headers */
-.context-menu-section {
-  padding: var(--spacing-xs) 0;
-}
-
-.context-menu-header {
-  padding: var(--spacing-xs) var(--spacing-md);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 /* Danger items */
@@ -176,23 +122,3 @@
   background: rgba(var(--color-error-rgb), 0.1);
 }
 
-/* Split context menu styling — aligned with canonical menu tokens.
- * 220px min-width is intentional (split labels are longer). */
-.split-context-menu {
-  background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
-  border-radius: var(--menu-radius);
-  box-shadow: var(--menu-shadow);
-  min-width: 220px;
-  padding: var(--menu-padding);
-  animation: contextMenuFadeIn 0.1s ease-out;
-}
-
-.split-context-menu-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: var(--menu-z);
-}

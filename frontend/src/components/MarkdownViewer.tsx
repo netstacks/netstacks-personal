@@ -23,17 +23,17 @@ export default function MarkdownViewer({
       <div className="markdown-editor">
         <div className="markdown-editor-toolbar">
           {onSave && (
-            <button className="markdown-editor-btn save" onClick={onSave}>
+            <button className="ns-btn ns-btn--primary" onClick={onSave}>
               Save
             </button>
           )}
           {onCancel && (
-            <button className="markdown-editor-btn cancel" onClick={onCancel}>
+            <button className="ns-btn" onClick={onCancel}>
               Cancel
             </button>
           )}
         </div>
-        <textarea
+        <textarea data-ai-fill="off" aria-label="Markdown"
           className="markdown-editor-textarea"
           value={content}
           onChange={(e) => onChange(e.target.value)}

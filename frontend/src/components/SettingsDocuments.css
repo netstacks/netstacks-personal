@@ -1,0 +1,9 @@
+/* Settings → Documents: category + folder for one auto-save source. */
+.settings-documents-target {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.settings-documents-target .ns-input {
+  width: 180px;
+}

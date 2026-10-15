@@ -21,35 +21,21 @@ import AITabInput from './AITabInput';
 import Switch from './Switch';
 import { useSettings } from '../hooks/useSettings';
 import './SettingsHighlighting.css';
+import SearchField from './SearchField';
+import SettingsSection from './settings/SettingsSection';
+import SettingRow from './settings/SettingRow';
 
 // Category options
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import ModalFrame from './ModalFrame';
 const CATEGORIES = ['Network', 'Status', 'Security', 'Custom'];
 
 // Icons
 const Icons = {
-  search: (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
-      <circle cx="7" cy="7" r="5" />
-      <line x1="11" y1="11" x2="14" y2="14" />
-    </svg>
-  ),
   chevron: (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
       <polyline points="5 3 10 8 5 13" />
-    </svg>
-  ),
-  plus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  ),
-  import: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   ),
   check: (
@@ -57,34 +43,11 @@ const Icons = {
       <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
-  file: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-  ),
   warning: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  ),
-  export: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  ),
-  json: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <path d="M8 13h2" />
-      <path d="M8 17h2" />
-      <path d="M14 13h2" />
-      <path d="M14 17h2" />
     </svg>
   ),
 };
@@ -723,9 +686,7 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
 
   if (loading) {
     return (
-      <div className="settings-highlighting">
-        <div className="highlighting-loading">Loading highlight rules...</div>
-      </div>
+      <p className="form-hint">Loading highlight rules…</p>
     );
   }
 
@@ -736,110 +697,73 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
       JSON.stringify(editedRule) !== JSON.stringify(selectedRule));
 
   return (
-    <div className="settings-highlighting">
-      {/* Detection Highlighting Toggle */}
-      <div className="highlighting-section">
-        <div className="highlighting-section-header">
-          <h4>Network Detection</h4>
-        </div>
-        <div className="highlighting-toggle-item">
-          <div className="highlighting-toggle-info">
-            <span className="highlighting-toggle-label">Highlight detected network identifiers</span>
-            <span className="highlighting-toggle-desc">
-              Underline IP addresses, MAC addresses, hostnames, and ASNs in terminal output.
-              Right-click highlighted items for lookup options.
-            </span>
-          </div>
-          <Switch
-            checked={appSettings['detection.highlighting']}
-            onChange={(checked) => updateSetting('detection.highlighting', checked)}
+    <>
+      <SettingsSection title="Detection & Safety">
+        <div className="settings-group">
+          <SettingRow
             label="Highlight detected network identifiers"
-          />
-        </div>
-      </div>
-
-      {/* Command Safety Warnings Toggle */}
-      <div className="highlighting-section">
-        <div className="highlighting-section-header">
-          <h4>Command Safety</h4>
-        </div>
-        <div className="highlighting-toggle-item">
-          <div className="highlighting-toggle-info">
-            <span className="highlighting-toggle-label">Warn on dangerous commands</span>
-            <span className="highlighting-toggle-desc">
-              Show warning indicator when typing commands like reload, wr erase, shutdown, etc.
-              Press Enter to see confirmation dialog with safe alternatives.
-            </span>
-          </div>
-          <Switch
-            checked={appSettings['commandSafety.enabled']}
-            onChange={(checked) => updateSetting('commandSafety.enabled', checked)}
+            description="Underline IP addresses, MAC addresses, hostnames, and ASNs in terminal output. Right-click highlighted items for lookup options."
+          >
+            <Switch
+              checked={appSettings['detection.highlighting']}
+              onChange={(checked) => updateSetting('detection.highlighting', checked)}
+              label="Highlight detected network identifiers"
+            />
+          </SettingRow>
+          <SettingRow
             label="Warn on dangerous commands"
-          />
+            description="Show a warning while typing commands like reload, wr erase or shutdown; Enter opens a confirmation with safe alternatives."
+          >
+            <Switch
+              checked={appSettings['commandSafety.enabled']}
+              onChange={(checked) => updateSetting('commandSafety.enabled', checked)}
+              label="Warn on dangerous commands"
+            />
+          </SettingRow>
         </div>
-      </div>
+      </SettingsSection>
 
-      <div className="highlighting-header">
-        <p className="highlighting-description">
-          Create rules to highlight keywords, patterns, and regular expressions in terminal output.
-          Rules can be global or session-specific.
-        </p>
-      </div>
-
-      {error && <div className="highlighting-error">{error}</div>}
+      <SettingsSection
+        title="Highlight Rules"
+        description="Highlight keywords, patterns and regular expressions in terminal output, globally or per session."
+        help={{
+          topic: 'highlight rules',
+          prompt: `Help me with terminal highlight rules in NetStacks. I have ${rules.length} rule(s)`
+            + (rules.length ? ` in ${new Set(rules.map(r => r.category)).size} categor${new Set(rules.map(r => r.category)).size === 1 ? 'y' : 'ies'}` : '')
+            + '. Explain literal vs regex patterns, case-sensitive and whole-word matching, priority, global vs session-specific rules, and importing presets, a SecureCRT words.ini or JSON. Suggest useful rules for network output (interface down, CRC errors, BGP state changes).',
+        }}
+        actions={
+          <button className="ns-btn ns-btn--small" onClick={handleCreateNew}>+ Add rule</button>
+        }
+      >
+      {error && <p className="settings-error">{error}</p>}
 
       <div className="highlighting-toolbar">
-        <div className="highlighting-search">
-          <span className="highlighting-search-icon">{Icons.search}</span>
-          <input
-            type="text"
-            placeholder="Search rules..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="highlighting-search-input"
-          />
-        </div>
-        <div className="highlighting-filter">
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            <option value="all">All Categories</option>
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button className="btn-import-preset" onClick={handleOpenImport}>
-          {Icons.import}
-          <span>Import Preset</span>
-        </button>
-        <label className="btn-import-file">
-          {Icons.file}
-          <span>INI File</span>
-          <input
-            type="file"
-            accept=".ini,.txt"
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-          />
-        </label>
-        <label className="btn-import-json">
-          {Icons.json}
-          <span>JSON File</span>
-          <input
-            type="file"
-            accept=".json"
-            onChange={handleJsonFileSelect}
-            style={{ display: 'none' }}
-          />
-        </label>
-        <button className="btn-export" onClick={handleExport}>
-          {Icons.export}
-          <span>Export</span>
-        </button>
+        <SearchField className="highlighting-search" value={search} onChange={setSearch} placeholder="Search rules..." />
+        <select aria-label="Filter by category"
+          className="ns-select"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="all">All Categories</option>
+          {CATEGORIES.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
+        <span className="highlighting-toolbar-actions">
+          <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={handleOpenImport}>Import Preset</button>
+          <label className="ns-btn ns-btn--small ns-btn--ghost">
+            INI File
+            <input type="file" accept=".ini,.txt" onChange={handleFileSelect} className="highlighting-file-input" />
+          </label>
+          <label className="ns-btn ns-btn--small ns-btn--ghost">
+            JSON File
+            <input type="file" accept=".json" onChange={handleJsonFileSelect} className="highlighting-file-input" />
+          </label>
+          <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={handleExport}>Export</button>
+        </span>
       </div>
 
       <div className="highlighting-content">
@@ -847,10 +771,7 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
         <div className="rules-list-container">
           <div className="rules-list">
             {Object.keys(groupedRules).length === 0 ? (
-              <div className="rules-list-empty">
-                <p>No highlight rules yet.</p>
-                <p>Create a rule to highlight keywords in terminal output.</p>
-              </div>
+              <p className="form-hint rules-list-empty">No highlight rules yet. Create one to highlight keywords in terminal output.</p>
             ) : (
               Object.entries(groupedRules).map(([category, categoryRules]) => (
                 <div key={category} className="rules-category-group">
@@ -895,12 +816,12 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                         </div>
                         <div className="rule-badges">
                           {rule.session_id ? (
-                            <span className="rule-badge session">Session</span>
+                            <span className="settings-badge settings-badge--success">Session</span>
                           ) : (
-                            <span className="rule-badge global">Global</span>
+                            <span className="settings-badge settings-badge--accent">Global</span>
                           )}
                           {rule.is_regex && (
-                            <span className="rule-badge regex">Regex</span>
+                            <span className="settings-badge settings-badge--warning">Regex</span>
                           )}
                         </div>
                       </div>
@@ -928,17 +849,17 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                 <div className="rule-editor-actions">
                   {!isCreating && selectedRule && (
                     <button
-                      className="btn-delete"
+                      className="ns-btn ns-btn--danger"
                       onClick={() => setDeleteConfirm(selectedRule)}
                     >
                       Delete
                     </button>
                   )}
-                  <button className="btn-cancel" onClick={handleCancel}>
+                  <button className="ns-btn" onClick={handleCancel}>
                     Cancel
                   </button>
                   <button
-                    className="btn-save"
+                    className="ns-btn ns-btn--primary"
                     onClick={handleSave}
                     disabled={saving || !hasChanges}
                   >
@@ -967,24 +888,28 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                 {/* Pattern */}
                 <div className="rule-form-group">
                   <label className="rule-form-label">Pattern</label>
-                  <input
-                    type="text"
-                    className="rule-form-input mono"
+                  <AITabInput
+                    aria-label="Pattern"
+                    className="rule-form-input settings-code"
                     value={editedRule.pattern || ''}
                     onChange={(e) => handleFieldChange('pattern', e.target.value)}
                     placeholder={editedRule.is_regex ? 'e.g., error|warning|fail' : 'e.g., ERROR'}
+                    aiField="highlight pattern"
+                    aiPlaceholder={editedRule.is_regex ? 'Regex matching the terminal output this rule should highlight' : 'Literal text this rule should highlight in terminal output'}
+                    aiContext={{ ruleName: editedRule.name, category: editedRule.category, regex: editedRule.is_regex }}
+                    onAIValue={(v) => handleFieldChange('pattern', v)}
                   />
-                  <div className="pattern-type-toggle">
+                  <div className="pattern-type-toggle ns-segmented">
                     <button
                       type="button"
-                      className={`pattern-type-btn ${!editedRule.is_regex ? 'active' : ''}`}
+                      className={`ns-segment ${!editedRule.is_regex ? 'active' : ''}`}
                       onClick={() => handleFieldChange('is_regex', false)}
                     >
                       Literal
                     </button>
                     <button
                       type="button"
-                      className={`pattern-type-btn ${editedRule.is_regex ? 'active' : ''}`}
+                      className={`ns-segment ${editedRule.is_regex ? 'active' : ''}`}
                       onClick={() => handleFieldChange('is_regex', true)}
                     >
                       Regex
@@ -1078,8 +1003,8 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                   <div className="rule-form-row">
                     <div>
                       <label className="rule-form-label">Category</label>
-                      <select
-                        className="rule-form-select"
+                      <select aria-label="Category"
+                        className="ns-select"
                         value={editedRule.category || 'Custom'}
                         onChange={(e) => handleFieldChange('category', e.target.value)}
                       >
@@ -1092,9 +1017,9 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                     </div>
                     <div>
                       <label className="rule-form-label">Priority</label>
-                      <input
+                      <input aria-label="Priority"
                         type="number"
-                        className="rule-form-input rule-form-input-number"
+                        className="ns-input rule-form-input-number"
                         value={editedRule.priority ?? 100}
                         onChange={(e) =>
                           handleFieldChange('priority', parseInt(e.target.value) || 100)
@@ -1148,12 +1073,16 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
                 {/* Test area */}
                 <div className="rule-test-section">
                   <label className="rule-form-label">Test Pattern</label>
-                  <input
-                    type="text"
+                  <AITabInput
+                    aria-label="Test text"
                     className="rule-test-input"
                     value={testText}
                     onChange={(e) => setTestText(e.target.value)}
                     placeholder="Enter text to test the pattern..."
+                    aiField="sample terminal output"
+                    aiPlaceholder="One realistic line of device output this highlight pattern should match"
+                    aiContext={{ pattern: editedRule.pattern, regex: editedRule.is_regex, ruleName: editedRule.name }}
+                    onAIValue={setTestText}
                   />
                   {testText && (
                     <>
@@ -1172,334 +1101,296 @@ export default function SettingsHighlighting({ sessionId }: SettingsHighlighting
           )}
         </div>
       </div>
-
-      <div className="highlighting-footer">
-        <button className="btn-add-rule" onClick={handleCreateNew}>
-          {Icons.plus}
-          <span>Add Rule</span>
-        </button>
-      </div>
+      </SettingsSection>
 
       {/* Delete confirmation */}
       {deleteConfirm && (
-        <div className="delete-confirm-overlay">
-          <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete Rule</h3>
-            <p>
-              Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
-            </p>
-            <div className="delete-confirm-actions">
-              <button className="btn-cancel" onClick={() => setDeleteConfirm(null)}>
-                Cancel
-              </button>
-              <button className="btn-delete" onClick={handleDelete}>
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="highlight-rule-delete" resizable={false} className="delete-confirm-dialog" label="Delete rule">
+          <h3>Delete Rule</h3>
+          <p>
+            Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
+          </p>
+          <DialogFooter
+            primary={{ label: 'Delete', onClick: handleDelete, danger: true }}
+            onCancel={() => setDeleteConfirm(null)}
+            inline
+          />
+        </ModalFrame>
       )}
 
       {/* Import preset dialog */}
       {showImportDialog && (
-        <div className="import-dialog-overlay" onClick={handleCloseImport}>
-          <div className="import-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="import-dialog-header">
-              <h3>Import Preset Rules</h3>
-              <button className="import-dialog-close" onClick={handleCloseImport}>
-                &times;
-              </button>
+        <ModalFrame id="highlight-import" onDismiss={handleCloseImport} className="import-dialog" label="Import highlight rules">
+          <div className="import-dialog-header">
+            <h3>Import Preset Rules</h3>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleCloseImport}>
+              &times;
+            </button>
+          </div>
+
+          <div className="import-dialog-content">
+            {/* Preset list */}
+            <div className="preset-list">
+              <div className="preset-list-header">Available Presets</div>
+              {presetLibraries.map((preset) => (
+                <div
+                  key={preset.id}
+                  className={`preset-item ${selectedPreset?.id === preset.id ? 'selected' : ''}`}
+                  onClick={() => handleSelectPreset(preset)}
+                >
+                  <div className="preset-item-name">{preset.name}</div>
+                  <div className="preset-item-desc">{preset.description}</div>
+                  <div className="preset-item-count">{preset.rules.length} rules</div>
+                </div>
+              ))}
             </div>
 
-            <div className="import-dialog-content">
-              {/* Preset list */}
-              <div className="preset-list">
-                <div className="preset-list-header">Available Presets</div>
-                {presetLibraries.map((preset) => (
-                  <div
-                    key={preset.id}
-                    className={`preset-item ${selectedPreset?.id === preset.id ? 'selected' : ''}`}
-                    onClick={() => handleSelectPreset(preset)}
-                  >
-                    <div className="preset-item-name">{preset.name}</div>
-                    <div className="preset-item-desc">{preset.description}</div>
-                    <div className="preset-item-count">{preset.rules.length} rules</div>
+            {/* Selected preset rules */}
+            <div className="preset-rules">
+              {selectedPreset ? (
+                <>
+                  <div className="preset-rules-header">
+                    <span>{selectedPreset.name} Rules</span>
+                    <label className="preset-select-all">
+                      <input
+                        type="checkbox"
+                        checked={selectedRuleIndices.size === selectedPreset.rules.length}
+                        onChange={toggleSelectAll}
+                      />
+                      <span>Select All</span>
+                    </label>
                   </div>
-                ))}
-              </div>
-
-              {/* Selected preset rules */}
-              <div className="preset-rules">
-                {selectedPreset ? (
-                  <>
-                    <div className="preset-rules-header">
-                      <span>{selectedPreset.name} Rules</span>
-                      <label className="preset-select-all">
-                        <input
-                          type="checkbox"
-                          checked={selectedRuleIndices.size === selectedPreset.rules.length}
-                          onChange={toggleSelectAll}
-                        />
-                        <span>Select All</span>
-                      </label>
-                    </div>
-                    <div className="preset-rules-list">
-                      {selectedPreset.rules.map((rule, index) => {
-                        const isDuplicate = checkDuplicate(rule.pattern);
-                        return (
-                          <div
-                            key={index}
-                            className={`preset-rule-item ${isDuplicate ? 'duplicate' : ''}`}
-                          >
-                            <label className="preset-rule-checkbox">
-                              <input
-                                type="checkbox"
-                                checked={selectedRuleIndices.has(index)}
-                                onChange={() => toggleRuleSelection(index)}
-                                disabled={isDuplicate}
-                              />
-                            </label>
-                            <div
-                              className="preset-rule-swatch"
-                              style={{
-                                backgroundColor: rule.background || rule.foreground || '#666',
-                              }}
+                  <div className="preset-rules-list">
+                    {selectedPreset.rules.map((rule, index) => {
+                      const isDuplicate = checkDuplicate(rule.pattern);
+                      return (
+                        <div
+                          key={index}
+                          className={`preset-rule-item ${isDuplicate ? 'duplicate' : ''}`}
+                        >
+                          <label className="preset-rule-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={selectedRuleIndices.has(index)}
+                              onChange={() => toggleRuleSelection(index)}
+                              disabled={isDuplicate}
                             />
-                            <div className="preset-rule-info">
-                              <span className="preset-rule-name">{rule.name}</span>
-                              <span className="preset-rule-pattern">{rule.pattern}</span>
-                            </div>
-                            {isDuplicate && (
-                              <span className="preset-rule-duplicate">Already exists</span>
-                            )}
+                          </label>
+                          <div
+                            className="preset-rule-swatch"
+                            style={{
+                              backgroundColor: rule.background || rule.foreground || '#666',
+                            }}
+                          />
+                          <div className="preset-rule-info">
+                            <span className="preset-rule-name">{rule.name}</span>
+                            <span className="preset-rule-pattern">{rule.pattern}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <div className="preset-rules-empty">
-                    <p>Select a preset to view its rules</p>
+                          {isDuplicate && (
+                            <span className="preset-rule-duplicate">Already exists</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
-            </div>
-
-            {importSuccess && (
-              <div className="import-success">
-                {Icons.check}
-                <span>{importSuccess}</span>
-              </div>
-            )}
-
-            <div className="import-dialog-footer">
-              <button className="btn-cancel" onClick={handleCloseImport}>
-                Close
-              </button>
-              <button
-                className="btn-import"
-                onClick={handleImport}
-                disabled={!selectedPreset || selectedRuleIndices.size === 0 || importing}
-              >
-                {importing ? 'Importing...' : `Import ${selectedRuleIndices.size} Rule${selectedRuleIndices.size !== 1 ? 's' : ''}`}
-              </button>
+                </>
+              ) : (
+                <div className="preset-rules-empty">
+                  <p>Select a preset to view its rules</p>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+
+          {importSuccess && (
+            <div className="import-success">
+              {Icons.check}
+              <span>{importSuccess}</span>
+            </div>
+          )}
+
+          <DialogFooter
+            primary={{ label: importing ? 'Importing...' : `Import ${selectedRuleIndices.size} Rule${selectedRuleIndices.size !== 1 ? 's' : ''}`, onClick: handleImport, disabled: !selectedPreset || selectedRuleIndices.size === 0 || importing }}
+            onCancel={handleCloseImport}
+            cancelLabel="Close"
+          />
+        </ModalFrame>
       )}
 
       {/* File import dialog */}
       {showFileImportDialog && fileImportResult && (
-        <div className="import-dialog-overlay" onClick={handleCloseFileImport}>
-          <div className="import-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="import-dialog-header">
-              <h3>Import from SecureCRT words.ini</h3>
-              <button className="import-dialog-close" onClick={handleCloseFileImport}>
-                &times;
-              </button>
-            </div>
+        <ModalFrame id="highlight-import-securecrt" onDismiss={handleCloseFileImport} className="import-dialog" label="Import from SecureCRT">
+          <div className="import-dialog-header">
+            <h3>Import from SecureCRT words.ini</h3>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleCloseFileImport}>
+              &times;
+            </button>
+          </div>
 
-            <div className="import-dialog-content">
-              <div className="file-import-rules">
-                <div className="preset-rules-header">
-                  <span>Parsed Rules ({fileImportResult.rules.length})</span>
-                  <label className="preset-select-all">
-                    <input
-                      type="checkbox"
-                      checked={fileImportSelectedIndices.size === fileImportResult.rules.length}
-                      onChange={toggleFileImportSelectAll}
-                    />
-                    <span>Select All</span>
-                  </label>
-                </div>
+          <div className="import-dialog-content">
+            <div className="file-import-rules">
+              <div className="preset-rules-header">
+                <span>Parsed Rules ({fileImportResult.rules.length})</span>
+                <label className="preset-select-all">
+                  <input
+                    type="checkbox"
+                    checked={fileImportSelectedIndices.size === fileImportResult.rules.length}
+                    onChange={toggleFileImportSelectAll}
+                  />
+                  <span>Select All</span>
+                </label>
+              </div>
 
-                {fileImportResult.warnings.length > 0 && (
-                  <div className="file-import-warnings">
-                    {Icons.warning}
-                    <div>
-                      {fileImportResult.warnings.map((warning, i) => (
-                        <p key={i}>{warning}</p>
-                      ))}
-                    </div>
+              {fileImportResult.warnings.length > 0 && (
+                <div className="file-import-warnings">
+                  {Icons.warning}
+                  <div>
+                    {fileImportResult.warnings.map((warning, i) => (
+                      <p key={i}>{warning}</p>
+                    ))}
                   </div>
-                )}
-
-                <div className="preset-rules-list">
-                  {fileImportResult.rules.map((rule, index) => {
-                    const isDuplicate = checkDuplicate(rule.pattern);
-                    return (
-                      <div
-                        key={index}
-                        className={`preset-rule-item ${isDuplicate ? 'duplicate' : ''}`}
-                      >
-                        <label className="preset-rule-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={fileImportSelectedIndices.has(index)}
-                            onChange={() => toggleFileImportRuleSelection(index)}
-                            disabled={isDuplicate}
-                          />
-                        </label>
-                        <div
-                          className="preset-rule-swatch"
-                          style={{
-                            backgroundColor: rule.background || rule.foreground || '#666',
-                          }}
-                        />
-                        <div className="preset-rule-info">
-                          <span className="preset-rule-name">{rule.name}</span>
-                          <span className="preset-rule-pattern">{rule.pattern}</span>
-                        </div>
-                        <span className="preset-rule-category">{rule.category}</span>
-                        {isDuplicate && (
-                          <span className="preset-rule-duplicate">Already exists</span>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
-              </div>
-            </div>
+              )}
 
-            {fileImportSuccess && (
-              <div className="import-success">
-                {Icons.check}
-                <span>{fileImportSuccess}</span>
+              <div className="preset-rules-list">
+                {fileImportResult.rules.map((rule, index) => {
+                  const isDuplicate = checkDuplicate(rule.pattern);
+                  return (
+                    <div
+                      key={index}
+                      className={`preset-rule-item ${isDuplicate ? 'duplicate' : ''}`}
+                    >
+                      <label className="preset-rule-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={fileImportSelectedIndices.has(index)}
+                          onChange={() => toggleFileImportRuleSelection(index)}
+                          disabled={isDuplicate}
+                        />
+                      </label>
+                      <div
+                        className="preset-rule-swatch"
+                        style={{
+                          backgroundColor: rule.background || rule.foreground || '#666',
+                        }}
+                      />
+                      <div className="preset-rule-info">
+                        <span className="preset-rule-name">{rule.name}</span>
+                        <span className="preset-rule-pattern">{rule.pattern}</span>
+                      </div>
+                      <span className="preset-rule-category">{rule.category}</span>
+                      {isDuplicate && (
+                        <span className="preset-rule-duplicate">Already exists</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            )}
-
-            <div className="import-dialog-footer">
-              <button className="btn-cancel" onClick={handleCloseFileImport}>
-                Close
-              </button>
-              <button
-                className="btn-import"
-                onClick={handleFileImport}
-                disabled={fileImportSelectedIndices.size === 0 || fileImporting}
-              >
-                {fileImporting ? 'Importing...' : `Import ${fileImportSelectedIndices.size} Rule${fileImportSelectedIndices.size !== 1 ? 's' : ''}`}
-              </button>
             </div>
           </div>
-        </div>
+
+          {fileImportSuccess && (
+            <div className="import-success">
+              {Icons.check}
+              <span>{fileImportSuccess}</span>
+            </div>
+          )}
+
+          <DialogFooter
+            primary={{ label: fileImporting ? 'Importing...' : `Import ${fileImportSelectedIndices.size} Rule${fileImportSelectedIndices.size !== 1 ? 's' : ''}`, onClick: handleFileImport, disabled: fileImportSelectedIndices.size === 0 || fileImporting }}
+            onCancel={handleCloseFileImport}
+            cancelLabel="Close"
+          />
+        </ModalFrame>
       )}
 
       {/* JSON import dialog */}
       {showJsonImportDialog && jsonImportResult && (
-        <div className="import-dialog-overlay" onClick={handleCloseJsonImport}>
-          <div className="import-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="import-dialog-header">
-              <h3>Import from JSON</h3>
-              <button className="import-dialog-close" onClick={handleCloseJsonImport}>
-                &times;
-              </button>
-            </div>
+        <ModalFrame id="highlight-import-json" onDismiss={handleCloseJsonImport} className="import-dialog" label="Import from JSON">
+          <div className="import-dialog-header">
+            <h3>Import from JSON</h3>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleCloseJsonImport}>
+              &times;
+            </button>
+          </div>
 
-            <div className="import-dialog-content">
-              <div className="file-import-rules">
-                <div className="preset-rules-header">
-                  <span>Parsed Rules ({jsonImportResult.rules.length})</span>
-                  <label className="preset-select-all">
-                    <input
-                      type="checkbox"
-                      checked={jsonImportSelectedIndices.size === jsonImportResult.rules.length}
-                      onChange={toggleJsonImportSelectAll}
-                    />
-                    <span>Select All</span>
-                  </label>
-                </div>
+          <div className="import-dialog-content">
+            <div className="file-import-rules">
+              <div className="preset-rules-header">
+                <span>Parsed Rules ({jsonImportResult.rules.length})</span>
+                <label className="preset-select-all">
+                  <input
+                    type="checkbox"
+                    checked={jsonImportSelectedIndices.size === jsonImportResult.rules.length}
+                    onChange={toggleJsonImportSelectAll}
+                  />
+                  <span>Select All</span>
+                </label>
+              </div>
 
-                {jsonImportResult.warnings.length > 0 && (
-                  <div className="file-import-warnings">
-                    {Icons.warning}
-                    <div>
-                      {jsonImportResult.warnings.map((warning, i) => (
-                        <p key={i}>{warning}</p>
-                      ))}
-                    </div>
+              {jsonImportResult.warnings.length > 0 && (
+                <div className="file-import-warnings">
+                  {Icons.warning}
+                  <div>
+                    {jsonImportResult.warnings.map((warning, i) => (
+                      <p key={i}>{warning}</p>
+                    ))}
                   </div>
-                )}
-
-                <div className="preset-rules-list">
-                  {jsonImportResult.rules.map((rule, index) => {
-                    const isDuplicate = checkDuplicate(rule.pattern);
-                    return (
-                      <div
-                        key={index}
-                        className={`preset-rule-item ${isDuplicate ? 'duplicate' : ''}`}
-                      >
-                        <label className="preset-rule-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={jsonImportSelectedIndices.has(index)}
-                            onChange={() => toggleJsonImportRuleSelection(index)}
-                            disabled={isDuplicate}
-                          />
-                        </label>
-                        <div
-                          className="preset-rule-swatch"
-                          style={{
-                            backgroundColor: rule.background || rule.foreground || '#666',
-                          }}
-                        />
-                        <div className="preset-rule-info">
-                          <span className="preset-rule-name">{rule.name}</span>
-                          <span className="preset-rule-pattern">{rule.pattern}</span>
-                        </div>
-                        <span className="preset-rule-category">{rule.category}</span>
-                        {isDuplicate && (
-                          <span className="preset-rule-duplicate">Already exists</span>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
-              </div>
-            </div>
+              )}
 
-            {jsonImportSuccess && (
-              <div className="import-success">
-                {Icons.check}
-                <span>{jsonImportSuccess}</span>
+              <div className="preset-rules-list">
+                {jsonImportResult.rules.map((rule, index) => {
+                  const isDuplicate = checkDuplicate(rule.pattern);
+                  return (
+                    <div
+                      key={index}
+                      className={`preset-rule-item ${isDuplicate ? 'duplicate' : ''}`}
+                    >
+                      <label className="preset-rule-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={jsonImportSelectedIndices.has(index)}
+                          onChange={() => toggleJsonImportRuleSelection(index)}
+                          disabled={isDuplicate}
+                        />
+                      </label>
+                      <div
+                        className="preset-rule-swatch"
+                        style={{
+                          backgroundColor: rule.background || rule.foreground || '#666',
+                        }}
+                      />
+                      <div className="preset-rule-info">
+                        <span className="preset-rule-name">{rule.name}</span>
+                        <span className="preset-rule-pattern">{rule.pattern}</span>
+                      </div>
+                      <span className="preset-rule-category">{rule.category}</span>
+                      {isDuplicate && (
+                        <span className="preset-rule-duplicate">Already exists</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            )}
-
-            <div className="import-dialog-footer">
-              <button className="btn-cancel" onClick={handleCloseJsonImport}>
-                Close
-              </button>
-              <button
-                className="btn-import"
-                onClick={handleJsonImport}
-                disabled={jsonImportSelectedIndices.size === 0 || jsonImporting}
-              >
-                {jsonImporting ? 'Importing...' : `Import ${jsonImportSelectedIndices.size} Rule${jsonImportSelectedIndices.size !== 1 ? 's' : ''}`}
-              </button>
             </div>
           </div>
-        </div>
+
+          {jsonImportSuccess && (
+            <div className="import-success">
+              {Icons.check}
+              <span>{jsonImportSuccess}</span>
+            </div>
+          )}
+
+          <DialogFooter
+            primary={{ label: jsonImporting ? 'Importing...' : `Import ${jsonImportSelectedIndices.size} Rule${jsonImportSelectedIndices.size !== 1 ? 's' : ''}`, onClick: handleJsonImport, disabled: jsonImportSelectedIndices.size === 0 || jsonImporting }}
+            onCancel={handleCloseJsonImport}
+            cancelLabel="Close"
+          />
+        </ModalFrame>
       )}
-    </div>
+    </>
   );
 }
 

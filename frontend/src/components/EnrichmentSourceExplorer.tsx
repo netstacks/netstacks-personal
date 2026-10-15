@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { PickedField, EnrichmentSourceTestResult } from '../api/enrichment'
 import { detectFormat, humanizeKey } from '../lib/enrichmentFieldUtils'
+import Tooltip from './Tooltip'
 
 /**
  * Interactive explorer for a source-test response. Renders the JSON as a
@@ -55,9 +56,9 @@ export function EnrichmentSourceExplorer({
         <span className={`se-pill ${ok ? 'ok' : 'err'}`}>{ok ? `${result.status_code ?? 200} OK` : `${result.status_code ?? 'ERR'}`}</span>
         {result.url && <span className="se-test-url" title={result.url}>{result.url}</span>}
         <span className="se-test-timing">{result.duration_ms}ms</span>
-        <span className="se-view-toggle">
+        <span className="ns-segmented">
           {(['tree', 'json'] as const).map((v) => (
-            <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>{v.toUpperCase()}</button>
+            <button key={v} type="button" className={`ns-segment ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>{v.toUpperCase()}</button>
           ))}
         </span>
       </div>
@@ -131,7 +132,7 @@ function JsonNode({
         </span>
 
         {!isContainer ? (
-          <input
+          <input aria-label={`Pick ${path}`}
             type="checkbox"
             className="se-tree-check"
             checked={isPicked(path)}
@@ -156,16 +157,15 @@ function JsonNode({
         </span>
 
         {isContainer && path !== '' && (
-          <span
+          <Tooltip label={`Set Response Unwrap to ${path}`}><span
             className={`se-badge-unwrap${responseUnwrap === path ? ' active' : ''}`}
-            title={`Set Response Unwrap to ${path}`}
             onClick={(e) => {
               e.stopPropagation()
               setResponseUnwrap(responseUnwrap === path ? '' : path)
             }}
           >
             {responseUnwrap === path ? '✓ unwrap' : '↳ unwrap'}
-          </span>
+          </span></Tooltip>
         )}
       </div>
 

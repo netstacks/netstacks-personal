@@ -10,6 +10,7 @@ import ApiClientSection from '../api/ApiClientSection'
 import type { ApiRequestTabInit } from '../../types/apiRequest'
 import type { QuickActionResult } from '../../types/quickAction'
 import { useCapabilitiesStore } from '../../stores/capabilitiesStore'
+import Tooltip from '../Tooltip'
 
 interface WorkspacesPanelProps {
   onOpenWorkspace: (config: WorkspaceConfig) => void
@@ -193,21 +194,20 @@ export default function WorkspacesPanel({
       >
         <span className="workspace-panel-section-toggle">{wsCollapsed ? '▸' : '▾'}</span>
         <span>WORKSPACES</span>
-        <button
-          className="workspace-panel-section-btn"
+        <Tooltip label="New Workspace"><button aria-label="New Workspace"
+          className="workspace-panel-section-btn ns-btn ns-btn--ghost ns-btn--small"
           onClick={(e) => { e.stopPropagation(); onNewWorkspace() }}
-          title="New Workspace"
         >
           +
-        </button>
+        </button></Tooltip>
       </div>
 
       {!wsCollapsed && (
         <div className="workspace-panel-list" style={{ flex: explorerCollapsed ? 1 : undefined, maxHeight: explorerCollapsed ? 'none' : undefined }}>
           {savedWorkspaces.length === 0 && (
-            <div className="workspace-panel-empty">
+            <div className="sidebar-empty">
               <p>No saved workspaces</p>
-              <button className="workspace-panel-add-btn" onClick={onNewWorkspace}>
+              <button className="ns-btn ns-btn--small" onClick={onNewWorkspace}>
                 + New Workspace
               </button>
             </div>
@@ -231,21 +231,19 @@ export default function WorkspacesPanel({
                   <span className="workspace-panel-item-badge">open</span>
                 )}
                 {isOpen && onCloseWorkspace && (
-                  <button
+                  <Tooltip label="Close workspace (keep saved config)"><button aria-label="Close workspace (keep saved config)"
                     className="workspace-panel-item-close"
                     onClick={(e) => { e.stopPropagation(); onCloseWorkspace(ws.id) }}
-                    title="Close workspace (keep saved config)"
                   >
                     ⌫
-                  </button>
+                  </button></Tooltip>
                 )}
-                <button
-                  className="workspace-panel-item-delete"
+                <Tooltip label="Delete saved workspace (does not touch the git repo on disk)"><button aria-label="Delete saved workspace (does not touch the git repo on disk)"
+                  className="workspace-panel-item-delete ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small"
                   onClick={(e) => { e.stopPropagation(); deleteWorkspace(ws.id, ws.name) }}
-                  title="Delete saved workspace (does not touch the git repo on disk)"
                 >
                   ×
-                </button>
+                </button></Tooltip>
               </div>
             )
           })}
@@ -261,6 +259,9 @@ export default function WorkspacesPanel({
         <span>EXPLORER</span>
       </div>
 
+      {!explorerCollapsed && openWorkspaceIds.size === 0 && (
+        <div className="sidebar-empty"><p>Open a workspace to browse its files.</p></div>
+      )}
       <div
         id="workspace-sidebar-explorer"
         className="workspace-sidebar-explorer-target"
@@ -277,13 +278,12 @@ export default function WorkspacesPanel({
           >
             <span className="workspace-panel-section-toggle">{apiCollapsed ? '▸' : '▾'}</span>
             <span>API</span>
-            <button
-              className="workspace-panel-section-btn"
+            <Tooltip label="New request"><button aria-label="New request"
+              className="workspace-panel-section-btn ns-btn ns-btn--ghost ns-btn--small"
               onClick={(e) => { e.stopPropagation(); setApiCollapsed(false); onOpenApiRequest({}) }}
-              title="New request"
             >
               +
-            </button>
+            </button></Tooltip>
           </div>
           {!apiCollapsed && (
             <div className="workspace-panel-list" style={{ flex: 'none', maxHeight: '45%' }}>

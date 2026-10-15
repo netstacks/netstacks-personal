@@ -32,6 +32,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import type { CertStatus } from '../api/cert'
 import { listMcpServers, connectMcpServer, type McpServer } from '../api/mcp'
+import Tooltip from './Tooltip'
 
 // SVG Icons
 const Icons = {
@@ -74,9 +75,12 @@ const Icons = {
       <path d="M5 16l.75 1.75L7.5 18.5 5.75 19.25 5 21l-.75-1.75L2.5 18.5l1.75-.75L5 16z" fill="currentColor"/>
     </svg>
   ),
+  // Platform-neutral palette glyph (a prompt in a box); the ⌘ symbol is Mac-only.
   command: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M18 3a3 3 0 00-3 3v12a3 3 0 003 3 3 3 0 003-3 3 3 0 00-3-3H6a3 3 0 00-3 3 3 3 0 003 3 3 3 0 003-3V6a3 3 0 00-3-3 3 3 0 00-3 3 3 3 0 003 3h12a3 3 0 003-3 3 3 0 00-3-3z"/>
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+      <polyline points="8 10 11 12.5 8 15" />
+      <line x1="13" y1="15" x2="16" y2="15" />
     </svg>
   ),
   prompts: (
@@ -161,8 +165,6 @@ export interface StatusBarProps {
   activeProfileName?: string
   /** Number of connected sessions */
   connectedCount: number
-  /** Background color for the status bar (defaults to VS Code blue) */
-  statusBarColor?: string
   /** Callback when AI Overlord toggle is clicked */
   onToggleAIOverlord?: () => void
   /** Whether AI Overlord is currently active */
@@ -222,7 +224,6 @@ export default function StatusBar({
   activeSessionName,
   activeProfileName,
   connectedCount,
-  statusBarColor = '#007acc',
   activeView,
   onToggleAIOverlord,
   aiOverlordActive = false,
@@ -251,7 +252,8 @@ export default function StatusBar({
 }: StatusBarProps) {
   // Shortcut hints follow the user's keybindings (Settings → Keyboard).
   const keybindings = useKeybindings()
-  const hint = (action: keyof typeof keybindings) => formatShortcut(getPlatformBinding(keybindings[action]))
+  const binding = (action: keyof typeof keybindings) => getPlatformBinding(keybindings[action])
+  const hint = (action: keyof typeof keybindings) => formatShortcut(binding(action))
   const remoteHost = useMemo(() => getRemoteAgentHost(), [])
   // Persistent agent handle: count running agent tasks straight from the store
   // (a primitive selector — safe). The item only appears while > 0.
@@ -434,9 +436,6 @@ export default function StatusBar({
 
   // Get colors based on theme
   const colors = getStatusBarColors(settings)
-  const effectiveColor = settings.theme !== 'vscode-blue'
-    ? colors.background
-    : statusBarColor
 
   // NOTE: all hooks must stay above the early return below — declaring this
   // useCallback after `if (!settings.enabled) return null` skips it when the
@@ -465,7 +464,7 @@ export default function StatusBar({
       data-testid="status-bar" className={`status-bar${settings.compactMode ? ' compact' : ''}`}
       onContextMenu={handleStatusBarContextMenu}
       style={{
-        '--status-bar-bg': effectiveColor,
+        '--status-bar-bg': colors.background,
         '--status-bar-text': colors.text,
         '--status-bar-hover': colors.hoverBackground,
         '--status-bar-accent': colors.accentBackground,
@@ -475,23 +474,22 @@ export default function StatusBar({
       <div className="status-bar-left">
         {/* Remote agent indicator — VS Code style */}
         {remoteHost && (
-          <div className="status-bar-remote-indicator" title={`Connected to remote agent on ${remoteHost}`}>
+          <Tooltip label={`Connected to remote agent on ${remoteHost}`}><div className="status-bar-remote-indicator">
             <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
               <path d="M14 1H2a1 1 0 00-1 1v8a1 1 0 001 1h5v2H5v1h6v-1H9v-2h5a1 1 0 001-1V2a1 1 0 00-1-1zm0 9H2V2h12v8z"/>
             </svg>
             <span>{remoteHost}</span>
-          </div>
+          </div></Tooltip>
         )}
         {/* Enterprise mode: Controller connection indicator */}
         {isEnterprise && (
           <div style={{ position: 'relative' }}>
-            <button
-              ref={controllerBtnRef}
-              className="status-bar-item status-bar-item-btn"
-              title={isAuthenticated
+            <Tooltip label={isAuthenticated
                 ? `Controller: ${controllerUrl || 'Connected'}`
                 : 'Controller: Disconnected'
-              }
+              }><button
+              ref={controllerBtnRef}
+              className="status-bar-item status-bar-item-btn"
               onClick={() => {
                 setShowControllerInfo(!showControllerInfo)
                 if (showControllerInfo) setPermissionsExpanded(false)
@@ -500,7 +498,7 @@ export default function StatusBar({
               {Icons.controller}
               <span className={`status-bar-connection-dot ${isAuthenticated ? 'connected' : ''}`} />
               <span>{isAuthenticated ? instanceName : 'Disconnected'}</span>
-            </button>
+            </button></Tooltip>
             {showControllerInfo && (
               <div ref={controllerPopoverRef} className="controller-info-popover">
                 <div className="controller-info-section">
@@ -521,20 +519,19 @@ export default function StatusBar({
                     <div className="controller-info-heading">Organization</div>
                     {canSwitchOrg && organizations && organizations.length > 0 ? (
                       <>
-                        <select
+                        <Tooltip label="Platform administrator: open the terminal in another organization"><select
                           className="controller-info-select"
                           value={user.org_id}
                           disabled={orgSwitching}
                           onChange={(e) => { void handleSwitchOrg(e.target.value) }}
                           aria-label="Switch organization"
-                          title="Platform administrator: open the terminal in another organization"
                         >
                           {organizations.map((org) => (
                             <option key={org.id} value={org.id}>
                               {org.name}{org.id === user.home_org_id ? ' (home)' : ''}
                             </option>
                           ))}
-                        </select>
+                        </select></Tooltip>
                         {orgSwitching && <div className="controller-info-detail">Switching…</div>}
                         {orgError && <div className="controller-info-detail controller-info-error">{orgError}</div>}
                       </>
@@ -611,42 +608,40 @@ export default function StatusBar({
         )}
         {/* Certificate status indicator (enterprise mode) */}
         {isEnterprise && isAuthenticated && certStatus && (
-          <div className="status-bar-item" title={
+          <Tooltip label={
             certStatus.valid
               ? `Certificate valid until ${certStatus.expires_at}`
               : certStatus.error || 'Certificate not available'
-          }>
+          }><div className="status-bar-item">
             <span className={`status-bar-connection-dot ${certStatus.valid ? 'connected' : ''}`} />
             <span>
               {certStatus.valid
                 ? `Cert: ${formatTimeRemaining(certStatus.expires_at)}`
                 : 'Cert: expired'}
             </span>
-          </div>
+          </div></Tooltip>
         )}
         {/* Personal mode: device connection status */}
         {!isEnterprise && settings.showConnectionStatus && (
-          <button
+          <Tooltip label={connectedCount > 0 ? `${connectedCount} connected` : 'No connections'}><button
             className="status-bar-item status-bar-item-btn"
-            title={connectedCount > 0 ? `${connectedCount} connected` : 'No connections'}
           >
             <span className={`status-bar-connection-dot ${connectedCount > 0 ? 'connected' : ''}`} />
             <span>{connectedCount > 0 ? connectedCount : 'No connections'}</span>
-          </button>
+          </button></Tooltip>
         )}
         {/* MCP Servers indicator (standalone mode only, AI tools required) */}
         {!isEnterprise && hasFeature('local_ai_tools') && mcpTotal > 0 && (
           <div style={{ position: 'relative' }}>
-            <button
+            <Tooltip label={`MCP Servers: ${mcpConnected}/${mcpTotal} connected`}><button
               ref={mcpBtnRef}
               className="status-bar-item status-bar-item-btn"
-              title={`MCP Servers: ${mcpConnected}/${mcpTotal} connected`}
               onClick={() => setShowMcpPopover(!showMcpPopover)}
             >
               {Icons.mcp}
               <span className={`status-bar-connection-dot ${mcpConnected === mcpTotal ? 'connected' : mcpConnected > 0 ? 'partial' : ''}`} />
               <span>MCP {mcpConnected}/{mcpTotal}</span>
-            </button>
+            </button></Tooltip>
             {showMcpPopover && (
               <div ref={mcpPopoverRef} className="mcp-status-popover">
                 <div className="mcp-status-heading">MCP Servers</div>
@@ -682,10 +677,10 @@ export default function StatusBar({
           </div>
         )}
         {settings.showActiveSession && activeSessionName && (
-          <span className="status-bar-item" title={activeProfileName ? `Active Session (Profile: ${activeProfileName})` : 'Active Session'}>
+          <Tooltip label={activeProfileName ? `Active Session (Profile: ${activeProfileName})` : 'Active Session'}><span className="status-bar-item">
             {Icons.terminal}
             <span>{activeSessionName}{activeProfileName && <span style={{ opacity: 0.7 }}> as {activeProfileName}</span>}</span>
-          </span>
+          </span></Tooltip>
         )}
         {/* Session tunnel forward dots */}
         {activeSessionName && tunnels.some(t => t.id.startsWith('session:')) && (
@@ -693,11 +688,10 @@ export default function StatusBar({
             {tunnels
               .filter(t => t.id.startsWith('session:'))
               .map(t => (
-                <span
-                  key={t.id}
+                <Tooltip key={t.id} label={`${formatTunnelSpec(t)} (${t.status})`}><span
                   className={`status-bar-tunnel-dot ${t.status}`}
-                  title={`${formatTunnelSpec(t)} (${t.status})`}
-                />
+                  role="img" aria-label={`${formatTunnelSpec(t)} (${t.status})`}
+                /></Tooltip>
               ))
             }
             <span className="status-bar-tunnel-dots-label">fwd</span>
@@ -706,30 +700,28 @@ export default function StatusBar({
         {isTerminalFocused && canSftp && onToggleSftp && (
           <>
             <span className="status-bar-divider" />
-            <button
+            <Tooltip label="SFTP File Browser"><button
               className="status-bar-item status-bar-item-btn"
               onClick={onToggleSftp}
-              title="SFTP File Browser"
             >
               <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
                 <path d="M14.5 3H7.71l-.85-.85A.5.5 0 006.5 2h-5a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h13a.5.5 0 00.5-.5v-10a.5.5 0 00-.5-.5z" />
               </svg>
               <span>SFTP{sftpConnectionCount && sftpConnectionCount > 0 ? ` (${sftpConnectionCount})` : ''}</span>
-            </button>
+            </button></Tooltip>
           </>
         )}
         {/* Troubleshooting: start button when no session, indicator when active */}
         {!troubleshootingSession && onStartTroubleshootingSession && hasFeature('local_session_recording') && (
           <>
             <span className="status-bar-divider" />
-            <button
+            <Tooltip label="Start Troubleshooting Session" shortcut={binding('startTroubleshooting')}><button
               className="status-bar-item status-bar-item-btn status-bar-troubleshoot-start"
               onClick={onStartTroubleshootingSession}
-              title={`Start Troubleshooting Session (${hint('startTroubleshooting')})`}
             >
               {Icons.record}
               <span>Troubleshoot</span>
-            </button>
+            </button></Tooltip>
           </>
         )}
         {troubleshootingSession && onEndTroubleshootingSession && onAttachTroubleshootingTopology && hasFeature('local_session_recording') && (
@@ -754,27 +746,27 @@ export default function StatusBar({
         {/* Quick Look buttons - only show when NOT in Docs view and setting enabled */}
         {showQuickLook && onQuickLook && (
           <div className="status-bar-quicklook">
-            <button
+            <Tooltip label="Quick Look: Notes" shortcut={binding('quickLookNotes')}><button
               className="status-bar-item status-bar-item-btn status-bar-quicklook-btn"
               onClick={() => onQuickLook('notes')}
-              title={`Quick Look: Notes (${hint('quickLookNotes')})`}
+              aria-label="Quick Look: Notes"
             >
               {Icons.notes}
-            </button>
-            <button
+            </button></Tooltip>
+            <Tooltip label="Quick Look: Templates" shortcut={binding('quickLookTemplates')}><button
               className="status-bar-item status-bar-item-btn status-bar-quicklook-btn"
               onClick={() => onQuickLook('templates')}
-              title={`Quick Look: Templates (${hint('quickLookTemplates')})`}
+              aria-label="Quick Look: Templates"
             >
               {Icons.templates}
-            </button>
-            <button
+            </button></Tooltip>
+            <Tooltip label="Quick Look: Outputs" shortcut={binding('quickLookOutputs')}><button
               className="status-bar-item status-bar-item-btn status-bar-quicklook-btn"
               onClick={() => onQuickLook('outputs')}
-              title={`Quick Look: Outputs (${hint('quickLookOutputs')})`}
+              aria-label="Quick Look: Outputs"
             >
               {Icons.outputs}
-            </button>
+            </button></Tooltip>
             <span className="status-bar-divider" />
           </div>
         )}
@@ -783,10 +775,9 @@ export default function StatusBar({
             the terminal client neither manages them nor has a /api/tunnels route. */}
         {!isEnterprise && (
         <div style={{ position: 'relative' }}>
-          <button
+          <Tooltip label="SSH Tunnels"><button
             className="status-bar-item status-bar-item-btn"
             onClick={() => setShowTunnelPopover(!showTunnelPopover)}
-            title="SSH Tunnels"
           >
             <span className="status-bar-tunnel-icon">&#8651;</span>
             <span>Tunnels</span>
@@ -795,7 +786,7 @@ export default function StatusBar({
                 {failedTunnels ? failedCount : activeTunnelCount}
               </span>
             )}
-          </button>
+          </button></Tooltip>
           {showTunnelPopover && (
             <TunnelPopover
               onClose={() => setShowTunnelPopover(false)}
@@ -810,14 +801,13 @@ export default function StatusBar({
         )}
         {settings.showSnippets && (
           <div style={{ position: 'relative' }}>
-            <button
+            <Tooltip label="Snippets"><button
               className="status-bar-item status-bar-item-btn"
               onClick={() => setShowSnippetsMenu(!showSnippetsMenu)}
-              title="Snippets"
             >
               {Icons.snippets}
               <span>Snippets</span>
-            </button>
+            </button></Tooltip>
             {showSnippetsMenu && onSnippetSelect && onManageSnippets && (
               <SnippetsMenu
                 onClose={() => setShowSnippetsMenu(false)}
@@ -835,14 +825,13 @@ export default function StatusBar({
         )}
         {settings.showQuickPrompts && hasFeature('local_custom_prompts') && (
           <div style={{ position: 'relative' }}>
-            <button
+            <Tooltip label="Quick Prompts"><button
               className="status-bar-item status-bar-item-btn"
               onClick={() => setShowPromptsMenu(!showPromptsMenu)}
-              title="Quick Prompts"
             >
               {Icons.prompts}
               <span>Prompts</span>
-            </button>
+            </button></Tooltip>
             {showPromptsMenu && onQuickPromptSelect && onManagePrompts && (
               <QuickPromptsMenu
                 onClose={() => setShowPromptsMenu(false)}
@@ -860,14 +849,13 @@ export default function StatusBar({
         )}
         {settings.showQuickCalls && hasFeature('local_custom_prompts') && (
           <div style={{ position: 'relative' }}>
-            <button
+            <Tooltip label="Quick Calls"><button
               className="status-bar-item status-bar-item-btn"
               onClick={() => setShowQuickCallsMenu(!showQuickCallsMenu)}
-              title="Quick Calls"
             >
               {Icons.quickActions}
               <span>Calls</span>
-            </button>
+            </button></Tooltip>
             {showQuickCallsMenu && onQuickCallSelect && onManageQuickCalls && (
               <QuickCallsMenu
                 onClose={() => setShowQuickCallsMenu(false)}
@@ -884,62 +872,57 @@ export default function StatusBar({
           </div>
         )}
         {settings.showAIButton && hasFeature('local_ai_tools') && (
-          <button
+          <Tooltip label={aiOverlordActive
+              ? 'AI Highlights on — terminal output is scanned live for errors, security issues and anomalies (click to disable)'
+              : 'Enable AI Highlights — scan terminal output live for errors, security issues and anomalies'}><button
             className={`status-bar-item status-bar-item-btn status-bar-item-ai${aiOverlordActive ? ' ai-overlord-active' : ''}`}
             onClick={onToggleAIOverlord}
-            title={aiOverlordActive
-              ? 'AI Highlights on — terminal output is scanned live for errors, security issues and anomalies (click to disable)'
-              : 'Enable AI Highlights — scan terminal output live for errors, security issues and anomalies'}
           >
             {Icons.aiActive}
             {/* Labelled "AI Highlights", not "Overlord": that name belongs to the
                 agent mode, and this button never opened the AI panel (NS-APP-23). */}
             <span>AI Highlights</span>
-          </button>
+          </button></Tooltip>
         )}
         {onOpenAgentRun && agentRunningCount > 0 && (
-          <button
+          <Tooltip label={`${agentRunningCount} agent run${agentRunningCount === 1 ? '' : 's'} active — click to open`}><button
             className="status-bar-item status-bar-item-btn has-indicator"
             onClick={onOpenAgentRun}
-            title={`${agentRunningCount} agent run${agentRunningCount === 1 ? '' : 's'} active — click to open`}
           >
             {Icons.agent}
             <span>{agentRunningCount} agent{agentRunningCount === 1 ? '' : 's'}</span>
             <span className="status-bar-indicator-dot" aria-hidden="true" />
-          </button>
+          </button></Tooltip>
         )}
         {settings.showScratchpad && onOpenScratchpad && (
-          <button
+          <Tooltip label={scratchpadMinimized ? 'Scratchpad — minimized buffer, open to restore' : 'Scratchpad — quick notes'} shortcut={binding('scratchpadOpen')}><button
             className={`status-bar-item status-bar-item-btn${scratchpadMinimized ? ' has-indicator' : ''}`}
             onClick={onOpenScratchpad}
-            title={scratchpadMinimized
-              ? `Scratchpad — minimized buffer (${hint('scratchpadOpen')} to restore)`
-              : `Scratchpad (${hint('scratchpadOpen')}) — quick notes`}
           >
             {Icons.notes}
             <span>Scratch</span>
             {scratchpadMinimized && <span className="status-bar-indicator-dot" aria-hidden="true" />}
             {settings.showKeyboardShortcuts && <kbd>{hint('scratchpadOpen')}</kbd>}
-          </button>
+          </button></Tooltip>
         )}
         {settings.showCommandPalette && (
-          <button
+          <Tooltip label="Command Palette" shortcut={binding('commandPalette')}><button
             className="status-bar-item status-bar-item-btn"
             onClick={onOpenCommandPalette}
-            title={`Command Palette (${hint('commandPalette')})`}
+            aria-label="Command Palette"
           >
             {Icons.command}
             {settings.showKeyboardShortcuts && <kbd>{hint('commandPalette')}</kbd>}
-          </button>
+          </button></Tooltip>
         )}
         {settings.showSettings && (
-          <button
+          <Tooltip label="Settings"><button
             className="status-bar-item status-bar-item-btn"
             onClick={onOpenSettings}
-            title="Settings"
+            aria-label="Settings"
           >
             {Icons.settings}
-          </button>
+          </button></Tooltip>
         )}
       </div>
       <ContextMenu position={contextMenu.position} items={contextMenu.items} onClose={contextMenu.close} />

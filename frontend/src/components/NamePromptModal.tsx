@@ -1,4 +1,7 @@
+import AITabInput from './AITabInput';
 import { useState, useRef, useEffect } from 'react';
+import DialogFooter from './DialogFooter';
+import ModalFrame from './ModalFrame';
 import './NamePromptModal.css';
 
 interface NamePromptModalProps {
@@ -32,42 +35,25 @@ export default function NamePromptModal({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleConfirm();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onCancel();
-    }
-  };
-
   return (
-    <div className="name-prompt-backdrop" onClick={onCancel}>
-      <div className="name-prompt" onClick={(e) => e.stopPropagation()}>
-        <div className="name-prompt-title">{title}</div>
-        <input
-          ref={inputRef}
-          type="text"
-          className="name-prompt-input"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-        />
-        <div className="name-prompt-buttons">
-          <button className="name-prompt-cancel" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            className="name-prompt-confirm"
-            onClick={handleConfirm}
-            disabled={!value.trim()}
-          >
-            {confirmLabel}
-          </button>
+    <ModalFrame id="name-prompt" onDismiss={onCancel} className="dialog name-prompt" labelledBy="name-prompt-title">
+      {/* No title bar: the body is the drag handle (its field and label aren't). */}
+      <div className="dialog-content" data-drag-handle>
+        <div className="form-group">
+          <label id="name-prompt-title" htmlFor="name-prompt-input">{title}</label>
+          <AITabInput
+            id="name-prompt-input"
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            aiField={title}
+            aiPlaceholder="A short name"
+            onAIValue={setValue}
+          />
         </div>
       </div>
-    </div>
+      <DialogFooter primary={{ label: confirmLabel, onClick: handleConfirm, disabled: !value.trim() }} onCancel={onCancel} />
+    </ModalFrame>
   );
 }

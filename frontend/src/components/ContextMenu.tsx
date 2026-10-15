@@ -1,5 +1,8 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition'
+import { popupNativeMenu } from '../lib/nativeMenu'
+import { isTauri } from '../lib/nativeWindow'
+import { getPlatform } from '../utils/platform'
 import './ContextMenu.css'
 import type { Detection } from '../types/detection'
 import { isIPv4Metadata, isIPv6Metadata } from '../types/detection'
@@ -10,10 +13,18 @@ import { formatShortcut, getCurrentBinding } from '../hooks/useKeyboard'
 interface MenuItem {
   id: string
   label: string
+  /** Decorative; native macOS menus omit icons. */
   icon?: React.ReactNode
+  /** Keybinding such as "Cmd+I" or "Del" (formatted for display per platform). */
   shortcut?: string
   divider?: boolean
   disabled?: boolean
+  /** Destructive action (red in the HTML menu; native menus have no such style). */
+  danger?: boolean
+  /** Check state for a toggle/radio item; undefined for a plain item. */
+  checked?: boolean
+  /** Nested items; `action` is not called for a submenu parent. */
+  submenu?: MenuItem[]
   action: () => void
 }
 
@@ -23,7 +34,62 @@ interface ContextMenuProps {
   onClose: () => void
 }
 
-function ContextMenu({ position, items, onClose }: ContextMenuProps): React.ReactElement | null {
+/** macOS under Tauri: a real NSMenu (it can extend past the window); elsewhere the HTML menu. */
+function ContextMenu(props: ContextMenuProps): React.ReactElement | null {
+  return getPlatform() === 'macos' && isTauri() ? <NativeContextMenu {...props} /> : <HtmlContextMenu {...props} />
+}
+
+function NativeContextMenu({ position, items, onClose }: ContextMenuProps): null {
+  const itemsRef = useRef(items)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    itemsRef.current = items
+    onCloseRef.current = onClose
+  })
+
+  useEffect(() => {
+    if (!position) return
+    void popupNativeMenu(itemsRef.current, position).then(() => onCloseRef.current())
+  }, [position])
+
+  return null
+}
+
+/** The selectable rows of one menu level (submenu rows sit in a role="none" wrapper). */
+function menuItems(menu: HTMLElement | null): HTMLButtonElement[] {
+  if (!menu) return []
+  return Array.from(menu.children).flatMap((child) => {
+    const row = child.getAttribute('role') === 'none' ? child.firstElementChild : child
+    return row instanceof HTMLButtonElement && row.getAttribute('role')?.startsWith('menuitem') && !row.disabled ? [row] : []
+  })
+}
+
+/**
+ * Arrow/Home/End movement (wrapping) and first-letter typeahead within one
+ * menu level. Returns true when the key was handled.
+ */
+function moveFocus(menu: HTMLElement | null, key: string): boolean {
+  const rows = menuItems(menu)
+  if (rows.length === 0) return false
+  const current = rows.indexOf(document.activeElement as HTMLButtonElement)
+  let next: number | null = null
+  if (key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % rows.length
+  else if (key === 'ArrowUp') next = current < 0 ? rows.length - 1 : (current - 1 + rows.length) % rows.length
+  else if (key === 'Home') next = 0
+  else if (key === 'End') next = rows.length - 1
+  else if (key.length === 1 && /\S/.test(key)) {
+    const letter = key.toLowerCase()
+    const order = [...rows.slice(current + 1), ...rows.slice(0, current + 1)]
+    const match = order.find((row) => row.textContent?.trim().toLowerCase().startsWith(letter))
+    if (!match) return false
+    next = rows.indexOf(match)
+  }
+  if (next === null) return false
+  rows[next].focus()
+  return true
+}
+
+function HtmlContextMenu({ position, items, onClose }: ContextMenuProps): React.ReactElement | null {
   const { ref, style } = useClampedMenuPosition(position)
 
   // Close on click outside or Escape key
@@ -50,12 +116,35 @@ function ContextMenu({ position, items, onClose }: ContextMenuProps): React.Reac
     }
   }, [position, onClose])
 
+  // Keyboard focus moves into the menu on open and back to where it was on
+  // close — unless the chosen action moved focus elsewhere (e.g. a dialog).
+  useLayoutEffect(() => {
+    if (!position) return
+    const menu = ref.current
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    menuItems(menu)[0]?.focus({ preventScroll: true })
+    return () => {
+      const active = document.activeElement
+      const focusLeftWithMenu = !active || active === document.body || (menu?.contains(active) ?? false)
+      if (focusLeftWithMenu && returnTo?.isConnected) returnTo.focus({ preventScroll: true })
+    }
+  }, [position, ref])
+
   const handleItemClick = useCallback((item: MenuItem) => {
     if (!item.disabled) {
       item.action()
       onClose()
     }
   }, [onClose])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      onClose()
+    } else if (moveFocus(ref.current, e.key)) {
+      e.preventDefault()
+    }
+  }, [onClose, ref])
 
   if (!position) return null
 
@@ -64,25 +153,148 @@ function ContextMenu({ position, items, onClose }: ContextMenuProps): React.Reac
       ref={ref}
       className="context-menu"
       style={style}
+      role="menu"
+      aria-orientation="vertical"
+      onKeyDown={handleKeyDown}
     >
       {items.map((item, index) => {
         if (item.divider) {
-          return <div key={`divider-${index}`} className="context-menu-divider" />
+          return <div key={`divider-${index}`} className="context-menu-divider" role="separator" />
         }
-        const className = item.disabled ? 'context-menu-item disabled' : 'context-menu-item'
-        return (
-          <button
-            key={item.id}
-            className={className}
-            onClick={() => handleItemClick(item)}
-            disabled={item.disabled}
-          >
-            {item.icon && <span className="context-menu-icon">{item.icon}</span>}
-            <span className="context-menu-label">{item.label}</span>
-            {item.shortcut && <span className="context-menu-shortcut">{item.shortcut}</span>}
-          </button>
-        )
+        if (item.submenu) {
+          return <HtmlSubmenu key={item.id} item={item} onItemClick={handleItemClick} />
+        }
+        return <HtmlMenuItem key={item.id} item={item} onClick={() => handleItemClick(item)} />
       })}
+    </div>
+  )
+}
+
+function itemClassName(item: MenuItem, extra?: string): string {
+  return ['context-menu-item', extra, item.danger && 'context-menu-item-danger', item.disabled && 'disabled'].filter(Boolean).join(' ')
+}
+
+const CheckIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M20 6L9 17l-5-5" />
+  </svg>
+)
+
+function HtmlMenuItem({ item, onClick }: { item: MenuItem; onClick: () => void }): React.ReactElement {
+  const checkable = item.checked !== undefined
+  return (
+    <button
+      className={itemClassName(item)}
+      onClick={onClick}
+      disabled={item.disabled}
+      role={checkable ? 'menuitemcheckbox' : 'menuitem'}
+      aria-checked={checkable ? item.checked : undefined}
+      tabIndex={-1}
+    >
+      {checkable
+        ? <span className="context-menu-icon">{item.checked && CheckIcon}</span>
+        : item.icon && <span className="context-menu-icon">{item.icon}</span>}
+      <span className="context-menu-label">{item.label}</span>
+      {item.shortcut && <span className="context-menu-shortcut">{formatShortcut(item.shortcut)}</span>}
+    </button>
+  )
+}
+
+/**
+ * A submenu row; its flyout opens on hover, click, ArrowRight, Enter or Space
+ * and flips at the window edge. From the keyboard, focus moves into the
+ * flyout; ArrowLeft or Escape closes it and returns focus to the row.
+ */
+function HtmlSubmenu({ item, onItemClick }: { item: MenuItem; onItemClick: (item: MenuItem) => void }): React.ReactElement {
+  const [open, setOpen] = useState(false)
+  const [focusOnOpen, setFocusOnOpen] = useState(false)
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLButtonElement>(null)
+  const flyoutRef = useRef<HTMLDivElement>(null)
+  const [flyoutStyle, setFlyoutStyle] = useState<React.CSSProperties>({ visibility: 'hidden' })
+
+  useLayoutEffect(() => {
+    let next: React.CSSProperties = { visibility: 'hidden' }
+    if (open && triggerRef.current && flyoutRef.current) {
+      const margin = 8
+      const trigger = triggerRef.current.getBoundingClientRect()
+      const flyout = flyoutRef.current.getBoundingClientRect()
+      const left = trigger.right + flyout.width + margin > window.innerWidth
+        ? Math.max(margin, trigger.left - flyout.width)
+        : trigger.right
+      const top = Math.max(margin, Math.min(trigger.top, window.innerHeight - flyout.height - margin))
+      next = { left, top }
+    }
+    // Placement depends on the measured flyout, so it is set after layout.
+    setFlyoutStyle(next)
+  }, [open])
+
+  useEffect(() => {
+    if (open && focusOnOpen) menuItems(flyoutRef.current)[0]?.focus({ preventScroll: true })
+  }, [open, focusOnOpen])
+
+  const openFromKeyboard = () => {
+    setFocusOnOpen(true)
+    setOpen(true)
+  }
+  const closeToRow = () => {
+    setOpen(false)
+    setFocusOnOpen(false)
+    rowRef.current?.focus({ preventScroll: true })
+  }
+
+  return (
+    <div
+      ref={triggerRef}
+      role="none"
+      onMouseEnter={() => { setFocusOnOpen(false); setOpen(!item.disabled) }}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        ref={rowRef}
+        className={itemClassName(item, 'context-menu-item-submenu')}
+        disabled={item.disabled}
+        role="menuitem"
+        tabIndex={-1}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen(true) }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            e.stopPropagation()
+            openFromKeyboard()
+          }
+        }}
+      >
+        {item.icon && <span className="context-menu-icon">{item.icon}</span>}
+        <span className="context-menu-label">{item.label}</span>
+        <span className="context-menu-arrow">▶</span>
+      </button>
+      {open && (
+        <div
+          ref={flyoutRef}
+          className="context-menu"
+          style={flyoutStyle}
+          role="menu"
+          aria-orientation="vertical"
+          aria-label={item.label}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              closeToRow()
+            } else if (moveFocus(flyoutRef.current, e.key)) {
+              e.preventDefault()
+              e.stopPropagation()
+            }
+          }}
+        >
+          {item.submenu!.map((child, index) => child.divider
+            ? <div key={`divider-${index}`} className="context-menu-divider" role="separator" />
+            : <HtmlMenuItem key={child.id} item={child} onClick={() => onItemClick(child)} />)}
+        </div>
+      )}
     </div>
   )
 }
@@ -431,7 +643,7 @@ export const getAIMenuItems = (
     {
       id: 'copy',
       label: 'Copy',
-      shortcut: formatShortcut(getCurrentBinding('terminalCopy')),
+      shortcut: getCurrentBinding('terminalCopy'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -444,7 +656,7 @@ export const getAIMenuItems = (
     {
       id: 'paste',
       label: 'Paste',
-      shortcut: formatShortcut(getCurrentBinding('terminalPaste')),
+      shortcut: getCurrentBinding('terminalPaste'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />

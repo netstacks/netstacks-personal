@@ -29,6 +29,9 @@ import { copyToClipboard } from '../lib/clipboard';
 
 // Helper to format device filters for display
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 function formatDeviceFilters(filters: DeviceFilters): string {
   const parts: string[] = [];
   if (filters.sites?.length) parts.push(`Sites: ${filters.sites.join(', ')}`);
@@ -209,7 +212,7 @@ function ImportReport({ result }: ImportReportProps) {
         <div className="result-categories">
           <div className="result-categories-header">
             <label>Details</label>
-            <button className="result-copy-btn" onClick={handleCopy}>
+            <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={handleCopy}>
               {copied ? 'Copied!' : 'Copy report'}
             </button>
           </div>
@@ -288,13 +291,6 @@ const Icons = {
   cloud: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z" />
-    </svg>
-  ),
-  download: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
     </svg>
   ),
 };
@@ -588,392 +584,360 @@ function NetBoxImportDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="netbox-dialog-overlay">
-      <div className="netbox-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="netbox-dialog-header">
-          <h2>
-            {Icons.cloud}
-            <span>Import from NetBox</span>
-          </h2>
-          <button className="netbox-dialog-close" onClick={onClose} title="Close">
-            {Icons.close}
-          </button>
-        </div>
+    <ModalFrame id="netbox-import" className="netbox-dialog" label="Import from NetBox">
+      <div className="netbox-dialog-header">
+        <h2>
+          {Icons.cloud}
+          <span>Import from NetBox</span>
+        </h2>
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn netbox-dialog-close" onClick={onClose} aria-label="Close">
+          {Icons.close}
+        </button></Tooltip>
+      </div>
 
-        {/* Step indicator */}
-        <div className="netbox-steps">
-          <div className={`netbox-step ${step === 'source' ? 'active' : ''} ${isConnected ? 'complete' : ''}`}>
-            <span className="step-number">{isConnected ? Icons.check : '1'}</span>
-            <span className="step-label">Source</span>
-          </div>
-          <div className="step-divider" />
-          <div className={`netbox-step ${step === 'filter' ? 'active' : ''} ${(step === 'import' || importResult) ? 'complete' : ''}`}>
-            <span className="step-number">{(step === 'import' || importResult) ? Icons.check : '2'}</span>
-            <span className="step-label">Filter</span>
-          </div>
-          <div className="step-divider" />
-          <div className={`netbox-step ${step === 'import' ? 'active' : ''}`}>
-            <span className="step-number">3</span>
-            <span className="step-label">Import</span>
-          </div>
+      {/* Step indicator */}
+      <div className="netbox-steps">
+        <div className={`netbox-step ${step === 'source' ? 'active' : ''} ${isConnected ? 'complete' : ''}`}>
+          <span className="step-number">{isConnected ? Icons.check : '1'}</span>
+          <span className="step-label">Source</span>
         </div>
+        <div className="step-divider" />
+        <div className={`netbox-step ${step === 'filter' ? 'active' : ''} ${(step === 'import' || importResult) ? 'complete' : ''}`}>
+          <span className="step-number">{(step === 'import' || importResult) ? Icons.check : '2'}</span>
+          <span className="step-label">Filter</span>
+        </div>
+        <div className="step-divider" />
+        <div className={`netbox-step ${step === 'import' ? 'active' : ''}`}>
+          <span className="step-number">3</span>
+          <span className="step-label">Import</span>
+        </div>
+      </div>
 
-        <div className="netbox-dialog-content">
-          {/* Step 1: Select Source */}
-          {step === 'source' && (
-            <div className="netbox-form">
-              {/* Source mode toggle */}
-              <div className="netbox-source-mode">
-                <label>
-                  <input
-                    type="radio"
-                    name="sourceMode"
-                    value="saved"
-                    checked={sourceMode === 'saved'}
-                    onChange={() => setSourceMode('saved')}
+      <div className="netbox-dialog-content">
+        {/* Step 1: Select Source */}
+        {step === 'source' && (
+          <div className="netbox-form">
+            {/* Source mode toggle */}
+            <div className="netbox-source-mode">
+              <label>
+                <input
+                  type="radio"
+                  name="sourceMode"
+                  value="saved"
+                  checked={sourceMode === 'saved'}
+                  onChange={() => setSourceMode('saved')}
+                  disabled={isLoading}
+                />
+                <span>Use Saved Source</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="sourceMode"
+                  value="manual"
+                  checked={sourceMode === 'manual'}
+                  onChange={() => setSourceMode('manual')}
+                  disabled={isLoading}
+                />
+                <span>Enter Manually</span>
+              </label>
+            </div>
+
+            {sourceMode === 'saved' && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="netbox-source">NetBox Source</label>
+                  <select className="ns-select"
+                    id="netbox-source"
+                    value={selectedSourceId}
+                    onChange={(e) => setSelectedSourceId(e.target.value)}
+                    disabled={isLoading || sources.length === 0}
+                  >
+                    {sources.length === 0 && (
+                      <option value="">No sources configured</option>
+                    )}
+                    {sources.map(source => (
+                      <option key={source.id} value={source.id}>
+                        {source.name}
+                      </option>
+                    ))}
+                  </select>
+                  {sources.length === 0 && (
+                    <span className="form-hint">
+                      Configure sources in Settings - Integrations
+                    </span>
+                  )}
+                </div>
+
+                {selectedSource && (
+                  <div className="netbox-source-info">
+                    <div className="source-info-row">
+                      <span className="info-label">Default Profile:</span>
+                      <span className="info-value">
+                        {getProfileName(selectedSource.default_profile_id)}
+                      </span>
+                    </div>
+                    {Object.keys(selectedSource.profile_mappings.by_role).length > 0 && (
+                      <div className="source-info-row">
+                        <span className="info-label">Role Mappings:</span>
+                        <span className="info-value">
+                          {Object.entries(selectedSource.profile_mappings.by_role)
+                            .map(([role, profileId]) => `${role}: ${getProfileName(profileId)}`)
+                            .join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    {Object.keys(selectedSource.profile_mappings.by_site).length > 0 && (
+                      <div className="source-info-row">
+                        <span className="info-label">Site Mappings:</span>
+                        <span className="info-value">
+                          {Object.entries(selectedSource.profile_mappings.by_site)
+                            .map(([site, profileId]) => `${site}: ${getProfileName(profileId)}`)
+                            .join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    {selectedSource.device_filters && (
+                      <div className="source-info-row">
+                        <span className="info-label">Device Filters:</span>
+                        <span className="info-value">
+                          {formatDeviceFilters(selectedSource.device_filters)}
+                        </span>
+                      </div>
+                    )}
+                    {selectedSource.last_sync_at && (
+                      <div className="source-info-row">
+                        <span className="info-label">Last Sync:</span>
+                        <span className="info-value">
+                          {new Date(selectedSource.last_sync_at).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {sourceMode === 'manual' && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="netbox-url">NetBox URL</label>
+                  <input className="ns-input"
+                    id="netbox-url"
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://netbox.example.com"
                     disabled={isLoading}
                   />
-                  <span>Use Saved Source</span>
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="sourceMode"
-                    value="manual"
-                    checked={sourceMode === 'manual'}
-                    onChange={() => setSourceMode('manual')}
+                </div>
+                <div className="form-group">
+                  <label htmlFor="netbox-token">API Token</label>
+                  <PasswordInput
+                    id="netbox-token"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="Enter your NetBox API token"
                     disabled={isLoading}
                   />
-                  <span>Enter Manually</span>
-                </label>
+                  <span className="form-hint">
+                    Generate a token in NetBox: Admin - API Tokens
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Step 2: Filter */}
+        {step === 'filter' && (
+          <div className="netbox-form">
+            <div className="netbox-connection-status">
+              <span className="status-icon success">{Icons.check}</span>
+              <span>Connected to {sourceMode === 'saved' && selectedSource ? selectedSource.name : url}</span>
+            </div>
+
+            {/* Console access (OOB) import options */}
+            <div className="form-group">
+              <label>Console Access</label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={updateExistingConsole}
+                  onChange={(e) => setUpdateExistingConsole(e.target.checked)}
+                  disabled={isLoading}
+                />
+                <span>Update console access on already-imported sessions</span>
+              </label>
+              <span className="form-hint">
+                Console access is read from NetBox when a device&apos;s console port is cabled to a
+                console server and carries the <code>{NETBOX_CONSOLE_PORT_CF}</code> custom field (TCP port).
+                {sourceMode === 'saved'
+                  ? ' Terminal-server login and SSH/Telnet rules come from the source settings.'
+                  : ' Manual imports have no terminal-server login, so only Telnet consoles (e.g. Cisco async lines) are imported; use a saved source for SSH consoles such as Opengear.'}
+                {' '}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => { void openExternalUrl(NETBOX_CONSOLE_DOCS_URL); }}
+                >
+                  NetBox setup guide
+                </button>
+              </span>
+            </div>
+
+            {/* Show saved device filters if present */}
+            {sourceMode === 'saved' && hasDeviceFilters(selectedSource?.device_filters) && (
+              <div className="form-group">
+                <label>Device Filters (from source settings)</label>
+                <div className="saved-filters-display">
+                  {formatDeviceFilters(selectedSource!.device_filters!)}
+                </div>
+                <span className="form-hint">
+                  Edit filters in Settings → Integrations → NetBox Sources
+                </span>
               </div>
+            )}
 
-              {sourceMode === 'saved' && (
-                <>
-                  <div className="netbox-field">
-                    <label htmlFor="netbox-source">NetBox Source</label>
-                    <select
-                      id="netbox-source"
-                      value={selectedSourceId}
-                      onChange={(e) => setSelectedSourceId(e.target.value)}
-                      disabled={isLoading || sources.length === 0}
+            {/* Show manual filter options only when no saved filters */}
+            {!(sourceMode === 'saved' && hasDeviceFilters(selectedSource?.device_filters)) && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="netbox-site">Site (optional)</label>
+                  <select className="ns-select"
+                    id="netbox-site"
+                    value={selectedSite}
+                    onChange={(e) => setSelectedSite(e.target.value)}
+                    disabled={isLoading}
+                  >
+                    <option value="">All Sites</option>
+                    {sites.map(site => (
+                      <option key={site.id} value={site.slug}>{site.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="netbox-role">Device Role (optional)</label>
+                  <select className="ns-select"
+                    id="netbox-role"
+                    value={selectedRole}
+                    onChange={(e) => setSelectedRole(e.target.value)}
+                    disabled={isLoading}
+                  >
+                    <option value="">All Roles</option>
+                    {roles.map(role => (
+                      <option key={role.id} value={role.slug}>{role.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* Profile selector for manual mode */}
+            {sourceMode === 'manual' && (
+              <div className="form-group">
+                <label htmlFor="netbox-profile">Credential Profile <span className="required-marker">*</span></label>
+                {profiles.length === 0 ? (
+                  <div className="profile-warning">
+                    <span>No credential profiles configured.</span>
+                    <span className="form-hint">Create a profile in Settings → Profiles first.</span>
+                  </div>
+                ) : (
+                  <>
+                    <select className="ns-select"
+                      id="netbox-profile"
+                      value={manualProfileId}
+                      onChange={(e) => setManualProfileId(e.target.value)}
+                      disabled={isLoading}
                     >
-                      {sources.length === 0 && (
-                        <option value="">No sources configured</option>
-                      )}
-                      {sources.map(source => (
-                        <option key={source.id} value={source.id}>
-                          {source.name}
+                      <option value="">Select a profile...</option>
+                      {profiles.map(profile => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} ({profile.username})
                         </option>
                       ))}
                     </select>
-                    {sources.length === 0 && (
-                      <span className="netbox-hint">
-                        Configure sources in Settings - Integrations
-                      </span>
-                    )}
-                  </div>
-
-                  {selectedSource && (
-                    <div className="netbox-source-info">
-                      <div className="source-info-row">
-                        <span className="info-label">Default Profile:</span>
-                        <span className="info-value">
-                          {getProfileName(selectedSource.default_profile_id)}
-                        </span>
-                      </div>
-                      {Object.keys(selectedSource.profile_mappings.by_role).length > 0 && (
-                        <div className="source-info-row">
-                          <span className="info-label">Role Mappings:</span>
-                          <span className="info-value">
-                            {Object.entries(selectedSource.profile_mappings.by_role)
-                              .map(([role, profileId]) => `${role}: ${getProfileName(profileId)}`)
-                              .join(', ')}
-                          </span>
-                        </div>
-                      )}
-                      {Object.keys(selectedSource.profile_mappings.by_site).length > 0 && (
-                        <div className="source-info-row">
-                          <span className="info-label">Site Mappings:</span>
-                          <span className="info-value">
-                            {Object.entries(selectedSource.profile_mappings.by_site)
-                              .map(([site, profileId]) => `${site}: ${getProfileName(profileId)}`)
-                              .join(', ')}
-                          </span>
-                        </div>
-                      )}
-                      {selectedSource.device_filters && (
-                        <div className="source-info-row">
-                          <span className="info-label">Device Filters:</span>
-                          <span className="info-value">
-                            {formatDeviceFilters(selectedSource.device_filters)}
-                          </span>
-                        </div>
-                      )}
-                      {selectedSource.last_sync_at && (
-                        <div className="source-info-row">
-                          <span className="info-label">Last Sync:</span>
-                          <span className="info-value">
-                            {new Date(selectedSource.last_sync_at).toLocaleString()}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {sourceMode === 'manual' && (
-                <>
-                  <div className="netbox-field">
-                    <label htmlFor="netbox-url">NetBox URL</label>
-                    <input
-                      id="netbox-url"
-                      type="url"
-                      value={url}
-                      onChange={(e) => setUrl(e.target.value)}
-                      placeholder="https://netbox.example.com"
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <div className="netbox-field">
-                    <label htmlFor="netbox-token">API Token</label>
-                    <PasswordInput
-                      id="netbox-token"
-                      value={token}
-                      onChange={(e) => setToken(e.target.value)}
-                      placeholder="Enter your NetBox API token"
-                      disabled={isLoading}
-                    />
-                    <span className="netbox-hint">
-                      Generate a token in NetBox: Admin - API Tokens
+                    <span className="form-hint">
+                      All imported sessions will use this profile for authentication
                     </span>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Step 2: Filter */}
-          {step === 'filter' && (
-            <div className="netbox-form">
-              <div className="netbox-connection-status">
-                <span className="status-icon success">{Icons.check}</span>
-                <span>Connected to {sourceMode === 'saved' && selectedSource ? selectedSource.name : url}</span>
+                  </>
+                )}
               </div>
+            )}
 
-              {/* Console access (OOB) import options */}
-              <div className="netbox-saved-filters">
-                <label>Console Access</label>
-                <label className="netbox-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={updateExistingConsole}
-                    onChange={(e) => setUpdateExistingConsole(e.target.checked)}
-                    disabled={isLoading}
-                  />
-                  <span>Update console access on already-imported sessions</span>
-                </label>
-                <span className="netbox-hint">
-                  Console access is read from NetBox when a device&apos;s console port is cabled to a
-                  console server and carries the <code>{NETBOX_CONSOLE_PORT_CF}</code> custom field (TCP port).
-                  {sourceMode === 'saved'
-                    ? ' Terminal-server login and SSH/Telnet rules come from the source settings.'
-                    : ' Manual imports have no terminal-server login, so only Telnet consoles (e.g. Cisco async lines) are imported; use a saved source for SSH consoles such as Opengear.'}
-                  {' '}
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() => { void openExternalUrl(NETBOX_CONSOLE_DOCS_URL); }}
-                  >
-                    NetBox setup guide
-                  </button>
-                </span>
-              </div>
-
-              {/* Show saved device filters if present */}
-              {sourceMode === 'saved' && hasDeviceFilters(selectedSource?.device_filters) && (
-                <div className="netbox-saved-filters">
-                  <label>Device Filters (from source settings)</label>
-                  <div className="saved-filters-display">
-                    {formatDeviceFilters(selectedSource!.device_filters!)}
-                  </div>
-                  <span className="netbox-hint">
-                    Edit filters in Settings → Integrations → NetBox Sources
+            {/* Profile mapping info for saved source */}
+            {sourceMode === 'saved' && (
+              <div className="netbox-profile-info">
+                <span className="profile-info-label">Profile Assignment:</span>
+                {selectedSource?.default_profile_id ? (
+                  <span className="profile-info-text">
+                    Sessions will be assigned profiles based on the source&apos;s role and site mappings.
+                    Default: <strong>{getProfileName(selectedSource.default_profile_id)}</strong>
                   </span>
-                </div>
-              )}
+                ) : (
+                  <span className="profile-info-text" style={{ color: 'var(--color-warning)' }}>
+                    No default profile configured. Please configure a profile in Settings → Integrations → NetBox Sources.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-              {/* Show manual filter options only when no saved filters */}
-              {!(sourceMode === 'saved' && hasDeviceFilters(selectedSource?.device_filters)) && (
-                <>
-                  <div className="netbox-field">
-                    <label htmlFor="netbox-site">Site (optional)</label>
-                    <select
-                      id="netbox-site"
-                      value={selectedSite}
-                      onChange={(e) => setSelectedSite(e.target.value)}
-                      disabled={isLoading}
-                    >
-                      <option value="">All Sites</option>
-                      {sites.map(site => (
-                        <option key={site.id} value={site.slug}>{site.name}</option>
-                      ))}
-                    </select>
-                  </div>
+        {/* Step 3: Import Results */}
+        {step === 'import' && (
+          <div className="netbox-results">
+            {isLoading && (
+              <div className="netbox-loading">
+                <div className="netbox-spinner" />
+                <span>Importing devices from NetBox...</span>
+              </div>
+            )}
 
-                  <div className="netbox-field">
-                    <label htmlFor="netbox-role">Device Role (optional)</label>
-                    <select
-                      id="netbox-role"
-                      value={selectedRole}
-                      onChange={(e) => setSelectedRole(e.target.value)}
-                      disabled={isLoading}
-                    >
-                      <option value="">All Roles</option>
-                      {roles.map(role => (
-                        <option key={role.id} value={role.slug}>{role.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </>
-              )}
+            {importResult && (
+              <ImportReport result={importResult} />
+            )}
+          </div>
+        )}
 
-              {/* Profile selector for manual mode */}
-              {sourceMode === 'manual' && (
-                <div className="netbox-field">
-                  <label htmlFor="netbox-profile">Credential Profile <span className="required-marker">*</span></label>
-                  {profiles.length === 0 ? (
-                    <div className="profile-warning">
-                      <span>No credential profiles configured.</span>
-                      <span className="netbox-hint">Create a profile in Settings → Profiles first.</span>
-                    </div>
-                  ) : (
-                    <>
-                      <select
-                        id="netbox-profile"
-                        value={manualProfileId}
-                        onChange={(e) => setManualProfileId(e.target.value)}
-                        disabled={isLoading}
-                      >
-                        <option value="">Select a profile...</option>
-                        {profiles.map(profile => (
-                          <option key={profile.id} value={profile.id}>
-                            {profile.name} ({profile.username})
-                          </option>
-                        ))}
-                      </select>
-                      <span className="netbox-hint">
-                        All imported sessions will use this profile for authentication
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Profile mapping info for saved source */}
-              {sourceMode === 'saved' && (
-                <div className="netbox-profile-info">
-                  <span className="profile-info-label">Profile Assignment:</span>
-                  {selectedSource?.default_profile_id ? (
-                    <span className="profile-info-text">
-                      Sessions will be assigned profiles based on the source&apos;s role and site mappings.
-                      Default: <strong>{getProfileName(selectedSource.default_profile_id)}</strong>
-                    </span>
-                  ) : (
-                    <span className="profile-info-text" style={{ color: 'var(--color-warning)' }}>
-                      No default profile configured. Please configure a profile in Settings → Integrations → NetBox Sources.
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 3: Import Results */}
-          {step === 'import' && (
-            <div className="netbox-results">
-              {isLoading && (
-                <div className="netbox-loading">
-                  <div className="netbox-spinner" />
-                  <span>Importing devices from NetBox...</span>
-                </div>
-              )}
-
-              {importResult && (
-                <ImportReport result={importResult} />
-              )}
-            </div>
-          )}
-
-          {/* Error display */}
-          {error && (
-            <div className="netbox-error">
-              {error}
-              <button onClick={() => setError(null)}>Dismiss</button>
-            </div>
-          )}
-        </div>
-
-        <div className="netbox-dialog-actions">
-          {step === 'source' && (
-            <>
-              <button className="btn-secondary" onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={handleTestConnection}
-                disabled={
-                  isLoading ||
-                  (sourceMode === 'manual' && (!url.trim() || !token.trim())) ||
-                  (sourceMode === 'saved' && !selectedSourceId)
-                }
-              >
-                {isLoading ? 'Testing...' : 'Test Connection'}
-              </button>
-            </>
-          )}
-
-          {step === 'filter' && (
-            <>
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setStep('source');
-                  setIsConnected(false);
-                }}
-              >
-                Back
-              </button>
-              <button
-                className="btn-primary"
-                onClick={handleImport}
-                disabled={
-                  isLoading ||
-                  (sourceMode === 'saved' && !selectedSource?.default_profile_id) ||
-                  (sourceMode === 'manual' && !manualProfileId)
-                }
-              >
-                {Icons.download}
-                <span>Import Devices</span>
-              </button>
-            </>
-          )}
-
-          {step === 'import' && importResult && (
-            <>
-              <button className="btn-secondary" onClick={handleImportMore}>
-                Import More
-              </button>
-              <button className="btn-primary" onClick={onClose}>
-                Done
-              </button>
-            </>
-          )}
-        </div>
+        {/* Error display */}
+        {error && (
+          <div className="netbox-error">
+            {error}
+            <button className="ns-btn ns-btn--small" onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        )}
       </div>
-    </div>
+
+      {step === 'source' && (
+        <DialogFooter
+          primary={{
+            label: isLoading ? 'Testing...' : 'Test Connection',
+            onClick: handleTestConnection,
+            disabled: isLoading || (sourceMode === 'manual' && (!url.trim() || !token.trim())) || (sourceMode === 'saved' && !selectedSourceId),
+          }}
+          onCancel={onClose}
+        />
+      )}
+      {step === 'filter' && (
+        <DialogFooter
+          primary={{
+            label: 'Import Devices',
+            onClick: handleImport,
+            disabled: isLoading || (sourceMode === 'saved' && !selectedSource?.default_profile_id) || (sourceMode === 'manual' && !manualProfileId),
+          }}
+          onCancel={() => {
+            setStep('source');
+            setIsConnected(false);
+          }}
+          cancelLabel="Back"
+        />
+      )}
+      {step === 'import' && importResult && (
+        <DialogFooter primary={{ label: 'Done', onClick: onClose }} onCancel={handleImportMore} cancelLabel="Import More" />
+      )}
+    </ModalFrame>
   );
 }
 

@@ -4,6 +4,7 @@
 //! Follows the same abstraction pattern as DataProvider.
 
 pub mod chat;
+pub mod config_mode;
 pub mod highlight;
 pub mod knowledge_packs;
 pub mod models;

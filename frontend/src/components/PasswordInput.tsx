@@ -21,6 +21,7 @@
 import { forwardRef, useState } from 'react'
 import type { InputHTMLAttributes } from 'react'
 import './PasswordInput.css'
+import Tooltip from './Tooltip'
 
 type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   /**
@@ -30,21 +31,23 @@ type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & 
    * the input until the user asks to see it.
    */
   onReveal?: () => void
+  /** Hero-sized field (vault unlock), matching `ns-btn--large`. */
+  large?: boolean
 }
 
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
-  function PasswordInput({ className, disabled, onReveal, ...rest }, ref) {
+  function PasswordInput({ className, disabled, onReveal, large, ...rest }, ref) {
     const [visible, setVisible] = useState(false)
     return (
       <div className={`password-input-wrapper ${className || ''}`}>
-        <input
+        <input data-ai-fill="off"
           {...rest}
           ref={ref}
           type={visible ? 'text' : 'password'}
           disabled={disabled}
-          className="password-input-field"
+          className={large ? 'ns-input ns-input--large password-input-field' : 'ns-input password-input-field'}
         />
-        <button
+        <Tooltip label={visible ? 'Hide password' : 'Show password'}><button
           type="button"
           className="password-input-toggle"
           onClick={() => setVisible(v => {
@@ -53,7 +56,6 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
           })}
           tabIndex={-1}
           aria-label={visible ? 'Hide password' : 'Show password'}
-          title={visible ? 'Hide password' : 'Show password'}
           disabled={disabled}
         >
           {visible ? (
@@ -69,7 +71,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
               <circle cx="12" cy="12" r="3" />
             </svg>
           )}
-        </button>
+        </button></Tooltip>
       </div>
     )
   },

@@ -7,6 +7,9 @@ import type { GitOps, GitFileStatus, GitBranchInfo, GitPanelTab } from '../../ty
 import { showToast } from '../Toast'
 
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter'
+import Tooltip from '../Tooltip'
+import ModalFrame from '../ModalFrame'
 interface WorkspaceGitPanelProps {
   gitOps: GitOps
   isGitRepo: boolean
@@ -109,7 +112,7 @@ export default function WorkspaceGitPanel({
       <div className="workspace-git-panel">
         <div className="workspace-git-not-repo">
           <span>Not a git repository</span>
-          <button className="workspace-git-init-btn" onClick={handleInit}>
+          <button className="ns-btn ns-btn--primary" onClick={handleInit}>
             Initialize Repository
           </button>
         </div>
@@ -152,37 +155,33 @@ export default function WorkspaceGitPanel({
             )}
           </div>
           <div className="workspace-git-toolbar-actions">
-            <button
-              className="workspace-git-toolbar-btn"
+            <Tooltip label="Fetch"><button
+              className="ns-btn ns-btn--small"
               onClick={handleFetch}
               disabled={isFetching}
-              title="Fetch"
             >
               {isFetching ? '...' : 'Fetch'}
-            </button>
-            <button
-              className="workspace-git-toolbar-btn"
+            </button></Tooltip>
+            <Tooltip label="Pull"><button
+              className="ns-btn ns-btn--small"
               onClick={handlePull}
               disabled={isPulling}
-              title="Pull"
             >
               {isPulling ? '...' : 'Pull'}
-            </button>
-            <button
-              className="workspace-git-toolbar-btn"
+            </button></Tooltip>
+            <Tooltip label="Push"><button
+              className="ns-btn ns-btn--small"
               onClick={handlePush}
               disabled={isPushing}
-              title="Push"
             >
               {isPushing ? '...' : 'Push'}
-            </button>
-            <button
-              className="workspace-git-toolbar-btn"
+            </button></Tooltip>
+            <Tooltip label="Clean Up History"><button
+              className="ns-btn ns-btn--small"
               onClick={() => setShowHistoryEditor(true)}
-              title="Clean Up History"
             >
               Tidy
-            </button>
+            </button></Tooltip>
           </div>
         </div>
       )}
@@ -222,22 +221,13 @@ export default function WorkspaceGitPanel({
       )}
 
       {showPushRejected && (
-        <div className="workspace-git-dialog-overlay">
-          <div className="workspace-git-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Changes on the Server</h3>
-            <p>
-              Someone else pushed changes since your last sync. You need to bring those in first.
-            </p>
-            <div className="workspace-git-dialog-actions">
-              <button className="workspace-git-dialog-btn" onClick={() => setShowPushRejected(false)}>
-                Cancel
-              </button>
-              <button className="workspace-git-dialog-btn primary" onClick={handleSyncAndPush}>
-                Sync & Push
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="git-server-changes" className="workspace-git-dialog" label="Changes on the Server">
+          <h3>Changes on the Server</h3>
+          <p>
+            Someone else pushed changes since your last sync. You need to bring those in first.
+          </p>
+          <DialogFooter primary={{ label: 'Sync & Push', onClick: handleSyncAndPush }} onCancel={() => setShowPushRejected(false)} inline />
+        </ModalFrame>
       )}
     </div>
   )

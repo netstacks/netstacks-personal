@@ -1,6 +1,9 @@
+import AITabInput from '../AITabInput';
 import { useState } from 'react';
 import { createUserPlugin, updatePlugin, testPluginCommand, type LspPluginListItem } from '../../lsp/installationApi';
-import { useOverlayDismiss } from '../../hooks/useOverlayDismiss';
+import DialogFooter from '../DialogFooter';
+import ModalFrame from '../ModalFrame';
+import './AddCustomPluginDialog.css';
 
 interface Props {
   /** If provided, this is an EDIT operation; otherwise CREATE. */
@@ -88,59 +91,53 @@ export function AddCustomPluginDialog({ existing, onClose, onSaved }: Props) {
     }
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: !saving });
+
+  const field = (id: string, label: string, input: React.ReactNode) => (
+    <div className="form-group">
+      <label htmlFor={id}>{label}</label>
+      {input}
+    </div>
+  );
 
   return (
-    <div className="lsp-dialog-overlay" {...backdropProps}>
-      <div className="lsp-dialog" {...contentProps}>
-        <h3>{isEdit ? `Edit ${existing!.displayName}` : 'Add Language Server'}</h3>
-        <div className="lsp-dialog__field">
-          <label>Plugin ID</label>
-          <input value={id} onChange={(e) => setId(e.target.value)} disabled={isEdit} placeholder="e.g. gopls" />
-        </div>
-        <div className="lsp-dialog__field">
-          <label>Display Name</label>
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={isBuiltIn} placeholder="e.g. gopls" />
-        </div>
-        <div className="lsp-dialog__field">
-          <label>Monaco Language ID</label>
-          <input value={language} onChange={(e) => setLanguage(e.target.value)} disabled={isBuiltIn} placeholder="e.g. go" />
-        </div>
-        <div className="lsp-dialog__field">
-          <label>File Extensions (comma-separated)</label>
-          <input value={fileExtensions} onChange={(e) => setFileExtensions(e.target.value)} disabled={isBuiltIn} placeholder=".go, .mod" />
-        </div>
-        <div className="lsp-dialog__field">
-          <label>Command</label>
-          <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="gopls" />
-        </div>
-        <div className="lsp-dialog__field">
-          <label>Args (space-separated)</label>
-          <input value={argsStr} onChange={(e) => setArgsStr(e.target.value)} placeholder="serve" />
-        </div>
+    <ModalFrame id="lsp-plugin" onDismiss={onClose} dismissEnabled={!saving} className="dialog lsp-dialog" labelledBy="lsp-dialog-title">
+      <div className="dialog-header">
+        <h2 id="lsp-dialog-title">{isEdit ? `Edit ${existing!.displayName}` : 'Add Language Server'}</h2>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close" disabled={saving}>
+          ×
+        </button>
+      </div>
+      <div className="dialog-content">
+        {field('lsp-plugin-id', 'Plugin ID',
+          <AITabInput id="lsp-plugin-id" className="lsp-dialog-mono" value={id} onChange={(e) => setId(e.target.value)} disabled={isEdit} placeholder="e.g. gopls" aiField="language server plugin id" aiPlaceholder="Short lowercase id for this language server (usually the server's binary name)" aiContext={{ language, command }} onAIValue={setId} />)}
+        {field('lsp-display-name', 'Display Name',
+          <AITabInput id="lsp-display-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={isBuiltIn} placeholder="e.g. gopls" aiField="language server display name" aiPlaceholder="Human-readable name of this language server" aiContext={{ id, language, command }} onAIValue={setDisplayName} />)}
+        {field('lsp-language', 'Monaco Language ID',
+          <AITabInput id="lsp-language" className="lsp-dialog-mono" value={language} onChange={(e) => setLanguage(e.target.value)} disabled={isBuiltIn} placeholder="e.g. go" aiField="Monaco language id" aiPlaceholder="The Monaco editor language id this server handles (e.g. python, go, yaml)" aiContext={{ id, command }} onAIValue={setLanguage} />)}
+        {field('lsp-extensions', 'File Extensions (comma-separated)',
+          <AITabInput id="lsp-extensions" className="lsp-dialog-mono" value={fileExtensions} onChange={(e) => setFileExtensions(e.target.value)} disabled={isBuiltIn} placeholder=".go, .mod" aiField="file extensions" aiPlaceholder="Comma-separated file extensions this language server should handle" aiContext={{ language, id }} onAIValue={setFileExtensions} />)}
+        {field('lsp-command', 'Command',
+          <AITabInput id="lsp-command" className="lsp-dialog-mono" value={command} onChange={(e) => setCommand(e.target.value)} placeholder="gopls" aiField="language server command" aiPlaceholder="Executable that starts this language server over stdio" aiContext={{ id, language }} onAIValue={setCommand} />)}
+        {field('lsp-args', 'Args (space-separated)',
+          <AITabInput id="lsp-args" className="lsp-dialog-mono" value={argsStr} onChange={(e) => setArgsStr(e.target.value)} placeholder="serve" aiField="language server arguments" aiPlaceholder="Space-separated arguments that make the server speak LSP over stdio" aiContext={{ command, language }} onAIValue={setArgsStr} />)}
 
-        <div className="lsp-dialog__test">
-          <button onClick={handleTest} disabled={!command.trim() || testStatus === 'testing'}>
+        <div className="lsp-dialog-test">
+          <button className="ns-btn" onClick={handleTest} disabled={!command.trim() || testStatus === 'testing'}>
             {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
           </button>
-          {testStatus === 'pass' && <span className="test-result test-result--pass">{testMessage}</span>}
-          {testStatus === 'fail' && <span className="test-result test-result--fail">{testMessage}</span>}
+          {testStatus === 'pass' && <span className="lsp-dialog-test-result pass">{testMessage}</span>}
+          {testStatus === 'fail' && <span className="lsp-dialog-test-result fail">{testMessage}</span>}
         </div>
 
-        {saveError && <div className="lsp-dialog__error">{saveError}</div>}
-
-        <div className="lsp-dialog__actions">
-          <button onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={handleSave} disabled={!canSave || saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        {saveError && <div className="dialog-error">{saveError}</div>}
         {!isEdit && (
-          <p className="lsp-dialog__hint">
-            Test must pass before saving. The command will be invoked exactly as entered.
-          </p>
+          <p className="form-hint">Test must pass before saving. The command will be invoked exactly as entered.</p>
         )}
       </div>
-    </div>
+      <DialogFooter
+        primary={{ label: saving ? 'Saving…' : 'Save', onClick: handleSave, disabled: !canSave || saving }}
+        onCancel={onClose}
+      />
+    </ModalFrame>
   );
 }

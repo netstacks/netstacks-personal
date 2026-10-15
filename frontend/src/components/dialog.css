@@ -1,8 +1,9 @@
 /* Shared dialog chrome
  * ─────────────────────────────────────────────────────────────────
  * These generic `.dialog-*` classes are the common modal scaffolding
- * (overlay, container, header, close button, content, footer actions,
- * error banner) used by ~24 dialogs across the app. They previously
+ * (container, header, close button, content, footer actions, error
+ * banner) used by dialogs across the app; the overlay, moving and
+ * resizing come from ModalFrame. They previously
  * lived (unscoped) in QuickConnectDialog.css and were only global by
  * accident of Vite bundling; they're now an explicit shared stylesheet
  * imported once in main.tsx.
@@ -12,33 +13,13 @@
  * (e.g. `.jump-hosts-dialog .dialog-actions`) so they don't collide.
  */
 
-/* Modal overlay */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-  animation: dialogFadeIn 0.15s ease;
-}
-
-@keyframes dialogFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 /* Dialog container */
 .dialog {
   background: var(--glass-bg-strong);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--glass-highlight);
   width: 90%;
   max-width: 480px;
@@ -75,37 +56,18 @@
   color: var(--color-text-primary);
 }
 
-.dialog-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  font-size: 18px;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.dialog-close:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
 /* Dialog content */
 .dialog-content {
   padding: var(--spacing-lg);
   overflow-y: auto;
+  overscroll-behavior: contain;
   flex: 1;
 }
 
 /* Dialog footer actions */
 .dialog-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-sm);
   padding: var(--spacing-md) var(--spacing-lg);
@@ -113,13 +75,108 @@
   background: var(--color-bg-tertiary);
 }
 
+/* The footer bar follows the dialog's rounded bottom corners. */
+.dialog > .dialog-actions:last-child {
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+}
+
+.dialog-actions--inline {
+  margin-top: var(--spacing-md);
+  padding: 0;
+  border-top: none;
+  background: none;
+}
+
+.dialog-actions-leading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-right: auto;
+}
+
 /* Error banner */
 .dialog-error {
   padding: var(--spacing-sm) var(--spacing-md);
   margin-bottom: var(--spacing-md);
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid rgba(244, 67, 54, 0.3);
-  border-radius: 4px;
-  color: #f44336;
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  border-radius: var(--radius-control);
+  color: var(--color-error);
   font-size: var(--font-size-small);
+}
+
+/* Labeled form field (label above its control), shared by dialogs and
+ * settings forms. Controls use ns-input / ns-select / ns-textarea. */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.form-group label {
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+/* ── Form rhythm ──────────────────────────────────────────────────
+ * Inside a .form-group: label → field → hint, 4px apart. Field groups,
+ * rows and section descriptions sit 12px apart inside a .form-section;
+ * a section heading sits 8px above its content. */
+.form-row {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-control);
+}
+
+.form-section > h3 {
+  margin: 0 0 calc(var(--spacing-sm) - var(--spacing-md));
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-hint {
+  margin: 0;
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.form-hint-warning {
+  color: var(--color-warning);
+}
+
+/* Label + description on the left, control (switch, button) centred on the right. */
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.setting-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+/* "Nothing to pick yet" line in place of a select: message + hint or action. */
+.profile-warning {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
 }

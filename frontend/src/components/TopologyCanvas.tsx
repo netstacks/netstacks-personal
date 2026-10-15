@@ -18,6 +18,7 @@ import { selectInBox, applyGroupDelta } from '../lib/topologySelection';
 import { formatHostname } from '../hooks/useHostnameFormatter';
 import { useSettings } from '../hooks/useSettings';
 import './TopologyCanvas.css';
+import Tooltip from './Tooltip';
 
 interface TopologyCanvasProps {
   /** Topology data to render */
@@ -2760,34 +2761,34 @@ export default function TopologyCanvas({
 
       {/* Zoom controls overlay */}
       <div className="topology-zoom-controls">
-        <button
+        <Tooltip label="Zoom in"><button
           className="topology-zoom-btn"
           onClick={zoomIn}
-          title="Zoom in"
+          aria-label="Zoom in"
           disabled={zoom >= MAX_ZOOM}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-        </button>
-        <span className="topology-zoom-level" title="Current zoom level">
+        </button></Tooltip>
+        <Tooltip label="Current zoom level"><span className="topology-zoom-level">
           {Math.round(zoom * 100)}%
-        </span>
-        <button
+        </span></Tooltip>
+        <Tooltip label="Zoom out"><button
           className="topology-zoom-btn"
           onClick={zoomOut}
-          title="Zoom out"
+          aria-label="Zoom out"
           disabled={zoom <= MIN_ZOOM}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-        </button>
-        <button
+        </button></Tooltip>
+        <Tooltip label="Reset view"><button
           className="topology-zoom-btn"
           onClick={resetView}
-          title="Reset view"
+          aria-label="Reset view"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -2796,7 +2797,7 @@ export default function TopologyCanvas({
             <line x1="3" y1="9" x2="21" y2="9" />
             <line x1="3" y1="15" x2="21" y2="15" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* AI Inline Popup for topology context menu */}

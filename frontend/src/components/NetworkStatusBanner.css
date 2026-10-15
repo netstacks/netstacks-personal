@@ -15,16 +15,16 @@
 
 .network-banner.disconnected {
   background: #d32f2f;
-  color: white;
+  color: var(--color-text-on-accent);
 }
 
 .network-banner.reconnected {
   background: #2e7d32;
-  color: white;
-  animation: fadeIn 0.3s ease;
+  color: var(--color-text-on-accent);
+  animation: network-banner-in 0.3s ease;
 }
 
-@keyframes fadeIn {
+@keyframes network-banner-in {
   from {
     opacity: 0;
     transform: translateY(-100%);

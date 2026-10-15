@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput'
 import { useState, useEffect, useRef } from 'react';
 import './QuickConnectDialog.css';
 import { listHistory, createHistory, type ConnectionHistory, type Session, createSession, type NewSession } from '../api/sessions';
@@ -5,6 +6,9 @@ import { listProfiles, type CredentialProfile } from '../api/profiles';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface QuickConnectDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -216,16 +220,16 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
   if (!isOpen) return null;
 
   return (
-    <div className="dialog-overlay">
-      <div className="dialog quick-connect-dialog" data-testid="quick-connect-dialog" onClick={e => e.stopPropagation()}>
-        <div className="dialog-header">
-          <h2>Quick Connect</h2>
-          <button className="dialog-close" onClick={onClose} title="Close">
-            ×
-          </button>
-        </div>
+    <ModalFrame id="quick-connect" className="dialog quick-connect-dialog" testId="quick-connect-dialog" label="Quick Connect">
+      <div className="dialog-header">
+        <h2>Quick Connect</h2>
+        <Tooltip label="Close"><button aria-label="Close" className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose}>
+          ×
+        </button></Tooltip>
+      </div>
 
-        {showSaveDialog ? (
+      {showSaveDialog ? (
+        <>
           <div className="dialog-content">
             <p className="save-dialog-info">Enter a name for this session:</p>
 
@@ -233,42 +237,47 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
 
             <div className="form-group">
               <label htmlFor="session-name">Session Name</label>
-              <input
+              <AITabInput
                 id="session-name"
-                type="text"
                 value={sessionName}
                 onChange={e => setSessionName(e.target.value)}
                 placeholder="My Server"
                 autoFocus
+                aiField="session name"
+                aiPlaceholder="Short name for this saved device session"
+                aiContext={{ host }}
+                onAIValue={setSessionName}
               />
             </div>
-
-            <div className="dialog-actions">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setShowSaveDialog(false)}
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleSaveAndConnect}
-                disabled={connecting}
-              >
-                {connecting ? 'Saving...' : 'Save & Connect'}
-              </button>
-            </div>
           </div>
-        ) : (
+
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="ns-btn"
+              onClick={() => setShowSaveDialog(false)}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="ns-btn ns-btn--primary"
+              onClick={handleSaveAndConnect}
+              disabled={connecting}
+            >
+              {connecting ? 'Saving...' : 'Save & Connect'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
           <div className="dialog-content">
             {error && <div className="dialog-error">{error}</div>}
 
             <div className="form-row">
-              <div className="form-group flex-grow">
+              <div className="form-group">
                 <label htmlFor="quick-host">Host</label>
-                <input
+                <input data-ai-fill="off" className="ns-input"
                   ref={hostInputRef}
                   id="quick-host"
                   type="text"
@@ -277,9 +286,9 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
                   placeholder="192.168.1.1 or hostname"
                 />
               </div>
-              <div className="form-group" style={{ width: '100px' }}>
+              <div className="form-group small">
                 <label htmlFor="quick-port">Port</label>
-                <input
+                <input className="ns-input"
                   id="quick-port"
                   type="number"
                   value={port}
@@ -297,13 +306,14 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
                   <span>No credential profiles configured.</span>
                   <span className="form-hint">Create a profile in Settings → Profiles first.</span>
                 </div>
-              ) : (
-                <>
+      ) : (
+        <>
                   <select
                     id="quick-profile"
                     value={profileId}
                     onChange={e => setProfileId(e.target.value)}
-                    className={!profileId ? 'error' : ''}
+                    className="ns-select"
+                    aria-invalid={!profileId}
                   >
                     <option value="">Select a profile...</option>
                     {profiles.map(profile => (
@@ -317,30 +327,8 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
                       Will connect as: {selectedProfile.username} ({selectedProfile.auth_type})
                     </span>
                   )}
-                </>
+        </>
               )}
-            </div>
-
-            <div className="dialog-actions">
-              <button type="button" className="btn-secondary" onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleConnectAndSave}
-                disabled={connecting || profiles.length === 0}
-              >
-                Connect & Save...
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleConnect}
-                disabled={connecting || profiles.length === 0}
-              >
-                {connecting ? 'Connecting...' : 'Connect'}
-              </button>
             </div>
 
             {history.length > 0 && (
@@ -365,9 +353,24 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
               </div>
             )}
           </div>
-        )}
-      </div>
-    </div>
+
+          <DialogFooter
+            primary={{ label: connecting ? 'Connecting...' : 'Connect', onClick: handleConnect, disabled: connecting || profiles.length === 0 }}
+            onCancel={onClose}
+            leading={
+              <button
+                type="button"
+                className="ns-btn"
+                onClick={handleConnectAndSave}
+                disabled={connecting || profiles.length === 0}
+              >
+                Connect & Save...
+              </button>
+            }
+          />
+        </>
+      )}
+    </ModalFrame>
   );
 }
 

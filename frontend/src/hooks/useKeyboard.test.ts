@@ -18,7 +18,7 @@ import {
   type KeyboardActionHandler,
 } from './useKeyboard'
 
-// jsdom's navigator.platform is '' → the hook resolves the Windows bindings.
+// jsdom's UA has no "Mac" → getPlatform() is non-mac → the hook resolves the Windows bindings.
 function press(target: Element, init: KeyboardEventInit): KeyboardEvent {
   const e = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
   target.dispatchEvent(e)

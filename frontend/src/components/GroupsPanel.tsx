@@ -14,8 +14,10 @@ import {
 } from '../api/groups';
 import ContextMenu from './ContextMenu';
 import { useContextMenu } from '../hooks/useContextMenu';
+import SearchField from './SearchField';
 import './GroupsPanel.css';
-import { useShortcut } from '../hooks/useKeyboard'
+import { useBinding } from '../hooks/useKeyboard'
+import Tooltip from './Tooltip';
 
 export interface GroupsPanelProps {
   liveGroupId: string | null;
@@ -39,7 +41,7 @@ export interface GroupsPanelProps {
 }
 
 export default function GroupsPanel(props: GroupsPanelProps) {
-  const saveGroupShortcut = useShortcut('saveTabsAsGroup')
+  const saveGroupBinding = useBinding('saveTabsAsGroup')
   const {
     liveGroupId,
     onLaunchGroup,
@@ -149,20 +151,18 @@ export default function GroupsPanel(props: GroupsPanelProps) {
   return (
     <div className="groups-panel" data-testid="groups-panel">
       <div className="groups-toolbar">
-        <input
+        <SearchField
           className="groups-search"
-          type="text"
           placeholder="Search groups..."
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={setFilter}
         />
-        <button
-          className="groups-save-current"
+        <Tooltip label="Save all currently open tabs as a new group" shortcut={saveGroupBinding}><button
+          className="ns-btn"
           onClick={onSaveCurrentAsGroup}
-          title={`Save all currently open tabs as a new group (${saveGroupShortcut})`}
         >
           ＋ Save current
-        </button>
+        </button></Tooltip>
       </div>
 
       {loading ? (
@@ -188,9 +188,9 @@ export default function GroupsPanel(props: GroupsPanelProps) {
                 onDrop={(e) => onDrop(e, group)}
               >
                 <div className="groups-row-h">
-                  {isLive && <span className="groups-live-dot" title="Currently live in this window" />}
+                  {isLive && <Tooltip label="Currently live in this window"><span className="groups-live-dot" role="img" aria-label="Currently live in this window" /></Tooltip>}
                   {renamingId === group.id ? (
-                    <input
+                    <input data-ai-fill="off" aria-label="Group name"
                       className="groups-rename-input"
                       type="text"
                       value={renameValue}
@@ -210,11 +210,13 @@ export default function GroupsPanel(props: GroupsPanelProps) {
                     <span className="groups-name">{group.name}</span>
                   )}
                   <button
-                    className="groups-overflow"
+                    className="ns-btn ns-btn--ghost ns-icon-btn"
                     onClick={(e) => {
                       e.stopPropagation();
                       openContextMenu(e, group);
                     }}
+                    aria-label={`Actions for ${group.name}`}
+                    aria-haspopup="menu"
                   >
                     ⋯
                   </button>
@@ -226,27 +228,25 @@ export default function GroupsPanel(props: GroupsPanelProps) {
                     {group.tabs.length} {group.tabs.length === 1 ? 'tab' : 'tabs'}
                   </span>
                   {group.topologyId ? (
-                    <button
+                    <Tooltip label="Open topology"><button
                       className="groups-topo-badge"
                       onClick={(e) => {
                         e.stopPropagation();
                         onOpenTopology(group.topologyId!);
                       }}
-                      title="Open topology"
                     >
                       ◈ topology
-                    </button>
+                    </button></Tooltip>
                   ) : (
-                    <button
+                    <Tooltip label="Discover topology from this group's tabs"><button
                       className="groups-topo-pill"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDiscoverTopology(group);
                       }}
-                      title="Discover topology from this group's tabs"
                     >
                       ◈ Discover topology
-                    </button>
+                    </button></Tooltip>
                   )}
                 </div>
 

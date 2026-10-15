@@ -5,7 +5,7 @@
   flex-direction: column;
   height: 100%;
   background: var(--color-bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   overflow: hidden;
 }
 
@@ -28,11 +28,6 @@
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .recording-player-error svg {
   width: 48px;
   height: 48px;
@@ -41,17 +36,6 @@
 
 .recording-player-error-close {
   margin-top: 8px;
-  padding: 8px 16px;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.recording-player-error-close:hover {
-  background: var(--color-bg-hover);
 }
 
 /* Header */
@@ -85,27 +69,11 @@
 
 .recording-player-close {
   display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.recording-player-close:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .recording-player-close svg {
   width: 16px;
-  height: 16px;
 }
 
 /* Terminal display */
@@ -135,58 +103,12 @@
   gap: 8px;
 }
 
-.recording-player-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.recording-player-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.recording-player-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.recording-player-btn-primary {
-  width: 36px;
-  height: 36px;
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-.recording-player-btn-primary:hover {
-  background: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
-  color: white;
-}
-
-.recording-player-btn-primary svg {
-  width: 16px;
-  height: 16px;
-}
-
 /* Progress bar */
 .recording-player-progress {
   flex: 1;
   height: 6px;
   background: var(--color-bg-secondary);
   border-radius: 3px;
-  cursor: pointer;
   overflow: hidden;
 }
 
@@ -216,10 +138,9 @@
   padding: 4px 8px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-primary);
   font-size: 12px;
-  cursor: pointer;
 }
 
 .recording-player-speed-select:hover {
@@ -229,4 +150,48 @@
 .recording-player-speed-select:focus {
   outline: none;
   border-color: var(--color-primary);
+}
+
+.recording-player-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text-secondary);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.recording-player-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+.recording-player-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.recording-player-btn-primary {
+  width: 36px;
+  height: 36px;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-text-on-accent);
+}
+
+.recording-player-btn-primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-text-on-accent);
+}
+
+.recording-player-btn-primary svg {
+  width: 16px;
+  height: 16px;
 }

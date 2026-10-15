@@ -3,10 +3,12 @@ import { listSessions, type Session } from '../api/sessions';
 import { listEnterpriseDevices, type DeviceSummary } from '../api/enterpriseDevices';
 import { getCurrentMode } from '../api/client';
 import { useSubmitting } from '../hooks/useSubmitting';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './NewTopologyDialog.css';
 import AITabInput from './AITabInput';
+import SearchField from './SearchField';
 
+import DialogFooter from './DialogFooter';
+import ModalFrame from './ModalFrame';
 interface NewTopologyDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -135,126 +137,113 @@ export default function NewTopologyDialog({
       )
     : enterpriseDevices;
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, clickOutside: false, enabled: !submitting });
 
   if (!isOpen) return null;
 
   const totalCount = isEnterprise ? enterpriseDevices.length : sessions.length;
 
   return (
-    <div className="dialog-overlay" {...backdropProps}>
-      <div className="dialog new-topology-dialog" {...contentProps}>
-        <div className="dialog-header">
-          <h3>New Topology</h3>
-          <button className="dialog-close" onClick={onClose} disabled={submitting}>x</button>
-        </div>
-
-        <div className="dialog-body">
-          <div className="form-field">
-            <label>Name</label>
-            <AITabInput
-              value={name}
-              onChange={e => setName(e.target.value)}
-              onInvalid={e => e.preventDefault()}
-              placeholder="e.g., WAN Issue, DC Troubleshooting"
-              autoFocus
-              aiField="topology_name"
-              aiPlaceholder="Name for this topology map"
-              aiContext={{ deviceCount: selectedIds.length }}
-              onAIValue={(v) => setName(v)}
-            />
-          </div>
-
-          <div className="form-field">
-            <label>
-              {isEnterprise ? 'Devices to discover' : 'Active sessions to discover'}
-              {totalCount > 0 && (
-                <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                  {selectedIds.length}/{totalCount} selected
-                  <button
-                    style={{ marginLeft: 6, background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--font-family)' }}
-                    onClick={toggleAll}
-                  >
-                    {selectedIds.length === totalCount ? 'Deselect All' : 'Select All'}
-                  </button>
-                </span>
-              )}
-            </label>
-
-            {isEnterprise && enterpriseDevices.length > 5 && (
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search devices..."
-                className="topology-device-search"
-                style={{ marginBottom: 6, padding: '4px 8px', fontSize: 12, background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text-primary)', fontFamily: 'var(--font-family)', outline: 'none', width: '100%', boxSizing: 'border-box' }}
-              />
-            )}
-
-            <div className="session-checklist">
-              {isEnterprise ? (
-                <>
-                  {filteredEnterpriseDevices.map(device => (
-                    <label key={device.id} className="session-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(device.id)}
-                        onChange={() => toggleItem(device.id)}
-                      />
-                      <span className="status-dot connected" />
-                      <span className="session-name">{device.name}</span>
-                      <span className="session-host">{device.host}</span>
-                      {device.device_type && (
-                        <span style={{ fontSize: 9, padding: '1px 5px', background: 'var(--color-accent)', color: 'white', borderRadius: 8, marginLeft: 'auto', textTransform: 'uppercase' }}>
-                          {device.device_type}
-                        </span>
-                      )}
-                    </label>
-                  ))}
-                  {filteredEnterpriseDevices.length === 0 && enterpriseDevices.length > 0 && (
-                    <div className="empty-state">No devices match "{searchQuery}"</div>
-                  )}
-                  {enterpriseDevices.length === 0 && (
-                    <div className="empty-state">No devices in controller inventory.</div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {sessions.map(session => (
-                    <label key={session.id} className="session-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(session.id)}
-                        onChange={() => toggleItem(session.id)}
-                      />
-                      <span className="status-dot connected" />
-                      <span className="session-name">{session.name}</span>
-                      <span className="session-host">{session.host}</span>
-                    </label>
-                  ))}
-                  {sessions.length === 0 && (
-                    <div className="empty-state">No active sessions. Open terminal tabs first.</div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          {error && <div className="error-message">{error}</div>}
-        </div>
-
-        <div className="dialog-footer">
-          <button className="btn-secondary" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button
-            className="btn-primary"
-            onClick={handleStartDiscovery}
-            disabled={submitting || !name.trim() || selectedIds.length === 0}
-          >
-            {submitting ? 'Starting…' : 'Discover Topology'}
-          </button>
-        </div>
+    <ModalFrame id="new-topology" onDismiss={onClose} clickOutside={false} dismissEnabled={!submitting} className="dialog new-topology-dialog" label="New Topology">
+      <div className="dialog-header">
+        <h3>New Topology</h3>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} disabled={submitting}>x</button>
       </div>
-    </div>
+
+      <div className="dialog-body">
+        <div className="form-field">
+          <label>Name</label>
+          <AITabInput
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onInvalid={e => e.preventDefault()}
+            placeholder="e.g., WAN Issue, DC Troubleshooting"
+            autoFocus
+            aiField="topology_name"
+            aiPlaceholder="Name for this topology map"
+            aiContext={{ deviceCount: selectedIds.length }}
+            onAIValue={(v) => setName(v)}
+          />
+        </div>
+
+        <div className="form-field">
+          <label>
+            {isEnterprise ? 'Devices to discover' : 'Active sessions to discover'}
+            {totalCount > 0 && (
+              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                {selectedIds.length}/{totalCount} selected
+                <button
+                  type="button"
+                  className="ns-btn ns-btn--ghost ns-btn--small"
+                  style={{ marginLeft: 6 }}
+                  onClick={toggleAll}
+                >
+                  {selectedIds.length === totalCount ? 'Deselect All' : 'Select All'}
+                </button>
+              </span>
+            )}
+          </label>
+
+          {isEnterprise && enterpriseDevices.length > 5 && (
+            <SearchField className="topology-device-search" value={searchQuery} onChange={setSearchQuery} placeholder="Search devices..." />
+          )}
+
+          <div className="session-checklist">
+            {isEnterprise ? (
+              <>
+                {filteredEnterpriseDevices.map(device => (
+                  <label key={device.id} className="session-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(device.id)}
+                      onChange={() => toggleItem(device.id)}
+                    />
+                    <span className="status-dot connected" />
+                    <span className="session-name">{device.name}</span>
+                    <span className="session-host">{device.host}</span>
+                    {device.device_type && (
+                      <span style={{ fontSize: 9, padding: '1px 5px', background: 'var(--color-accent)', color: 'white', borderRadius: 8, marginLeft: 'auto', textTransform: 'uppercase' }}>
+                        {device.device_type}
+                      </span>
+                    )}
+                  </label>
+                ))}
+                {filteredEnterpriseDevices.length === 0 && enterpriseDevices.length > 0 && (
+                  <div className="empty-state">No devices match "{searchQuery}"</div>
+                )}
+                {enterpriseDevices.length === 0 && (
+                  <div className="empty-state">No devices in controller inventory.</div>
+                )}
+              </>
+            ) : (
+              <>
+                {sessions.map(session => (
+                  <label key={session.id} className="session-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(session.id)}
+                      onChange={() => toggleItem(session.id)}
+                    />
+                    <span className="status-dot connected" />
+                    <span className="session-name">{session.name}</span>
+                    <span className="session-host">{session.host}</span>
+                  </label>
+                ))}
+                {sessions.length === 0 && (
+                  <div className="empty-state">No active sessions. Open terminal tabs first.</div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {error && <div className="error-message">{error}</div>}
+      </div>
+
+      <DialogFooter
+        primary={{ label: submitting ? 'Starting…' : 'Discover Topology', onClick: handleStartDiscovery, disabled: submitting || !name.trim() || selectedIds.length === 0 }}
+        onCancel={onClose}
+        cancelDisabled={submitting}
+      />
+    </ModalFrame>
   );
 }

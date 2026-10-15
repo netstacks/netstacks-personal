@@ -14,7 +14,7 @@ describe('PastePreview (editable)', () => {
     expect(editor.value).toBe('! c\ninterface Gi0/1\n')
     fireEvent.change(editor, { target: { value: '! c\r\ninterface Gi0/2\r\n shutdown\r\n' } })
     expect(screen.getByText('revert')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('paste-preview-confirm'))
+    fireEvent.click(screen.getByRole('button', { name: /^Paste \d+ lines?$/ }))
     // IOS clean paste: CRs normalised, comment dropped
     expect(onPaste).toHaveBeenCalledWith('interface Gi0/2\n shutdown')
     fireEvent.click(screen.getByText('revert'))

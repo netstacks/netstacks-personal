@@ -56,7 +56,7 @@ export default function UnsavedDocumentTab({ tabId, unsavedDoc, onSave }: Unsave
       <div className="unsaved-doc-save-bar">
         <div className="unsaved-doc-badge">Unsaved</div>
         <AITabInput
-          className="unsaved-doc-name-input"
+          className="unsaved-doc-name-input "
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -67,8 +67,8 @@ export default function UnsavedDocumentTab({ tabId, unsavedDoc, onSave }: Unsave
           aiContext={{ category, contentType: unsavedDoc.contentType, preview: unsavedDoc.content.slice(0, 300) }}
           onAIValue={(v) => setName(v)}
         />
-        <select
-          className="unsaved-doc-category-select"
+        <select aria-label="Category"
+          className="ns-select"
           value={category}
           onChange={(e) => setCategory(e.target.value as DocumentCategory)}
         >
@@ -77,7 +77,7 @@ export default function UnsavedDocumentTab({ tabId, unsavedDoc, onSave }: Unsave
           ))}
         </select>
         <button
-          className="unsaved-doc-save-btn"
+          className="ns-btn ns-btn--primary"
           onClick={handleSave}
           disabled={!name.trim() || saving}
         >

@@ -37,8 +37,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    linear-gradient(var(--color-fill-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-fill-subtle) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
   z-index: 0;
@@ -53,7 +53,7 @@
   width: 600px;
   height: 600px;
   transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(86, 156, 214, 0.08) 0%, transparent 60%);
+  background: radial-gradient(circle, var(--color-accent-tint-8) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
 }
@@ -125,8 +125,8 @@
   padding: 12px 14px;
   margin-bottom: 16px;
   background: var(--vg-error-bg);
-  border: 1px solid rgba(241, 76, 76, 0.3);
-  border-radius: 6px;
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  border-radius: var(--radius-control);
   color: var(--vg-error);
   font-size: 13px;
 }
@@ -144,87 +144,22 @@
 }
 
 .vault-field label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--vg-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  font-family: var(--font-family-mono, 'JetBrains Mono', 'Consolas', monospace);
-}
-
-.vault-field input {
-  padding: 12px 14px;
-  background: var(--vg-bg);
-  border: 1px solid var(--vg-border);
-  border-radius: 6px;
-  color: var(--vg-text-primary);
-  font-size: 15px;
-  font-family: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.vault-field input:focus {
-  outline: none;
-  border-color: var(--vg-accent);
-  box-shadow: 0 0 0 3px var(--vg-accent-light);
-}
-
-.vault-field input::placeholder {
-  color: var(--vg-text-muted);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .vault-field input:disabled {
   opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .vault-submit {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
   margin-top: 6px;
-  padding: 12px 20px;
-  background: var(--vg-accent);
-  border: none;
-  border-radius: 6px;
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
 }
-
-.vault-submit:hover:not(:disabled) {
-  background: #6bb3eb;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(86, 156, 214, 0.35);
-}
-
-.vault-submit:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.vault-submit:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-/* Touch ID button — secondary tone, accent border. Stretched to match the
-   primary Unlock button (which is full-width inside the form's flex column). */
 .vault-biometric-btn {
   width: 100%;
   margin-bottom: 14px;
-  background: var(--vg-accent-light);
-  border: 1px solid rgba(86, 156, 214, 0.4);
-  color: var(--vg-accent);
-}
-
-.vault-biometric-btn:hover:not(:disabled) {
-  background: rgba(86, 156, 214, 0.22);
-  border-color: var(--vg-accent);
-  color: #ffffff;
-  box-shadow: 0 4px 18px rgba(86, 156, 214, 0.25);
 }
 
 .vault-divider {
@@ -236,7 +171,7 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  font-family: var(--font-family-mono, 'JetBrains Mono', 'Consolas', monospace);
+  font-family: var(--font-family-mono);
 }
 
 .vault-divider::before,
@@ -250,7 +185,7 @@
 .vault-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid var(--color-border);
   border-top-color: #ffffff;
   border-radius: 50%;
   animation: vault-spin 0.8s linear infinite;
@@ -272,45 +207,16 @@
   padding: 10px 12px;
   background: var(--vg-accent-light);
   border-left: 2px solid var(--vg-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 12px;
   color: var(--vg-text-secondary);
   text-align: left;
   line-height: 1.5;
 }
-
-/* --- Plain-text URL input for the Controller view ---
-   The Controller field is a regular <input>, not the PasswordInput
-   wrapper used elsewhere in this gate, so it needs the same look
-   without inheriting from the global form styles. Mirrors the
-   .password-input styles enforced by VS Code Dark theme. */
 .vault-input {
   width: 100%;
-  padding: 11px 14px;
-  background: var(--vg-elevated);
-  border: 1px solid var(--vg-border);
-  border-radius: 6px;
-  color: var(--vg-text-primary);
-  font-size: 13px;
-  font-family: var(--font-family-mono, 'JetBrains Mono', 'Consolas', monospace);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  font-family: var(--font-family-mono);
   box-sizing: border-box;
-}
-
-.vault-input::placeholder {
-  color: var(--vg-text-muted);
-}
-
-.vault-input:focus {
-  outline: none;
-  border-color: var(--vg-accent);
-  background: var(--vg-card-bg);
-  box-shadow: 0 0 0 3px var(--vg-accent-light);
-}
-
-.vault-input:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
 }
 
 /* --- Mode switch (vault ↔ controller) ---
@@ -333,11 +239,10 @@
   padding: 9px 16px;
   background: transparent;
   border: 1px solid var(--vg-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: var(--vg-text-secondary);
   font-size: 12.5px;
   font-family: inherit;
-  cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -368,7 +273,6 @@
   border: none;
   color: var(--color-text-secondary);
   font-size: 12px;
-  cursor: pointer;
   padding: 4px 8px;
   text-decoration: underline;
 }
@@ -390,14 +294,6 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--color-text-secondary);
-}
-.vault-reset-btn {
-  background: var(--color-error, #dc3545);
-  border-color: var(--color-error, #dc3545);
-  color: #fff;
-}
-.vault-reset-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
 }
 
 .vault-forgot-row {

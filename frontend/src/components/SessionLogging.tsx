@@ -144,7 +144,7 @@ export default function SessionLogging({
       <div className="logging-actions">
         {!isLogging ? (
           <button
-            className="logging-btn logging-btn-start"
+            className="ns-btn ns-btn--primary"
             onClick={handleStartClick}
             disabled={isStarting}
           >
@@ -153,7 +153,7 @@ export default function SessionLogging({
           </button>
         ) : (
           <button
-            className="logging-btn logging-btn-stop"
+            className="ns-btn ns-btn--danger"
             onClick={handleStopClick}
           >
             <StopIcon />

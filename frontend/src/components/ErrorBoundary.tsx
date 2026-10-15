@@ -27,18 +27,16 @@ export class ErrorBoundary extends Component<Props, State> {
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           height: '100vh', gap: '12px', padding: '24px', fontFamily: 'monospace',
-          background: 'var(--color-bg, #1a1a1a)', color: 'var(--color-text, #e0e0e0)',
+          background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)',
         }}>
           <div style={{ fontSize: '18px', fontWeight: 600 }}>Something went wrong</div>
           <div style={{ fontSize: '13px', opacity: 0.6, maxWidth: '480px', textAlign: 'center' }}>
             {this.state.error.message}
           </div>
           <button
+            className="ns-btn ns-btn--primary ns-btn--large"
             onClick={() => this.setState({ error: null })}
-            style={{
-              marginTop: '8px', padding: '8px 20px', borderRadius: '6px', border: 'none',
-              background: 'var(--color-accent, #4a9eff)', color: '#fff', cursor: 'pointer', fontSize: '13px',
-            }}
+            style={{ marginTop: '8px' }}
           >
             Try again
           </button>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useDeviceSelection } from '../hooks/useDeviceSelection';
+import SearchField from './SearchField';
 import './DeviceSelector.css';
 
 export type { DeviceOption } from '../hooks/useDeviceSelection';
@@ -55,23 +56,22 @@ function DeviceSelector({ selectedIds, onChange }: DeviceSelectorProps) {
       {open && (
         <div className="device-selector-dropdown">
           <div className="device-selector-search">
-            <input
-              type="search"
+            <SearchField
               placeholder="Search by name, host, or type..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
               autoFocus
             />
           </div>
 
           <div className="device-selector-actions">
-            <button type="button" onClick={toggleAll}>
+            <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={toggleAll}>
               {filtered.length > 0 && filtered.every((d) => selectedIds.includes(d.id))
                 ? 'Deselect all'
                 : 'Select all'}
             </button>
             {selectedIds.length > 0 && (
-              <button type="button" onClick={clearAll}>
+              <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={clearAll}>
                 Clear
               </button>
             )}

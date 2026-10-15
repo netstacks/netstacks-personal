@@ -165,7 +165,7 @@ export default function DeploymentDetailTab({
       <div className="deploy-tab-container">
         <div className="deploy-tab-error">
           <span>{error}</span>
-          <button className="deploy-tab-btn" onClick={fetchData}>Retry</button>
+          <button className="ns-btn" onClick={fetchData}>Retry</button>
         </div>
       </div>
     )
@@ -194,7 +194,7 @@ export default function DeploymentDetailTab({
         <div className="deploy-tab-header-actions">
           {(deployment.status === 'completed' || deployment.status === 'failed') && (
             <button
-              className="deploy-tab-btn"
+              className="ns-btn"
               onClick={handleRollback}
               disabled={rollingBack}
             >
@@ -305,11 +305,11 @@ export default function DeploymentDetailTab({
         <div className="deploy-tab-section">
           <div className="deploy-tab-section-header" style={{ justifyContent: 'space-between' }}>
             <span>Deployment Logs</span>
-            <div className="deploy-tab-log-filters">
+            <div className="ns-segmented">
               {(['all', 'info', 'debug', 'warning', 'error'] as const).map(level => (
                 <button
                   key={level}
-                  className={`deploy-tab-log-filter-btn ${logFilter === level ? 'active' : ''}`}
+                  className={`ns-segment ${logFilter === level ? 'active' : ''}`}
                   onClick={() => setLogFilter(level)}
                 >
                   {level.charAt(0).toUpperCase() + level.slice(1)}

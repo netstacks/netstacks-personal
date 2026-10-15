@@ -60,10 +60,10 @@ export default function DiscoveryToast({
         </div>
       </div>
       <div className="discovery-toast-actions">
-        <button className="discovery-toast-btn primary" onClick={onRunDiscovery}>
+        <button className="ns-btn ns-btn--small ns-btn--primary" onClick={onRunDiscovery}>
           Discover
         </button>
-        <button className="discovery-toast-btn dismiss" onClick={() => {
+        <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => {
           setIsExiting(true);
           setTimeout(onDismiss, 300);
         }}>

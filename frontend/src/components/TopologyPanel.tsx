@@ -12,13 +12,14 @@ import {
   shareTopology,
   type SavedTopologyListItem,
 } from '../api/topology';
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
 import type { Folder } from '../api/topology';
 import { updateTopologyFolder, deleteTopologyFolder, moveTopologyFolder, importTopologyFromJson } from '../api/topology';
 import { showToast } from './Toast';
 import { getCurrentMode } from '../api/client';
 import { ItemSelectionProvider, useItemSelection } from '../hooks/useItemSelection';
 import NewTopologyDialog from './NewTopologyDialog';
+import ContextMenu, { type MenuItem } from './ContextMenu';
+import SearchField from './SearchField';
 import TracerouteDialog from './TracerouteDialog';
 import type { Topology, Device, DeviceStatus } from '../types/topology';
 import './TopologyPanel.css';
@@ -27,6 +28,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 const isSortOrder = (v: unknown): v is 'default' | 'reverse' =>
   v === 'default' || v === 'reverse';
 
@@ -93,18 +95,6 @@ const Icons = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <polyline points="23 4 23 10 17 10" />
       <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-    </svg>
-  ),
-  search: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
-  x: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   ),
   folder: (
@@ -212,8 +202,6 @@ function TopologyPanelContent({
   const [folderContextMenu, setFolderContextMenu] = useState<{
     x: number; y: number; folderId: string;
   } | null>(null);
-  const { ref: topologyMenuRef, style: topologyMenuStyle } = useClampedMenuPosition(topologyContextMenu);
-  const { ref: folderMenuRef, style: folderMenuStyle } = useClampedMenuPosition(folderContextMenu);
 
   // --- Rename State ---
   const [renamingTopologyId, setRenamingTopologyId] = useState<string | null>(null);
@@ -299,19 +287,6 @@ function TopologyPanelContent({
       renameTopologyInputRef.current.select();
     }
   }, [renamingTopologyId]);
-
-  // ── Close context menus on outside click ──
-
-  useEffect(() => {
-    const handleClick = () => {
-      setTopologyContextMenu(null);
-      setFolderContextMenu(null);
-    };
-    if (topologyContextMenu || folderContextMenu) {
-      document.addEventListener('click', handleClick);
-      return () => document.removeEventListener('click', handleClick);
-    }
-  }, [topologyContextMenu, folderContextMenu]);
 
   // ── Sort Order Toggle ──
 
@@ -1026,7 +1001,7 @@ function TopologyPanelContent({
       >
         <span className="topology-icon">&#128208;</span>
         {isRenaming ? (
-          <input
+          <input data-ai-fill="off" aria-label="Topology name"
             ref={renameTopologyInputRef}
             className="rename-input"
             value={renameTopologyValue}
@@ -1042,7 +1017,7 @@ function TopologyPanelContent({
           <>
             <span className="topology-name">{topo.name}</span>
             {isEnterprise && topo.shared && (
-              <span className="topology-shared-badge" title="Published to team">shared</span>
+              <Tooltip label="Published to team"><span className="topology-shared-badge">shared</span></Tooltip>
             )}
           </>
         )}
@@ -1117,7 +1092,7 @@ function TopologyPanelContent({
           {isExpanded ? Icons.folderOpen : Icons.folder}
         </span>
         {isRenaming ? (
-          <input
+          <input data-ai-fill="off" aria-label="Folder name"
             ref={renameInputRef}
             className="topology-folder-rename-input"
             value={renameFolderValue}
@@ -1139,19 +1114,45 @@ function TopologyPanelContent({
 
   // ── Render ──
 
+
+  const contextTopology = topologyContextMenu ? topologies.find(t => t.id === topologyContextMenu.topologyId) : undefined;
+  const sep = (id: string): MenuItem => ({ id, label: '', divider: true, action: () => {} });
+
+  const topologyMenuItems = (topo: SavedTopologyListItem): MenuItem[] => [
+    ...(itemSelectionCount > 1 ? [
+      { id: 'bulk-delete', label: `Delete Selected (${itemSelectionCount})`, icon: Icons.trash, danger: true, action: () => { void handleBulkDelete(); } },
+      sep('bulk-divider'),
+    ] : []),
+    { id: 'rename', label: 'Rename', icon: Icons.edit, action: () => handleRenameTopology(topo) },
+    ...(isEnterprise ? [{ id: 'share', label: topo.shared ? 'Unpublish' : 'Publish to Team', action: () => { void handleShareTopology(topo); } }] : []),
+    sep('delete-divider'),
+    { id: 'delete', label: 'Delete', icon: Icons.trash, danger: true, action: () => { void handleDeleteTopology(topo); } },
+  ];
+
+  const folderMenuItems = (folderId: string): MenuItem[] => [
+    { id: 'new-subfolder', label: 'New Subfolder', icon: Icons.folderPlus, action: () => handleNewSubfolder(folderId) },
+    sep('rename-divider'),
+    { id: 'rename', label: 'Rename Folder', icon: Icons.edit, action: () => handleRenameFolder(folderId) },
+    sep('expand-divider'),
+    { id: 'expand-all', label: 'Expand All Folders', icon: Icons.expandAll, action: expandAllFolders },
+    { id: 'collapse-all', label: 'Collapse All Folders', icon: Icons.collapseAll, action: collapseAllFolders },
+    sep('delete-divider'),
+    { id: 'delete', label: 'Delete Folder', icon: Icons.trash, danger: true, action: () => { void handleDeleteFolder(folderId); } },
+  ];
+
   return (
     <div className="topology-panel" data-testid="topology-panel">
       {/* Toolbar */}
       <div className="topology-panel-toolbar">
-        <button
-          className="topology-panel-btn icon-only primary"
+        <Tooltip label="New Topology"><button
+          className="ns-btn ns-btn--primary ns-icon-btn"
           onClick={() => setNewDialogOpen(true)}
-          title="New Topology"
+          aria-label="New Topology"
         >
           {Icons.plus}
-        </button>
-        <button
-          className="topology-panel-btn icon-only"
+        </button></Tooltip>
+        <Tooltip label="Import topology JSON"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={() => {
             // File picker → JSON read → importTopologyFromJson. Counterpart
             // to the JSON export in TopologyTabEditor — useful for moving
@@ -1180,61 +1181,43 @@ function TopologyPanelContent({
             };
             input.click();
           }}
-          title="Import topology JSON"
+          aria-label="Import topology JSON"
         >
           {Icons.import}
-        </button>
-        <button
-          className="topology-panel-btn icon-only"
+        </button></Tooltip>
+        <Tooltip label="Paste Traceroute / MTR"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={() => setTracerouteDialogOpen(true)}
-          title="Paste Traceroute / MTR"
+          aria-label="Paste Traceroute / MTR"
         >
           {Icons.route}
-        </button>
-        <button
-          className="topology-panel-btn icon-only"
+        </button></Tooltip>
+        <Tooltip label="New Folder"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={handleNewFolder}
-          title="New Folder"
+          aria-label="New Folder"
         >
           {Icons.folderPlus}
-        </button>
-        <button
-          className="topology-panel-btn icon-only"
+        </button></Tooltip>
+        <Tooltip label="Refresh"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={fetchData}
-          title="Refresh"
+          aria-label="Refresh"
           disabled={loading}
         >
           {Icons.refresh}
-        </button>
-        <button
-          className={`topology-panel-btn icon-only ${sortOrder === 'reverse' ? 'active' : ''}`}
+        </button></Tooltip>
+        <Tooltip label={sortOrder === 'default' ? 'Sort: Folders first (click to show topologies first)' : 'Sort: Topologies first (click to show folders first)'}><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${sortOrder === 'reverse' ? 'active' : ''}`}
           onClick={toggleSortOrder}
-          title={sortOrder === 'default' ? 'Sort: Folders first (click to show topologies first)' : 'Sort: Topologies first (click to show folders first)'}
+          aria-label="Toggle sort order"
         >
           {sortOrder === 'default' ? Icons.sortAsc : Icons.sortDesc}
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Search */}
-      <div className="topology-panel-search">
-        <span className="topology-search-icon">{Icons.search}</span>
-        <input
-          type="text"
-          className="topology-search-input"
-          placeholder="Search topologies..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        {searchQuery && (
-          <button
-            className="topology-search-clear"
-            onClick={() => setSearchQuery('')}
-            title="Clear search"
-          >
-            {Icons.x}
-          </button>
-        )}
-      </div>
+      <SearchField value={searchQuery} onChange={setSearchQuery} placeholder="Search topologies..." />
 
       {/* Loading / Error States */}
       {loading && (
@@ -1362,109 +1345,16 @@ function TopologyPanelContent({
         </div>
       )}
 
-      {/* Topology Context Menu */}
-      {topologyContextMenu && (() => {
-        const topo = topologies.find(t => t.id === topologyContextMenu.topologyId);
-        if (!topo) return null;
-        return (
-          <div
-            ref={topologyMenuRef}
-            className="topology-context-menu"
-            style={topologyMenuStyle}
-          >
-            {/* Bulk actions when multiple topologies selected */}
-            {itemSelectionCount > 1 && (
-              <>
-                <button
-                  className="topology-context-menu-item topology-context-menu-danger"
-                  onClick={handleBulkDelete}
-                >
-                  {Icons.trash}
-                  <span>Delete Selected ({itemSelectionCount})</span>
-                </button>
-                <div className="topology-context-menu-divider" />
-              </>
-            )}
-            <button
-              className="topology-context-menu-item"
-              onClick={() => handleRenameTopology(topo)}
-            >
-              {Icons.edit}
-              <span>Rename</span>
-            </button>
-            {isEnterprise && (
-              <button
-                className="topology-context-menu-item"
-                onClick={() => handleShareTopology(topo)}
-              >
-                <span>{topo.shared ? 'Unpublish' : 'Publish to Team'}</span>
-              </button>
-            )}
-            <div className="topology-context-menu-divider" />
-            <button
-              className="topology-context-menu-item topology-context-menu-danger"
-              onClick={() => handleDeleteTopology(topo)}
-            >
-              {Icons.trash}
-              <span>Delete</span>
-            </button>
-          </div>
-        );
-      })()}
-
-      {/* Folder Context Menu */}
-      {folderContextMenu && (
-        <div
-          ref={folderMenuRef}
-          className="topology-context-menu"
-          style={folderMenuStyle}
-        >
-          <button
-            className="topology-context-menu-item"
-            onClick={() => handleNewSubfolder(folderContextMenu.folderId)}
-          >
-            {Icons.folderPlus}
-            <span>New Subfolder</span>
-          </button>
-          <div className="topology-context-menu-divider" />
-          <button
-            className="topology-context-menu-item"
-            onClick={() => handleRenameFolder(folderContextMenu.folderId)}
-          >
-            {Icons.edit}
-            <span>Rename Folder</span>
-          </button>
-          <div className="topology-context-menu-divider" />
-          <button
-            className="topology-context-menu-item"
-            onClick={() => {
-              expandAllFolders();
-              setFolderContextMenu(null);
-            }}
-          >
-            {Icons.expandAll}
-            <span>Expand All Folders</span>
-          </button>
-          <button
-            className="topology-context-menu-item"
-            onClick={() => {
-              collapseAllFolders();
-              setFolderContextMenu(null);
-            }}
-          >
-            {Icons.collapseAll}
-            <span>Collapse All Folders</span>
-          </button>
-          <div className="topology-context-menu-divider" />
-          <button
-            className="topology-context-menu-item topology-context-menu-danger"
-            onClick={() => handleDeleteFolder(folderContextMenu.folderId)}
-          >
-            {Icons.trash}
-            <span>Delete Folder</span>
-          </button>
-        </div>
-      )}
+      <ContextMenu
+        position={contextTopology ? topologyContextMenu : null}
+        items={contextTopology ? topologyMenuItems(contextTopology) : []}
+        onClose={() => setTopologyContextMenu(null)}
+      />
+      <ContextMenu
+        position={folderContextMenu}
+        items={folderContextMenu ? folderMenuItems(folderContextMenu.folderId) : []}
+        onClose={() => setFolderContextMenu(null)}
+      />
 
       {/* New Topology Dialog -- picks sessions then opens discovery */}
       <NewTopologyDialog

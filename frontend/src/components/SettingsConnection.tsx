@@ -15,8 +15,16 @@ import { useMode } from '../hooks/useMode'
 import { fetchCaCertificateInfo, installCaCertificate, type CaCertificateInfo } from '../api/tlsTrust'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { confirmDialog } from './ConfirmDialog'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
+import './SettingsConnection.css'
 
-export default function SettingsConnection() {
+interface SettingsConnectionProps {
+  /** Contextual "Ask AI" help on the connection section. */
+  help?: { topic: string; prompt: string }
+}
+
+export default function SettingsConnection({ help }: SettingsConnectionProps) {
   const { controllerUrl, isEnterprise } = useMode()
   const hasFeature = useCapabilitiesStore((s) => s.hasFeature)
 
@@ -138,115 +146,83 @@ export default function SettingsConnection() {
   const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
   return (
-    <div className="settings-content">
-      {/* Controller URL */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">Controller Connection</h3>
-
-        <div className="setting-item">
-          <div className="setting-label">Controller URL</div>
-          <div className="setting-description">
-            {isEnterprise
-              ? 'Connected to a NetStacks Controller. Change the URL and restart to switch controllers, or clear it to switch to standalone mode.'
-              : 'Enter a Controller URL to connect in enterprise mode. Leave empty for standalone mode (local agent).'}
-          </div>
-          <div className="setting-control-block" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' }}>
-            <input
-              type="text"
-              className="setting-input"
-              value={urlInput}
-              onChange={(e) => {
-                setUrlInput(e.target.value)
-                setUrlSuccess(null)
-                setUrlError(null)
-              }}
-              placeholder="https://controller.example.com:3000"
-              style={{ flex: 1 }}
-            />
-            <button
-              className="settings-btn settings-btn-primary"
-              onClick={handleSaveUrl}
-              disabled={urlSaving || urlInput === (controllerUrl || '')}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              {urlSaving ? 'Saving...' : 'Save & Restart'}
-            </button>
-          </div>
-          {urlSuccess && <div className="settings-success" style={{ marginTop: '8px' }}>{urlSuccess}</div>}
-          {urlError && <div className="settings-error" style={{ marginTop: '8px' }}>{urlError}</div>}
-
-          {/* Current mode indicator */}
-          <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            Current mode: <strong style={{ color: 'var(--text-secondary)' }}>
-              {isEnterprise ? 'Enterprise' : 'Standalone'}
-            </strong>
-            {isEnterprise && controllerUrl && (
-              <span> — {controllerUrl}</span>
-            )}
-          </div>
+    <>
+      <SettingsSection
+        title="Controller Connection"
+        description={isEnterprise
+          ? 'Connected to a NetStacks Controller. Your team\'s devices, credentials and configurations are managed centrally. Change the URL and restart to switch controllers, or clear it to switch to standalone mode.'
+          : 'If your team has a NetStacks Controller, enter its URL and the app restarts in enterprise mode. Leave it empty for standalone mode (local agent).'}
+        help={help}
+        actions={<span className={isEnterprise ? 'settings-badge settings-badge--success' : 'settings-badge'}>{isEnterprise ? 'Enterprise' : 'Standalone'}</span>}
+      >
+        <div className="settings-group">
+          <SettingRow
+            label="Controller URL"
+            description={isEnterprise && controllerUrl ? `Current: ${controllerUrl}` : undefined}
+            stacked
+          >
+            <div className="settings-connection-url">
+              <input data-ai-fill="off"
+                type="text"
+                aria-label="Controller URL"
+                className="ns-input"
+                value={urlInput}
+                onChange={(e) => {
+                  setUrlInput(e.target.value)
+                  setUrlSuccess(null)
+                  setUrlError(null)
+                }}
+                placeholder="https://controller.example.com:3000"
+              />
+              <button
+                className="ns-btn ns-btn--primary"
+                onClick={handleSaveUrl}
+                disabled={urlSaving || urlInput === (controllerUrl || '')}
+              >
+                {urlSaving ? 'Saving...' : 'Save & Restart'}
+              </button>
+            </div>
+            {urlSuccess && <p className="settings-success">{urlSuccess}</p>}
+            {urlError && <p className="settings-error">{urlError}</p>}
+          </SettingRow>
         </div>
-      </div>
+      </SettingsSection>
 
-      {/* TLS Certificate Trust */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">TLS Certificate</h3>
-
+      <SettingsSection
+        title="TLS Certificate"
+        actions={(controllerUrl || urlInput) && !caLoading && (
+          <button className="ns-btn ns-btn--small" onClick={fetchTlsInfo}>
+            {caInfo?.tls_enabled ? 'Refresh' : 'Check Again'}
+          </button>
+        )}
+      >
         {!controllerUrl && !urlInput ? (
-          <div className="setting-item">
-            <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-              Configure a Controller URL above to manage TLS certificates.
-            </div>
-          </div>
+          <p className="form-hint">Configure a Controller URL above to manage TLS certificates.</p>
         ) : caLoading ? (
-          <div className="setting-item">
-            <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-              Checking TLS configuration...
-            </div>
-          </div>
+          <p className="form-hint">Checking TLS configuration…</p>
         ) : caInfo?.tls_enabled ? (
-          <>
-            <div className="setting-item">
-              <div className="setting-label">Status</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <span style={{ color: '#4caf50', fontSize: '14px' }}>●</span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                  TLS enabled on Controller
-                </span>
-              </div>
-            </div>
-
+          <div className="settings-group">
+            <SettingRow label="Status">
+              <span className="settings-badge settings-badge--success">TLS enabled</span>
+            </SettingRow>
             {caInfo.fingerprint && (
-              <div className="setting-item">
-                <div className="setting-label">CA Fingerprint (SHA-256)</div>
-                <div style={{
-                  fontFamily: 'monospace',
-                  fontSize: '11px',
-                  color: 'var(--text-secondary)',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  padding: '8px 12px',
-                  borderRadius: '4px',
-                  wordBreak: 'break-all',
-                  marginTop: '4px',
-                  userSelect: 'all',
-                }}>
-                  {caInfo.fingerprint}
-                </div>
-                <div className="setting-description" style={{ marginTop: '4px' }}>
-                  Verify this fingerprint matches what your administrator provided before trusting this certificate.
-                </div>
-              </div>
+              <SettingRow
+                label="CA Fingerprint (SHA-256)"
+                description="Verify this fingerprint matches what your administrator provided before trusting this certificate."
+                stacked
+              >
+                <code className="settings-connection-fingerprint">{caInfo.fingerprint}</code>
+              </SettingRow>
             )}
-
-            <div className="setting-item">
-              <div className="setting-label">Install CA Certificate</div>
-              <div className="setting-description">
-                Install the Controller's CA certificate to trust HTTPS connections without browser warnings.
-                {!isTauri && ' Download the certificate and install it manually in your OS trust store.'}
-              </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <SettingRow
+              label="Install CA Certificate"
+              description={`Install the Controller's CA certificate to trust HTTPS connections without browser warnings.${!isTauri ? ' Download the certificate and install it manually in your OS trust store.' : ''}`}
+              stacked
+            >
+              <div className="settings-connection-actions">
                 {isTauri && (
                   <button
-                    className="settings-btn settings-btn-primary"
+                    className="ns-btn ns-btn--primary"
                     onClick={handleInstallCa}
                     disabled={caInstalling || !caInfo.ca_certificate_pem}
                   >
@@ -254,71 +230,43 @@ export default function SettingsConnection() {
                   </button>
                 )}
                 <button
-                  className="settings-btn"
+                  className="ns-btn"
                   onClick={handleDownloadCa}
                   disabled={!caInfo.ca_certificate_pem}
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                 >
                   Download CA Certificate
                 </button>
-                <button
-                  className="settings-btn"
-                  onClick={fetchTlsInfo}
-                  style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
-                >
-                  Refresh
-                </button>
               </div>
-              {caMessage && <div className="settings-success" style={{ marginTop: '8px' }}>{caMessage}</div>}
-              {caError && <div className="settings-error" style={{ marginTop: '8px' }}>{caError}</div>}
-            </div>
-          </>
+              {caMessage && <p className="settings-success">{caMessage}</p>}
+              {caError && <p className="settings-error">{caError}</p>}
+            </SettingRow>
+          </div>
         ) : (
-          <div className="setting-item">
-            <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-              {caInfo === null
-                ? 'Unable to reach Controller. Check the URL and ensure the Controller is running.'
-                : 'TLS is not enabled on this Controller. Contact your administrator to enable HTTPS.'}
-            </div>
-            <button
-              className="settings-btn"
-              onClick={fetchTlsInfo}
-              style={{ marginTop: '8px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
-            >
-              Check Again
-            </button>
-          </div>
+          <p className="form-hint">
+            {caInfo === null
+              ? 'Unable to reach Controller. Check the URL and ensure the Controller is running.'
+              : 'TLS is not enabled on this Controller. Contact your administrator to enable HTTPS.'}
+          </p>
         )}
-      </div>
+      </SettingsSection>
 
-      {/* De-enroll from enterprise mode */}
       {isEnterprise && hasFeature('terminal_deenrollment') && (
-        <div className="settings-category">
-          <h3 className="settings-category-title">Switch to Standalone</h3>
-          <div className="setting-item">
-            <div className="setting-description">
-              Disconnect from the Enterprise Controller and return to local agent mode. The app will restart in standalone mode.
-            </div>
-            <div style={{ marginTop: '12px' }}>
-              <button
-                className="settings-btn"
-                onClick={handleDeenroll}
-                disabled={deenrolling || !!deenrollMessage}
-                style={{
-                  background: 'var(--bg-tertiary)',
-                  color: 'var(--error, #e57373)',
-                  border: '1px solid var(--error, #e57373)',
-                }}
-              >
-                {deenrolling ? 'Switching...' : 'Switch to Standalone Mode'}
-              </button>
-            </div>
-            {deenrollMessage && (
-              <div className="settings-success" style={{ marginTop: '8px' }}>{deenrollMessage}</div>
-            )}
-          </div>
-        </div>
+        <SettingsSection
+          title="Switch to Standalone"
+          description="Disconnect from the Enterprise Controller and return to local agent mode. The app restarts in standalone mode."
+          actions={
+            <button
+              className="ns-btn ns-btn--small ns-btn--danger"
+              onClick={handleDeenroll}
+              disabled={deenrolling || !!deenrollMessage}
+            >
+              {deenrolling ? 'Switching...' : 'Switch to Standalone'}
+            </button>
+          }
+        >
+          {deenrollMessage && <p className="settings-success">{deenrollMessage}</p>}
+        </SettingsSection>
       )}
-    </div>
+    </>
   )
 }

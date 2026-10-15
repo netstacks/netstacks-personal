@@ -28,10 +28,16 @@ import { getErrorMessage } from '../api/errors'
 import { EnrichmentSourceExplorer } from './EnrichmentSourceExplorer'
 import { walkJsonPath, substituteTemplateVars, formatPreviewValue } from '../lib/enrichmentFieldUtils'
 import { downloadFile } from '../lib/formatters'
-import AskAiHelp from './AskAiHelp'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
+import SettingsItem from './settings/SettingsItem'
+import Switch from './Switch'
 import AITabInput from './AITabInput'
+import { confirmDialog } from './ConfirmDialog'
 import './SettingsEnrichment.css'
 
+import DialogFooter from './DialogFooter'
+import Tooltip from './Tooltip'
 const FORMAT_OPTIONS = ['string', 'datetime', 'uptime', 'bytes', 'status_pill']
 const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'DELETE']
 
@@ -129,88 +135,92 @@ export default function SettingsEnrichment() {
     [apiResources],
   )
 
+  // Ask-AI prompts start from what's on screen.
+  const unconfiguredSources = sources.filter((s) => s.kind === 'api_resource' && !s.api_resource_id).map((s) => s.name)
+  const matchersHelpPrompt =
+    `Help me with enrichment token matchers in NetStacks. I have ${matchers.length} matcher(s)`
+    + (matchers.length ? ` (${matchers.map((m) => m.name).join(', ')})` : '')
+    + '. Explain what a matcher is (the token type it recognises, e.g. IP, MAC, interface), how it decides which sources run on a highlighted token, and help me add or tune one. Use the NetStacks docs if useful.'
+  const sourcesHelpPrompt =
+    `Help me with enrichment sources in NetStacks. I have ${sources.length} source(s)`
+    + (sources.length ? ` (${sources.map((s) => `${s.name}: ${s.kind}`).join(', ')})` : '')
+    + (unconfiguredSources.length ? `, and ${unconfiguredSources.join(', ')} ${unconfiguredSources.length === 1 ? 'has' : 'have'} no API Resource bound` : '')
+    + '. Explain builtin vs api_resource sources, how a path_template, response unwrap and picked fields work, and walk me through binding an API Resource (list_api_resources shows what I have; propose_api_resource can open the form).'
+
   return (
-    <div className="settings-enrichment">
-      <div className="se-header">
-        <h2>Enrichment</h2>
-        <p className="se-sub">
-          Hover an IP, MAC, or interface in any terminal to see live context (reverse-DNS, OUI vendor,
-          NetBox / crawler data). Matchers decide which tokens are recognized; sources decide what data is fetched.
-        </p>
-      </div>
-
-      {/* Master toggles */}
-      <section className="se-section">
-        <label className="se-toggle">
-          <input
-            type="checkbox"
-            checked={settings['terminal.enrichment.hoverEnabled'] !== false}
-            onChange={(e) => updateSetting('terminal.enrichment.hoverEnabled', e.target.checked)}
-          />
-          <span>Enable hover enrichment</span>
-        </label>
-        <label className="se-toggle">
-          <input
-            type="checkbox"
-            checked={settings['terminal.enrichment.aiDigestEnabled'] === true}
-            onChange={(e) => updateSetting('terminal.enrichment.aiDigestEnabled', e.target.checked)}
-          />
-          <span>Show AI Digest button (✦) — summarizes enrichment data with AI</span>
-        </label>
+    <>
+      <SettingsSection
+        title="Hover Enrichment"
+        description="Hover an IP, MAC, or interface in any terminal to see live context (reverse-DNS, OUI vendor, NetBox / crawler data). Matchers decide which tokens are recognized; sources decide what data is fetched."
+      >
+        <div className="settings-group">
+          <SettingRow label="Enable hover enrichment">
+            <Switch
+              checked={settings['terminal.enrichment.hoverEnabled'] !== false}
+              onChange={(v) => updateSetting('terminal.enrichment.hoverEnabled', v)}
+              label="Enable hover enrichment"
+            />
+          </SettingRow>
+          <SettingRow label="Show AI Digest button (✦)" description="Summarizes enrichment data with AI.">
+            <Switch
+              checked={settings['terminal.enrichment.aiDigestEnabled'] === true}
+              onChange={(v) => updateSetting('terminal.enrichment.aiDigestEnabled', v)}
+              label="Show AI Digest button"
+            />
+          </SettingRow>
+        </div>
         {settings['terminal.hoverLookups'] === false && (
-          <p className="se-warn">
-            “Show hover info” is off in General settings — that master switch also gates enrichment.
-          </p>
+          <p className="form-hint">“Show hover info” is off in General settings — that master switch also gates enrichment.</p>
         )}
-      </section>
+      </SettingsSection>
 
-      {/* Backup: export / import matchers + sources as TOML */}
-      <section className="se-section">
-        <div className="se-section-head">
-          <h3>Backup</h3>
-          <div className="se-backup-actions">
-            <button className="se-btn" onClick={() => void handleExport()}>Export TOML</button>
-            <label className="se-toggle se-backup-overwrite">
-              <input type="checkbox" checked={importOverwrite} onChange={(e) => setImportOverwrite(e.target.checked)} />
-              <span>overwrite existing</span>
-            </label>
-            <button className="se-btn" onClick={() => importInputRef.current?.click()}>Import TOML…</button>
+      <SettingsSection
+        title="Backup"
+        description="Export all matchers and sources to a TOML file, or import from one. Import adds new rows by name."
+        actions={
+          <>
+            <button className="ns-btn ns-btn--small" onClick={() => void handleExport()}>Export TOML</button>
+            <button className="ns-btn ns-btn--small" onClick={() => importInputRef.current?.click()}>Import TOML…</button>
             <input
               ref={importInputRef}
               type="file"
               accept=".toml,text/plain"
-              style={{ display: 'none' }}
+              aria-label="TOML file to import"
+              className="se-file-input"
               onChange={(e) => void handleImportFile(e)}
             />
-          </div>
+          </>
+        }
+      >
+        <div className="settings-group">
+          <SettingRow label="Overwrite existing rows on import" description="Replace matchers and sources that have the same name.">
+            <Switch checked={importOverwrite} onChange={setImportOverwrite} label="Overwrite existing rows on import" />
+          </SettingRow>
         </div>
-        <p className="se-sub">
-          Export all matchers and sources to a TOML file, or import from one. Import adds new rows by name;
-          tick “overwrite existing” to replace matching rows.
-        </p>
         {importResult && (
-          <div className="se-import-result">
+          <p className="settings-success">
             Imported: {importResult.matchers_added} matcher(s) added, {importResult.matchers_updated} updated;{' '}
             {importResult.sources_added} source(s) added, {importResult.sources_updated} updated;{' '}
             {importResult.assignments_updated} assignment(s) updated.
-          </div>
+          </p>
         )}
-      </section>
+      </SettingsSection>
 
-      {error && <div className="se-error">{error}</div>}
+      {error && <p className="settings-error">{error}</p>}
       {loading ? (
-        <div className="se-loading">Loading…</div>
+        <p className="form-hint">Loading…</p>
       ) : (
         <>
-          {/* Matchers */}
-          <section className="se-section">
-            <div className="se-section-head">
-              <h3>Matchers</h3>
-              <AskAiHelp prompt="Explain enrichment token matchers in NetStacks — what a matcher/token type is (IP, MAC, hostname), how it decides which enrichment sources run on a highlighted token, and how I set one up." />
-              <button className="se-btn" onClick={() => setCreatingMatcher((v) => !v)}>
+          <SettingsSection
+            title="Matchers"
+            description="Token types recognized in terminal output, and the sources each one queries."
+            help={{ topic: 'token matchers', prompt: matchersHelpPrompt }}
+            actions={
+              <button className="ns-btn ns-btn--small" onClick={() => setCreatingMatcher((v) => !v)}>
                 {creatingMatcher ? 'Cancel' : '+ Add matcher'}
               </button>
-            </div>
+            }
+          >
             {creatingMatcher && (
               <MatcherForm
                 sources={sources}
@@ -233,32 +243,36 @@ export default function SettingsEnrichment() {
                 }}
               />
             )}
-            <div className="se-list">
-              {matchers.map((m) => (
-                <MatcherRow
-                  key={m.id}
-                  matcher={m}
-                  sources={sources}
-                  expanded={expandedMatcher === m.id}
-                  onToggle={() => setExpandedMatcher(expandedMatcher === m.id ? null : m.id)}
-                  onChanged={afterMutation}
-                  onError={setError}
-                  sourceName={sourceName}
-                />
-              ))}
-              {matchers.length === 0 && <div className="se-empty">No matchers configured.</div>}
-            </div>
-          </section>
+            {matchers.length === 0 ? (
+              <p className="form-hint">No matchers yet.</p>
+            ) : (
+              <div className="settings-group">
+                {matchers.map((m) => (
+                  <MatcherRow
+                    key={m.id}
+                    matcher={m}
+                    sources={sources}
+                    expanded={expandedMatcher === m.id}
+                    onToggle={() => setExpandedMatcher(expandedMatcher === m.id ? null : m.id)}
+                    onChanged={afterMutation}
+                    onError={setError}
+                    sourceName={sourceName}
+                  />
+                ))}
+              </div>
+            )}
+          </SettingsSection>
 
-          {/* Sources */}
-          <section className="se-section">
-            <div className="se-section-head">
-              <h3>Sources</h3>
-              <AskAiHelp prompt="Explain enrichment sources in NetStacks — the difference between builtin sources (DNS/OUI/MAC) and api_resource sources, how to point a source at an API Resource with a path_template, and how response-unwrap and picked fields work. Help me add one." />
-              <button className="se-btn" onClick={() => setCreatingSource((v) => !v)}>
+          <SettingsSection
+            title="Sources"
+            description="Where hover data comes from: built-in lookups or any API Resource."
+            help={{ topic: 'enrichment sources', prompt: sourcesHelpPrompt }}
+            actions={
+              <button className="ns-btn ns-btn--small" onClick={() => setCreatingSource((v) => !v)}>
                 {creatingSource ? 'Cancel' : '+ Add source'}
               </button>
-            </div>
+            }
+          >
             {creatingSource && (
               <SourceForm
                 apiResources={apiResources}
@@ -272,59 +286,72 @@ export default function SettingsEnrichment() {
                 }}
               />
             )}
-            <div className="se-list">
-              {sources.map((s) => (
-                <div key={s.id} className="se-source-item">
-                  <div className="se-source-row">
-                    <label className="se-toggle se-source-toggle">
-                      <input
+            {sources.length === 0 ? (
+              <p className="form-hint">No sources yet.</p>
+            ) : (
+              <div className="settings-group">
+                {sources.map((s) => (
+                  <SettingsItem
+                    key={s.id}
+                    leading={
+                      <Tooltip label="Enable / disable this source for hover lookups"><input
                         type="checkbox"
                         checked={!disabledSources.includes(s.name)}
                         onChange={(e) => toggleSourceDisabled(s.name, !e.target.checked)}
-                        title="Enable / disable this source for hover lookups"
+                        aria-label={`Use ${s.name} for hover lookups`}
+                      /></Tooltip>
+                    }
+                    title={s.name}
+                    badges={
+                      <>
+                        <span className={s.kind === 'builtin' ? 'settings-badge settings-badge--accent' : 'settings-badge'}>{s.kind}</span>
+                        {s.is_builtin && <span className="settings-badge">built-in</span>}
+                      </>
+                    }
+                    meta={
+                      s.kind === 'api_resource'
+                        ? (s.api_resource_id
+                          ? <><span>{apiResourceName(s.api_resource_id)}</span><code>{s.path_template}</code></>
+                          : <span className="se-unconfigured">Unconfigured — no API resource bound</span>)
+                        : <span>{s.picked_fields.length} field{s.picked_fields.length === 1 ? '' : 's'}</span>
+                    }
+                    actions={
+                      <>
+                        {s.kind !== 'builtin' && (
+                          <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => setEditingSource(editingSource === s.id ? null : s.id)}>
+                            {editingSource === s.id ? 'Close' : 'Edit'}
+                          </button>
+                        )}
+                        {!s.is_builtin && (
+                          <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => void removeSource(s.id, afterMutation, setError)}>
+                            Delete
+                          </button>
+                        )}
+                      </>
+                    }
+                  >
+                    {editingSource === s.id && s.kind !== 'builtin' && (
+                      <SourceForm
+                        apiResources={apiResources}
+                        initial={s}
+                        onCancel={() => setEditingSource(null)}
+                        onSave={async (draft) => {
+                          try {
+                            await updateSource(s.id, draft)
+                            setEditingSource(null)
+                            await afterMutation()
+                          } catch (err) { setError(getErrorMessage(err)) }
+                        }}
                       />
-                      <span className="se-source-name">{s.name}</span>
-                    </label>
-                    <span className={`se-chip ${s.kind === 'builtin' ? 'se-chip-builtin' : 'se-chip-api'}`}>{s.kind}</span>
-                    <span className="se-source-meta">
-                      {s.kind === 'api_resource'
-                        ? (s.api_resource_id ? `${apiResourceName(s.api_resource_id)} · ${s.path_template}` : '⚠ unconfigured (no API resource bound)')
-                        : `${s.picked_fields.length} field${s.picked_fields.length === 1 ? '' : 's'}`}
-                    </span>
-                    {s.is_builtin && <span className="se-badge">built-in</span>}
-                    {s.kind !== 'builtin' && (
-                      <button className="se-btn" onClick={() => setEditingSource(editingSource === s.id ? null : s.id)}>
-                        {editingSource === s.id ? 'Close' : 'Edit'}
-                      </button>
                     )}
-                    {!s.is_builtin && (
-                      <button className="se-btn se-btn-danger" onClick={() => void removeSource(s.id, afterMutation, setError)}>
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                  {editingSource === s.id && s.kind !== 'builtin' && (
-                    <SourceForm
-                      apiResources={apiResources}
-                      initial={s}
-                      onCancel={() => setEditingSource(null)}
-                      onSave={async (draft) => {
-                        try {
-                          await updateSource(s.id, draft)
-                          setEditingSource(null)
-                          await afterMutation()
-                        } catch (err) { setError(getErrorMessage(err)) }
-                      }}
-                    />
-                  )}
-                </div>
-              ))}
-              {sources.length === 0 && <div className="se-empty">No sources configured.</div>}
-            </div>
-          </section>
+                  </SettingsItem>
+                ))}
+              </div>
+            )}
+          </SettingsSection>
         </>
       )}
-    </div>
+    </>
   )
 }
 
@@ -342,16 +369,18 @@ function MatcherRow({
   sourceName: (id: string) => string
 }) {
   return (
-    <div className="se-matcher">
-      <div className="se-matcher-head" onClick={onToggle}>
-        <span className="se-matcher-name">{matcher.name}</span>
-        {matcher.is_builtin && <span className="se-badge">built-in</span>}
-        <span className="se-matcher-summary">
+    <SettingsItem
+      title={matcher.name}
+      badges={matcher.is_builtin && <span className="settings-badge">built-in</span>}
+      meta={
+        <span>
           {matcher.source_ids.length} source{matcher.source_ids.length === 1 ? '' : 's'}
           {matcher.cli_flavors.length > 0 && ` · ${matcher.cli_flavors.join(', ')}`}
         </span>
-        <span className="se-matcher-prio">p{matcher.priority}</span>
-      </div>
+      }
+      actions={<span className="settings-badge">p{matcher.priority}</span>}
+      onActivate={onToggle}
+    >
       {expanded && (
         <MatcherForm
           sources={sources}
@@ -379,7 +408,7 @@ function MatcherRow({
           }}
         />
       )}
-    </div>
+    </SettingsItem>
   )
 }
 
@@ -438,22 +467,22 @@ function MatcherForm({
   }
   const totalMatches = testResult?.reduce((n, r) => n + r.matches.length, 0) ?? 0
 
+  const fid = initial?.id ?? 'new'
   return (
-    <div className="se-matcher-body">
-      <div className="se-field-row">
-        <label className="se-field">
-          <span>Name</span>
-          <input value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} placeholder="e.g. vlan_id" />
-        </label>
-        <label className="se-field se-field-narrow">
-          <span>Priority</span>
-          <input value={priority} disabled={readOnly} onChange={(e) => setPriority(e.target.value)} />
-        </label>
+    <div className="settings-form">
+      <div className="settings-form-row">
+        <div className="form-group">
+          <label htmlFor={`matcher-name-${fid}`}>Name</label>
+          <AITabInput id={`matcher-name-${fid}`} value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} placeholder="e.g. vlan_id" aiField="token matcher name" aiPlaceholder="snake_case name for the token type this matcher recognizes" aiContext={{ patterns, cli_flavors: flavors, description }} onAIValue={setName} />
+        </div>
+        <div className="form-group form-group--narrow">
+          <label htmlFor={`matcher-priority-${fid}`}>Priority</label>
+          <input id={`matcher-priority-${fid}`} className="ns-input" data-ai-fill="off" value={priority} disabled={readOnly} onChange={(e) => setPriority(e.target.value)} />
+        </div>
       </div>
-      <label className="se-field">
-        <span>Description</span>
-        <AITabInput
-          value={description}
+      <div className="form-group">
+        <label htmlFor={`matcher-description-${fid}`}>Description</label>
+        <AITabInput id={`matcher-description-${fid}`} value={description}
           disabled={readOnly}
           onChange={(e) => setDescription(e.target.value)}
           onAIValue={(v) => setDescription(v)}
@@ -461,43 +490,43 @@ function MatcherForm({
           aiPlaceholder="Description of this token matcher"
           aiContext={{ name, patterns, cli_flavors: flavors }}
         />
-      </label>
-      <label className="se-field">
-        <span>Patterns (one regex per line)</span>
-        <textarea value={patterns} disabled={readOnly} onChange={(e) => setPatterns(e.target.value)} rows={Math.max(2, patternList.length)} />
-      </label>
-      <label className="se-field">
-        <span>CLI flavors (comma-separated; empty = all flavors)</span>
-        <input value={flavors} disabled={readOnly} onChange={(e) => setFlavors(e.target.value)} placeholder="cisco-ios, juniper" />
-      </label>
+      </div>
+      <div className="form-group">
+        <label htmlFor={`matcher-patterns-${fid}`}>Patterns (one regex per line)</label>
+        <AITabInput as="textarea" id={`matcher-patterns-${fid}`} className="settings-code se-patterns" value={patterns} disabled={readOnly} onChange={(e) => setPatterns(e.target.value)} rows={Math.max(2, patternList.length)} aiField="token regex patterns" aiPlaceholder="One Rust-syntax regex per line matching this token type in network device output" aiContext={{ name, description, cli_flavors: flavors }} onAIValue={setPatterns} />
+      </div>
+      <div className="form-group">
+        <label htmlFor={`matcher-flavors-${fid}`}>CLI flavors (comma-separated; empty = all flavors)</label>
+        <AITabInput id={`matcher-flavors-${fid}`} value={flavors} disabled={readOnly} onChange={(e) => setFlavors(e.target.value)} placeholder="cisco-ios, juniper" aiField="CLI flavors" aiPlaceholder="Comma-separated NetStacks CLI flavors this matcher applies to (linux, cisco-ios, cisco-ios-xr, cisco-nxos, juniper, arista, paloalto, fortinet)" aiContext={{ name, patterns }} onAIValue={setFlavors} />
+      </div>
 
-      <div className="se-field">
-        <span>Assigned sources</span>
+      <div className="form-group">
+        <span className="se-label">Assigned sources</span>
         <div className="se-source-grid">
           {sources.map((s) => (
-            <label key={s.id} className="se-source-check">
+            <label key={s.id}>
               <input
                 type="checkbox"
                 checked={assigned.includes(s.id)}
                 onChange={(e) => setAssigned(e.target.checked ? [...assigned, s.id] : assigned.filter((id) => id !== s.id))}
               />
-              <span>{sourceName(s.id)}</span>
+              {sourceName(s.id)}
             </label>
           ))}
         </div>
       </div>
 
-      <div className="se-field">
-        <span>Test against sample text</span>
-        <input value={testText} placeholder="e.g. interface Gi0/1 is up, mac aabb.ccdd.eeff" onChange={(e) => setTestText(e.target.value)} />
-        <div className="se-test-row">
-          <button className="se-btn" onClick={() => void runTest()}>Test</button>
-          {testResult && <span className="se-test-result">{totalMatches} match{totalMatches === 1 ? '' : 'es'}</span>}
+      <div className="form-group">
+        <label htmlFor={`matcher-test-${fid}`}>Test against sample text</label>
+        <div className="se-inline-row">
+          <AITabInput id={`matcher-test-${fid}`} className="settings-code" value={testText} placeholder="e.g. interface Gi0/1 is up, mac aabb.ccdd.eeff" onChange={(e) => setTestText(e.target.value)} aiField="sample device output" aiPlaceholder="One realistic line of network device output that these patterns should match" aiContext={{ name, patterns, cli_flavors: flavors }} onAIValue={setTestText} />
+          <button className="ns-btn" onClick={() => void runTest()}>Test</button>
         </div>
+        {testResult && <p className="form-hint">{totalMatches} match{totalMatches === 1 ? '' : 'es'}</p>}
         {testResult && testResult.map((r, ri) => (
           <div key={ri} className="se-match-row">
             {r.error ? (
-              <span className="se-test-error">{r.pattern}: {r.error}</span>
+              <span className="settings-error">{r.pattern}: {r.error}</span>
             ) : r.matches.length === 0 ? (
               <span className="se-match-none"><code>{r.pattern}</code> — no matches</span>
             ) : (
@@ -510,13 +539,12 @@ function MatcherForm({
         ))}
       </div>
 
-      <div className="se-matcher-actions">
-        <button className="se-btn se-btn-primary" disabled={saving || !name.trim() || patternList.length === 0} onClick={() => void save()}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button className="se-btn" onClick={onCancel}>Cancel</button>
-        {onDelete && <button className="se-btn se-btn-danger" onClick={() => void onDelete()}>Delete</button>}
-      </div>
+      <DialogFooter
+        primary={{ label: saving ? 'Saving…' : 'Save', onClick: () => void save(), disabled: saving || !name.trim() || patternList.length === 0 }}
+        onCancel={onCancel}
+        leading={onDelete && <button className="ns-btn ns-btn--ghost ns-btn--danger" onClick={() => void onDelete()}>Delete</button>}
+        inline
+      />
     </div>
   )
 }
@@ -620,129 +648,135 @@ function SourceForm({
   const setField = (i: number, patch: Partial<PickedField>) =>
     setFields(fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)))
 
+  const fid = initial?.id ?? 'new'
   return (
-    <div className="se-matcher-body">
-      <div className="se-field-row">
-        <label className="se-field">
-          <span>Name{initial?.is_builtin ? ' (built-in — immutable)' : ''}</span>
-          <input value={name} disabled={initial?.is_builtin} onChange={(e) => setName(e.target.value)} placeholder="e.g. my_cmdb" />
-        </label>
-        <label className="se-field se-field-narrow">
-          <span>Kind</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!!initial}>
+    <div className="settings-form">
+      <div className="settings-form-row">
+        <div className="form-group">
+          <label htmlFor={`source-name-${fid}`}>Name{initial?.is_builtin ? ' (built-in — immutable)' : ''}</label>
+          <AITabInput id={`source-name-${fid}`} value={name} disabled={initial?.is_builtin} onChange={(e) => setName(e.target.value)} placeholder="e.g. my_cmdb" aiField="enrichment source name" aiPlaceholder="snake_case name for this hover-enrichment data source" aiContext={{ kind, path_template: pathTemplate }} onAIValue={setName} />
+        </div>
+        <div className="form-group se-narrow-select">
+          <label htmlFor={`source-kind-${fid}`}>Kind</label>
+          <select id={`source-kind-${fid}`} className="ns-select" value={kind} onChange={(e) => setKind(e.target.value)} disabled={!!initial}>
             <option value="api_resource">api_resource</option>
             <option value="builtin">builtin</option>
           </select>
-        </label>
+        </div>
       </div>
-      <label className="se-field">
-        <span>Description</span>
-        <AITabInput
-          value={description}
+      <div className="form-group">
+        <label htmlFor={`source-description-${fid}`}>Description</label>
+        <AITabInput id={`source-description-${fid}`} value={description}
           onChange={(e) => setDescription(e.target.value)}
           onAIValue={(v) => setDescription(v)}
           aiField="source_description"
           aiPlaceholder="Description of this enrichment source"
           aiContext={{ name, api_resource: apiResourceId, path_template: pathTemplate }}
         />
-      </label>
+      </div>
 
       {isApi && (
         <>
-          <div className="se-field-row">
-            <label className="se-field">
-              <span>API resource</span>
-              <select value={apiResourceId ?? ''} onChange={(e) => setApiResourceId(e.target.value || null)}>
+          <div className="settings-form-row">
+            <div className="form-group">
+              <label htmlFor={`source-resource-${fid}`}>API resource</label>
+              <select id={`source-resource-${fid}`} className="ns-select" value={apiResourceId ?? ''} onChange={(e) => setApiResourceId(e.target.value || null)}>
                 <option value="">— none (unconfigured) —</option>
                 {apiResources.map((r) => (
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
-            </label>
-            <label className="se-field se-field-narrow">
-              <span>Method</span>
-              <select value={method} onChange={(e) => setMethod(e.target.value)}>
+            </div>
+            <div className="form-group se-narrow-select">
+              <label htmlFor={`source-method-${fid}`}>Method</label>
+              <select id={`source-method-${fid}`} className="ns-select" value={method} onChange={(e) => setMethod(e.target.value)}>
                 {METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
-            </label>
+            </div>
           </div>
-          <label className="se-field">
-            <span>Path template</span>
-            <input value={pathTemplate} onChange={(e) => setPathTemplate(e.target.value)} placeholder="/api/search?q={token_url}" />
-          </label>
-          <label className="se-field">
-            <span>Response unwrap (dotted/JSONPath; empty = whole body)</span>
-            <input value={responseUnwrap} onChange={(e) => setResponseUnwrap(e.target.value)} placeholder="results.0" />
-          </label>
-          <p className="se-hint">
-            Template vars: <code>{'{token}'}</code> <code>{'{token_url}'}</code> <code>{'{session_host}'}</code> <code>{'{session_host_ip}'}</code> <code>{'{session_name}'}</code>
-          </p>
+          <div className="form-group">
+            <label htmlFor={`source-path-${fid}`}>Path template</label>
+            <AITabInput id={`source-path-${fid}`} className="settings-code" value={pathTemplate} onChange={(e) => setPathTemplate(e.target.value)} placeholder="/api/search?q={token_url}" aiField="API path template" aiPlaceholder="Request path on the bound API Resource with {token_url} where the hovered token goes" aiContext={{ name, api_resource: apiResourceId }} onAIValue={setPathTemplate} />
+          </div>
+          <div className="form-group">
+            <label htmlFor={`source-unwrap-${fid}`}>Response unwrap (dotted/JSONPath; empty = whole body)</label>
+            <AITabInput id={`source-unwrap-${fid}`} className="settings-code" value={responseUnwrap} onChange={(e) => setResponseUnwrap(e.target.value)} placeholder="results.0" aiField="response unwrap path" aiPlaceholder="Dot path to the object inside the API response that holds the fields to show" aiContext={{ name, path_template: pathTemplate }} onAIValue={setResponseUnwrap} />
+            <p className="form-hint">
+              Template vars: <code>{'{token}'}</code> <code>{'{token_url}'}</code> <code>{'{session_host}'}</code> <code>{'{session_host_ip}'}</code> <code>{'{session_name}'}</code>
+            </p>
+          </div>
+
+          <div className="se-test-box">
+            <span className="se-label">Test source (draft)</span>
+            <p className="form-hint">
+              Runs the path template above as-is — no need to save first. Click a leaf in
+              the response to pick it as a field, or a container's “↳ unwrap” chip to set
+              the unwrap path. Works for built-in sources too.
+            </p>
+            <div className="se-inline-row">
+              <AITabInput className="settings-code"
+                aria-label="Sample token"
+                value={sampleToken}
+                placeholder="sample token (e.g. 8.8.8.8 or Gi0/1)"
+                onChange={(e) => setSampleToken(e.target.value)}
+                aiField="sample token"
+                aiPlaceholder="A realistic token (IP, MAC, interface or hostname) to test this source with"
+                aiContext={{ name, path_template: pathTemplate }}
+                onAIValue={setSampleToken}
+              />
+              <input className="ns-input" data-ai-fill="off"
+                aria-label="Sample session host"
+                value={sampleHost}
+                placeholder="sample session host (optional)"
+                onChange={(e) => setSampleHost(e.target.value)}
+              />
+              <button
+                className="ns-btn"
+                /* Only require a sample token when the path actually uses one.
+                   Session-host-based sources ({session_host}) can run without a
+                   token — otherwise the tester is stuck for those sources. */
+                disabled={testing || (/\{token(_url)?\}/.test(pathTemplate) && !sampleToken.trim())}
+                onClick={() => void runTest()}
+              >
+                {testing ? 'Testing…' : 'Run Test'}
+              </button>
+            </div>
+            {testError && <p className="settings-error">{testError}</p>}
+            {testResult && (
+              <EnrichmentSourceExplorer
+                result={testResult}
+                responseUnwrap={responseUnwrap}
+                setResponseUnwrap={setResponseUnwrap}
+                fields={fields}
+                setFields={setFields}
+              />
+            )}
+          </div>
         </>
       )}
 
-      {isApi && (
-        <div className="se-test-box">
-          <div className="se-test-title">🧪 Test source (draft)</div>
-          <p className="se-hint">
-            Runs the path template above as-is — no need to save first. Click a leaf in
-            the response to pick it as a field, or a container's “↳ unwrap” chip to set
-            the unwrap path. Works for built-in sources too.
-          </p>
-          <div className="se-test-controls">
-            <input
-              value={sampleToken}
-              placeholder="sample token (e.g. 8.8.8.8 or Gi0/1)"
-              onChange={(e) => setSampleToken(e.target.value)}
-            />
-            <input
-              value={sampleHost}
-              placeholder="sample session host (optional)"
-              onChange={(e) => setSampleHost(e.target.value)}
-            />
-            <button
-              className="se-btn"
-              /* Only require a sample token when the path actually uses one.
-                 Session-host-based sources ({session_host}) can run without a
-                 token — otherwise the tester is stuck for those sources. */
-              disabled={testing || (/\{token(_url)?\}/.test(pathTemplate) && !sampleToken.trim())}
-              onClick={() => void runTest()}
-            >
-              {testing ? 'Testing…' : 'Run Test'}
-            </button>
-          </div>
-          {testError && <div className="se-test-error">{testError}</div>}
-          {testResult && (
-            <EnrichmentSourceExplorer
-              result={testResult}
-              responseUnwrap={responseUnwrap}
-              setResponseUnwrap={setResponseUnwrap}
-              fields={fields}
-              setFields={setFields}
-            />
-          )}
-        </div>
-      )}
-
-      <div className="se-field">
-        <span>Picked fields (shown in the popup)</span>
+      <div className="form-group">
+        <span className="se-label">Picked fields (shown in the popup)</span>
         <div className="se-fields-editor">
           {fields.map((f, i) => (
-            <div key={i} className="se-field-rowedit">
-              <input className="se-fe-key" value={f.key} placeholder="key (e.g. device.name)" onChange={(e) => setField(i, { key: e.target.value })} />
-              <input className="se-fe-label" value={f.label} placeholder="label" onChange={(e) => setField(i, { label: e.target.value })} />
-              <select className="se-fe-format" value={f.format || 'string'} onChange={(e) => setField(i, { format: e.target.value })}>
+            <div key={i} className="se-inline-row">
+              <AITabInput className="settings-code se-fe-key" aria-label="Field key" value={f.key} placeholder="key (e.g. device.name)" onChange={(e) => setField(i, { key: e.target.value })} aiField="response field key" aiPlaceholder="Dot path of a field in the unwrapped response to show on hover" aiContext={{ name, unwrap: responseUnwrap, label: f.label }} onAIValue={(v) => setField(i, { key: v })} />
+              <AITabInput className="se-fe-label" aria-label="Field label" value={f.label} placeholder="label" onChange={(e) => setField(i, { label: e.target.value })} aiField="field label" aiPlaceholder="Short human label for this hover field" aiContext={{ key: f.key }} onAIValue={(v) => setField(i, { label: v })} />
+              <select aria-label="Format" className="ns-select se-fe-format" value={f.format || 'string'} onChange={(e) => setField(i, { format: e.target.value })}>
                 {FORMAT_OPTIONS.map((fmt) => <option key={fmt} value={fmt}>{fmt}</option>)}
               </select>
-              <button className="se-btn se-btn-danger" onClick={() => setFields(fields.filter((_, idx) => idx !== i))}>×</button>
+              <button className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn" onClick={() => setFields(fields.filter((_, idx) => idx !== i))} aria-label="Remove field">×</button>
             </div>
           ))}
-          <button className="se-btn" onClick={() => setFields([...fields, { key: '', label: '', format: 'string' }])}>+ Add field</button>
+          <div>
+            <button className="ns-btn ns-btn--small" onClick={() => setFields([...fields, { key: '', label: '', format: 'string' }])}>+ Add field</button>
+          </div>
         </div>
       </div>
 
       {preview && preview.length > 0 && (
-        <div className="se-field">
-          <span>Live preview (resolved against the last test response)</span>
+        <div className="form-group">
+          <span className="se-label">Live preview (resolved against the last test response)</span>
           <div className="se-preview">
             {preview.map((p, i) => (
               <div key={i} className="se-preview-row">
@@ -754,12 +788,11 @@ function SourceForm({
         </div>
       )}
 
-      <div className="se-matcher-actions">
-        <button className="se-btn se-btn-primary" disabled={saving || !name.trim()} onClick={() => void save()}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button className="se-btn" onClick={onCancel}>Cancel</button>
-      </div>
+      <DialogFooter
+        primary={{ label: saving ? 'Saving…' : 'Save', onClick: () => void save(), disabled: saving || !name.trim() }}
+        onCancel={onCancel}
+        inline
+      />
     </div>
   )
 }
@@ -767,6 +800,6 @@ function SourceForm({
 // ── Action helpers ──────────────────────────────────────────────────────────
 
 async function removeSource(id: string, after: () => Promise<void>, onError: (e: string) => void) {
-  if (!window.confirm('Delete this source?')) return
+  if (!(await confirmDialog({ title: 'Delete this source?', confirmLabel: 'Delete', destructive: true }))) return
   try { await deleteSource(id); await after() } catch (err) { onError(getErrorMessage(err)) }
 }

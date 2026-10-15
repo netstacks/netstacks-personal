@@ -13,13 +13,15 @@ import {
 import { CLI_FLAVOR_OPTIONS, listJumpHosts, listSessions, type CliFlavor, type JumpHost, type Session } from '../api/sessions';
 import { TERMINAL_THEMES } from '../lib/terminalThemes';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import { useMode } from '../hooks/useMode';
 import AITabInput from './AITabInput';
 import Switch from './Switch';
 import './ProfileEditorDialog.css';
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface ProfileEditorDialogProps {
   isOpen: boolean;
   profile: CredentialProfile | null; // null = create mode
@@ -128,7 +130,7 @@ export default function ProfileEditorDialog({
   const [newAutoCommand, setNewAutoCommand] = useState('');
 
   // Jump (default for sessions/tunnels using this profile). Encoded as a
-  // single string so a single <select> can offer both kinds in optgroups:
+  // single string so a single <select className="ns-select"> can offer both kinds in optgroups:
   //   ''             — none / direct
   //   'host:<id>'    — use a JumpHost record
   //   'session:<id>' — use another Session as the jump endpoint
@@ -310,11 +312,6 @@ export default function ProfileEditorDialog({
     if (await confirmDiscard()) onClose();
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({
-    onDismiss: guardedClose,
-    clickOutside: false,
-    enabled: isOpen && !saving,
-  });
 
   const handleSave = async () => {
     // Validation
@@ -424,507 +421,502 @@ export default function ProfileEditorDialog({
     : 'New Profile';
 
   return (
-    <div className="profile-dialog-overlay" {...backdropProps}>
-      <div className="profile-dialog" {...contentProps}>
-        <div className="profile-dialog-header">
-          <h2>{dialogTitle}</h2>
-          <button className="profile-dialog-close" onClick={guardedClose} title="Close" disabled={saving}>
-            {Icons.close}
+    <ModalFrame id="profile-editor" onDismiss={guardedClose} clickOutside={false} dismissEnabled={!saving} className="profile-dialog" label="Credential Profile">
+      <div className="profile-dialog-header">
+        <h2>{dialogTitle}</h2>
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn profile-dialog-close" onClick={guardedClose} aria-label="Close" disabled={saving}>
+          {Icons.close}
+        </button></Tooltip>
+      </div>
+
+      <div className="profile-dialog-tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`profile-dialog-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
           </button>
-        </div>
+        ))}
+      </div>
 
-        <div className="profile-dialog-tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={`profile-dialog-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="profile-dialog-content">
+        {error && <div className="profile-dialog-error">{error}</div>}
 
-        <div className="profile-dialog-content">
-          {error && <div className="profile-dialog-error">{error}</div>}
-
-          {/* Auth Tab */}
-          {activeTab === 'auth' && (
-            <div className="profile-tab-content">
-              <div className="form-section">
-                <h3>Profile Identity</h3>
-                <div className="form-group">
-                  <label htmlFor="profile-name">Profile Name</label>
-                  <AITabInput
-                    ref={nameInputRef}
-                    id="profile-name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    onAIValue={(v) => setName(v)}
-                    aiField="profile_name"
-                    aiPlaceholder="Name for this connection profile"
-                    aiContext={{ cliFlavor }}
-                    placeholder="e.g., Cisco Production"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="profile-username">Username</label>
-                  <input
-                    id="profile-username"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="admin"
-                  />
-                </div>
+        {/* Auth Tab */}
+        {activeTab === 'auth' && (
+          <div className="profile-tab-content">
+            <div className="form-section">
+              <h3>Profile Identity</h3>
+              <div className="form-group">
+                <label htmlFor="profile-name">Profile Name</label>
+                <AITabInput
+                  ref={nameInputRef}
+                  id="profile-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onAIValue={(v) => setName(v)}
+                  aiField="profile_name"
+                  aiPlaceholder="Name for this connection profile"
+                  aiContext={{ cliFlavor }}
+                  placeholder="e.g., Cisco Production"
+                />
               </div>
 
-              <div className="form-section">
-                <h3>Authentication</h3>
-                <div className="form-group">
-                  <label>Auth Type</label>
-                  <div className="radio-group">
-                    <label className="radio-label">
-                      <input
-                        type="radio"
-                        name="auth-type"
-                        value="password"
-                        checked={authType === 'password'}
-                        onChange={() => setAuthType('password')}
-                      />
-                      <span>Password</span>
-                    </label>
-                    <label className="radio-label">
-                      <input
-                        type="radio"
-                        name="auth-type"
-                        value="key"
-                        checked={authType === 'key'}
-                        onChange={() => setAuthType('key')}
-                      />
-                      <span>Public Key</span>
-                    </label>
-                  </div>
-                </div>
-
-                {authType === 'password' && (
-                  <div className="form-group">
-                    <label htmlFor="profile-password">Password</label>
-                    <PasswordInput
-                      id="profile-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder={isEditing ? '(leave blank to keep existing)' : 'Enter password'}
-                    />
-                    <span className="form-hint">Stored securely in the vault</span>
-                  </div>
-                )}
-
-                {authType === 'key' && (
-                  <>
-                    <div className="form-group">
-                      <label htmlFor="profile-key-path">Key File Path</label>
-                      <input
-                        id="profile-key-path"
-                        type="text"
-                        value={keyPath}
-                        onChange={(e) => setKeyPath(e.target.value)}
-                        placeholder="~/.ssh/id_ed25519"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="profile-key-passphrase">Key Passphrase (optional)</label>
-                      <PasswordInput
-                        id="profile-key-passphrase"
-                        value={keyPassphrase}
-                        onChange={(e) => setKeyPassphrase(e.target.value)}
-                        placeholder={isEditing ? '(leave blank to keep existing)' : 'If key is encrypted'}
-                      />
-                    </div>
-                  </>
-                )}
+              <div className="form-group">
+                <label htmlFor="profile-username">Username</label>
+                <input data-ai-fill="off" className="ns-input"
+                  id="profile-username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="admin"
+                />
               </div>
             </div>
-          )}
 
-          {/* Connection Tab */}
-          {activeTab === 'conn' && (
-            <div className="profile-tab-content">
-              <div className="form-section">
-                <h3>Connection Settings</h3>
-                <div className="form-group">
-                  <label htmlFor="profile-port">Default Port</label>
-                  <input
-                    id="profile-port"
-                    type="number"
-                    value={port}
-                    onChange={(e) => setPort(parseInt(e.target.value) || 22)}
-                    min={1}
-                    max={65535}
-                    style={{ width: '100px' }}
-                  />
-                  <span className="form-hint">SSH port (default: 22)</span>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="keepalive-interval">Keepalive Interval (seconds)</label>
-                  <input
-                    id="keepalive-interval"
-                    type="number"
-                    value={keepaliveInterval}
-                    onChange={(e) => setKeepaliveInterval(parseInt(e.target.value) || 30)}
-                    min={0}
-                    max={600}
-                    style={{ width: '100px' }}
-                  />
-                  <span className="form-hint">Seconds between keepalive packets (0 to disable)</span>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="connection-timeout">Connection Timeout (seconds)</label>
-                  <input
-                    id="connection-timeout"
-                    type="number"
-                    value={connectionTimeout}
-                    onChange={(e) => setConnectionTimeout(parseInt(e.target.value) || 30)}
-                    min={1}
-                    max={300}
-                    style={{ width: '100px' }}
-                  />
-                  <span className="form-hint">Timeout for establishing connection</span>
-                </div>
-
-                {!isEnterprise && (
-                <div className="form-group">
-                  <label htmlFor="profile-jump-host">Default Jump</label>
-                  <select
-                    id="profile-jump-host"
-                    value={jumpSelection}
-                    onChange={(e) => setJumpSelection(e.target.value)}
-                  >
-                    <option value="">(None — direct connect)</option>
-                    {jumpSessions.length > 0 && (
-                      <optgroup label="Sessions">
-                        {jumpSessions.map((s) => (
-                          <option key={`session:${s.id}`} value={`session:${s.id}`}>
-                            {s.name} ({s.host})
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {jumpHosts.length > 0 && (
-                      <optgroup label="Jump Hosts">
-                        {jumpHosts.map((jh) => (
-                          <option key={`host:${jh.id}`} value={`host:${jh.id}`}>
-                            {jh.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
-                  <span className="form-hint">
-                    Sessions and tunnels using this profile connect through this jump
-                    by default. You can pick another Session as the jump (one source
-                    of truth per machine) or use a dedicated Jump Host record.
-                    Can be overridden per-session or per-tunnel.
-                  </span>
-                </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Terminal Tab */}
-          {activeTab === 'terminal' && (
-            <div className="profile-tab-content">
-              <div className="form-section">
-                <h3>Behavior</h3>
-                <div className="form-group">
-                  <div className="setting-row">
-                    <div>
-                      <label>Auto-Reconnect</label>
-                      <span className="form-hint">Automatically reconnect when disconnected</span>
-                    </div>
-                    <Switch checked={autoReconnect} onChange={setAutoReconnect} label="Auto-Reconnect" />
-                  </div>
-                </div>
-
-                {autoReconnect && (
-                  <div className="form-group">
-                    <label htmlFor="profile-reconnect-delay">Reconnect Delay (seconds)</label>
+            <div className="form-section">
+              <h3>Authentication</h3>
+              <div className="form-group">
+                <label>Auth Type</label>
+                <div className="radio-group">
+                  <label className="radio-label">
                     <input
-                      id="profile-reconnect-delay"
-                      type="number"
-                      value={reconnectDelay}
-                      onChange={(e) => setReconnectDelay(parseInt(e.target.value) || 5)}
-                      min={1}
-                      max={60}
-                      style={{ width: '100px' }}
+                      type="radio"
+                      name="auth-type"
+                      value="password"
+                      checked={authType === 'password'}
+                      onChange={() => setAuthType('password')}
                     />
-                  </div>
-                )}
-
-                <div className="form-group">
-                  <label htmlFor="profile-scrollback">Scrollback Lines</label>
-                  <input
-                    id="profile-scrollback"
-                    type="number"
-                    value={scrollbackLines}
-                    onChange={(e) => setScrollbackLines(parseInt(e.target.value) || 10000)}
-                    min={100}
-                    max={100000}
-                    style={{ width: '120px' }}
-                  />
-                  <span className="form-hint">Number of lines to keep in terminal history</span>
-                </div>
-
-                <div className="form-group">
-                  <div className="setting-row">
-                    <div>
-                      <label>Local Echo</label>
-                      <span className="form-hint">Echo typed characters locally</span>
-                    </div>
-                    <Switch checked={localEcho} onChange={setLocalEcho} label="Local Echo" />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="profile-cli-flavor">CLI Flavor</label>
-                  <select
-                    id="profile-cli-flavor"
-                    value={cliFlavor}
-                    onChange={(e) => setCliFlavor(e.target.value as CliFlavor)}
-                  >
-                    {CLI_FLAVOR_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Default CLI type for AI command suggestions on sessions using this profile
-                  </span>
-                </div>
-              </div>
-
-              <div className="form-section">
-                <h3>Display</h3>
-                <div className="form-group">
-                  <label>Terminal Theme</label>
-                  <select
-                    value={terminalTheme || ''}
-                    onChange={(e) => setTerminalTheme(e.target.value || null)}
-                  >
-                    <option value="">Default</option>
-                    {TERMINAL_THEMES.map((theme) => (
-                      <option key={theme.id} value={theme.id}>
-                        {theme.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Default terminal theme for sessions using this profile
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label>Font Family</label>
-                  <select
-                    value={defaultFontFamily || ''}
-                    onChange={(e) => setDefaultFontFamily(e.target.value || null)}
-                  >
-                    {FONT_FAMILY_OPTIONS.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Default font for sessions using this profile
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="profile-font-size">
-                    Font Size: {defaultFontSize ?? 14}px
+                    <span>Password</span>
                   </label>
-                  <div className="slider-container">
-                    <span className="slider-label">8</span>
+                  <label className="radio-label">
                     <input
-                      id="profile-font-size"
-                      type="range"
-                      value={defaultFontSize ?? 14}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        setDefaultFontSize(val === 14 ? null : val);
-                      }}
-                      min={8}
-                      max={32}
-                      step={1}
-                      className="font-size-slider"
+                      type="radio"
+                      name="auth-type"
+                      value="key"
+                      checked={authType === 'key'}
+                      onChange={() => setAuthType('key')}
                     />
-                    <span className="slider-label">32</span>
-                  </div>
-                  <span className="form-hint">
-                    Default font size for sessions using this profile. 14 = system default.
-                  </span>
+                    <span>Public Key</span>
+                  </label>
                 </div>
               </div>
 
-              <div className="form-section">
-                <h3>Auto Commands on Connect</h3>
-                <p className="form-hint" style={{ marginTop: 0 }}>
-                  Default commands that run automatically after connection. Sessions can override these.
-                </p>
-
-                {autoCommands.length > 0 && (
-                  <div className="auto-commands-list">
-                    {autoCommands.map((cmd, index) => (
-                      <div key={index} className="auto-command-item">
-                        <code>{cmd}</code>
-                        <button
-                          type="button"
-                          className="btn-icon btn-danger-icon"
-                          onClick={() => {
-                            setAutoCommands(autoCommands.filter((_, i) => i !== index));
-                          }}
-                          title="Remove command"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <div className="input-group">
-                    <AITabInput
-                      type="text"
-                      value={newAutoCommand}
-                      onChange={(e) => setNewAutoCommand(e.target.value)}
-                      onAIValue={(v) => setNewAutoCommand(v)}
-                      aiField="auto_command"
-                      aiPlaceholder="Command to run automatically on connect"
-                      aiContext={{ cliFlavor }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newAutoCommand.trim()) {
-                          e.preventDefault();
-                          setAutoCommands([...autoCommands, newAutoCommand.trim()]);
-                          setNewAutoCommand('');
-                        }
-                      }}
-                      placeholder="Enter command..."
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        if (newAutoCommand.trim()) {
-                          setAutoCommands([...autoCommands, newAutoCommand.trim()]);
-                          setNewAutoCommand('');
-                        }
-                      }}
-                      disabled={!newAutoCommand.trim()}
-                    >
-                      Add
-                    </button>
-                  </div>
+              {authType === 'password' && (
+                <div className="form-group">
+                  <label htmlFor="profile-password">Password</label>
+                  <PasswordInput
+                    id="profile-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={isEditing ? '(leave blank to keep existing)' : 'Enter password'}
+                  />
+                  <span className="form-hint">Stored securely in the vault</span>
                 </div>
+              )}
+
+              {authType === 'key' && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="profile-key-path">Key File Path</label>
+                    <input data-ai-fill="off" className="ns-input"
+                      id="profile-key-path"
+                      type="text"
+                      value={keyPath}
+                      onChange={(e) => setKeyPath(e.target.value)}
+                      placeholder="~/.ssh/id_ed25519"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="profile-key-passphrase">Key Passphrase (optional)</label>
+                    <PasswordInput
+                      id="profile-key-passphrase"
+                      value={keyPassphrase}
+                      onChange={(e) => setKeyPassphrase(e.target.value)}
+                      placeholder={isEditing ? '(leave blank to keep existing)' : 'If key is encrypted'}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Connection Tab */}
+        {activeTab === 'conn' && (
+          <div className="profile-tab-content">
+            <div className="form-section">
+              <h3>Connection Settings</h3>
+              <div className="form-group">
+                <label htmlFor="profile-port">Default Port</label>
+                <input className="ns-input"
+                  id="profile-port"
+                  type="number"
+                  value={port}
+                  onChange={(e) => setPort(parseInt(e.target.value) || 22)}
+                  min={1}
+                  max={65535}
+                  style={{ width: '100px' }}
+                />
+                <span className="form-hint">SSH port (default: 22)</span>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="keepalive-interval">Keepalive Interval (seconds)</label>
+                <input className="ns-input"
+                  id="keepalive-interval"
+                  type="number"
+                  value={keepaliveInterval}
+                  onChange={(e) => setKeepaliveInterval(parseInt(e.target.value) || 30)}
+                  min={0}
+                  max={600}
+                  style={{ width: '100px' }}
+                />
+                <span className="form-hint">Seconds between keepalive packets (0 to disable)</span>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="connection-timeout">Connection Timeout (seconds)</label>
+                <input className="ns-input"
+                  id="connection-timeout"
+                  type="number"
+                  value={connectionTimeout}
+                  onChange={(e) => setConnectionTimeout(parseInt(e.target.value) || 30)}
+                  min={1}
+                  max={300}
+                  style={{ width: '100px' }}
+                />
+                <span className="form-hint">Timeout for establishing connection</span>
+              </div>
+
+              {!isEnterprise && (
+              <div className="form-group">
+                <label htmlFor="profile-jump-host">Default Jump</label>
+                <select className="ns-select"
+                  id="profile-jump-host"
+                  value={jumpSelection}
+                  onChange={(e) => setJumpSelection(e.target.value)}
+                >
+                  <option value="">(None — direct connect)</option>
+                  {jumpSessions.length > 0 && (
+                    <optgroup label="Sessions">
+                      {jumpSessions.map((s) => (
+                        <option key={`session:${s.id}`} value={`session:${s.id}`}>
+                          {s.name} ({s.host})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {jumpHosts.length > 0 && (
+                    <optgroup label="Jump Hosts">
+                      {jumpHosts.map((jh) => (
+                        <option key={`host:${jh.id}`} value={`host:${jh.id}`}>
+                          {jh.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <span className="form-hint">
+                  Sessions and tunnels using this profile connect through this jump
+                  by default. You can pick another Session as the jump (one source
+                  of truth per machine) or use a dedicated Jump Host record.
+                  Can be overridden per-session or per-tunnel.
+                </span>
+              </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Terminal Tab */}
+        {activeTab === 'terminal' && (
+          <div className="profile-tab-content">
+            <div className="form-section">
+              <h3>Behavior</h3>
+              <div className="form-group">
+                <div className="setting-row">
+                  <div>
+                    <label>Auto-Reconnect</label>
+                    <span className="form-hint">Automatically reconnect when disconnected</span>
+                  </div>
+                  <Switch checked={autoReconnect} onChange={setAutoReconnect} label="Auto-Reconnect" />
+                </div>
+              </div>
+
+              {autoReconnect && (
+                <div className="form-group">
+                  <label htmlFor="profile-reconnect-delay">Reconnect Delay (seconds)</label>
+                  <input className="ns-input"
+                    id="profile-reconnect-delay"
+                    type="number"
+                    value={reconnectDelay}
+                    onChange={(e) => setReconnectDelay(parseInt(e.target.value) || 5)}
+                    min={1}
+                    max={60}
+                    style={{ width: '100px' }}
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label htmlFor="profile-scrollback">Scrollback Lines</label>
+                <input className="ns-input"
+                  id="profile-scrollback"
+                  type="number"
+                  value={scrollbackLines}
+                  onChange={(e) => setScrollbackLines(parseInt(e.target.value) || 10000)}
+                  min={100}
+                  max={100000}
+                  style={{ width: '120px' }}
+                />
+                <span className="form-hint">Number of lines to keep in terminal history</span>
+              </div>
+
+              <div className="form-group">
+                <div className="setting-row">
+                  <div>
+                    <label>Local Echo</label>
+                    <span className="form-hint">Echo typed characters locally</span>
+                  </div>
+                  <Switch checked={localEcho} onChange={setLocalEcho} label="Local Echo" />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="profile-cli-flavor">CLI Flavor</label>
+                <select className="ns-select"
+                  id="profile-cli-flavor"
+                  value={cliFlavor}
+                  onChange={(e) => setCliFlavor(e.target.value as CliFlavor)}
+                >
+                  {CLI_FLAVOR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Default CLI type for AI command suggestions on sessions using this profile
+                </span>
               </div>
             </div>
-          )}
 
-          {/* SNMP Tab */}
-          {activeTab === 'snmp' && (
-            <div className="profile-tab-content">
-              <div className="form-section">
-                <h3>SNMP Community Strings</h3>
-                <div className="form-hint-block">
-                  Community strings used for SNMPv2c polling. Multiple communities are tried in order
-                  when discovering devices. Stored encrypted in the vault.
+            <div className="form-section">
+              <h3>Display</h3>
+              <div className="form-group">
+                <label>Terminal Theme</label>
+                <select aria-label="Terminal Theme" className="ns-select"
+                  value={terminalTheme || ''}
+                  onChange={(e) => setTerminalTheme(e.target.value || null)}
+                >
+                  <option value="">Default</option>
+                  {TERMINAL_THEMES.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {theme.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Default terminal theme for sessions using this profile
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label>Font Family</label>
+                <select aria-label="Font Family" className="ns-select"
+                  value={defaultFontFamily || ''}
+                  onChange={(e) => setDefaultFontFamily(e.target.value || null)}
+                >
+                  {FONT_FAMILY_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Default font for sessions using this profile
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="profile-font-size">
+                  Font Size: {defaultFontSize ?? 14}px
+                </label>
+                <div className="slider-container">
+                  <span className="slider-label">8</span>
+                  <input
+                    id="profile-font-size"
+                    type="range"
+                    value={defaultFontSize ?? 14}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setDefaultFontSize(val === 14 ? null : val);
+                    }}
+                    min={8}
+                    max={32}
+                    step={1}
+                    className="font-size-slider"
+                  />
+                  <span className="slider-label">32</span>
                 </div>
+                <span className="form-hint">
+                  Default font size for sessions using this profile. 14 = system default.
+                </span>
+              </div>
+            </div>
 
-                {credentialMetaError && (
-                  <div className="snmp-existing-indicator">
-                    {credentialMetaError} Existing community strings can't be shown while the vault is locked;
-                    saving new ones below will replace whatever is stored.
-                  </div>
-                )}
+            <div className="form-section">
+              <h3>Auto Commands on Connect</h3>
+              <p className="form-hint">
+                Default commands that run automatically after connection. Sessions can override these.
+              </p>
 
-                {existingCommunityCount > 0 && snmpCommunities.length === 0 && (
-                  <div className="snmp-existing-indicator">
-                    {existingCommunityCount} community {existingCommunityCount === 1 ? 'string' : 'strings'} configured.
-                    Add new ones below to replace them.
-                  </div>
-                )}
+              {autoCommands.length > 0 && (
+                <div className="auto-commands-list">
+                  {autoCommands.map((cmd, index) => (
+                    <div key={index} className="auto-command-item">
+                      <code>{cmd}</code>
+                      <Tooltip label="Remove command"><button aria-label="Remove command"
+                        type="button"
+                        className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
+                        onClick={() => {
+                          setAutoCommands(autoCommands.filter((_, i) => i !== index));
+                        }}
+                      >
+                        ×
+                      </button></Tooltip>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-                {snmpCommunities.length > 0 && (
-                  <div className="snmp-communities-list">
-                    {snmpCommunities.map((community, index) => (
-                      <div key={index} className="snmp-community-item">
-                        <span className="snmp-community-value">{'•'.repeat(community.length)}</span>
-                        <button
-                          className="snmp-community-delete"
-                          onClick={() => setSnmpCommunities(snmpCommunities.filter((_, i) => i !== index))}
-                          title="Remove"
-                        >
-                          {Icons.trash}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="snmp-community-add">
-                  <PasswordInput
-                    placeholder="Community string (e.g., public)"
-                    value={newCommunity}
-                    onChange={(e) => setNewCommunity(e.target.value)}
+              <div className="form-group">
+                <div className="input-group">
+                  <AITabInput
+                    type="text"
+                    value={newAutoCommand}
+                    onChange={(e) => setNewAutoCommand(e.target.value)}
+                    onAIValue={(v) => setNewAutoCommand(v)}
+                    aiField="auto_command"
+                    aiPlaceholder="Command to run automatically on connect"
+                    aiContext={{ cliFlavor }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newCommunity.trim()) {
-                        setSnmpCommunities([...snmpCommunities, newCommunity.trim()]);
-                        setNewCommunity('');
+                      if (e.key === 'Enter' && newAutoCommand.trim()) {
+                        e.preventDefault();
+                        setAutoCommands([...autoCommands, newAutoCommand.trim()]);
+                        setNewAutoCommand('');
                       }
                     }}
-                    className="snmp-community-input"
+                    placeholder="Enter command..."
                   />
                   <button
-                    className="btn-icon-small"
+                    type="button"
+                    className="ns-btn"
                     onClick={() => {
-                      if (newCommunity.trim()) {
-                        setSnmpCommunities([...snmpCommunities, newCommunity.trim()]);
-                        setNewCommunity('');
+                      if (newAutoCommand.trim()) {
+                        setAutoCommands([...autoCommands, newAutoCommand.trim()]);
+                        setNewAutoCommand('');
                       }
                     }}
-                    disabled={!newCommunity.trim()}
-                    title="Add"
+                    disabled={!newAutoCommand.trim()}
                   >
-                    {Icons.plus}
+                    Add
                   </button>
                 </div>
-
-                {snmpCommunities.length > 0 && existingCommunityCount > 0 && (
-                  <span className="form-hint form-hint-warning">
-                    Saving will replace the existing {existingCommunityCount} community {existingCommunityCount === 1 ? 'string' : 'strings'}.
-                  </span>
-                )}
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        <div className="profile-dialog-actions">
-          <button className="btn-secondary" onClick={guardedClose} disabled={saving}>
-            Cancel
-          </button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
+        {/* SNMP Tab */}
+        {activeTab === 'snmp' && (
+          <div className="profile-tab-content">
+            <div className="form-section">
+              <h3>SNMP Community Strings</h3>
+              <div className="form-hint">
+                Community strings used for SNMPv2c polling. Multiple communities are tried in order
+                when discovering devices. Stored encrypted in the vault.
+              </div>
+
+              {credentialMetaError && (
+                <div className="snmp-existing-indicator">
+                  {credentialMetaError} Existing community strings can't be shown while the vault is locked;
+                  saving new ones below will replace whatever is stored.
+                </div>
+              )}
+
+              {existingCommunityCount > 0 && snmpCommunities.length === 0 && (
+                <div className="snmp-existing-indicator">
+                  {existingCommunityCount} community {existingCommunityCount === 1 ? 'string' : 'strings'} configured.
+                  Add new ones below to replace them.
+                </div>
+              )}
+
+              {snmpCommunities.length > 0 && (
+                <div className="snmp-communities-list">
+                  {snmpCommunities.map((community, index) => (
+                    <div key={index} className="snmp-community-item">
+                      <span className="snmp-community-value">{'•'.repeat(community.length)}</span>
+                      <Tooltip label="Remove"><button
+                        className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small snmp-community-delete"
+                        onClick={() => setSnmpCommunities(snmpCommunities.filter((_, i) => i !== index))}
+                        aria-label="Remove"
+                      >
+                        {Icons.trash}
+                      </button></Tooltip>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="snmp-community-add">
+                <PasswordInput
+                  placeholder="Community string (e.g., public)"
+                  value={newCommunity}
+                  onChange={(e) => setNewCommunity(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newCommunity.trim()) {
+                      e.preventDefault();
+                      setSnmpCommunities([...snmpCommunities, newCommunity.trim()]);
+                      setNewCommunity('');
+                    }
+                  }}
+                  className="snmp-community-input"
+                />
+                <Tooltip label="Add"><button
+                  className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
+                  onClick={() => {
+                    if (newCommunity.trim()) {
+                      setSnmpCommunities([...snmpCommunities, newCommunity.trim()]);
+                      setNewCommunity('');
+                    }
+                  }}
+                  disabled={!newCommunity.trim()}
+                  aria-label="Add"
+                >
+                  {Icons.plus}
+                </button></Tooltip>
+              </div>
+
+              {snmpCommunities.length > 0 && existingCommunityCount > 0 && (
+                <span className="form-hint form-hint-warning">
+                  Saving will replace the existing {existingCommunityCount} community {existingCommunityCount === 1 ? 'string' : 'strings'}.
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+
+      <DialogFooter
+        primary={{ label: saving ? 'Saving...' : 'Save', onClick: handleSave, disabled: saving }}
+        onCancel={guardedClose}
+        cancelDisabled={saving}
+      />
+    </ModalFrame>
   );
 }

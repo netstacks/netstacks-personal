@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import './FindBar.css'
+import Tooltip from './Tooltip'
 
 interface FindBarProps {
   visible: boolean
@@ -68,7 +69,7 @@ export default function FindBar({
   return (
     <div className="find-bar" onKeyDown={handleKeyDown}>
       <div className="find-bar-input-container">
-        <input
+        <input data-ai-fill="off"
           ref={inputRef}
           type="text"
           className="find-bar-input"
@@ -86,57 +87,57 @@ export default function FindBar({
       </div>
 
       <div className="find-bar-buttons">
-        <button
+        <Tooltip label="Previous match (Shift+Enter)"><button
           className="find-bar-btn"
           onClick={onPrev}
           disabled={matchCount === 0}
-          title="Previous match (Shift+Enter)"
+          aria-label="Previous match (Shift+Enter)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="18 15 12 9 6 15" />
           </svg>
-        </button>
-        <button
+        </button></Tooltip>
+        <Tooltip label="Next match (Enter)"><button
           className="find-bar-btn"
           onClick={onNext}
           disabled={matchCount === 0}
-          title="Next match (Enter)"
+          aria-label="Next match (Enter)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="6 9 12 15 18 9" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="find-bar-options">
-        <label className="find-bar-option" title="Match case">
+        <Tooltip label="Match case"><label className="find-bar-option">
           <input
             type="checkbox"
             checked={caseSensitive}
             onChange={(e) => setCaseSensitive(e.target.checked)}
           />
           <span>Aa</span>
-        </label>
-        <label className="find-bar-option" title="Use regular expression">
+        </label></Tooltip>
+        <Tooltip label="Use regular expression"><label className="find-bar-option">
           <input
             type="checkbox"
             checked={regex}
             onChange={(e) => setRegex(e.target.checked)}
           />
           <span>.*</span>
-        </label>
+        </label></Tooltip>
       </div>
 
-      <button
+      <Tooltip label="Close (Escape)"><button
         className="find-bar-close"
         onClick={onClose}
-        title="Close (Escape)"
+        aria-label="Close (Escape)"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
-      </button>
+      </button></Tooltip>
     </div>
   )
 }

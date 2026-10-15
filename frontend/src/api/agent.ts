@@ -3,18 +3,9 @@
 
 import type { CliFlavor } from './sessions';
 import type { AgentTool, ToolResult } from '../lib/agentTools';
-import type { ValidationResult } from '../lib/readOnlyFilter';
 
 // Re-export for convenience
 export type { AgentTool, ToolResult };
-
-/**
- * Permission modes (mirrors Claude Code approach)
- * - ask: User approves every tool call
- * - auto: Read-only commands auto-execute, writes need approval
- * - yolo: Everything auto-executes — no approval needed
- */
-export type PermissionMode = 'ask' | 'auto' | 'yolo';
 
 /**
  * Agent state machine states
@@ -58,14 +49,17 @@ export interface AgentMessage {
 }
 
 /**
- * A command pending user approval
+ * A tool call pending user approval
  */
 export interface PendingCommand {
   id: string;
+  /** Human-readable rendering of the call */
   command: string;
   sessionId: string;
   sessionName: string;
-  validation: ValidationResult;
+  toolName: string;
+  /** Why it needs approval (from the permission resolver) */
+  reason: string;
 }
 
 /**

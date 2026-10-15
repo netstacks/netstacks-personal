@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import './TransferProgress.css'
+import Tooltip from './Tooltip'
 
 export interface TransferItem {
   id: string
@@ -151,28 +152,28 @@ function TransferItemRow({
 
       <div className="transfer-item-actions">
         {isInProgress && (
-          <button
+          <Tooltip label="Cancel transfer"><button
             className="transfer-item-action transfer-item-cancel"
             onClick={() => onCancel(transfer.id)}
-            title="Cancel transfer"
+            aria-label="Cancel transfer"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
         {isFinished && (
-          <button
+          <Tooltip label="Remove from list"><button
             className="transfer-item-action transfer-item-clear"
             onClick={() => onClear(transfer.id)}
-            title="Remove from list"
+            aria-label="Remove from list"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
       </div>
     </div>
@@ -230,24 +231,23 @@ export default function TransferProgress({
         </h3>
         <div className="transfer-progress-actions">
           {(completedCount > 0 || errorCount > 0) && (
-            <button
+            <Tooltip label="Clear completed"><button
               className="transfer-progress-clear-all"
               onClick={onClearAll}
-              title="Clear completed"
             >
               Clear All
-            </button>
+            </button></Tooltip>
           )}
           {onMinimize && (
-            <button
+            <Tooltip label="Minimize"><button
               className="transfer-progress-minimize"
               onClick={onMinimize}
-              title="Minimize"
+              aria-label="Minimize"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
         </div>
       </div>

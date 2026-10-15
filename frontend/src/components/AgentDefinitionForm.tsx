@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { AgentDefinition, CreateAgentDefinitionRequest, UpdateAgentDefinitionRequest } from '../api/agentDefinitions';
 import AITabInput from './AITabInput';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
 
+import DialogFooter from './DialogFooter';
 interface AgentDefinitionFormProps {
   /** Existing definition for edit mode; null for create mode */
   definition?: AgentDefinition | null;
@@ -69,6 +70,7 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
     onCancel();
   }, [confirmDiscard, onCancel]);
 
+  const formRef = useRef<HTMLFormElement>(null);
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !systemPrompt.trim()) return;
@@ -104,7 +106,7 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
   }, [name, description, systemPrompt, provider, model, temperature, maxIterations, maxTokens, enabled, isEdit, onSave]);
 
   return (
-    <form className="agent-def-form" onSubmit={handleSubmit}>
+    <form ref={formRef} className="agent-def-form" onSubmit={handleSubmit}>
       <div className="agent-def-form-title">{isEdit ? 'Edit Agent' : 'New Agent'}</div>
 
       <div className="agent-def-form-field">
@@ -155,7 +157,8 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
       <div className="agent-def-form-row">
         <div className="agent-def-form-field">
           <label>Provider</label>
-          <select
+          <select aria-label="Provider"
+            className="ns-select"
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
             disabled={isSaving}
@@ -171,7 +174,8 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
 
         <div className="agent-def-form-field">
           <label>Model</label>
-          <input
+          <input data-ai-fill="off"
+            className="ns-input"
             type="text"
             value={model}
             onChange={(e) => setModel(e.target.value)}
@@ -185,6 +189,7 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
         <div className="agent-def-form-field">
           <label>Temperature</label>
           <input
+            className="ns-input"
             type="number"
             value={temperature}
             onChange={(e) => setTemperature(e.target.value)}
@@ -198,7 +203,8 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
 
         <div className="agent-def-form-field">
           <label>Max Iterations</label>
-          <input
+          <input aria-label="Max Iterations"
+            className="ns-input"
             type="number"
             value={maxIterations}
             onChange={(e) => setMaxIterations(parseInt(e.target.value, 10) || 15)}
@@ -210,7 +216,8 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
 
         <div className="agent-def-form-field">
           <label>Max Tokens</label>
-          <input
+          <input aria-label="Max Tokens"
+            className="ns-input"
             type="number"
             value={maxTokens}
             onChange={(e) => setMaxTokens(parseInt(e.target.value, 10) || 4096)}
@@ -236,18 +243,16 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
         </div>
       )}
 
-      <div className="agent-def-form-actions">
-        <button type="button" onClick={handleCancel} disabled={isSaving} className="cancel-btn">
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={!name.trim() || !systemPrompt.trim() || isSaving}
-          className="submit-btn"
-        >
-          {isSaving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Agent'}
-        </button>
-      </div>
+      <DialogFooter
+        primary={{
+          label: isSaving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Agent',
+          onClick: () => formRef.current?.requestSubmit(),
+          disabled: !name.trim() || !systemPrompt.trim() || isSaving,
+        }}
+        onCancel={handleCancel}
+        cancelDisabled={isSaving}
+        inline
+      />
     </form>
   );
 }

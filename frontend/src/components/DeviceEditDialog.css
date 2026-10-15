@@ -1,22 +1,9 @@
 /* DeviceEditDialog styles */
 
-.device-edit-dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-}
-
 .device-edit-dialog {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   width: 400px;
   max-width: 90vw;
   max-height: 90vh;
@@ -40,23 +27,6 @@
   color: var(--color-text-primary);
 }
 
-.device-edit-dialog-close {
-  background: transparent;
-  border: none;
-  padding: 4px;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-}
-
-.device-edit-dialog-close:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
 .device-edit-dialog-content {
   padding: 20px;
   display: flex;
@@ -65,6 +35,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .device-edit-field {
@@ -79,62 +50,4 @@
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.device-edit-field input,
-.device-edit-field select {
-  padding: 10px 12px;
-  background: var(--color-bg-input);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-family: inherit;
-}
-
-.device-edit-field input:focus,
-.device-edit-field select:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.device-edit-field input::placeholder {
-  color: var(--color-text-muted);
-}
-
-.device-edit-dialog-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-
-.device-edit-btn-cancel,
-.device-edit-btn-save {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.device-edit-btn-cancel {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.device-edit-btn-cancel:hover {
-  background: var(--color-bg-hover);
-}
-
-.device-edit-btn-save {
-  background: var(--color-accent);
-  border: none;
-  color: var(--color-text-on-accent);
-}
-
-.device-edit-btn-save:hover {
-  background: var(--color-accent-hover);
 }

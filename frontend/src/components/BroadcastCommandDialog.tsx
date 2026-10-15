@@ -13,7 +13,9 @@ import AITabInput from './AITabInput';
 
 import { getErrorMessage } from '../api/errors'
 import { showToast } from './Toast';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface BroadcastCommandDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -71,13 +73,13 @@ const Icons = {
 function StatusIcon({ status }: { status: CommandStatus }) {
   switch (status) {
     case 'success':
-      return <span className="status-icon status-success" title="Success">&#10003;</span>;
+      return <Tooltip label="Success"><span className="status-icon status-success">&#10003;</span></Tooltip>;
     case 'error':
-      return <span className="status-icon status-error" title="Error">&#10007;</span>;
+      return <Tooltip label="Error"><span className="status-icon status-error">&#10007;</span></Tooltip>;
     case 'timeout':
-      return <span className="status-icon status-timeout" title="Timeout">&#9201;</span>;
+      return <Tooltip label="Timeout"><span className="status-icon status-timeout">&#9201;</span></Tooltip>;
     case 'authfailed':
-      return <span className="status-icon status-error" title="Auth Failed">&#10007;</span>;
+      return <Tooltip label="Auth Failed"><span className="status-icon status-error">&#10007;</span></Tooltip>;
     default:
       return null;
   }
@@ -112,7 +114,6 @@ function BroadcastCommandDialog({
   }, [isOpen]);
 
   // Escape + backdrop click
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: isOpen });
 
   // Execute command handler
   const handleExecute = useCallback(async () => {
@@ -214,168 +215,157 @@ function BroadcastCommandDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="broadcast-dialog-overlay" {...backdropProps}>
-      <div className="broadcast-dialog" {...contentProps}>
-        <div className="broadcast-dialog-header">
-          <h2>Broadcast Command to {selectedSessionIds.length} Session{selectedSessionIds.length === 1 ? '' : 's'}</h2>
-          <button className="broadcast-dialog-close" onClick={onClose} title="Close">
-            {Icons.close}
-          </button>
-        </div>
-
-        <div className="broadcast-dialog-content">
-          {/* Session list preview */}
-          <div className="broadcast-sessions-preview">
-            <label>Selected Sessions:</label>
-            <div className="broadcast-sessions-list">
-              {selectedSessions.slice(0, 5).map(session => (
-                <div key={session.id} className="broadcast-session-item">
-                  <span
-                    className="broadcast-session-color"
-                    style={{ backgroundColor: session.color || 'var(--color-accent)' }}
-                  />
-                  <span className="broadcast-session-name">{session.name}</span>
-                  <span className="broadcast-session-host">({session.host})</span>
-                </div>
-              ))}
-              {selectedSessions.length > 5 && (
-                <div className="broadcast-sessions-more">
-                  +{selectedSessions.length - 5} more...
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Command input */}
-          <div className="broadcast-command-input">
-            <label htmlFor="broadcast-command">Command:</label>
-            <AITabInput
-              as="textarea"
-              id="broadcast-command"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Enter command to execute on all sessions..."
-              rows={3}
-              disabled={isExecuting}
-              aiField="broadcast_command"
-              aiPlaceholder="CLI command to broadcast to all sessions"
-              aiContext={{
-                sessionCount: selectedSessionIds.length,
-                targetCliFlavors: Array.from(new Set(
-                  sessions.filter((s) => selectedSessionIds.includes(s.id)).map((s) => s.cli_flavor),
-                )).join(', '),
-              }}
-              onAIValue={(v) => setCommand(v)}
-            />
-            <span className="broadcast-hint">Press Cmd+Enter to execute</span>
-          </div>
-
-          {/* Options row */}
-          <div className="broadcast-options">
-            <div className="broadcast-timeout">
-              <label htmlFor="broadcast-timeout">Timeout:</label>
-              <select
-                id="broadcast-timeout"
-                value={timeoutSecs}
-                onChange={(e) => setTimeoutSecs(parseInt(e.target.value))}
-                disabled={isExecuting}
-              >
-                {TIMEOUT_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Error display */}
-          {error && (
-            <div className="broadcast-error">
-              {error}
-              <button onClick={() => setError(null)}>Dismiss</button>
-            </div>
-          )}
-
-          {/* Results area */}
-          {(isExecuting || results) && (
-            <div className="broadcast-results">
-              <div className="broadcast-results-header">
-                <h3>Results</h3>
-                {results && (
-                  <div className="broadcast-results-summary">
-                    <span className="summary-success">{results.successCount} succeeded</span>
-                    <span className="summary-divider">|</span>
-                    <span className="summary-error">{results.errorCount} failed</span>
-                    <span className="summary-divider">|</span>
-                    <span className="summary-time">{(results.totalTimeMs / 1000).toFixed(2)}s</span>
-                  </div>
-                )}
-              </div>
-
-              {isExecuting && (
-                <div className="broadcast-loading">
-                  <div className="broadcast-spinner" />
-                  <span>Executing command on {selectedSessionIds.length} sessions...</span>
-                </div>
-              )}
-
-              {results && (
-                <div className="broadcast-results-list">
-                  {results.results.map((result: CommandResult) => (
-                    <div key={result.sessionId} className="broadcast-result-item">
-                      <div
-                        className="broadcast-result-header"
-                        onClick={() => toggleResultExpansion(result.sessionId)}
-                      >
-                        <span className="result-chevron">
-                          {expandedResults.has(result.sessionId) ? Icons.chevronDown : Icons.chevronRight}
-                        </span>
-                        <StatusIcon status={result.status} />
-                        <span className="result-session-name">{result.sessionName}</span>
-                        <span className="result-host">({result.host})</span>
-                        <span className="result-time">{(result.executionTimeMs / 1000).toFixed(2)}s</span>
-                      </div>
-                      {expandedResults.has(result.sessionId) && (
-                        <div className="broadcast-result-output">
-                          <pre>{result.output || result.error || 'No output'}</pre>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="broadcast-dialog-actions">
-          {results && (
-            <>
-              <button className="btn-secondary" onClick={handleCopyAll} title="Copy all outputs">
-                {Icons.copy}
-                <span>Copy All</span>
-              </button>
-              <button className="btn-secondary" onClick={handleExport} title="Export as Markdown">
-                {Icons.export}
-                <span>Export Results</span>
-              </button>
-            </>
-          )}
-          <div className="broadcast-actions-spacer" />
-          <button className="btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleExecute}
-            disabled={isExecuting || !command.trim()}
-          >
-            {Icons.play}
-            <span>{isExecuting ? 'Executing...' : 'Execute'}</span>
-          </button>
-        </div>
+    <ModalFrame id="broadcast" onDismiss={onClose} className="broadcast-dialog" label="Broadcast Command">
+      <div className="broadcast-dialog-header">
+        <h2>Broadcast Command to {selectedSessionIds.length} Session{selectedSessionIds.length === 1 ? '' : 's'}</h2>
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
+          {Icons.close}
+        </button></Tooltip>
       </div>
-    </div>
+
+      <div className="broadcast-dialog-content">
+        {/* Session list preview */}
+        <div className="broadcast-sessions-preview">
+          <label>Selected Sessions:</label>
+          <div className="broadcast-sessions-list">
+            {selectedSessions.slice(0, 5).map(session => (
+              <div key={session.id} className="broadcast-session-item">
+                <span
+                  className="broadcast-session-color"
+                  style={{ backgroundColor: session.color || 'var(--color-accent)' }}
+                />
+                <span className="broadcast-session-name">{session.name}</span>
+                <span className="broadcast-session-host">({session.host})</span>
+              </div>
+            ))}
+            {selectedSessions.length > 5 && (
+              <div className="broadcast-sessions-more">
+                +{selectedSessions.length - 5} more...
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Command input */}
+        <div className="broadcast-command-input">
+          <label htmlFor="broadcast-command">Command:</label>
+          <AITabInput
+            as="textarea"
+            id="broadcast-command"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Enter command to execute on all sessions..."
+            rows={3}
+            disabled={isExecuting}
+            aiField="broadcast_command"
+            aiPlaceholder="CLI command to broadcast to all sessions"
+            aiContext={{
+              sessionCount: selectedSessionIds.length,
+              targetCliFlavors: Array.from(new Set(
+                sessions.filter((s) => selectedSessionIds.includes(s.id)).map((s) => s.cli_flavor),
+              )).join(', '),
+            }}
+            onAIValue={(v) => setCommand(v)}
+          />
+          <span className="broadcast-hint">Press Cmd+Enter to execute</span>
+        </div>
+
+        {/* Options row */}
+        <div className="broadcast-options">
+          <div className="broadcast-timeout">
+            <label htmlFor="broadcast-timeout">Timeout:</label>
+            <select
+              className="ns-select"
+              id="broadcast-timeout"
+              value={timeoutSecs}
+              onChange={(e) => setTimeoutSecs(parseInt(e.target.value))}
+              disabled={isExecuting}
+            >
+              {TIMEOUT_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Error display */}
+        {error && (
+          <div className="broadcast-error">
+            {error}
+            <button className="ns-btn ns-btn--small" onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        )}
+
+        {/* Results area */}
+        {(isExecuting || results) && (
+          <div className="broadcast-results">
+            <div className="broadcast-results-header">
+              <h3>Results</h3>
+              {results && (
+                <div className="broadcast-results-summary">
+                  <span className="summary-success">{results.successCount} succeeded</span>
+                  <span className="summary-divider">|</span>
+                  <span className="summary-error">{results.errorCount} failed</span>
+                  <span className="summary-divider">|</span>
+                  <span className="summary-time">{(results.totalTimeMs / 1000).toFixed(2)}s</span>
+                </div>
+              )}
+            </div>
+
+            {isExecuting && (
+              <div className="broadcast-loading">
+                <div className="broadcast-spinner" />
+                <span>Executing command on {selectedSessionIds.length} sessions...</span>
+              </div>
+            )}
+
+            {results && (
+              <div className="broadcast-results-list">
+                {results.results.map((result: CommandResult) => (
+                  <div key={result.sessionId} className="broadcast-result-item">
+                    <div
+                      className="broadcast-result-header"
+                      onClick={() => toggleResultExpansion(result.sessionId)}
+                    >
+                      <span className="result-chevron">
+                        {expandedResults.has(result.sessionId) ? Icons.chevronDown : Icons.chevronRight}
+                      </span>
+                      <StatusIcon status={result.status} />
+                      <span className="result-session-name">{result.sessionName}</span>
+                      <span className="result-host">({result.host})</span>
+                      <span className="result-time">{(result.executionTimeMs / 1000).toFixed(2)}s</span>
+                    </div>
+                    {expandedResults.has(result.sessionId) && (
+                      <div className="broadcast-result-output">
+                        <pre>{result.output || result.error || 'No output'}</pre>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <DialogFooter
+        primary={{ label: isExecuting ? 'Executing...' : 'Execute', onClick: handleExecute, disabled: isExecuting || !command.trim() }}
+        onCancel={onClose}
+        leading={results && (
+          <>
+            <Tooltip label="Copy all outputs"><button className="ns-btn" onClick={handleCopyAll}>
+              {Icons.copy}
+              <span>Copy All</span>
+            </button></Tooltip>
+            <Tooltip label="Export as Markdown"><button className="ns-btn" onClick={handleExport}>
+              {Icons.export}
+              <span>Export Results</span>
+            </button></Tooltip>
+          </>
+        )}
+      />
+    </ModalFrame>
   );
 }
 

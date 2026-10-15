@@ -294,7 +294,7 @@ export default function TemplateDetailTab({
       <div className="tdt-container">
         <div className="tdt-error">
           <span>{error}</span>
-          <button className="tdt-btn" onClick={fetchTemplate}>Retry</button>
+          <button className="ns-btn" onClick={fetchTemplate}>Retry</button>
         </div>
       </div>
     )
@@ -322,7 +322,7 @@ export default function TemplateDetailTab({
                 aiContext={{ platform: editPlatform, format: editFormat, operation: editOperation }}
                 onAIValue={v => { setEditName(v); setDirty(true) }}
               />
-              <select className="tdt-create-select" value={editPlatform} onChange={e => { setEditPlatform(e.target.value); setDirty(true) }}>
+              <select aria-label="Platform" className="tdt-create-select ns-select" value={editPlatform} onChange={e => { setEditPlatform(e.target.value); setDirty(true) }}>
                 {platforms.length > 0 ? platforms.map(p => (
                   <option key={p.id} value={p.name}>{p.display_name}</option>
                 )) : (
@@ -335,14 +335,14 @@ export default function TemplateDetailTab({
                   </>
                 )}
               </select>
-              <select className="tdt-create-select" value={editFormat} onChange={e => { setEditFormat(e.target.value); setDirty(true) }}>
+              <select aria-label="Format" className="tdt-create-select ns-select" value={editFormat} onChange={e => { setEditFormat(e.target.value); setDirty(true) }}>
                 <option value="cli">CLI</option>
                 <option value="xml">XML</option>
                 <option value="netconf-xml">NETCONF XML</option>
                 <option value="json">JSON</option>
                 <option value="yaml">YAML</option>
               </select>
-              <select className="tdt-create-select" value={editOperation} onChange={e => { setEditOperation(e.target.value); setDirty(true) }}>
+              <select aria-label="Operation" className="tdt-create-select ns-select" value={editOperation} onChange={e => { setEditOperation(e.target.value); setDirty(true) }}>
                 <option value="merge">Merge</option>
                 <option value="replace">Replace</option>
                 <option value="delete">Delete</option>
@@ -371,7 +371,7 @@ export default function TemplateDetailTab({
             </label>
           )}
           <button
-            className="tdt-btn primary"
+            className="ns-btn ns-btn--primary"
             onClick={handleSave}
             disabled={isCreate ? (!editName.trim() || saving) : (!dirty || saving)}
           >
@@ -380,15 +380,15 @@ export default function TemplateDetailTab({
           {!isCreate && (
             confirmDelete ? (
               <>
-                <button className="tdt-btn danger" onClick={handleDelete}>
+                <button className="ns-btn ns-btn--danger" onClick={handleDelete}>
                   Confirm Delete
                 </button>
-                <button className="tdt-btn" onClick={() => setConfirmDelete(false)}>
+                <button className="ns-btn" onClick={() => setConfirmDelete(false)}>
                   Cancel
                 </button>
               </>
             ) : (
-              <button className="tdt-btn" onClick={() => setConfirmDelete(true)}>
+              <button className="ns-btn" onClick={() => setConfirmDelete(true)}>
                 Delete
               </button>
             )
@@ -496,7 +496,7 @@ export default function TemplateDetailTab({
                     onChange={setRenderVars}
                   />
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
-                    <button className="tdt-btn primary tdt-render-btn" onClick={handleRender} disabled={rendering} style={{ flex: 'none', width: 'auto' }}>
+                    <button className="ns-btn ns-btn--primary tdt-render-btn" onClick={handleRender} disabled={rendering} style={{ flex: 'none', width: 'auto' }}>
                       {rendering ? 'Rendering...' : 'Render'}
                     </button>
                     {rendering && <span style={{ fontSize: 10, color: 'var(--text-secondary, #858585)' }}>Auto-renders on change</span>}
@@ -552,7 +552,6 @@ export default function TemplateDetailTab({
                         <div key={v.version}>
                           <div
                             className={`tdt-version-item ${isSelected ? 'active' : ''}`}
-                            style={{ cursor: 'pointer' }}
                             onClick={() => {
                               if (isSelected) {
                                 setSelectedVersionDiff(null)
@@ -575,7 +574,7 @@ export default function TemplateDetailTab({
                             <div className="tdt-version-diff">
                               <div className="tdt-version-diff-actions">
                                 <button
-                                  className="tdt-btn"
+                                  className="ns-btn"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     setSource(v.source)

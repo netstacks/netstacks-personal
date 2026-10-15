@@ -8,6 +8,8 @@ import type { TroubleshootingSettings } from '../types/troubleshooting';
 import './SettingsTroubleshooting.css';
 import { useShortcut } from '../hooks/useKeyboard'
 import Switch from './Switch';
+import SettingsSection from './settings/SettingsSection';
+import SettingRow from './settings/SettingRow';
 
 const TIMEOUT_MIN = 1;
 const TIMEOUT_MAX = 120;
@@ -72,85 +74,45 @@ export default function SettingsTroubleshooting() {
   };
 
   return (
-    <div className="settings-troubleshooting">
-      <div className="settings-content">
-        <div className="settings-category">
-          <h3 className="settings-category-title">Troubleshooting Sessions</h3>
-
-          <div className="setting-item">
-            <div className="setting-header">
-              <span className="setting-label">Inactivity Timeout</span>
-              <div className="setting-control">
-                <div className="settings-input-group">
-                  <input
-                    type="number"
-                    className="setting-input setting-input-number"
-                    min={TIMEOUT_MIN}
-                    max={TIMEOUT_MAX}
-                    value={timeoutDraft ?? settings.inactivityTimeout}
-                    onChange={(e) => handleTimeoutInput(e.target.value)}
-                    onBlur={handleTimeoutBlur}
-                  />
-                  <span className="settings-input-suffix">min</span>
-                </div>
-              </div>
-            </div>
-            <div className="setting-description">
-              Automatically end session after this many minutes of inactivity
-            </div>
-          </div>
-
-          <div className="setting-item">
-            <div className="setting-header">
-              <span className="setting-label">Auto-save on Timeout</span>
-              <div className="setting-control">
-                <Switch
-                  checked={settings.autoSaveOnTimeout}
-                  onChange={(checked) => handleChange('autoSaveOnTimeout', checked)}
-                  label="Auto-save on Timeout"
-                />
-              </div>
-            </div>
-            <div className="setting-description">
-              Automatically generate and save documentation when session times out
-            </div>
-          </div>
-
-          <div className="setting-item">
-            <div className="setting-header">
-              <span className="setting-label">Capture AI Conversations</span>
-              <div className="setting-control">
-                <Switch
-                  checked={settings.captureAIConversations}
-                  onChange={(checked) => handleChange('captureAIConversations', checked)}
-                  label="Capture AI Conversations"
-                />
-              </div>
-            </div>
-            <div className="setting-description">
-              Include AI chat messages in the session log for context
-            </div>
-          </div>
-        </div>
-
-        <div className="settings-category">
-          <h3 className="settings-category-title">About Troubleshooting Sessions</h3>
-          <div className="settings-info-box">
-            <p>
-              Troubleshooting sessions capture terminal commands, outputs, and optionally
-              AI conversations during a debugging or investigation workflow.
-            </p>
-            <p>
-              When you end a session, a structured document is generated that can be
-              saved to the Docs panel for future reference.
-            </p>
-            <p>
-              Start a session from the status bar or use the keyboard shortcut{' '}
-              <kbd>{troubleshootShortcut}</kbd>.
-            </p>
-          </div>
-        </div>
+    <SettingsSection
+      title="Troubleshooting Sessions"
+      description={
+        <>
+          Capture terminal commands, outputs and optionally AI conversations while you investigate; ending a session
+          generates a document you can save to Docs. Start one from the status bar or with <kbd>{troubleshootShortcut}</kbd>.
+        </>
+      }
+    >
+      <div className="settings-group">
+        <SettingRow label="Inactivity Timeout" description="Automatically end the session after this many minutes of inactivity">
+          <span className="settings-troubleshooting-timeout">
+            <input aria-label="Inactivity Timeout"
+              type="number"
+              className="ns-input setting-input-number"
+              min={TIMEOUT_MIN}
+              max={TIMEOUT_MAX}
+              value={timeoutDraft ?? settings.inactivityTimeout}
+              onChange={(e) => handleTimeoutInput(e.target.value)}
+              onBlur={handleTimeoutBlur}
+            />
+            min
+          </span>
+        </SettingRow>
+        <SettingRow label="Auto-save on Timeout" description="Automatically generate and save documentation when the session times out">
+          <Switch
+            checked={settings.autoSaveOnTimeout}
+            onChange={(checked) => handleChange('autoSaveOnTimeout', checked)}
+            label="Auto-save on Timeout"
+          />
+        </SettingRow>
+        <SettingRow label="Capture AI Conversations" description="Include AI chat messages in the session log for context">
+          <Switch
+            checked={settings.captureAIConversations}
+            onChange={(checked) => handleChange('captureAIConversations', checked)}
+            label="Capture AI Conversations"
+          />
+        </SettingRow>
       </div>
-    </div>
+    </SettingsSection>
   );
 }

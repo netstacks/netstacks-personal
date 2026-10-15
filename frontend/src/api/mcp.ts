@@ -234,7 +234,8 @@ export async function restartMcpServer(id: string): Promise<McpServer> {
 }
 
 /**
- * Set MCP tool enabled status (per-tool approval)
+ * Enable or disable an MCP tool. A disabled tool is not offered to the AI and
+ * is refused if called; approval of enabled tools follows the permission mode.
  */
 export async function setMcpToolEnabled(toolId: string, enabled: boolean): Promise<void> {
   try {

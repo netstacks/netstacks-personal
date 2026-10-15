@@ -4,6 +4,7 @@ import { getSidecarAuthToken } from '../../api/localClient'
 
 import { getErrorMessage } from '../../api/errors'
 import { consumeSseLine } from './sseLines'
+import Tooltip from '../Tooltip'
 interface WorkspaceOutputPanelProps {
   filePath: string | null
   onClose: () => void
@@ -174,18 +175,18 @@ export default function WorkspaceOutputPanel({ filePath }: WorkspaceOutputPanelP
         )}
         <div className="workspace-output-actions">
           {running && (
-            <button className="workspace-terminal-action-btn" onClick={handleStop} title="Stop">
+            <Tooltip label="Stop"><button aria-label="Stop" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={handleStop}>
               ■
-            </button>
+            </button></Tooltip>
           )}
           {!running && filePath && (
-            <button className="workspace-terminal-action-btn" onClick={run} title="Re-run">
+            <Tooltip label="Re-run"><button aria-label="Re-run" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={run}>
               ▶
-            </button>
+            </button></Tooltip>
           )}
-          <button className="workspace-terminal-action-btn" onClick={handleClear} title="Clear">
+          <Tooltip label="Clear"><button aria-label="Clear" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={handleClear}>
             ✕
-          </button>
+          </button></Tooltip>
         </div>
       </div>
       <div className="workspace-output-content" ref={outputRef}>

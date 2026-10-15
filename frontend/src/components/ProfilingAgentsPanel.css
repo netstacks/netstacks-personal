@@ -26,29 +26,10 @@
 
 .profiling-agents-refresh-btn {
   display: flex;
-  align-items: center;
-  padding: var(--spacing-xs);
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-}
-
-.profiling-agents-refresh-btn:hover:not(:disabled) {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-
-.profiling-agents-refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .profiling-agents-refresh-btn svg {
   width: 16px;
-  height: 16px;
 }
 
 /* Loading state */
@@ -91,22 +72,6 @@
   text-align: center;
 }
 
-.profiling-agents-error button {
-  padding: 6px var(--spacing-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.profiling-agents-error button:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border);
-}
-
 /* Empty state */
 .profiling-agents-empty {
   display: flex;
@@ -125,6 +90,7 @@
   flex-direction: column;
   gap: var(--spacing-xs);
   overflow-y: auto;
+  overscroll-behavior: contain;
   overflow-x: hidden;
   padding: var(--spacing-sm);
 }
@@ -134,8 +100,7 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  cursor: pointer;
+  border-radius: var(--radius-control);
   transition: background-color 0.15s, border-color 0.15s;
 }
 
@@ -207,6 +172,6 @@
   border-radius: 10px;
   font-size: 10px;
   font-weight: 600;
-  color: white;
+  color: var(--color-text-on-accent);
   flex-shrink: 0;
 }

@@ -12,11 +12,15 @@
 //! `tool_result` that says "blocked" — the LLM sees the rejection and can
 //! adjust, the user is shielded, and an `audit` log entry records the
 //! attempted call.
+//!
+//! Device commands (`execute_ssh_command`) are NOT checked here: whether a
+//! non-read-only command may run depends on live AI config mode, so that rule
+//! lives in the task permission resolver (`tasks::permissions`), which runs
+//! alongside this validator on every call.
 
 use serde_json::Value;
 
 use super::catalog;
-use super::filter::CommandFilter;
 
 /// Outcome of validating a tool_use emitted by the LLM.
 #[derive(Debug)]
@@ -40,42 +44,6 @@ impl ValidationOutcome {
 /// `tool_result` so it can adjust without seeing a silent failure.
 pub fn validate_tool_use(tool_name: &str, input: &Value) -> ValidationOutcome {
     match tool_name {
-        // SSH / device command surface. Registered name is
-        // `execute_ssh_command` (Feature A fix: the old arm matched names
-        // that are NEVER registered, so SSH calls bypassed this validator).
-        // Validate BOTH the single `command` and each element of `commands`.
-        name if catalog::is_ssh_command(name) => {
-            let filter = CommandFilter::new();
-
-            // Collect every command string this call would run.
-            let mut cmds: Vec<&str> = Vec::new();
-            if let Some(c) = input.get("command").and_then(|v| v.as_str()) {
-                cmds.push(c);
-            }
-            if let Some(arr) = input.get("commands").and_then(|v| v.as_array()) {
-                for v in arr {
-                    if let Some(c) = v.as_str() {
-                        cmds.push(c);
-                    }
-                }
-            }
-            if cmds.iter().all(|c| c.is_empty()) {
-                return ValidationOutcome::block("empty command rejected");
-            }
-            for cmd in cmds {
-                if cmd.is_empty() {
-                    continue;
-                }
-                if let Err(e) = filter.is_allowed(cmd) {
-                    audit_blocked(tool_name, "command_filter", cmd, &e.to_string());
-                    return ValidationOutcome::block(format!(
-                        "Command rejected by output-side validator: {}", e
-                    ));
-                }
-            }
-            ValidationOutcome::Allow
-        }
-
         // File-write surfaces — the existing `validate_filepath` already
         // enforces the deny list, but it's only invoked inside the tool's
         // own execute(). Re-run the input-key check so the validator
@@ -184,45 +152,6 @@ fn audit_blocked(tool: &str, reason: &str, value: &str, detail: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn ssh_block_chains_metachars() {
-        let input = json!({"command": "show version; reload"});
-        match validate_tool_use("execute_ssh_command", &input) {
-            ValidationOutcome::Block(_) => {}
-            ValidationOutcome::Allow => panic!("should have been blocked"),
-        }
-    }
-
-    #[test]
-    fn ssh_allow_show_version() {
-        let input = json!({"command": "show version"});
-        match validate_tool_use("execute_ssh_command", &input) {
-            ValidationOutcome::Allow => {}
-            ValidationOutcome::Block(r) => panic!("should have allowed: {}", r),
-        }
-    }
-
-    #[test]
-    fn execute_ssh_command_is_validated() {
-        // Regression guard for the verified bug: the REAL registered name must
-        // hit the SSH arm and be filtered, not fall through to `_ => Allow`.
-        let input = json!({ "command": "reload" });
-        match validate_tool_use("execute_ssh_command", &input) {
-            ValidationOutcome::Block(_) => {}
-            ValidationOutcome::Allow => panic!("execute_ssh_command bypassed validator"),
-        }
-    }
-
-    #[test]
-    fn execute_ssh_command_validates_commands_array() {
-        // The batch `commands` array must be validated too (was unchecked).
-        let input = json!({ "commands": ["show version", "reload"] });
-        match validate_tool_use("execute_ssh_command", &input) {
-            ValidationOutcome::Block(_) => {}
-            ValidationOutcome::Allow => panic!("commands array bypassed validator"),
-        }
-    }
 
     #[test]
     fn write_blocks_shadow() {

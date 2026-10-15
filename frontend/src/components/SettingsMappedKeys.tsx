@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput';
 import { useState, useEffect, useCallback } from 'react';
 import {
   listMappedKeys,
@@ -14,6 +15,8 @@ import { getErrorMessage } from '../api/errors';
 import { eventToBinding, formatShortcut, findShortcutOwner, parseKeybinding } from '../hooks/useKeyboard';
 import { findDuplicateMappedKey, notifyMappedKeysChanged } from '../lib/mappedKeys';
 import './SettingsMappedKeys.css';
+import SettingsSection from './settings/SettingsSection';
+import SettingsItem from './settings/SettingsItem';
 
 export default function SettingsMappedKeys() {
   const { isEnterprise } = useMode();
@@ -214,160 +217,131 @@ export default function SettingsMappedKeys() {
   }
 
   return (
-    <div className="mapped-keys-settings">
-      <div className="mapped-keys-section">
-        <div className="mapped-keys-section-header">
-          <span className="mapped-keys-section-title">Keyboard Shortcuts</span>
-        </div>
-        <div className="mapped-keys-section-description">
-          Define keyboard shortcuts that send commands to the terminal. These apply to all sessions and take effect in open terminals immediately.
-        </div>
+    <SettingsSection
+        title="Mapped Keys"
+        description="Keyboard shortcuts that send commands to the terminal, in every session, effective immediately."
+        help={{
+          topic: 'mapped keys',
+          prompt: `Help me set up mapped keys in NetStacks. I have ${keys.length} mapped key(s)`
+            + (keys.length ? ` (${keys.map(k => k.key_combo).join(', ')})` : '')
+            + '. Explain how a mapped key sends a command (\\r for Enter, multi-line sequences), secret commands stored in the vault (e.g. an enable password), which key combos are reserved by the app or the OS, and suggest a few useful ones for network work.',
+        }}
+      >
 
-        {keys.length === 0 && (
-          <div className="mapped-keys-empty">
-            No mapped keys configured. Add a keyboard shortcut below.
+        <div className="settings-group">
+          {keys.map((key) => editingId === key.id ? (
+            <div key={key.id} className="settings-form">
+          <div className="mk-row">
+            <div className="mk-capture">
+              <button
+                type="button"
+                className={`mk-capture-btn ${isEditCapturing ? 'capturing' : ''}`}
+                onClick={() => setIsEditCapturing(true)}
+              >
+                {isEditCapturing ? 'Press a key combo…' : (editCombo ? formatShortcut(editCombo) : 'Click to capture')}
+              </button>
+              {editProblem && (
+                <span className={`mk-combo-problem${editProblem.blocking ? ' blocking' : ''}`}>{editProblem.message}</span>
+              )}
+            </div>
+            <AITabInput aria-label="Command to send"
+              type={editIsSecret ? 'password' : 'text'}
+              placeholder="Command to send"
+              value={editCommand}
+              onChange={(e) => setEditCommand(e.target.value)}
+              className="mk-command"
+              aiField="mapped key command"
+              aiPlaceholder="The CLI command or text this key combo sends to the terminal"
+              aiContext={{ keyCombo: editCombo, description: editDescription }}
+              onAIValue={setEditCommand}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && editCombo && editCommand.trim()) {
+                  e.preventDefault();
+                  saveEdit();
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelEdit();
+                }
+              }}
+            />
           </div>
-        )}
-
-        {keys.length > 0 && (
-          <div className="mapped-keys-list">
-            {keys.map((key) => {
-              const isEditing = editingId === key.id;
-              if (!isEditing) {
-                return (
-                  <div key={key.id} className="mapped-keys-item">
-                    <div className="mapped-keys-item-main">
-                      <span className="mapped-keys-combo" title={key.key_combo}>{formatShortcut(key.key_combo)}</span>
-                      <span className="mapped-keys-arrow">&rarr;</span>
-                      {key.is_secret ? (
-                        <>
-                          <span className="mapped-keys-command mapped-keys-command-secret">
-                            {revealedId === key.id ? revealedValue : '•••••••'}
-                          </span>
-                          <button
-                            className="mapped-keys-reveal"
-                            onClick={() => toggleReveal(key)}
-                            title={revealedId === key.id ? 'Hide' : 'Reveal'}
-                          >
-                            {revealedId === key.id ? 'Hide' : 'Reveal'}
-                          </button>
-                          <span className="mapped-keys-secret-badge" title="Encrypted in vault">🔒</span>
-                        </>
-                      ) : (
-                        <span className="mapped-keys-command">{key.command}</span>
-                      )}
-                      <button
-                        className="mapped-keys-edit"
-                        onClick={() => startEdit(key)}
-                        title="Edit"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="mapped-keys-delete"
-                        onClick={() => handleDelete(key.id)}
-                        title="Delete"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                    {key.description && (
-                      <div className="mapped-keys-description">{key.description}</div>
-                    )}
-                  </div>
-                );
+          <AITabInput
+            aria-label="Description"
+            placeholder="Description (optional)"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+            aiField="mapped key description"
+            aiPlaceholder="Short description of what this key combo sends"
+            aiContext={{ keyCombo: editCombo, command: editIsSecret ? undefined : editCommand }}
+            onAIValue={setEditDescription}
+          />
+          <div className="mk-row">
+            {!isEnterprise && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={editIsSecret}
+                  onChange={(e) => setEditIsSecret(e.target.checked)}
+                />
+                Secret (encrypt command in vault)
+              </label>
+            )}
+            <span className="mk-row-actions">
+              
+              <button type="button" className="ns-btn ns-btn--small ns-btn--ghost" onClick={cancelEdit}>Cancel</button>
+              <button
+                type="button"
+                className="ns-btn ns-btn--small ns-btn--primary"
+                onClick={saveEdit}
+                disabled={!editCombo || !editCommand.trim() || !!editProblem?.blocking}
+              >
+                Save
+              </button>
+            </span>
+          </div>
+            </div>
+          ) : (
+            <SettingsItem
+              key={key.id}
+              title={<kbd className="mk-combo" title={key.key_combo}>{formatShortcut(key.key_combo)}</kbd>}
+              badges={key.is_secret && <span className="settings-badge">vault</span>}
+              meta={
+                <>
+                  <code>{key.is_secret ? (revealedId === key.id ? revealedValue : '•••••••') : key.command}</code>
+                  {key.description && <span>{key.description}</span>}
+                </>
               }
-              // Inline edit form — mirrors the add form layout.
-              return (
-                <div key={key.id} className="mapped-keys-item mapped-keys-item-editing">
-                  <div className="mapped-keys-add-row">
-                    <div className="mk-capture-row">
-                      <button
-                        type="button"
-                        className={`mk-capture-btn ${isEditCapturing ? 'capturing' : ''}`}
-                        onClick={() => setIsEditCapturing(true)}
-                      >
-                        {isEditCapturing ? 'Press a key combo…' : (editCombo ? formatShortcut(editCombo) : 'Click to capture')}
-                      </button>
-                      {editProblem && (
-                        <span className={`mk-combo-problem${editProblem.blocking ? ' blocking' : ''}`}>{editProblem.message}</span>
-                      )}
-                    </div>
-                    <input
-                      type={editIsSecret ? 'password' : 'text'}
-                      value={editCommand}
-                      onChange={(e) => setEditCommand(e.target.value)}
-                      className="mk-input-command"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && editCombo && editCommand.trim()) {
-                          e.preventDefault();
-                          saveEdit();
-                        }
-                        if (e.key === 'Escape') {
-                          e.preventDefault();
-                          cancelEdit();
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="mk-add-btn"
-                      onClick={saveEdit}
-                      disabled={!editCombo || !editCommand.trim() || !!editProblem?.blocking}
-                      title="Save"
-                    >
-                      ✓
+              actions={
+                <>
+                  {key.is_secret && (
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => toggleReveal(key)}>
+                      {revealedId === key.id ? 'Hide' : 'Reveal'}
                     </button>
-                    <button
-                      type="button"
-                      className="mapped-keys-delete"
-                      onClick={cancelEdit}
-                      title="Cancel"
-                    >
-                      &times;
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Description (optional)"
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    className="mk-input-description"
-                  />
-                  {!isEnterprise && (
-                    <label className="mk-secret-toggle">
-                      <input
-                        type="checkbox"
-                        checked={editIsSecret}
-                        onChange={(e) => setEditIsSecret(e.target.checked)}
-                      />
-                      <span>Secret (encrypt command in vault)</span>
-                    </label>
                   )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="mapped-keys-add">
-          <div className="mapped-keys-add-row">
-            <div className="mk-capture-row">
+                  <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => startEdit(key)}>Edit</button>
+                  <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(key.id)}>Delete</button>
+                </>
+              }
+            />
+          ))}
+          <div className="settings-form">
+            <h4 className="settings-form-title">New shortcut</h4>
+          <div className="mk-row">
+            <div className="mk-capture">
               <button
                 type="button"
                 className={`mk-capture-btn ${isCapturingKey ? 'capturing' : ''}`}
                 onClick={() => setIsCapturingKey(true)}
               >
-                {isCapturingKey
-                  ? 'Press a key combo...'
-                  : (capturedKeyCombo ? formatShortcut(capturedKeyCombo) : 'Click to capture key')}
+                {isCapturingKey ? 'Press a key combo…' : (capturedKeyCombo ? formatShortcut(capturedKeyCombo) : 'Click to capture key')}
               </button>
               {capturedKeyCombo && !isCapturingKey && (
                 <button
                   type="button"
-                  className="mk-capture-clear"
+                  className="ns-btn ns-btn--ghost ns-btn--small ns-icon-btn"
+                  aria-label="Clear key combo"
                   onClick={() => setCapturedKeyCombo('')}
-                  title="Clear"
                 >
                   &times;
                 </button>
@@ -376,48 +350,59 @@ export default function SettingsMappedKeys() {
                 <span className={`mk-combo-problem${addProblem.blocking ? ' blocking' : ''}`}>{addProblem.message}</span>
               )}
             </div>
-            <input
+            <AITabInput aria-label="Command to send"
               type={newIsSecret ? 'password' : 'text'}
               placeholder="Command to send"
               value={newCommand}
               onChange={(e) => setNewCommand(e.target.value)}
+              className="mk-command"
+              aiField="mapped key command"
+              aiPlaceholder="The CLI command or text this key combo sends to the terminal"
+              aiContext={{ keyCombo: capturedKeyCombo, description: newDescription }}
+              onAIValue={setNewCommand}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && capturedKeyCombo && newCommand.trim()) {
                   e.preventDefault();
                   handleAdd();
                 }
               }}
-              className="mk-input-command"
             />
-            <button
-              type="button"
-              className="mk-add-btn"
-              onClick={handleAdd}
-              disabled={!capturedKeyCombo || !newCommand.trim() || !!addProblem?.blocking}
-              title="Add shortcut"
-            >
-              +
-            </button>
           </div>
-          <input
-            type="text"
+          <AITabInput
+            aria-label="Description"
             placeholder="Description (optional)"
             value={newDescription}
             onChange={(e) => setNewDescription(e.target.value)}
-            className="mk-input-description"
+            aiField="mapped key description"
+            aiPlaceholder="Short description of what this key combo sends"
+            aiContext={{ keyCombo: capturedKeyCombo, command: newIsSecret ? undefined : newCommand }}
+            onAIValue={setNewDescription}
           />
-          {!isEnterprise && (
-            <label className="mk-secret-toggle">
-              <input
-                type="checkbox"
-                checked={newIsSecret}
-                onChange={(e) => setNewIsSecret(e.target.checked)}
-              />
-              <span>Secret (encrypt command in vault)</span>
-            </label>
-          )}
+          <div className="mk-row">
+            {!isEnterprise && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newIsSecret}
+                  onChange={(e) => setNewIsSecret(e.target.checked)}
+                />
+                Secret (encrypt command in vault)
+              </label>
+            )}
+            <span className="mk-row-actions">
+              
+              <button
+                type="button"
+                className="ns-btn ns-btn--small"
+                onClick={handleAdd}
+                disabled={!capturedKeyCombo || !newCommand.trim() || !!addProblem?.blocking}
+              >
+                + Add shortcut
+              </button>
+            </span>
+          </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </SettingsSection>
   );
 }

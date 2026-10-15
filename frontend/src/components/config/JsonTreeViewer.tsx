@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { copyToClipboard } from '../../lib/clipboard'
 import './JsonTreeViewer.css'
+import Tooltip from '../Tooltip'
 
 interface JsonTreeViewerProps {
   data: any
@@ -158,9 +159,9 @@ export default function JsonTreeViewer({
   return (
     <div className="jtv-root">
       <div className="jtv-toolbar">
-        <button className="jtv-copy-btn" onClick={handleCopy} title="Copy JSON">
+        <Tooltip label="Copy JSON"><button className="ns-btn ns-btn--small" onClick={handleCopy}>
           Copy
-        </button>
+        </button></Tooltip>
       </div>
       <div className="jtv-tree">
         <JsonValue

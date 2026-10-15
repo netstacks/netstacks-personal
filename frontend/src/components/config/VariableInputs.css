@@ -17,36 +17,25 @@
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--text-secondary, #858585);
-  font-family: var(--font-family-mono, monospace);
+  color: var(--text-secondary);
+  font-family: var(--font-family-mono);
 }
 
 .var-input-required {
-  color: #ff9800;
+  color: var(--color-warning);
   font-weight: 600;
 }
 
 .var-input-type {
   font-size: 9px;
   padding: 1px 5px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   background: rgba(133, 133, 133, 0.15);
-  color: var(--text-secondary, #858585);
+  color: var(--text-secondary);
   font-weight: 400;
   text-transform: uppercase;
 }
 
 .var-input-field {
-  padding: 5px 8px;
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 3px;
-  background: var(--bg-primary, #1e1e1e);
-  color: var(--text-primary, #cccccc);
-  font-size: 12px;
-  font-family: var(--font-family-mono, monospace);
-}
-
-.var-input-field:focus {
-  outline: none;
-  border-color: var(--accent-color, #0078d4);
+  font-family: var(--font-family-mono);
 }

@@ -6,7 +6,7 @@ import { getErrorMessage } from '../api/errors'
  * scheduled agent tasks. Enterprise feature only.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './ScheduledTasksPanel.css';
 import * as scheduledTasksApi from '../api/scheduledTasks';
 import type { ScheduledTask, CreateScheduledTaskRequest } from '../api/scheduledTasks';
@@ -16,8 +16,10 @@ import { useContextMenu } from '../hooks/useContextMenu';
 import AITabInput from './AITabInput';
 import { confirmDialog } from './ConfirmDialog';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame';
 interface ScheduledTasksPanelProps {
   /** Callback when user wants to view execution history for a task */
   onViewHistory?: (taskId: string) => void;
@@ -147,7 +149,7 @@ export function ScheduledTasksPanel({ onViewHistory }: ScheduledTasksPanelProps)
       <div className="scheduled-tasks-header">
         <h3>Scheduled Tasks</h3>
         <button
-          className="scheduled-tasks-create-btn"
+          className="ns-btn ns-btn--primary"
           onClick={() => setShowCreateDialog(true)}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
@@ -193,10 +195,9 @@ export function ScheduledTasksPanel({ onViewHistory }: ScheduledTasksPanelProps)
               </div>
 
               <div className="scheduled-task-actions">
-                <button
-                  className="scheduled-task-action"
+                <Tooltip label={task.enabled ? 'Pause' : 'Resume'}><button aria-label={task.enabled ? 'Pause' : 'Resume'}
+                  className="ns-btn ns-btn--ghost ns-icon-btn"
                   onClick={() => handleToggleEnabled(task)}
-                  title={task.enabled ? 'Pause' : 'Resume'}
                 >
                   {task.enabled ? (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
@@ -208,42 +209,42 @@ export function ScheduledTasksPanel({ onViewHistory }: ScheduledTasksPanelProps)
                       <polygon points="5 3 19 12 5 21 5 3" />
                     </svg>
                   )}
-                </button>
+                </button></Tooltip>
 
-                <button
-                  className="scheduled-task-action"
+                <Tooltip label="Edit"><button
+                  className="ns-btn ns-btn--ghost ns-icon-btn"
                   onClick={() => setEditingTask(task)}
-                  title="Edit"
+                  aria-label="Edit"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
-                </button>
+                </button></Tooltip>
 
                 {onViewHistory && (
-                  <button
-                    className="scheduled-task-action"
+                  <Tooltip label="View History"><button
+                    className="ns-btn ns-btn--ghost ns-icon-btn"
                     onClick={() => onViewHistory(task.id)}
-                    title="View History"
+                    aria-label="View History"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                       <circle cx="12" cy="12" r="10" />
                       <polyline points="12 6 12 12 16 14" />
                     </svg>
-                  </button>
+                  </button></Tooltip>
                 )}
 
-                <button
-                  className="scheduled-task-action delete"
+                <Tooltip label="Delete"><button
+                  className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
                   onClick={() => handleDelete(task.id)}
-                  title="Delete"
+                  aria-label="Delete"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                   </svg>
-                </button>
+                </button></Tooltip>
               </div>
             </div>
           ))}
@@ -289,6 +290,7 @@ interface ScheduleTaskDialogProps {
 }
 
 function ScheduleTaskDialog({ task, onClose, onSave }: ScheduleTaskDialogProps) {
+  const formRef = useRef<HTMLFormElement>(null);
   const [name, setName] = useState(task?.name || '');
   const [prompt, setPrompt] = useState(task?.prompt || '');
   const [cronExpression, setCronExpression] = useState(task?.cron_expression || '0 9 * * *');
@@ -314,7 +316,6 @@ function ScheduleTaskDialog({ task, onClose, onSave }: ScheduleTaskDialogProps) 
     onClose();
   };
   // Escape + backdrop click both route through the dirty guard.
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: () => { void handleClose(); } });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -346,95 +347,90 @@ function ScheduleTaskDialog({ task, onClose, onSave }: ScheduleTaskDialogProps) 
   };
 
   return (
-    <div className="schedule-dialog-overlay" {...backdropProps}>
-      <div className="schedule-dialog" {...contentProps}>
-        <div className="schedule-dialog-header">
-          <h3>{task ? 'Edit Schedule' : 'New Schedule'}</h3>
-          <button className="schedule-dialog-close" onClick={handleClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+    <ModalFrame id="schedule-task" onDismiss={() => { void handleClose(); }} className="schedule-dialog" label="Schedule">
+      <div className="schedule-dialog-header">
+        <h3>{task ? 'Edit Schedule' : 'New Schedule'}</h3>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleClose} aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <form ref={formRef} onSubmit={handleSubmit}>
+        <div className="schedule-dialog-field">
+          <label>Name</label>
+          <AITabInput value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Daily network audit"
+            aiField="task_name"
+            aiPlaceholder="Name for this scheduled task"
+            aiContext={{ prompt }}
+            onAIValue={(v) => setName(v)}
+            autoFocus
+          />
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <div className="schedule-dialog-field">
+          <label>Prompt</label>
+          <AITabInput
+            as="textarea"
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            placeholder="Check all core routers for interface errors and report anomalies..."
+            rows={4}
+            aiField="task_prompt"
+            aiPlaceholder="Instructions for the AI agent task"
+            aiContext={{ name }}
+            onAIValue={(v) => setPrompt(v)}
+          />
+        </div>
+
+        <div className="schedule-dialog-row">
           <div className="schedule-dialog-field">
-            <label>Name</label>
-            <AITabInput
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Daily network audit"
-              aiField="task_name"
-              aiPlaceholder="Name for this scheduled task"
-              aiContext={{ prompt }}
-              onAIValue={(v) => setName(v)}
-              autoFocus
+            <label>Cron Expression</label>
+            <input data-ai-fill="off" className="ns-input"
+              type="text"
+              value={cronExpression}
+              onChange={e => setCronExpression(e.target.value)}
+              placeholder="0 9 * * *"
             />
-          </div>
-
-          <div className="schedule-dialog-field">
-            <label>Prompt</label>
-            <AITabInput
-              as="textarea"
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              placeholder="Check all core routers for interface errors and report anomalies..."
-              rows={4}
-              aiField="task_prompt"
-              aiPlaceholder="Instructions for the AI agent task"
-              aiContext={{ name }}
-              onAIValue={(v) => setPrompt(v)}
-            />
-          </div>
-
-          <div className="schedule-dialog-row">
-            <div className="schedule-dialog-field">
-              <label>Cron Expression</label>
-              <input
-                type="text"
-                value={cronExpression}
-                onChange={e => setCronExpression(e.target.value)}
-                placeholder="0 9 * * *"
-              />
-              <div className="schedule-dialog-hint">
-                {scheduledTasksApi.describeCron(cronExpression)}
-              </div>
-            </div>
-
-            <div className="schedule-dialog-field">
-              <label>Timezone</label>
-              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
-                <option value="UTC">UTC</option>
-                <option value="America/New_York">America/New_York</option>
-                <option value="America/Los_Angeles">America/Los_Angeles</option>
-                <option value="America/Chicago">America/Chicago</option>
-                <option value="Europe/London">Europe/London</option>
-                <option value="Europe/Paris">Europe/Paris</option>
-                <option value="Asia/Tokyo">Asia/Tokyo</option>
-                <option value="Australia/Sydney">Australia/Sydney</option>
-              </select>
+            <div className="schedule-dialog-hint">
+              {scheduledTasksApi.describeCron(cronExpression)}
             </div>
           </div>
 
-          {error && <div className="schedule-dialog-error">{error}</div>}
-
-          <div className="schedule-dialog-actions">
-            <button type="button" onClick={handleClose} disabled={saving}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="primary"
-              disabled={saving || !name.trim() || !prompt.trim()}
-              title={!name.trim() || !prompt.trim() ? 'Name and prompt are required' : undefined}
-            >
-              {saving ? 'Saving...' : task ? 'Update' : 'Create'}
-            </button>
+          <div className="schedule-dialog-field">
+            <label>Timezone</label>
+            <select aria-label="Timezone" className="ns-select" value={timezone} onChange={e => setTimezone(e.target.value)}>
+              <option value="UTC">UTC</option>
+              <option value="America/New_York">America/New_York</option>
+              <option value="America/Los_Angeles">America/Los_Angeles</option>
+              <option value="America/Chicago">America/Chicago</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="Europe/Paris">Europe/Paris</option>
+              <option value="Asia/Tokyo">Asia/Tokyo</option>
+              <option value="Australia/Sydney">Australia/Sydney</option>
+            </select>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+
+        {error && <div className="schedule-dialog-error">{error}</div>}
+
+        <DialogFooter
+          primary={{
+            label: saving ? 'Saving...' : task ? 'Update' : 'Create',
+            onClick: () => formRef.current?.requestSubmit(),
+            disabled: saving || !name.trim() || !prompt.trim(),
+            title: !name.trim() || !prompt.trim() ? 'Name and prompt are required' : undefined,
+          }}
+          onCancel={handleClose}
+          cancelDisabled={saving}
+          inline
+        />
+      </form>
+    </ModalFrame>
   );
 }
 

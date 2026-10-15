@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formatDurationMs, formatDurationBetween } from '../../lib/formatters';
 import AITabInput from '../AITabInput';
+import AskAiHelp from '../AskAiHelp';
 import './MopWorkspace.css';
 import type { MopExecution, MopExecutionDevice, MopExecutionStep, ControlMode, ExecutionStrategy, OnFailureBehavior } from '../../types/mop';
 import type { MopExecutionState } from '../../hooks/useMopExecution';
@@ -85,6 +86,9 @@ import MopReviewTab from './MopReviewTab';
 
 // Sub-tab types
 import { getErrorMessage, parseApiError } from '../../api/errors'
+import DialogFooter from '../DialogFooter';
+import Tooltip from '../Tooltip';
+import ModalFrame from '../ModalFrame';
 type SubTab = 'plan' | 'devices' | 'execute' | 'review' | 'history';
 
 interface MopWorkspaceProps {
@@ -144,7 +148,7 @@ function PairedDiffCard({ stepA, stepB }: { stepA: MopExecutionStep; stepB: MopE
         </span>
         <span className="mop-diff-arrow">&rarr;</span>
         <span className="mop-diff-step-label">
-          <span style={{ color: 'var(--success)' }}>Post:</span> {stepB.command || stepB.description}
+          <span style={{ color: 'var(--color-success)' }}>Post:</span> {stepB.command || stepB.description}
         </span>
       </div>
       {loading && <div className="mop-diff-loading">Computing diff...</div>}
@@ -2283,7 +2287,7 @@ ${commands.join('\n')}`,
         <div className="mop-history-header">
           <h3>{executionHistory.length} execution{executionHistory.length !== 1 ? 's' : ''}</h3>
           <button
-            className="mop-workspace-header-btn"
+            className="ns-btn mop-workspace-header-btn"
             onClick={() => {
               if (controllerMopId) {
                 setHistoryLoading(true);
@@ -2397,7 +2401,7 @@ ${commands.join('\n')}`,
               onChange={(e) => setNameValue(e.target.value)}
               onBlur={handleNameSave}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleNameSave();
+                if (e.key === 'Enter') { e.preventDefault(); handleNameSave(); }
                 if (e.key === 'Escape') { setNameValue(plan?.name || ''); setEditingName(false); }
               }}
               autoFocus
@@ -2407,13 +2411,12 @@ ${commands.join('\n')}`,
               onAIValue={(v) => setNameValue(v)}
             />
           ) : (
-            <span
+            <Tooltip label="Double-click to rename"><span
               className="mop-workspace-title"
               onDoubleClick={() => setEditingName(true)}
-              title="Double-click to rename"
             >
               {nameValue || 'Untitled MOP'}
-            </span>
+            </span></Tooltip>
           )}
           <span className="mop-workspace-subtitle">
             {plan ? `Created ${new Date(plan.created_at).toLocaleDateString()}` : 'Not saved yet'}
@@ -2428,22 +2431,26 @@ ${commands.join('\n')}`,
         </span>
 
         <div className="mop-workspace-header-actions">
+          <AskAiHelp
+            topic="this MOP"
+            prompt={`Help me with this Method of Procedure in NetStacks: "${nameValue || 'Untitled MOP'}", status ${plan?.status || 'draft'}, ${selectedDeviceIds.size} device(s), ${stepCount} step(s), risk ${riskLevel}, currently on the ${activeTab} tab. `
+              + 'Explain the workflow (pick devices → plan pre-checks, change and post-checks with rollback → execute with the AI Pilot levels), how config templates and variables fit in, and what a solid MOP for this kind of change should include. Look up NetStacks docs if useful.'}
+          />
           <button
-            className={`mop-workspace-header-btn ${dirty ? 'primary' : ''}`}
+            className={`ns-btn mop-workspace-header-btn ${dirty ? 'ns-btn--primary' : ''}`}
             onClick={savePlan}
             disabled={saving || !dirty}
           >
             {saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}
           </button>
           {plan?.status === 'draft' && (
-            <button
-              className="mop-workspace-header-btn danger"
+            <Tooltip label={executionInFlight ? 'Abort or complete the running execution before deleting this MOP' : 'Delete this MOP'}><button
+              className="ns-btn mop-workspace-header-btn ns-btn--danger"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={executionInFlight}
-              title={executionInFlight ? 'Abort or complete the running execution before deleting this MOP' : 'Delete this MOP'}
             >
               Delete
-            </button>
+            </button></Tooltip>
           )}
         </div>
       </div>
@@ -2457,18 +2464,17 @@ ${commands.join('\n')}`,
             {execState.error && <span>{execState.error}</span>}
           </span>
           {saveError && (
-            <button className="mop-workspace-header-btn" onClick={() => { void savePlan(); }} disabled={saving}>
+            <button className="ns-btn mop-workspace-header-btn" onClick={() => { void savePlan(); }} disabled={saving}>
               Retry save
             </button>
           )}
-          <button
-            className="mop-workspace-banner-dismiss"
+          <Tooltip label="Dismiss"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
             onClick={() => { setSaveError(null); clearExecError(); }}
-            title="Dismiss"
             aria-label="Dismiss"
           >
             &times;
-          </button>
+          </button></Tooltip>
         </div>
       )}
 
@@ -2476,7 +2482,7 @@ ${commands.join('\n')}`,
       <div className="mop-workspace-meta">
         <label className="mop-workspace-meta-field">
           <span>Risk</span>
-          <select
+          <select className="ns-select"
             value={riskLevel}
             onChange={(e) => { setRiskLevel(e.target.value); markDirty(); }}
           >
@@ -2629,34 +2635,22 @@ ${commands.join('\n')}`,
 
       {/* Delete confirmation dialog */}
       {showDeleteConfirm && (
-        <div className="mop-workspace-overlay" onClick={() => !deleting && setShowDeleteConfirm(false)}>
-          <div className="mop-workspace-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Delete MOP</h3>
-            <p>Are you sure you want to delete &ldquo;{nameValue || 'Untitled MOP'}&rdquo;?</p>
-            {isEnterprise && controllerMopId && (
-              <p className="mop-workspace-dialog-warning">
-                This MOP has been synced to the Controller and will be deleted there as well.
-              </p>
-            )}
-            <p>This action cannot be undone.</p>
-            <div className="mop-workspace-dialog-actions">
-              <button
-                className="mop-workspace-header-btn"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                className="mop-workspace-header-btn danger"
-                onClick={handleDeletePlan}
-                disabled={deleting}
-              >
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="mop-delete" onDismiss={() => setShowDeleteConfirm(false)} dismissEnabled={!deleting} resizable={false} className="mop-workspace-dialog" label="Delete MOP">
+          <h3>Delete MOP</h3>
+          <p>Are you sure you want to delete &ldquo;{nameValue || 'Untitled MOP'}&rdquo;?</p>
+          {isEnterprise && controllerMopId && (
+            <p className="mop-workspace-dialog-warning">
+              This MOP has been synced to the Controller and will be deleted there as well.
+            </p>
+          )}
+          <p>This action cannot be undone.</p>
+          <DialogFooter
+            primary={{ label: deleting ? 'Deleting...' : 'Delete', onClick: handleDeletePlan, disabled: deleting, danger: true }}
+            onCancel={() => setShowDeleteConfirm(false)}
+            cancelDisabled={deleting}
+            inline
+          />
+        </ModalFrame>
       )}
     </div>
   );

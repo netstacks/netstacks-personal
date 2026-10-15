@@ -1,3 +1,4 @@
+import AITabInput from './components/AITabInput'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { copyToClipboard, readClipboardText } from './lib/clipboard'
 import { useClipStore } from './stores/clipStore'
@@ -5,7 +6,6 @@ import ClipHistoryPalette from './components/clip/ClipHistoryPalette'
 import PastePreview from './components/clip/PastePreview'
 import type { Clip } from './types/clip'
 import { createPortal } from 'react-dom'
-import { useClampedMenuPosition } from './hooks/useClampedMenuPosition'
 import './App.css'
 import './components/ContextMenu.css'
 import { getClient } from './api/client'
@@ -45,7 +45,7 @@ import TemplateDetailTab from './components/config/TemplateDetailTab'
 import InstanceDetailTab from './components/config/InstanceDetailTab'
 import DeploymentDetailTab from './components/config/DeploymentDetailTab'
 import BackupHistoryTab from './components/BackupHistoryTab'
-// Note: TopologyCanvas, TopologyCanvas3D, ViewToggle now used in TopologyTabEditor
+// Note: TopologyCanvas and TopologyCanvas3D are used in TopologyTabEditor
 // DocumentViewer - available for future modal/preview use
 import DocumentTabEditor from './components/DocumentTabEditor'
 import UnsavedDocumentTab from './components/UnsavedDocumentTab'
@@ -64,6 +64,8 @@ import { buildTopologySeed } from './lib/aiTopologySeed'
 import { resolveDocSaveTarget } from './lib/docSaveTargets'
 import { ASK_AI_HELP_EVENT } from './components/AskAiHelp'
 import OnboardingWizard from './components/OnboardingWizard'
+import SidebarSections, { type SidebarNavItem } from './components/SidebarSections'
+import PanelTabRail from './components/PanelTabRail'
 import ScriptEditor, { type ScriptEditorHandle } from './components/ScriptEditor'
 import AIScriptGenerator from './components/AIScriptGenerator'
 import QuickConnectDialog from './components/QuickConnectDialog'
@@ -74,7 +76,10 @@ import NamePromptModal from './components/NamePromptModal'
 import DiscoveryModal, { type DiscoveryResult } from './components/DiscoveryModal'
 import DiscoveryToast from './components/DiscoveryToast'
 import AIProgressPanel, { type AIProgressLog } from './components/AIProgressPanel'
-import SessionSettingsDialog from './components/SessionSettingsDialog'
+import SessionSettingsDialog, { type SessionSettingsTab } from './components/SessionSettingsDialog'
+import EdgeDock from './components/EdgeDock'
+import TeamKnowledge from './components/TeamKnowledge'
+import type { SessionContext } from './types/sessionContext'
 import ShareSessionDialog from './components/ShareSessionDialog'
 import StatusBar from './components/StatusBar'
 import QuickCallVariablesDialog, { extractCallVariables } from './components/QuickCallVariablesDialog'
@@ -93,7 +98,7 @@ import { defaultAccelerator } from './commands/keybindingLinks'
 import { OVERLORD_OPEN_AI_POPUP_EVENT, type OverlordOpenAIPopupDetail } from './hooks/useMonacoOverlord'
 import { TabSelectionProvider, useTabSelection } from './hooks/useTabSelection'
 import { useEnrichment } from './hooks/useEnrichment'
-import { listSessions, getSession, hasConsoleAccess, type Session, type TabProtocol } from './api/sessions'
+import { listSessions, getSession, hasConsoleAccess, sessionTerminalSettings, type Session, type SessionTerminalSettings, type TabProtocol } from './api/sessions'
 import { ConsoleIcon } from './components/icons/ConsoleIcon'
 import { type EnterpriseSession, getSessionDefinition } from './api/enterpriseSessions'
 import { type DeviceSummary } from './api/enterpriseDevices'
@@ -136,9 +141,24 @@ import { ConfirmDialogHost, confirmDialog } from './components/ConfirmDialog'
 import UpdateChecker from './components/UpdateChecker'
 import type { Connection } from './types/topology'
 import { loadPanelSettings, savePanelSettings, PANEL_SETTINGS_CHANGED, type PanelSettings } from './api/panelSettings'
-import { useSettings } from './hooks/useSettings'
+import { useSettings, getSettings } from './hooks/useSettings'
+import { nextZoomStep } from './commands/zoom'
 import { useMode } from './hooks/useMode'
 import { useCapabilitiesStore } from './stores/capabilitiesStore'
+import { useAuthStore } from './stores/authStore'
+import type { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import {
+  createTabSnapshot,
+  popoutWindowBounds,
+  readTabSnapshot,
+  resolveTabSnapshot,
+  snapshotTerminal,
+  writeTabSnapshot,
+  type PopoutBounds,
+  type ResolvedPopout,
+  type ResolvedTab,
+  type SnapshotPopout,
+} from './lib/tabRestore'
 import { EnrichmentProvider } from './contexts/EnrichmentContext'
 import { AuthProvider } from './components/auth/AuthProvider'
 import TroubleshootingDialog from './components/TroubleshootingDialog'
@@ -151,7 +171,6 @@ import { dispatchMopCommand } from './hooks/useMopCommandBridge'
 import { useActiveContextStore, useCommand, dispatchCommand, getActiveContext, type ActiveContext } from './commands'
 import { getPlatform } from './utils/platform'
 import TopBar from './components/TopBar'
-import WindowControls from './components/WindowControls'
 import MenuBar from './components/MenuBar'
 import type { WorkspaceConfig } from './types/workspace'
 import { useTroubleshootingSession, type OnTimeoutCallback } from './hooks/useTroubleshootingSession'
@@ -170,7 +189,11 @@ import type { NetBoxNeighbor } from './api/netbox'
 // Check if running in Tauri environment
 import { getErrorMessage } from './api/errors'
 import { logger } from './lib/logger'
+import Tooltip from './components/Tooltip'
+import ModalFrame from './components/ModalFrame'
 const isTauri = '__TAURI_INTERNALS__' in window
+// UI-mock runs render the desktop title bar so it can be screenshot-tested in a browser.
+const hasDesktopChrome = isTauri || import.meta.env.VITE_UI_MOCK === '1'
 
 // Tab type discriminator
 type TabType = 'terminal' | 'document' | 'topology' | 'device-detail' | 'link-detail' | 'mop' | 'sftp-editor' | 'script' | 'api-response' | 'api-request' | 'settings' | 'incident-detail' | 'alert-detail' | 'stack-detail' | 'backup-history' | 'config-template' | 'config-stack' | 'config-instance' | 'config-deployment' | 'workspace' | 'scratchpad' | 'agent-run' | 'ai-chat'
@@ -213,6 +236,9 @@ interface Tab {
   /** Terminal tabs: set once the session has connected at least once, so a
    *  tab closed before it ever connected doesn't land in "Reopen Closed Tab". */
   everConnected?: boolean
+  /** Terminal tabs restored from the last run: mounted disconnected until the
+   *  user connects. Cleared once the terminal starts connecting. */
+  awaitingConnect?: boolean
   profileId?: string
   // Jumpbox (enterprise Local Terminal)
   isJumpbox?: boolean
@@ -290,6 +316,98 @@ interface Tab {
   scratchpadInitialContent?: string
   // Shared
   color?: string
+}
+
+/** A terminal tab for a saved session; `isConsole` targets its OOB console. */
+function sessionTerminalTab(session: Session, isConsole: boolean, id: string, settings: SessionTerminalSettings): Tab {
+  return {
+    id,
+    type: 'terminal',
+    title: isConsole ? `${session.name} — console` : session.name,
+    sessionId: session.id,
+    profileId: isConsole ? (session.console_profile_id || session.profile_id) : session.profile_id,
+    protocol: isConsole ? 'console' : (session.protocol || 'ssh'),
+    cliFlavor: session.cli_flavor,
+    ...settings,
+    color: session.color || undefined,
+    status: 'connecting',
+  }
+}
+
+/** The tab for an entry restored from the last run. Terminals come back
+ *  disconnected, waiting for the user to connect. */
+function restoredTab(r: ResolvedTab): Tab {
+  switch (r.type) {
+    case 'terminal':
+      return { ...sessionTerminalTab(r.session, r.console, r.id, r.settings), status: 'disconnected', awaitingConnect: true }
+    case 'enterprise-terminal':
+      return {
+        id: r.id,
+        type: 'terminal',
+        title: r.title,
+        protocol: 'ssh',
+        cliFlavor: r.cliFlavor,
+        status: 'disconnected',
+        awaitingConnect: true,
+        enterpriseProfileId: r.profileId,
+        enterpriseSessionDefinitionId: r.definitionId,
+        enterpriseTargetHost: r.host,
+        enterpriseTargetPort: r.port,
+      }
+    case 'document':
+      return { id: r.id, type: 'document', title: r.document.name, status: 'saved', documentId: r.document.id, documentCategory: r.document.category }
+    case 'topology':
+      return { id: r.id, type: 'topology', title: r.topology.name, status: 'ready', topologyId: r.topology.id }
+    case 'script':
+      return { id: r.id, type: 'script', title: r.script.name || 'Untitled Script', status: 'ready', scriptId: r.script.id, scriptData: r.script }
+    case 'settings':
+      return { id: r.id, type: 'settings', title: 'Settings', status: 'ready' }
+  }
+}
+
+/** Snapshot writes are debounced; pagehide flushes the pending one. */
+const TAB_PERSIST_DEBOUNCE_MS = 300
+
+const TERMINAL_POPOUT_SIZE = { width: 800, height: 600, minWidth: 400, minHeight: 300 }
+const CHAT_POPOUT_SIZE = { width: 480, height: 720, minWidth: 360, minHeight: 420 }
+
+/** URL params a popout terminal window opens with (read by PopoutTerminal). */
+function popoutTerminalParams(tab: Tab): URLSearchParams {
+  const params = new URLSearchParams({
+    popout: 'true',
+    protocol: tab.protocol || 'ssh',
+    sessionName: tab.title,
+    cliFlavor: tab.cliFlavor || 'auto',
+  })
+  if (tab.sessionId) params.set('sessionId', tab.sessionId)
+  if (tab.terminalTheme) params.set('terminalTheme', tab.terminalTheme)
+  if (tab.fontSize) params.set('fontSize', String(tab.fontSize))
+  if (tab.fontFamily) params.set('fontFamily', tab.fontFamily)
+  if (tab.enterpriseProfileId) params.set('enterpriseProfileId', tab.enterpriseProfileId)
+  if (tab.enterpriseSessionDefinitionId) params.set('enterpriseSessionDefinitionId', tab.enterpriseSessionDefinitionId)
+  if (tab.enterpriseTargetHost) params.set('enterpriseTargetHost', tab.enterpriseTargetHost)
+  if (tab.enterpriseTargetPort) params.set('enterpriseTargetPort', String(tab.enterpriseTargetPort))
+  if (tab.isJumpbox) params.set('isJumpbox', 'true')
+  if (tab.awaitingConnect) params.set('awaitingConnect', 'true')
+  return params
+}
+
+/** Opens a Tauri popout window; `bounds` reapplies a restored position/size. */
+async function createPopoutWindow(
+  label: string,
+  params: URLSearchParams,
+  title: string,
+  size: typeof TERMINAL_POPOUT_SIZE,
+  bounds: Partial<PopoutBounds> = {},
+): Promise<WebviewWindow> {
+  const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+  return new WebviewWindow(label, {
+    url: `index.html?${params.toString()}`,
+    title,
+    ...size,
+    ...bounds,
+    decorations: true,
+  })
 }
 
 // Type guard helpers
@@ -614,7 +732,6 @@ function AppContent() {
   const atDeviceStats = useActiveTopologyStore(s => s.deviceStats)
   const atLinkEnrichment = useActiveTopologyStore(s => s.linkEnrichment)
   const atLiveStats = useActiveTopologyStore(s => s.liveStats)
-  const allowStructuralTopologyEdits = appSettings['ai.topology.allowStructuralEdits']
   const topologyAICallbacks = useTopologyAICallbacks({
     topology: atTopology,
     topologyId: atTopologyId,
@@ -634,6 +751,17 @@ function AppContent() {
     setAiPanelCollapsed(false)
     setAiPanelInitialMessages([{ id: `msg_${Date.now()}`, type: 'user', content, timestamp: new Date() }])
   }, [])
+  // Team Knowledge: the last terminal (re)connect, announced once when its tab is active.
+  const [knowledgeAnnounce, setKnowledgeAnnounce] = useState<{ tabId: string; at: number } | null>(null)
+  const [edgeDockSlot, setEdgeDockSlot] = useState<HTMLDivElement | null>(null)
+  const handleAskAIAboutContext = useCallback((ctx: SessionContext, deviceName: string) => {
+    handleAskAISeed(
+      `This device (${deviceName}) has a recorded incident${ctx.ticket_ref ? ` (${ctx.ticket_ref})` : ''}: ${ctx.issue}`
+      + (ctx.root_cause ? `\nRoot cause: ${ctx.root_cause}` : '')
+      + (ctx.resolution ? `\nResolution: ${ctx.resolution}` : '')
+      + `\n\nIs what I'm seeing in this session related, and what should I check first?`,
+    )
+  }, [handleAskAISeed])
   const handleDiscussTopologyWithAI = useCallback(() => {
     handleAskAISeed(buildTopologySeed('map'))
   }, [handleAskAISeed])
@@ -643,32 +771,29 @@ function AppContent() {
 
   // Apply font settings to CSS custom properties so all components inherit them
   useEffect(() => {
-    document.documentElement.style.setProperty('--font-family', appSettings.fontFamily)
+    if (appSettings.fontFamily) {
+      document.documentElement.style.setProperty('--font-family', appSettings.fontFamily)
+    } else {
+      document.documentElement.style.removeProperty('--font-family')
+    }
     document.documentElement.style.setProperty('--font-size-base', `${appSettings.fontSize}px`)
     // Small font size is ~85% of base (e.g., 17px base -> 14px small)
     const smallFontSize = Math.round(appSettings.fontSize * 0.85)
     document.documentElement.style.setProperty('--font-size-small', `${smallFontSize}px`)
   }, [appSettings.fontFamily, appSettings.fontSize])
 
+  // Window decorations come from the per-platform tauri.*.conf.json: macOS
+  // overlays the traffic lights on the TopBar, Windows draws its caption
+  // buttons in the TopBar, Linux keeps the native frame (and its buttons).
+  const platform = getPlatform()
+
   // Toggle liquid-glass effects app-wide. `data-glass="off"` flips the --glass-*
   // tokens to opaque (see index.css), turning glass off everywhere at once.
   useEffect(() => {
-    document.documentElement.setAttribute('data-glass', appSettings['ui.glassEffects'] === false ? 'off' : 'on')
-  }, [appSettings['ui.glassEffects']])
-
-  // The custom TopBar is always present. macOS keeps native decorations
-  // (inset traffic lights via titleBarStyle: Overlay in tauri.conf).
-  // Windows/Linux drop native decorations so the TopBar owns the chrome.
-  const platform = getPlatform()
-  useEffect(() => {
-    if (platform === 'macos') return
-    import('@tauri-apps/api/window')
-      .then(({ getCurrentWindow }) => getCurrentWindow().setDecorations(false))
-      .catch(() => { /* not running under Tauri */ })
-  }, [platform])
-
-  // The TopBar is the drag handle on all platforms now.
-  const titleBarDragProps: React.HTMLAttributes<HTMLDivElement> = {}
+    // macOS chrome uses native vibrancy, so the CSS glass look is never used there.
+    const glass = platform !== 'macos' && appSettings['ui.glassEffects'] !== false
+    document.documentElement.setAttribute('data-glass', glass ? 'on' : 'off')
+  }, [platform, appSettings['ui.glassEffects']])
 
 
   // Suppress native context menu globally — React onContextMenu handlers
@@ -835,6 +960,119 @@ function AppContent() {
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
 
+  // Open-tab restore (lib/tabRestore): the open tabs, their order, the active
+  // tab and popout windows persist across relaunches. Writing starts only once
+  // the restore has run, so the empty initial state never overwrites the
+  // saved snapshot.
+  const activeTabIdRef = useRef(activeTabId)
+  const popoutsRef = useRef(new Map<string, SnapshotPopout>())
+  const tabRestoreStartedRef = useRef(false)
+  const tabsRestoredRef = useRef(false)
+  const persistTimerRef = useRef<number | null>(null)
+
+  const persistTabs = useCallback(() => {
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = null
+    }
+    if (!tabsRestoredRef.current) return
+    writeTabSnapshot(createTabSnapshot(tabsRef.current, activeTabIdRef.current, [...popoutsRef.current.values()]))
+  }, [])
+
+  const schedulePersistTabs = useCallback(() => {
+    if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = window.setTimeout(persistTabs, TAB_PERSIST_DEBOUNCE_MS)
+  }, [persistTabs])
+
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId
+    schedulePersistTabs()
+  }, [tabs, activeTabId, schedulePersistTabs])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', persistTabs)
+    return () => window.removeEventListener('pagehide', persistTabs)
+  }, [persistTabs])
+
+  // Keep a popout window in the snapshot: its geometry follows moves and
+  // resizes, and it leaves the snapshot when the window is destroyed while the
+  // app runs (closed by the user, or popped back in). Quitting ends the
+  // process without a later write, so popouts open at quit are reopened.
+  const trackPopout = useCallback((win: WebviewWindow, entry: SnapshotPopout) => {
+    popoutsRef.current.set(win.label, entry)
+    schedulePersistTabs()
+    const recordBounds = () => {
+      Promise.all([win.outerPosition(), win.innerSize(), win.scaleFactor()])
+        .then(([position, size, scale]) => {
+          const current = popoutsRef.current.get(win.label)
+          if (!current) return
+          const { x, y } = position.toLogical(scale)
+          const { width, height } = size.toLogical(scale)
+          popoutsRef.current.set(win.label, { ...current, bounds: { x, y, width, height } })
+          schedulePersistTabs()
+        })
+        .catch((err) => console.error('[popout] Could not read window geometry:', err))
+    }
+    recordBounds()
+    const unlisteners = [win.onMoved(recordBounds), win.onResized(recordBounds)]
+    void win.once('tauri://destroyed', () => {
+      popoutsRef.current.delete(win.label)
+      schedulePersistTabs()
+      unlisteners.forEach(unlisten => void unlisten.then(fn => fn()))
+    })
+  }, [schedulePersistTabs])
+
+  const reopenPopout = useCallback(async (p: ResolvedPopout) => {
+    const bounds = await popoutWindowBounds(p.bounds)
+    let popout: WebviewWindow
+    let entry: SnapshotPopout
+    if (p.kind === 'chat') {
+      popout = await createPopoutWindow(p.label, new URLSearchParams({ popout: 'chat', title: p.title }), p.title, CHAT_POPOUT_SIZE, bounds)
+      entry = p
+    } else {
+      const tab = restoredTab(p.terminal)
+      popout = await createPopoutWindow(p.label, popoutTerminalParams(tab), tab.title, TERMINAL_POPOUT_SIZE, bounds)
+      entry = { kind: 'terminal', label: p.label, tab: p.tab, bounds: p.bounds }
+    }
+    popout.once('tauri://created', () => trackPopout(popout, entry))
+    popout.once('tauri://error', (e) => console.error('[popout] Failed to reopen window:', e))
+  }, [trackPopout])
+
+  // Restore once the app can resolve what the snapshot references: standalone
+  // renders behind the vault unlock; enterprise renders App under the login
+  // screen, so it waits for login and the Controller's capabilities.
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const tabRestoreReady = capabilitiesLoaded && (!isEnterprise || isAuthenticated)
+
+  useEffect(() => {
+    if (!tabRestoreReady || tabRestoreStartedRef.current) return
+    tabRestoreStartedRef.current = true
+    const snapshot = readTabSnapshot()
+    if (!snapshot) {
+      tabsRestoredRef.current = true
+      return
+    }
+    resolveTabSnapshot(snapshot, { isEnterprise, canDocs, canTopology })
+      .then((resolved) => {
+        const restored = resolved.tabs.map(restoredTab)
+        const documents = resolved.tabs.flatMap(t => t.type === 'document' ? [[t.document.id, t.document] as const] : [])
+        setDocumentCache(prev => ({ ...prev, ...Object.fromEntries(documents) }))
+        // Tabs opened while the restore was in flight stay, after the restored ones.
+        setTabs(prev => [...restored.filter(t => !prev.some(p => p.id === t.id)), ...prev])
+        setActiveTabId(prev => prev ?? resolved.activeTabId)
+        if (isTauri) {
+          for (const popout of resolved.popouts) {
+            reopenPopout(popout).catch((err) => console.error('[popout] Failed to reopen window:', err))
+          }
+        }
+      })
+      .catch((err) => console.error('[tabRestore] Failed to restore tabs:', err))
+      .finally(() => {
+        tabsRestoredRef.current = true
+        schedulePersistTabs()
+      })
+  }, [tabRestoreReady, isEnterprise, canDocs, canTopology, reopenPopout, schedulePersistTabs])
+
   // Tab context menu state
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [contextMenuTabId, setContextMenuTabId] = useState<string | null>(null)
@@ -888,7 +1126,6 @@ function AppContent() {
   // Split pane context menu state (Phase 25)
   const [splitContextMenuPosition, setSplitContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [splitContextMenuTabId, setSplitContextMenuTabId] = useState<string | null>(null)
-  const splitContextMenu = useClampedMenuPosition(splitContextMenuPosition)
 
   // Discovery modal state
   const [discoveryModalOpen, setDiscoveryModalOpen] = useState(false)
@@ -909,9 +1146,10 @@ function AppContent() {
 
   // Session settings dialog state (for tab/terminal context menu)
   const [sessionSettingsSession, setSessionSettingsSession] = useState<Session | null>(null)
-  // Set when the dialog was opened via "Open Console" on a tab whose session
-  // has no console access yet: opens on the Console tab with Save & Open Console.
-  const [sessionSettingsConsoleIntent, setSessionSettingsConsoleIntent] = useState(false)
+  // Where the dialog opens. 'console' = opened via "Open Console" on a tab whose
+  // session has no console access yet (adds Save & Open Console); 'context' +
+  // contextId = a Team Knowledge entry to show expanded.
+  const [sessionSettingsTarget, setSessionSettingsTarget] = useState<{ tab: SessionSettingsTab; contextId?: string } | null>(null)
   // Track session updates from terminal context menu to sync with SessionPanel
   const [externalSessionUpdate, setExternalSessionUpdate] = useState<Session | null>(null)
 
@@ -941,43 +1179,6 @@ function AppContent() {
     return () => window.removeEventListener('profiles-changed', handleProfilesChanged)
   }, [isEnterprise])
 
-  // Listen for session-restored event from AuthProvider (Phase 41)
-  useEffect(() => {
-    const handleSessionRestored = (event: Event) => {
-      const customEvent = event as CustomEvent<{
-        tabs: { id: string; title: string; active: boolean }[];
-        timestamp: number;
-      }>;
-
-      logger.log('[App] Session restored, recreating tabs:', customEvent.detail);
-
-      // Recreate tabs from restored state
-      // Note: We only restore tab IDs and titles, not full session state (for security)
-      // This creates placeholder tabs that users can re-connect manually
-      const restoredTabs: Tab[] = customEvent.detail.tabs.map((restoredTab) => ({
-        id: restoredTab.id,
-        type: 'terminal' as const,
-        title: restoredTab.title,
-        sessionId: undefined, // Don't auto-connect (security)
-        status: 'disconnected' as const,
-      }));
-
-      setTabs(restoredTabs);
-
-      // Set active tab
-      const activeTab = customEvent.detail.tabs.find((t) => t.active);
-      if (activeTab) {
-        setActiveTabId(activeTab.id);
-      }
-    };
-
-    window.addEventListener('session-restored', handleSessionRestored);
-
-    return () => {
-      window.removeEventListener('session-restored', handleSessionRestored);
-    };
-  }, []);
-
   // Troubleshooting session state (Phase 26)
   const [troubleshootingDialogOpen, setTroubleshootingDialogOpen] = useState(false)
   // Honor the user's troubleshooting setting at boot — the panel's
@@ -987,10 +1188,6 @@ function AppContent() {
     () => getTroubleshootingSettings().captureAIConversations
   )
   const [_isSummarizingSession, setIsSummarizingSession] = useState(false)
-
-  // Status bar color state (customizable, defaults to VS Code blue)
-  // _setStatusBarColor reserved for future settings UI integration
-  const [statusBarColor, _setStatusBarColor] = useState('#007acc')
 
 
   // Topology state (legacy - overlays reference these but topologies now use tabs)
@@ -2093,17 +2290,11 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
       }
     }
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-      const popout = new WebviewWindow(`popout-${tab.id}`, {
-        url: `index.html?${params.toString()}`,
-        title: tab.title,
-        width: 480,
-        height: 720,
-        minWidth: 360,
-        minHeight: 420,
-        decorations: true,
+      const popout = await createPopoutWindow(`popout-${tab.id}`, params, tab.title, CHAT_POPOUT_SIZE)
+      popout.once('tauri://created', () => {
+        dropTab()
+        trackPopout(popout, { kind: 'chat', label: popout.label, title: tab.title })
       })
-      popout.once('tauri://created', dropTab)
       popout.once('tauri://error', (e) => {
         console.error('[popout] chat failed:', e)
         showToast('Failed to pop out chat', 'error')
@@ -2115,7 +2306,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
       if (popup) dropTab()
       else showToast('Pop-up blocked — please allow pop-ups for this site', 'warning')
     }
-  }, [tabs, activeTabId])
+  }, [tabs, activeTabId, trackPopout])
 
   // Continue a finished agent run as a chat — IN THE SAME TAB. Converts the
   // static agent-run tab into a live chat session (reusing the AI chat engine),
@@ -2456,24 +2647,10 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
   }, [activeTabId, tabs, profileMap])
 
   // Helper to get effective font settings from session, falling back to profile defaults
-  const getEffectiveFontSettings = useCallback((session: Session): {
-    fontSize: number | null
-    fontFamily: string | null
-    terminalTheme: string | null
-    scrollbackLines: number | null
-    autoReconnect: boolean
-    reconnectDelay: number
-  } => {
-    const profile = profileMap.get(session.profile_id)
-    return {
-      fontSize: session.font_size_override ?? profile?.default_font_size ?? null,
-      fontFamily: session.font_family ?? profile?.default_font_family ?? null,
-      terminalTheme: session.terminal_theme ?? profile?.terminal_theme ?? null,
-      scrollbackLines: session.scrollback_lines ?? null,
-      autoReconnect: session.auto_reconnect ?? true,
-      reconnectDelay: session.reconnect_delay ?? 5,
-    }
-  }, [profileMap])
+  const getEffectiveFontSettings = useCallback(
+    (session: Session) => sessionTerminalSettings(session, profileMap.get(session.profile_id)),
+    [profileMap],
+  )
 
   // Listen for "open session by ID" events (from toast actions, etc.)
   useEffect(() => {
@@ -2538,6 +2715,7 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
       enterpriseTargetHost?: string
       enterpriseTargetPort?: number
       isJumpbox?: boolean
+      awaitingConnect?: boolean
     }
 
     const restoreTab = (p: PopBackInPayload) => {
@@ -2557,7 +2735,8 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
         enterpriseTargetHost: p.enterpriseTargetHost,
         enterpriseTargetPort: p.enterpriseTargetPort,
         isJumpbox: p.isJumpbox,
-        status: 'connecting',
+        status: p.awaitingConnect ? 'disconnected' : 'connecting',
+        awaitingConnect: p.awaitingConnect,
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(newId)
@@ -2800,7 +2979,6 @@ def main(command: str = "show version"):
     print(f"=== {name} ({device['host']}) ===")
     print(output)
 `,
-      is_template: false,
       last_run_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -3062,7 +3240,12 @@ def main(command: str = "show version"):
   const updateTerminalStatus = useCallback((id: string, status: ConnectionStatus) => {
     setTabs(prev => prev.map(tab =>
       tab.id === id
-        ? { ...tab, status, everConnected: tab.everConnected || status === 'connected' }
+        ? {
+            ...tab,
+            status,
+            everConnected: tab.everConnected || status === 'connected',
+            awaitingConnect: tab.awaitingConnect && status !== 'connecting' && status !== 'connected',
+          }
         : tab
     ))
   }, [])
@@ -3407,33 +3590,10 @@ def main(command: str = "show version"):
     const tab = tabs.find(t => t.id === tabId)
     if (!tab || !isTerminalTab(tab)) return
 
-    const params = new URLSearchParams({
-      popout: 'true',
-      protocol: tab.protocol || 'ssh',
-      sessionName: tab.title,
-      cliFlavor: tab.cliFlavor || 'auto',
-    })
-    if (tab.sessionId) params.set('sessionId', tab.sessionId)
-    if (tab.terminalTheme) params.set('terminalTheme', tab.terminalTheme)
-    if (tab.fontSize) params.set('fontSize', String(tab.fontSize))
-    if (tab.fontFamily) params.set('fontFamily', tab.fontFamily)
-    if (tab.enterpriseProfileId) params.set('enterpriseProfileId', tab.enterpriseProfileId)
-    if (tab.enterpriseSessionDefinitionId) params.set('enterpriseSessionDefinitionId', tab.enterpriseSessionDefinitionId)
-    if (tab.enterpriseTargetHost) params.set('enterpriseTargetHost', tab.enterpriseTargetHost)
-    if (tab.enterpriseTargetPort) params.set('enterpriseTargetPort', String(tab.enterpriseTargetPort))
-    if (tab.isJumpbox) params.set('isJumpbox', 'true')
+    const params = popoutTerminalParams(tab)
 
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-      const popout = new WebviewWindow(`popout-${tab.id}`, {
-        url: `index.html?${params.toString()}`,
-        title: tab.title,
-        width: 800,
-        height: 600,
-        minWidth: 400,
-        minHeight: 300,
-        decorations: true,
-      })
+      const popout = await createPopoutWindow(`popout-${tab.id}`, params, tab.title, TERMINAL_POPOUT_SIZE)
 
       popout.once('tauri://created', () => {
         // Remove tab from main window
@@ -3442,6 +3602,8 @@ def main(command: str = "show version"):
           const remaining = tabs.filter(t => t.id !== tabId)
           setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null)
         }
+        const snapshot = snapshotTerminal(tab)
+        if (snapshot) trackPopout(popout, { kind: 'terminal', label: popout.label, tab: snapshot })
       })
 
       popout.once('tauri://error', (e) => {
@@ -3464,7 +3626,7 @@ def main(command: str = "show version"):
       }
     }
     closeContextMenu()
-  }, [tabs, activeTabId, closeContextMenu])
+  }, [tabs, activeTabId, closeContextMenu, trackPopout])
 
   const duplicateTab = useCallback((id: string) => {
     const tab = tabs.find(t => t.id === id)
@@ -5069,25 +5231,7 @@ def main(command: str = "show version"):
     }
 
     const newId = `${console ? 'console' : 'ssh'}-${session.id}-${Date.now()}`
-    const { fontSize, fontFamily, terminalTheme, scrollbackLines, autoReconnect, reconnectDelay } = getEffectiveFontSettings(session)
-    const newTab: Tab = {
-      id: newId,
-      type: 'terminal',
-      title: console ? `${session.name} — console` : session.name,
-      sessionId: session.id,
-      profileId: console ? (session.console_profile_id || session.profile_id) : session.profile_id,
-      protocol: console ? 'console' : (session.protocol || 'ssh'),
-      cliFlavor: session.cli_flavor,
-      terminalTheme,
-      fontSize,
-      fontFamily,
-      scrollbackLines,
-      autoReconnect,
-      reconnectDelay,
-      color: session.color || undefined,
-      status: 'connecting'
-    }
-    setTabs(prev => [...prev, newTab])
+    setTabs(prev => [...prev, sessionTerminalTab(session, console, newId, getEffectiveFontSettings(session))])
     setActiveTabId(newId)
     // Session info is passed through tab.sessionId - Terminal handles the connection via WebSocket
   }, [getEffectiveFontSettings, setActiveTabId, setTabs])
@@ -5116,13 +5260,13 @@ def main(command: str = "show version"):
       if (hasConsoleAccess(session)) {
         handleOpenConsole(session)
       } else {
-        setSessionSettingsConsoleIntent(true)
+        setSessionSettingsTarget({ tab: 'console' })
         setSessionSettingsSession(session)
       }
     } catch (err) {
       showToast(getErrorMessage(err, 'Failed to load session for console'), 'error')
     }
-  }, [tabs, closeContextMenu, handleOpenConsole, setSessionSettingsConsoleIntent, setSessionSettingsSession])
+  }, [tabs, closeContextMenu, handleOpenConsole, setSessionSettingsTarget, setSessionSettingsSession])
 
 
   // Handle bulk connect for multiple sessions
@@ -6303,23 +6447,17 @@ def main(command: str = "show version"):
   useCommand({
     id: 'view.zoom-reset', label: 'Actual Size', category: 'view',
     accelerator: defaultAccelerator('zoomReset'),
-    run: () => { document.body.style.zoom = '1' },
+    run: () => updateAppSetting('view.zoomStep', 0),
   })
   useCommand({
     id: 'view.zoom-in', label: 'Zoom In', category: 'view',
     accelerator: defaultAccelerator('zoomIn'),
-    run: () => {
-      const current = parseFloat(document.body.style.zoom || '1')
-      document.body.style.zoom = String(Math.min(current + 0.1, 2))
-    },
+    run: () => updateAppSetting('view.zoomStep', nextZoomStep(getSettings()['view.zoomStep'], 1)),
   })
   useCommand({
     id: 'view.zoom-out', label: 'Zoom Out', category: 'view',
     accelerator: defaultAccelerator('zoomOut'),
-    run: () => {
-      const current = parseFloat(document.body.style.zoom || '1')
-      document.body.style.zoom = String(Math.max(current - 0.1, 0.5))
-    },
+    run: () => updateAppSetting('view.zoomStep', nextZoomStep(getSettings()['view.zoomStep'], -1)),
   })
 
   // Session -------------------------------------------------------
@@ -6682,7 +6820,7 @@ def main(command: str = "show version"):
       items.push({
         id: 'default-cut',
         label: 'Cut',
-        shortcut: '\u2318X',
+        shortcut: 'Cmd+X',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>,
         action: () => {
           void copyToClipboard(selection, { source: 'app-copy', tabType: 'context-menu' })
@@ -6695,7 +6833,7 @@ def main(command: str = "show version"):
       items.push({
         id: 'default-copy',
         label: 'Copy',
-        shortcut: '\u2318C',
+        shortcut: 'Cmd+C',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
         action: () => {
           void copyToClipboard(selection, { source: 'app-copy', tabType: 'context-menu' })
@@ -6707,7 +6845,7 @@ def main(command: str = "show version"):
       items.push({
         id: 'default-paste',
         label: 'Paste',
-        shortcut: '\u2318V',
+        shortcut: 'Cmd+V',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
         action: () => {
           readClipboardText().then(text => {
@@ -6737,7 +6875,7 @@ def main(command: str = "show version"):
       items.push({
         id: 'default-select-all',
         label: 'Select All',
-        shortcut: '\u2318A',
+        shortcut: 'Cmd+A',
         action: () => {
           if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
             target.select()
@@ -6751,7 +6889,7 @@ def main(command: str = "show version"):
       items.push({
         id: 'default-select-all',
         label: 'Select All',
-        shortcut: '\u2318A',
+        shortcut: 'Cmd+A',
         action: () => {
           document.execCommand('selectAll')
         }
@@ -6801,7 +6939,11 @@ def main(command: str = "show version"):
               console.error('Failed to fetch session for settings:', err)
             }
           } : undefined}
-          onStatusChange={(status) => updateTerminalStatus(tab.id, status)}
+          onStatusChange={(status) => {
+            updateTerminalStatus(tab.id, status)
+            if (status === 'connected') setKnowledgeAnnounce({ tabId: tab.id, at: Date.now() })
+          }}
+          awaitingConnect={tab.awaitingConnect}
           onBroadcast={broadcast}
           onRegisterBroadcastListener={registerListener}
           onVisualizeTraceroute={handleVisualizeTraceroute}
@@ -6815,12 +6957,6 @@ def main(command: str = "show version"):
           isJumpbox={tab.isJumpbox}
           onEnterpriseSessionId={(sid) => updateTabSessionId(tab.id, sid)}
           onReviewPaste={(text, raw) => setPastePreview({ text, tabId: tab.id, raw })}
-          onAskAIContext={(ctx) => handleAskAISeed(
-            `This device (${tab.title}) has a recorded incident${ctx.ticket_ref ? ` (${ctx.ticket_ref})` : ''}: ${ctx.issue}`
-            + (ctx.root_cause ? `\nRoot cause: ${ctx.root_cause}` : '')
-            + (ctx.resolution ? `\nResolution: ${ctx.resolution}` : '')
-            + `\n\nIs what I'm seeing in this session related, and what should I check first?`,
-          )}
           aiOverlordActive={aiOverlordActive}
           onOverlordAnnotationClick={(reason, text, highlightType) => {
             // Open AI side panel with context about this finding
@@ -6909,7 +7045,6 @@ def main(command: str = "show version"):
           onNetBoxGetNeighbors={handleNetBoxGetNeighbors}
           onTopologyDeviceUpdated={handleTopologyDeviceUpdated}
           topologyCallbacks={topologyAICallbacks}
-          allowStructuralTopologyEdits={allowStructuralTopologyEdits}
           onCreateMop={handleCreateMop}
           onTroubleshootingCapture={handleTroubleshootingAICapture}
           isTroubleshootingActive={isTroubleshootingActive}
@@ -7271,6 +7406,121 @@ def main(command: str = "show version"):
     useActiveContextStore.getState().setContext(next)
   }, [activeTabId, tabs, activeView, isEnterprise, selectedSessionIds])
 
+  // Sidebar views, gated once and rendered either as the activity bar
+  // (Windows/Linux) or as the macOS source list (SidebarSections).
+  const navItems: SidebarNavItem<ViewType>[] = [
+    ...(showSessionsTab ? [{ id: 'sessions' as ViewType, label: 'Sessions', icon: Icons.sessions, testId: 'nav-sessions' }] : []),
+    ...(canTopology ? [{ id: 'topology' as ViewType, label: 'Network Topology', icon: Icons.topology, testId: 'nav-topology' }] : []),
+    ...(canDocs ? [{ id: 'docs' as ViewType, label: 'Documents', icon: Icons.docs, testId: 'nav-docs' }] : []),
+    ...(canChanges && showChangesTab ? [{ id: 'changes' as ViewType, label: 'Changes', icon: Icons.changes, testId: 'nav-changes' }] : []),
+    ...(canAgents && showAgentsTab ? [{ id: 'agents' as ViewType, label: 'Agents', icon: Icons.agents, testId: 'nav-agents' }] : []),
+    ...(canStacks ? [{ id: 'stacks' as ViewType, label: 'Stacks', icon: Icons.stacks }] : []),
+    ...allPluginPanels.map((pp) => ({
+      id: `plugin:${pp.pluginName}:${pp.panel.id}` as ViewType,
+      label: pp.panel.label,
+      icon: pp.panel.icon && pluginIconMap[pp.panel.icon] ? pluginIconMap[pp.panel.icon] : defaultPluginIcon,
+    })),
+    ...(sftpConnectionCount > 0 ? [{
+      id: 'sftp' as ViewType,
+      label: `SFTP Browser (${sftpConnectionCount})`,
+      icon: (
+        <svg viewBox="0 0 16 16" fill="currentColor" width="24" height="24">
+          <path d="M14.5 3H7.71l-.85-.85A.5.5 0 006.5 2h-5a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h13a.5.5 0 00.5-.5v-10a.5.5 0 00-.5-.5z" />
+        </svg>
+      ),
+    }] : []),
+    /* M1: the Workspaces panel's entire backing surface is agent-only
+       — the Controller serves no /workspace routes (git ops, local
+       file ops), so in enterprise this panel loads and every call
+       fails. Every other item here is already guarded (showSessionsTab,
+       canTopology, canDocs, canChanges, canAgents, canStacks,
+       sftpConnectionCount); the matching Settings tab IS gated the same
+       way at SettingsPanel.tsx:534. */
+    ...(!isEnterprise ? [{
+      id: 'workspaces' as ViewType,
+      label: 'Workspaces',
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="24" height="24">
+          <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" />
+          <path d="M12 11V17M9 14H15" strokeLinecap="round" />
+        </svg>
+      ),
+    }] : []),
+  ]
+  const settingsLabel = `Settings (${formatShortcut(keyboard.getBinding('settings'))})`
+  const sidebarPinButton = (
+    <Tooltip label={sidebarPinned ? 'Unpin sidebar (auto-collapse)' : 'Pin sidebar (stay open)'}><button aria-label={sidebarPinned ? 'Unpin sidebar (auto-collapse)' : 'Pin sidebar (stay open)'}
+      className={`sidebar-pin-btn ${sidebarPinned ? 'pinned' : ''}`}
+      onClick={() => {
+        // P1-2: persist via savePanelSettings so the value
+        // survives reload. Previously only local state flipped,
+        // and reload restored the old setting from disk.
+        const next = !sidebarPinned
+        setSidebarPinned(next)
+        savePanelSettings({ ...loadPanelSettings(), leftSidebarPinned: next })
+      }}
+    >
+      {sidebarPinned ? Icons.pin : Icons.pinOff}
+    </button></Tooltip>
+  )
+  const useMacSourceList = platform === 'macos' && appSettings['ui.macSourceList']
+
+  const splitMenuItems = (tabId: string): MenuItem[] => {
+    const index = splitTabs.indexOf(tabId)
+    const addable = tabs.filter(t => t.type === 'terminal' && !splitTabs.includes(t.id))
+    const allMultiSend = splitTabs.every(id => isMultiSendEnabled(id))
+    const swap = (from: number, to: number) => setSplitTabs(prev => {
+      const next = [...prev]
+      ;[next[from], next[to]] = [next[to], next[from]]
+      return next
+    })
+    const items: MenuItem[] = []
+    if (index > 0) items.push({ id: 'split-move-up', label: 'Move Up', action: () => swap(index, index - 1) })
+    if (index < splitTabs.length - 1) items.push({ id: 'split-move-down', label: 'Move Down', action: () => swap(index, index + 1) })
+    items.push(
+      { id: 'split-remove', label: 'Remove from Split', action: () => setSplitTabs(prev => prev.filter(id => id !== tabId)) },
+      { id: 'split-close-tab', label: 'Close Tab', action: () => closeTerminal(tabId) },
+      { id: 'split-divider', label: '', divider: true, action: () => {} },
+    )
+    if (addable.length > 0 && splitTabs.length < 4) {
+      items.push({
+        id: 'split-add',
+        label: 'Add Tab to Split',
+        action: () => {},
+        submenu: addable.map(tab => ({
+          id: `split-add-${tab.id}`,
+          label: tab.title,
+          action: () => setSplitTabs(prev => [...prev, tab.id].slice(0, 4)),
+        })),
+      })
+    }
+    items.push(
+      { id: 'split-save-layout', label: 'Save as Layout', action: () => { void handleSaveSplitAsLayout() } },
+      { id: 'split-create-group', label: 'Create Group from Split', action: () => handleCreateGroupFromSplit() },
+      { id: 'split-group-discover', label: 'Create Group & Discover Topology', action: () => { void handleCreateGroupAndDiscover() } },
+      {
+        id: 'split-multi-send',
+        label: allMultiSend ? 'Disable Multi-Send on All' : 'Enable Multi-Send on All',
+        action: () => splitTabs.forEach(id => {
+          if (isMultiSendEnabled(id) === allMultiSend) toggleMultiSend(id)
+        }),
+      },
+      { id: 'split-exit', label: 'Exit Split View', danger: true, action: () => setSplitTabs([]) },
+      {
+        id: 'split-close-all',
+        label: 'Close All & Exit',
+        danger: true,
+        action: () => {
+          const tabsToClose = [...splitTabs]
+          setSplitTabs([])
+          tabsToClose.forEach(id => closeTerminal(id))
+        },
+      },
+    )
+    return items
+  }
+
+
   return (
     <AuthProvider>
       <div className="app" onContextMenu={handleGlobalContextMenu}>
@@ -7280,156 +7530,67 @@ def main(command: str = "show version"):
         {/* The title bar only makes sense inside the desktop window; the
             browser build (controller /terminal/) keeps the space. Command
             palette, sidebar and AI panel remain reachable via shortcuts. */}
-        {isTauri && (
+        {hasDesktopChrome && (
         <TopBar
           platform={platform}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(o => !o)}
-          aiPanelOpen={!aiPanelCollapsed && aiChatOpen}
-          onToggleAiPanel={toggleAiPanel}
           onOpenCommandCenter={() => setCommandPaletteOpen(true)}
           onOpenClipboardHistory={() => setClipHistoryOpen(true)}
           menuSlot={platform === 'macos' ? undefined : <MenuBar />}
-          windowControlsSlot={platform === 'macos' ? undefined : <WindowControls />}
         />
         )}
         <div className="app-body" data-testid="app-body">
-        {/* Activity Bar */}
+        {!useMacSourceList && (
         <div className="activity-bar" data-testid="activity-bar">
-          <div className="activity-bar-top" {...titleBarDragProps}>
-            {showSessionsTab && (
-            <button
-              className={`activity-bar-item ${activeView === 'sessions' ? 'active' : ''}`}
-              onClick={() => handleActivityClick('sessions')}
-              title="Sessions" data-testid="nav-sessions"
-            >
-              {Icons.sessions}
-            </button>
-            )}
-            {canTopology && (
-            <button
-              className={`activity-bar-item ${activeView === 'topology' ? 'active' : ''}`}
-              onClick={() => handleActivityClick('topology')}
-              title="Network Topology" data-testid="nav-topology"
-            >
-              {Icons.topology}
-            </button>
-            )}
-            {canDocs && (
-            <button
-              className={`activity-bar-item ${activeView === 'docs' ? 'active' : ''}`}
-              onClick={() => handleActivityClick('docs')}
-              title="Documents" data-testid="nav-docs"
-            >
-              {Icons.docs}
-            </button>
-            )}
-            {canChanges && showChangesTab && (
-            <button
-              className={`activity-bar-item ${activeView === 'changes' ? 'active' : ''}`}
-              onClick={() => handleActivityClick('changes')}
-              title="Changes" data-testid="nav-changes"
-            >
-              {Icons.changes}
-            </button>
-            )}
-            {canAgents && showAgentsTab && (
-              <button
-                className={`activity-bar-item ${activeView === 'agents' ? 'active' : ''}`}
-                onClick={() => handleActivityClick('agents')}
-                title="Agents" data-testid="nav-agents"
+          <div className="activity-bar-top">
+            {navItems.map(item => (
+              <Tooltip key={item.id} label={item.label}><button
+                className={`activity-bar-item ${activeView === item.id ? 'active' : ''}`}
+                onClick={() => handleActivityClick(item.id)}
+                aria-label={item.label}
+                aria-pressed={activeView === item.id}
+                data-testid={item.testId}
               >
-                {Icons.agents}
-              </button>
-            )}
-            {canStacks && (
-              <button
-                className={`activity-bar-item ${activeView === 'stacks' ? 'active' : ''}`}
-                onClick={() => handleActivityClick('stacks')}
-                title="Stacks"
-              >
-                {Icons.stacks}
-              </button>
-            )}
-            {allPluginPanels.length > 0 && allPluginPanels.map((pp) => {
-              const viewId = `plugin:${pp.pluginName}:${pp.panel.id}`
-              return (
-                <button
-                  key={viewId}
-                  className={`activity-bar-item ${activeView === viewId ? 'active' : ''}`}
-                  onClick={() => handleActivityClick(viewId as ViewType)}
-                  title={pp.panel.label}
-                >
-                  {pp.panel.icon && pluginIconMap[pp.panel.icon] ? pluginIconMap[pp.panel.icon] : defaultPluginIcon}
-                </button>
-              )
-            })}
-            {sftpConnectionCount > 0 && (
-              <button
-                className={`activity-bar-item ${activeView === 'sftp' ? 'active' : ''}`}
-                onClick={() => handleActivityClick('sftp' as ViewType)}
-                title={`SFTP Browser (${sftpConnectionCount})`}
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" width="24" height="24">
-                  <path d="M14.5 3H7.71l-.85-.85A.5.5 0 006.5 2h-5a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h13a.5.5 0 00.5-.5v-10a.5.5 0 00-.5-.5z" />
-                </svg>
-              </button>
-            )}
-            {/* M1: the Workspaces panel's entire backing surface is agent-only
-                — the Controller serves no /workspace routes (git ops, local
-                file ops), so in enterprise this panel loads and every call
-                fails. Every other item in this rail is already guarded
-                (showSessionsTab, canTopology, canDocs, canChanges, canAgents,
-                canStacks, sftpConnectionCount); this one was the sole
-                exception, and the matching Settings tab IS gated the same way
-                at SettingsPanel.tsx:534. */}
-            {!isEnterprise && (
-            <button
-              className={`activity-bar-item ${activeView === 'workspaces' ? 'active' : ''}`}
-              onClick={() => handleActivityClick('workspaces')}
-              title="Workspaces"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="24" height="24">
-                <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" />
-                <path d="M12 11V17M9 14H15" strokeLinecap="round" />
-              </svg>
-            </button>
-            )}
+                {item.icon}
+              </button></Tooltip>
+            ))}
           </div>
           <div className="activity-bar-bottom">
-            <button
+            <Tooltip label={settingsLabel}><button
               className="activity-bar-item"
               onClick={() => openSettingsTab()}
-              title={`Settings (${formatShortcut(keyboard.getBinding('settings'))})`} data-testid="nav-settings"
+              aria-label={settingsLabel} data-testid="nav-settings"
             >
               {Icons.settings}
-            </button>
+            </button></Tooltip>
           </div>
         </div>
+        )}
+
+        {useMacSourceList && !sidebarOpen && (
+          <PanelTabRail items={navItems} activeId={activeView} onOpen={handleActivityClick} />
+        )}
 
         {/* Sidebar */}
         <div
-          className={`sidebar ${!sidebarOpen ? 'collapsed' : ''} ${sidebarOverlay ? 'overlay' : ''}`}
+          className={`sidebar ${!sidebarOpen ? 'collapsed' : ''} ${sidebarOverlay ? 'overlay' : ''} ${useMacSourceList ? 'with-source-list' : ''}`}
           style={{ width: sidebarOpen ? sidebarWidth : 0 }}
         >
+          {useMacSourceList ? (
+            <SidebarSections
+              items={navItems}
+              activeId={activeView}
+              onSelect={(view) => { if (view !== activeView) handleActivityClick(view) }}
+              trailing={sidebarPinButton}
+            />
+          ) : (
           <div className="sidebar-header">
             <span>{getSidebarTitle()}</span>
             <span className="sidebar-header-extras" ref={sidebarHeaderExtrasRef} />
-            <button
-              className={`sidebar-pin-btn ${sidebarPinned ? 'pinned' : ''}`}
-              onClick={() => {
-                // P1-2: persist via savePanelSettings so the value
-                // survives reload. Previously only local state flipped,
-                // and reload restored the old setting from disk.
-                const next = !sidebarPinned
-                setSidebarPinned(next)
-                savePanelSettings({ ...loadPanelSettings(), leftSidebarPinned: next })
-              }}
-              title={sidebarPinned ? 'Unpin sidebar (auto-collapse)' : 'Pin sidebar (stay open)'}
-            >
-              {sidebarPinned ? Icons.pin : Icons.pinOff}
-            </button>
+            {sidebarPinButton}
           </div>
+          )}
+          {/* macOS: panels' header controls get their own row (hidden while empty). */}
+          {useMacSourceList && <span className="sidebar-header-extras sidebar-extras-row" ref={sidebarHeaderExtrasRef} />}
           <div className="sidebar-content">
             {activeView === 'sessions' && !isEnterprise && (
               <SessionPanel
@@ -7592,7 +7753,7 @@ def main(command: str = "show version"):
         <div className="main-area" data-testid="main-area" onClick={handleMainAreaClick}>
           {/* Tab Bar */}
               {tabs.length > 0 && (
-                <div className="tab-bar" data-testid="tab-bar" {...titleBarDragProps}>
+                <div className="tab-bar" data-testid="tab-bar">
                   {/* Combined split tab when split view is active */}
                   {splitTabs.length >= 2 && (() => {
                     const splitTabObjects = splitTabs.map(id => tabs.find(t => t.id === id)).filter((t): t is Tab => t !== undefined)
@@ -7619,15 +7780,15 @@ def main(command: str = "show version"):
                           setSplitContextMenuTabId(splitTabs[0])
                         }}
                       >
-                        <span className="tab-icon tab-icon-split" title="Split View">
+                        <Tooltip label="Split View"><span className="tab-icon tab-icon-split" role="img" aria-label="Split View">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <rect x="3" y="3" width="18" height="18" rx="2" />
                             <line x1="12" y1="3" x2="12" y2="21" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                         <span className="tab-status-indicator" />
                         <span className="tab-title">{combinedTitle}</span>
-                        <button
+                        <Tooltip label="Exit split view"><button aria-label="Exit split view"
                           className="tab-close"
                           onClick={(e) => {
                             e.stopPropagation()
@@ -7637,10 +7798,9 @@ def main(command: str = "show version"):
                               setActiveTabId(splitTabs[0])
                             }
                           }}
-                          title="Exit split view"
                         >
                           ×
-                        </button>
+                        </button></Tooltip>
                       </div>
                     )
                   })()}
@@ -7672,71 +7832,70 @@ def main(command: str = "show version"):
                     >
                       {/* Tab icon - terminal, document, topology, or mop based on type */}
                       {isConsoleTab(tab) ? (
-                        <span className="tab-icon tab-icon-console" title="Console (out-of-band)">
+                        <Tooltip label="Console (out-of-band)"><span className="tab-icon tab-icon-console" role="img" aria-label="Console (out-of-band)">
                           <ConsoleIcon size={14} strokeWidth={1.5} />
-                        </span>
+                        </span></Tooltip>
                       ) : isTerminalTab(tab) ? (
-                        <span className="tab-icon tab-icon-terminal" title="Terminal">
+                        <Tooltip label="Terminal"><span className="tab-icon tab-icon-terminal" role="img" aria-label="Terminal">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <polyline points="4 17 10 11 4 5" />
                             <line x1="12" y1="19" x2="20" y2="19" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       ) : isTopologyTab(tab) ? (
-                        <span className="tab-icon tab-icon-topology" title="Topology">
+                        <Tooltip label="Topology"><span className="tab-icon tab-icon-topology" role="img" aria-label="Topology">
                           {Icons.topologyTab}
-                        </span>
+                        </span></Tooltip>
                       ) : isMopTab(tab) ? (
-                        <span className="tab-icon tab-icon-mop" title="MOP Workspace">
+                        <Tooltip label="MOP Workspace"><span className="tab-icon tab-icon-mop" role="img" aria-label="MOP Workspace">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
                             <rect x="9" y="3" width="6" height="4" rx="1" />
                             <line x1="9" y1="12" x2="15" y2="12" />
                             <line x1="9" y1="16" x2="13" y2="16" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       ) : isScriptTab(tab) ? (
-                        <span className="tab-icon tab-icon-script" title="Script">
+                        <Tooltip label="Script"><span className="tab-icon tab-icon-script" role="img" aria-label="Script">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <polyline points="16 18 22 12 16 6" />
                             <polyline points="8 6 2 12 8 18" />
                             <line x1="14" y1="4" x2="10" y2="20" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       ) : tab.type === 'workspace' ? (
-                        <span className="tab-icon tab-icon-workspace" title="Workspace">
+                        <Tooltip label="Workspace"><span className="tab-icon tab-icon-workspace" role="img" aria-label="Workspace">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <path d="M3 7V17C3 18.1 3.9 19 5 19H19C20.1 19 21 18.1 21 17V9C21 7.9 20.1 7 19 7H13L11 5H5C3.9 5 3 5.9 3 7Z" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       ) : isSettingsTab(tab) ? (
-                        <span className="tab-icon tab-icon-settings" title="Settings">
+                        <Tooltip label="Settings"><span className="tab-icon tab-icon-settings" role="img" aria-label="Settings">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                             <circle cx="12" cy="12" r="3"/>
                             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       ) : (
-                        <span className="tab-icon tab-icon-document" title={tab.documentCategory || 'Document'}>
+                        <Tooltip label={tab.documentCategory || 'Document'}><span className="tab-icon tab-icon-document">
                           {getDocumentIcon(tab.documentCategory)}
-                        </span>
+                        </span></Tooltip>
                       )}
                       {/* Status indicator dot */}
                       <span className="tab-status-indicator" />
                       {/* Multi-send indicator for terminal tabs */}
                       {isTerminalTab(tab) && isMultiSendEnabled(tab.id) && (
-                        <span className="tab-multisend-indicator" title="Multi-send enabled">
+                        <Tooltip label="Multi-send enabled"><span className="tab-multisend-indicator" role="img" aria-label="Multi-send enabled">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                             <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
                             <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       )}
                       {/* Share indicator for terminal tabs — click to manage/stop sharing */}
                       {isTerminalTab(tab) && tab.sessionId && sharedSessions.has(tab.sessionId) && (
-                        <span
+                        <Tooltip label="Sharing — click to manage"><span
                           className="tab-share-indicator tab-share-indicator-active"
-                          title="Sharing — click to manage"
                           onClick={(e) => { e.stopPropagation(); setShareSessionTabId(tab.id) }}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
@@ -7746,32 +7905,33 @@ def main(command: str = "show version"):
                             <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                             <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                           </svg>
-                        </span>
+                        </span></Tooltip>
                       )}
                       {/* Viewer count badge for shared sessions */}
                       {isTerminalTab(tab) && tab.sessionId && (() => {
                         const share = sharedSessions.get(tab.sessionId!)
                         return share && share.viewerCount > 0 ? (
-                          <span className="tab-share-viewers" title={`${share.viewerCount} viewer${share.viewerCount !== 1 ? 's' : ''}`}>
+                          <Tooltip label={`${share.viewerCount} viewer${share.viewerCount !== 1 ? 's' : ''}`}><span className="tab-share-viewers">
                             {share.viewerCount}
-                          </span>
+                          </span></Tooltip>
                         ) : null
                       })()}
                       <span className="tab-title">{tab.title}</span>
-                      <button
+                      <Tooltip label="Close Tab" shortcut={keyboard.getBinding('closeTab')}><button
                         className="tab-close"
+                        aria-label="Close Tab"
                         onClick={(e) => {
                           e.stopPropagation()
                           closeTerminal(tab.id)
                         }}
                       >
                         ×
-                      </button>
+                      </button></Tooltip>
                     </div>
                   ))}
-                  <button className="tab-add" onClick={createTerminal} title="New Terminal">
+                  <Tooltip label="New Terminal"><button aria-label="New Terminal" className="tab-add" onClick={createTerminal}>
                     +
-                  </button>
+                  </button></Tooltip>
                 </div>
               )}
 
@@ -7900,8 +8060,9 @@ def main(command: str = "show version"):
                             <span className="split-pane-title">{tab.title}</span>
                             {/* Layout toggle - only show on first pane */}
                             {splitIndex === 0 && splitViewTabs && splitViewTabs.length >= 2 && (
-                              <button
+                              <Tooltip label={`Layout: ${splitLayout}${splitViewTabs.length >= 3 ? ' (click to change)' : ''}`}><button
                                 className="split-layout-toggle"
+                                aria-label={`Split layout: ${splitLayout}`}
                                 onClick={() => {
                                   // Cycle through layouts based on tab count
                                   const tabCount = splitViewTabs.length
@@ -7921,23 +8082,21 @@ def main(command: str = "show version"):
                                     setSplitLayout('horizontal')
                                   }
                                 }}
-                                title={`Layout: ${splitLayout}${splitViewTabs.length >= 3 ? ' (click to change)' : ''}`}
                               >
                                 {splitLayout === 'horizontal' ? '⬛⬛' :
                                  splitLayout === 'vertical' ? '⬛\n⬛' :
                                  splitLayout === '2-top-1-bottom' ? '⬛⬛\n⬛' : '⬛\n⬛⬛'}
-                              </button>
+                              </button></Tooltip>
                             )}
-                            <button
+                            <Tooltip label="Remove from split view"><button aria-label="Remove from split view"
                               className="split-pane-remove"
                               onClick={() => {
                                 // Remove tab from split view (fluid split - no group involved)
                                 setSplitTabs(prev => prev.filter(id => id !== tab.id))
                               }}
-                              title="Remove from split view"
                             >
                               ×
-                            </button>
+                            </button></Tooltip>
                           </div>
                           {/* Always use same DOM structure to prevent Terminal remount */}
                           <div className={isInSplitView ? 'split-pane-content' : 'single-pane-content'}>
@@ -8093,7 +8252,6 @@ def main(command: str = "show version"):
           onNetBoxGetNeighbors={handleNetBoxGetNeighbors}
           onTopologyDeviceUpdated={handleTopologyDeviceUpdated}
           topologyCallbacks={topologyAICallbacks}
-          allowStructuralTopologyEdits={allowStructuralTopologyEdits}
           // MOP creation callback
           onCreateMop={handleCreateMop}
           // Troubleshooting session capture (Phase 26)
@@ -8101,6 +8259,7 @@ def main(command: str = "show version"):
           isTroubleshootingActive={isTroubleshootingActive}
           captureAIConversations={captureAIConversations}
           onCollapsedChange={setAiPanelCollapsed}
+          edgeTabTarget={edgeDockSlot}
           focusedSessionId={(() => {
             const activeTab = tabs.find(t => t.id === activeTabId)
             if (activeTab && isTerminalTab(activeTab) && (activeTab.sessionId || activeTab.enterpriseSessionDefinitionId)) return activeTab.id
@@ -8192,12 +8351,12 @@ def main(command: str = "show version"):
           onNetBoxGetNeighbors={handleNetBoxGetNeighbors}
           onTopologyDeviceUpdated={handleTopologyDeviceUpdated}
           topologyCallbacks={topologyAICallbacks}
-          allowStructuralTopologyEdits={allowStructuralTopologyEdits}
           onCreateMop={handleCreateMop}
           onTroubleshootingCapture={handleTroubleshootingAICapture}
           isTroubleshootingActive={isTroubleshootingActive}
           captureAIConversations={captureAIConversations}
           onCollapsedChange={setAiPanelCollapsed}
+          edgeTabTarget={edgeDockSlot}
           focusedSessionId={(() => {
             const activeTab = tabs.find(t => t.id === activeTabId)
             if (activeTab && isTerminalTab(activeTab) && (activeTab.sessionId || activeTab.enterpriseSessionDefinitionId)) return activeTab.id
@@ -8259,6 +8418,32 @@ def main(command: str = "show version"):
         />
         )}
 
+        <EdgeDock slotRef={setEdgeDockSlot}>
+          {(() => {
+            const activeTab = tabs.find(t => t.id === activeTabId)
+            if (isEnterprise || !activeTab || !isTerminalTab(activeTab) || !activeTab.sessionId) return null
+            const sessionId = activeTab.sessionId
+            return (
+              <TeamKnowledge
+                key={sessionId}
+                sessionId={sessionId}
+                announceAt={knowledgeAnnounce?.tabId === activeTab.id ? knowledgeAnnounce.at : undefined}
+                onAnnounced={() => setKnowledgeAnnounce(null)}
+                onOpenEntry={async (ctx) => {
+                  try {
+                    setSessionSettingsTarget({ tab: 'context', contextId: ctx.id })
+                    setSessionSettingsSession(await getSession(sessionId))
+                  } catch (err) {
+                    setSessionSettingsTarget(null)
+                    showToast(getErrorMessage(err, 'Failed to load session'), 'error')
+                  }
+                }}
+                onAskAI={(ctx) => handleAskAIAboutContext(ctx, activeTab.title)}
+              />
+            )
+          })()}
+        </EdgeDock>
+
         {/* Hot Edge Zones - invisible trigger areas at window edges */}
         {hotEdgesEnabled && !sidebarOpen && (
           <div
@@ -8308,7 +8493,6 @@ def main(command: str = "show version"):
         activeSessionName={activeSessionName}
         activeProfileName={activeProfileName}
         connectedCount={connectedCount}
-        statusBarColor={statusBarColor}
         activeView={activeView}
         onToggleAIOverlord={() => setAiOverlordActive(prev => !prev)}
         aiOverlordActive={aiOverlordActive}
@@ -8419,6 +8603,7 @@ def main(command: str = "show version"):
         sessionName={aiFloatingChat.sessionName}
         selectedText={aiFloatingChat.selectedText}
         initialPrompt={aiFloatingChat.initialPrompt}
+        onNavigateToSettings={(tab) => openSettingsTab(tab as import('./components/SettingsPanel').SettingsTab | undefined)}
         onClose={() => setAiFloatingChat(prev => ({ ...prev, isOpen: false }))}
         availableSessions={availableSessions}
         onExecuteCommand={handleAgentExecuteCommand}
@@ -8429,7 +8614,6 @@ def main(command: str = "show version"):
         onSearchDocuments={handleAgentSearchDocuments}
         onSaveDocument={handleAgentSaveDocument}
         topologyCallbacks={topologyAICallbacks}
-        allowStructuralTopologyEdits={allowStructuralTopologyEdits}
         onContinueInPanel={(messages) => {
           setAiFloatingChat(prev => ({ ...prev, isOpen: false }))
           setAiPanelInitialMessages(messages)
@@ -8485,41 +8669,41 @@ def main(command: str = "show version"):
 
       {/* Save Layout Dialog (Phase 25) */}
       {saveLayoutDialogOpen && (
-        <div className="modal-overlay" onClick={() => setSaveLayoutDialogOpen(false)}>
-          <div className="save-layout-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Save Layout</h3>
-            <p className="save-layout-dialog-description">
-              Save this group configuration as a layout to restore later.
-            </p>
-            <input
-              type="text"
-              className="save-layout-dialog-input"
-              placeholder="Layout name"
-              value={layoutNameInput}
-              onChange={e => setLayoutNameInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') handleSaveLayoutConfirm()
-                if (e.key === 'Escape') setSaveLayoutDialogOpen(false)
-              }}
-              autoFocus
-            />
-            <div className="save-layout-dialog-actions">
-              <button
-                className="save-layout-dialog-btn save-layout-dialog-btn-cancel"
-                onClick={() => setSaveLayoutDialogOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="save-layout-dialog-btn save-layout-dialog-btn-save"
-                onClick={handleSaveLayoutConfirm}
-                disabled={!layoutNameInput.trim()}
-              >
-                Save
-              </button>
-            </div>
+        <ModalFrame id="save-layout" onDismiss={() => setSaveLayoutDialogOpen(false)} className="save-layout-dialog" label="Save Layout">
+          <h3>Save Layout</h3>
+          <p className="save-layout-dialog-description">
+            Save this group configuration as a layout to restore later.
+          </p>
+          <AITabInput
+            className="save-layout-dialog-input"
+            placeholder="Layout name"
+            value={layoutNameInput}
+            onChange={e => setLayoutNameInput(e.target.value)}
+            aiField="layout name"
+            aiPlaceholder="Short name for a saved layout of terminal tabs"
+            aiContext={{ tabs: (tabGroups.find(g => g.id === saveLayoutGroupId)?.tabIds ?? []).map(id => tabs.find(t => t.id === id)?.title).filter(Boolean).join(', ') }}
+            onAIValue={setLayoutNameInput}
+            onKeyDown={e => {
+              if (e.key === 'Enter') handleSaveLayoutConfirm()
+            }}
+            autoFocus
+          />
+          <div className="save-layout-dialog-actions">
+            <button
+              className="ns-btn"
+              onClick={() => setSaveLayoutDialogOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="ns-btn ns-btn--primary"
+              onClick={handleSaveLayoutConfirm}
+              disabled={!layoutNameInput.trim()}
+            >
+              Save
+            </button>
           </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Tab Context Menu */}
@@ -8621,182 +8805,11 @@ def main(command: str = "show version"):
       })()}
 
       {/* Split Pane Context Menu (Phase 25) */}
-      {splitContextMenuPosition && splitContextMenuTabId && (
-        <div
-          ref={splitContextMenu.ref}
-          className="split-context-menu"
-          style={{ ...splitContextMenu.style, zIndex: 10000 }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="context-menu-section">
-            <div className="context-menu-header">This Tab</div>
-            {/* Move Up - only show if not first */}
-            {splitTabs.indexOf(splitContextMenuTabId) > 0 && (
-              <button
-                className="context-menu-item"
-                onClick={() => {
-                  setSplitTabs(prev => {
-                    const idx = prev.indexOf(splitContextMenuTabId)
-                    if (idx <= 0) return prev
-                    const newTabs = [...prev]
-                    ;[newTabs[idx - 1], newTabs[idx]] = [newTabs[idx], newTabs[idx - 1]]
-                    return newTabs
-                  })
-                  closeSplitContextMenu()
-                }}
-              >
-                <span className="context-menu-icon">↑</span>
-                Move Up
-              </button>
-            )}
-            {/* Move Down - only show if not last */}
-            {splitTabs.indexOf(splitContextMenuTabId) < splitTabs.length - 1 && (
-              <button
-                className="context-menu-item"
-                onClick={() => {
-                  setSplitTabs(prev => {
-                    const idx = prev.indexOf(splitContextMenuTabId)
-                    if (idx < 0 || idx >= prev.length - 1) return prev
-                    const newTabs = [...prev]
-                    ;[newTabs[idx], newTabs[idx + 1]] = [newTabs[idx + 1], newTabs[idx]]
-                    return newTabs
-                  })
-                  closeSplitContextMenu()
-                }}
-              >
-                <span className="context-menu-icon">↓</span>
-                Move Down
-              </button>
-            )}
-            <button
-              className="context-menu-item"
-              onClick={() => {
-                setSplitTabs(prev => prev.filter(id => id !== splitContextMenuTabId))
-                closeSplitContextMenu()
-              }}
-            >
-              <span className="context-menu-icon">✕</span>
-              Remove from Split
-            </button>
-            <button
-              className="context-menu-item"
-              onClick={() => {
-                closeTerminal(splitContextMenuTabId)
-                closeSplitContextMenu()
-              }}
-            >
-              <span className="context-menu-icon">🗑</span>
-              Close Tab
-            </button>
-          </div>
-          <div className="context-menu-divider" />
-          <div className="context-menu-section">
-            <div className="context-menu-header">Split View ({splitTabs.length} tabs)</div>
-            {/* Add tabs to split - show available terminal tabs not in split */}
-            {tabs.filter(t => t.type === 'terminal' && !splitTabs.includes(t.id)).length > 0 && splitTabs.length < 4 && (
-              <div className="context-menu-submenu-container">
-                <button className="context-menu-item context-menu-item-submenu">
-                  <span className="context-menu-icon">➕</span>
-                  Add Tab to Split
-                  <span className="context-menu-arrow">▶</span>
-                </button>
-                <div className="context-menu-submenu">
-                  {tabs.filter(t => t.type === 'terminal' && !splitTabs.includes(t.id)).map(tab => (
-                    <button
-                      key={tab.id}
-                      className="context-menu-item"
-                      onClick={() => {
-                        setSplitTabs(prev => [...prev, tab.id].slice(0, 4))
-                        closeSplitContextMenu()
-                      }}
-                    >
-                      <span className={`context-menu-status-dot ${tab.status}`} />
-                      {tab.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <button
-              className="context-menu-item"
-              onClick={handleSaveSplitAsLayout}
-            >
-              <span className="context-menu-icon">💾</span>
-              Save as Layout
-            </button>
-            <button
-              className="context-menu-item"
-              onClick={() => handleCreateGroupFromSplit()}
-            >
-              <span className="context-menu-icon">📁</span>
-              Create Group from Split
-            </button>
-            <button
-              className="context-menu-item"
-              onClick={handleCreateGroupAndDiscover}
-            >
-              <span className="context-menu-icon">🔍</span>
-              Create Group & Discover Topology
-            </button>
-            <button
-              className="context-menu-item"
-              onClick={() => {
-                const allEnabled = splitTabs.every(id => isMultiSendEnabled(id))
-                splitTabs.forEach(id => {
-                  if (allEnabled) {
-                    if (isMultiSendEnabled(id)) toggleMultiSend(id)
-                  } else {
-                    if (!isMultiSendEnabled(id)) toggleMultiSend(id)
-                  }
-                })
-                closeSplitContextMenu()
-              }}
-            >
-              <span className="context-menu-icon">{splitTabs.every(id => isMultiSendEnabled(id)) ? '🔗' : '⛓'}</span>
-              {splitTabs.every(id => isMultiSendEnabled(id)) ? 'Disable Multi-Send on All' : 'Enable Multi-Send on All'}
-            </button>
-            <button
-              className="context-menu-item context-menu-item-danger"
-              onClick={() => {
-                setSplitTabs([])
-                closeSplitContextMenu()
-              }}
-            >
-              <span className="context-menu-icon">✕</span>
-              Exit Split View
-            </button>
-            <button
-              className="context-menu-item context-menu-item-danger"
-              onClick={() => {
-                // Close all tabs in split view and exit
-                const tabsToClose = [...splitTabs]
-                setSplitTabs([])
-                tabsToClose.forEach(id => closeTerminal(id))
-                closeSplitContextMenu()
-              }}
-            >
-              <span className="context-menu-icon">🗑</span>
-              Close All & Exit
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Click outside to close split context menu */}
-      {splitContextMenuPosition && (
-        <div
-          className="split-context-menu-backdrop"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 9999,
-          }}
-          onClick={closeSplitContextMenu}
-        />
-      )}
+      <ContextMenu
+        position={splitContextMenuTabId ? splitContextMenuPosition : null}
+        items={splitContextMenuTabId ? splitMenuItems(splitContextMenuTabId) : []}
+        onClose={closeSplitContextMenu}
+      />
 
       {/* Device Details Overlay (shown on topology device click) */}
       <DeviceDetailsOverlay
@@ -9015,13 +9028,11 @@ def main(command: str = "show version"):
 
       {/* Remote Window Deploy — shown while deploying agent for right-click "Open Remote Window" */}
       {remoteWindowDeploying && (
-        <div className="modal-overlay">
-          <div className="workspace-deploy-loading" style={{ background: 'var(--color-bg-primary)', borderRadius: 8, padding: 32, minWidth: 280, height: 'auto', width: 'auto' }}>
-            <div className="workspace-deploy-spinner" />
-            <div className="workspace-deploy-text">Deploying agent...</div>
-            <div className="workspace-deploy-subtext">Uploading and launching the remote agent binary</div>
-          </div>
-        </div>
+        <ModalFrame id="remote-window-deploy" resizable={false} className="workspace-deploy-loading" style={{ background: 'var(--color-bg-primary)', borderRadius: 8, padding: 32, minWidth: 280, height: 'auto', width: 'auto' }} label="Deploying agent">
+          <div className="workspace-deploy-spinner" />
+          <div className="workspace-deploy-text">Deploying agent...</div>
+          <div className="workspace-deploy-subtext">Uploading and launching the remote agent binary</div>
+        </ModalFrame>
       )}
 
       {/* Deploy Remote Agent — opens workspace dialog pre-filled for the active SSH session */}
@@ -9082,9 +9093,10 @@ def main(command: str = "show version"):
       <SessionSettingsDialog
         isOpen={sessionSettingsSession !== null}
         session={sessionSettingsSession}
-        initialTab={sessionSettingsConsoleIntent ? 'console' : undefined}
-        onSaveAndOpenConsole={sessionSettingsConsoleIntent ? handleOpenConsole : undefined}
-        onClose={() => { setSessionSettingsSession(null); setSessionSettingsConsoleIntent(false) }}
+        initialTab={sessionSettingsTarget?.tab}
+        initialContextId={sessionSettingsTarget?.contextId}
+        onSaveAndOpenConsole={sessionSettingsTarget?.tab === 'console' ? handleOpenConsole : undefined}
+        onClose={() => { setSessionSettingsSession(null); setSessionSettingsTarget(null) }}
         onPreviewFont={(fontSize, fontFamily) => {
           // Live preview font changes on the terminal
           if (sessionSettingsSession) {
@@ -9115,7 +9127,7 @@ def main(command: str = "show version"):
           setExternalSessionUpdate(updatedSession)
           // Close dialog after save
           setSessionSettingsSession(null)
-          setSessionSettingsConsoleIntent(false)
+          setSessionSettingsTarget(null)
         }}
       />
 

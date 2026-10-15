@@ -6,6 +6,7 @@ import ContextMenu from '../ContextMenu'
 import type { MenuItem } from '../ContextMenu'
 
 import { getErrorMessage } from '../../api/errors'
+import Tooltip from '../Tooltip'
 interface WorkspaceGitChangesProps {
   gitOps: GitOps
   branch: GitBranchInfo | null
@@ -175,21 +176,19 @@ export default function WorkspaceGitChanges({
       </span>
       <div className="workspace-git-changes-file-actions">
         {isStaged ? (
-          <button
+          <Tooltip label="Unstage"><button aria-label="Unstage"
             className="workspace-git-changes-file-action-btn"
             onClick={(e) => { e.stopPropagation(); handleUnstageFile(file.path) }}
-            title="Unstage"
           >
             −
-          </button>
+          </button></Tooltip>
         ) : (
-          <button
+          <Tooltip label="Stage"><button aria-label="Stage"
             className="workspace-git-changes-file-action-btn"
             onClick={(e) => { e.stopPropagation(); handleStageFile(file.path) }}
-            title="Stage"
           >
             +
-          </button>
+          </button></Tooltip>
         )}
       </div>
     </div>
@@ -240,9 +239,9 @@ export default function WorkspaceGitChanges({
 
       <div className="workspace-git-commit-form">
         <div style={{ position: 'relative' }}>
-          <textarea
+          <textarea data-ai-fill="off"
             ref={commitInputRef}
-            className="workspace-git-commit-input"
+            className="ns-textarea workspace-git-commit-input"
             placeholder={
               generating
                 ? 'Generating...'
@@ -305,14 +304,14 @@ ${truncatedDiff}`
         </div>
         <div className="workspace-git-commit-actions">
           <button
-            className="workspace-git-commit-btn primary"
+            className="workspace-git-commit-btn ns-btn ns-btn--primary"
             disabled={!canCommit || isCommitting}
             onClick={() => handleCommit(false)}
           >
             Commit
           </button>
           <button
-            className="workspace-git-commit-btn"
+            className="workspace-git-commit-btn ns-btn"
             disabled={!canCommit || isCommitting}
             onClick={() => handleCommit(true)}
           >

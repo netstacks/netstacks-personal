@@ -9,6 +9,7 @@ import { useAgentTasksStore } from '../hooks/useAgentTasks';
 import { buildWorkflowGraph, NODE_W, NODE_H, GAP_Y, type GraphNode } from '../lib/subagentGraph';
 import SubagentNode from './SubagentNode';
 import './AgentWorkflowGraph.css';
+import Tooltip from './Tooltip';
 
 const EXPANDED_W = 320;
 
@@ -171,15 +172,14 @@ export default function AgentWorkflowGraph({ rootId, onOpenRun }: Props) {
       </div>
 
       <div className="saw-toolbar" onPointerDown={(e) => e.stopPropagation()}>
-        <button onClick={() => zoomButton(1.15)} title="Zoom in">+</button>
-        <button onClick={() => zoomButton(1 / 1.15)} title="Zoom out">−</button>
-        <button
+        <Tooltip label="Zoom in"><button aria-label="Zoom in" onClick={() => zoomButton(1.15)}>+</button></Tooltip>
+        <Tooltip label="Zoom out"><button aria-label="Zoom out" onClick={() => zoomButton(1 / 1.15)}>−</button></Tooltip>
+        <Tooltip label="Reset view + layout"><button
           className="saw-reset"
           onClick={() => { setZoom(1); setPan({ x: 28, y: 24 }); setOverrides({}); }}
-          title="Reset view + layout"
         >
           Reset
-        </button>
+        </button></Tooltip>
       </div>
     </div>
   );

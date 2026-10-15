@@ -17,6 +17,7 @@ import { saveEnrichmentToDoc } from '../lib/enrichmentExport';
 import { sendChatMessage, AiNotConfiguredError, type ChatMessage } from '../api/ai';
 import { resolveProvider } from '../lib/aiProviderResolver';
 import './LinkDetailTab.css';
+import Tooltip from './Tooltip'
 
 interface LinkDetailTabProps {
   /** Connection ID for this link (used by parent for data lookup) */
@@ -1085,9 +1086,8 @@ export default function LinkDetailTab({
           </div>
         </div>
         <div className="link-detail-tab-header-actions">
-          <button
-            className={`link-detail-tab-action-btn ${pollState !== 'idle' && pollState !== 'complete' && pollState !== 'error' ? 'polling' : ''}`}
-            title={canPoll ? 'Refresh SNMP interface stats for both endpoints' : 'SNMP not available (no host or profile)'}
+          <Tooltip label={canPoll ? 'Refresh SNMP interface stats for both endpoints' : 'SNMP not available (no host or profile)'}><button
+            className="ns-btn"
             disabled={!canPoll || (pollState !== 'idle' && pollState !== 'complete' && pollState !== 'error')}
             onClick={handleRefresh}
           >
@@ -1104,15 +1104,14 @@ export default function LinkDetailTab({
                pollState === 'sample2' ? 'Sampling...' :
                'Refresh'}
             </span>
-          </button>
+          </button></Tooltip>
           <div className="link-detail-tab-save-wrapper" ref={saveDialogRef}>
-            <button
-              className={`link-detail-tab-action-btn ${savingState !== 'idle' ? 'polling' : ''}`}
+            <Tooltip label="Save to Docs"><button
+              className="ns-btn"
               onClick={() => {
                 if (savingState === 'idle') setSaveDialogOpen(!saveDialogOpen);
               }}
               disabled={savingState !== 'idle'}
-              title="Save to Docs"
             >
               {savingState !== 'idle' ? (
                 <span className="link-detail-tab-spinner" />
@@ -1124,7 +1123,7 @@ export default function LinkDetailTab({
                  savingState === 'ai-generating' ? 'AI Generating...' :
                  'Save to Docs'}
               </span>
-            </button>
+            </button></Tooltip>
             {saveDialogOpen && (
               <div className="link-detail-tab-save-dialog">
                 <button className="link-detail-tab-save-option" onClick={handleBasicSave}>

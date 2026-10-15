@@ -1,322 +1,72 @@
-.mapped-keys-settings {
-  padding: 16px;
-}
-
-.mapped-keys-section {
-  margin-bottom: 24px;
-}
-
-.mapped-keys-section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.mapped-keys-section-title {
-  font-size: 12px;
+/* Settings → Mapped Keys */
+.mk-combo {
+  padding: 1px 6px;
+  border-radius: var(--radius-control);
+  background: var(--color-accent-tint-15);
+  color: var(--color-text-accent);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
   font-weight: 600;
-  text-transform: uppercase;
-  color: var(--text-secondary, #808080);
-  letter-spacing: 0.5px;
-}
-
-.mapped-keys-section-description {
-  font-size: 12px;
-  color: var(--text-secondary, #808080);
-  margin-bottom: 12px;
-}
-
-.mapped-keys-loading {
-  font-size: 12px;
-  color: var(--text-secondary, #808080);
-  padding: 12px;
-}
-
-.mapped-keys-empty {
-  font-size: 12px;
-  color: var(--text-secondary, #808080);
-  padding: 16px;
-  background: var(--bg-secondary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
-  text-align: center;
-  margin-bottom: 12px;
-}
-
-.mapped-keys-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.mapped-keys-item {
-  background: var(--bg-secondary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-
-.mapped-keys-item-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mapped-keys-combo {
-  font-family: var(--font-family-mono, monospace);
-  font-size: 12px;
-  color: var(--color-accent, #00d4aa);
-  font-weight: 600;
-  padding: 2px 6px;
-  background: rgba(0, 212, 170, 0.1);
-  border-radius: 3px;
-  min-width: 60px;
-  text-align: center;
   white-space: nowrap;
 }
 
-.mapped-keys-arrow {
-  color: var(--text-secondary, #808080);
-  font-size: 12px;
-}
-
-.mapped-keys-command {
-  flex: 1;
-  font-family: var(--font-family-mono, monospace);
-  font-size: 12px;
-  color: var(--text-primary, #cccccc);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mapped-keys-delete {
+.mk-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-secondary, #808080);
-  font-size: 14px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
 }
 
-.mapped-keys-item:hover .mapped-keys-delete {
-  opacity: 1;
-}
-
-.mapped-keys-delete:hover {
-  color: var(--color-error, #f44747);
-}
-
-.mapped-keys-description {
-  font-size: 11px;
-  color: var(--text-secondary, #808080);
-  margin-top: 4px;
-  padding-left: 2px;
-}
-
-/* Add form */
-.mapped-keys-add {
+.mk-row-actions {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: var(--bg-secondary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
+  gap: var(--spacing-xs);
+  margin-left: auto;
 }
 
-.mapped-keys-add-row {
+.mk-capture {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-}
-
-.mk-capture-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  gap: 2px var(--spacing-xs);
 }
 
 .mk-capture-btn {
-  min-width: 140px;
-  padding: 6px 12px;
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px dashed var(--border-color, #3c3c3c);
-  border-radius: 4px;
-  color: var(--text-secondary, #808080);
-  font-size: 12px;
-  font-family: var(--font-family, sans-serif);
-  cursor: pointer;
-  transition: all 0.15s;
+  min-width: 160px;
+  padding: 4px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
+  font: inherit;
   text-align: center;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .mk-capture-btn:hover {
-  border-color: var(--color-accent, #00d4aa);
-  color: var(--text-primary, #cccccc);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
 }
 
 .mk-capture-btn.capturing {
-  background: rgba(0, 212, 170, 0.1);
   border-style: solid;
-  border-color: var(--color-accent, #00d4aa);
-  color: var(--color-accent, #00d4aa);
-  animation: mkPulseCapture 1.5s ease-in-out infinite;
+  border-color: var(--color-accent);
+  color: var(--color-text-accent);
 }
 
-@keyframes mkPulseCapture {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(0, 212, 170, 0);
-  }
-}
-
-.mk-capture-clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-secondary, #808080);
-  font-size: 14px;
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.mk-capture-clear:hover {
-  color: var(--color-error, #f44747);
-}
-
-.mk-input-command {
+.mk-command {
   flex: 1;
-  min-width: 120px;
-  padding: 6px 10px;
-  font-family: var(--font-family-mono, monospace);
-  font-size: 12px;
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 4px;
-  color: var(--text-primary, #cccccc);
+  min-width: 160px;
+  font-family: var(--font-family-mono);
 }
 
-.mk-input-command:focus {
-  border-color: var(--color-accent, #00d4aa);
-  outline: none;
-}
-
-.mk-input-description {
-  padding: 6px 10px;
-  font-size: 12px;
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 4px;
-  color: var(--text-primary, #cccccc);
-}
-
-.mk-input-description:focus {
-  border-color: var(--color-accent, #00d4aa);
-  outline: none;
-}
-
-.mk-add-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: var(--color-accent, #00d4aa);
-  border: none;
-  border-radius: 4px;
-  color: var(--bg-primary, #1e1e1e);
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.mk-add-btn:hover {
-  opacity: 0.85;
-}
-
-.mk-add-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-/* P3-6: edit affordance on each row */
-.mapped-keys-edit {
-  background: transparent;
-  border: 1px solid var(--color-border, #3c3c3c);
-  color: var(--color-text-secondary, #9a9a9a);
-  border-radius: 3px;
-  padding: 2px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  margin-left: 8px;
-}
-
-.mapped-keys-edit:hover {
-  background: var(--color-bg-tertiary, #1e1e1e);
-  color: var(--color-text-primary, #cccccc);
-}
-
-.mapped-keys-item-editing {
-  background: var(--color-bg-tertiary, #1e1e1e);
-  padding: 8px;
-  border-radius: 4px;
-}
-
-.mk-secret-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 12px;
-  opacity: 0.85;
-  cursor: pointer;
-}
-.mapped-keys-command-secret {
-  font-family: var(--font-mono, monospace);
-  letter-spacing: 1px;
-}
-.mapped-keys-reveal {
-  background: none;
-  border: 1px solid var(--border-color, #444);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 11px;
-  cursor: pointer;
-  color: inherit;
-}
-.mapped-keys-secret-badge {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-/* Duplicate / app-shortcut conflict hint under the capture button */
 .mk-combo-problem {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--color-warning, #f59e0b);
+  flex-basis: 100%;
+  font-size: var(--font-size-small);
+  color: var(--color-warning);
 }
+
 .mk-combo-problem.blocking {
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
 }

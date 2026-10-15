@@ -7,6 +7,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { TracerouteParser } from '../lib/tracerouteParser';
 import './TracerouteDialog.css';
 
+import DialogFooter from './DialogFooter';
+import ModalFrame from './ModalFrame';
 interface TracerouteDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -87,25 +89,24 @@ export default function TracerouteDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="traceroute-dialog-overlay">
-      <div className="traceroute-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="traceroute-dialog-header">
-          <h2>Visualize Traceroute / MTR</h2>
-          <button className="traceroute-dialog-close" onClick={handleClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <ModalFrame id="traceroute" className="traceroute-dialog" label="Visualize Traceroute">
+      <div className="traceroute-dialog-header">
+        <h2>Visualize Traceroute / MTR</h2>
+        <button className="traceroute-dialog-close" onClick={handleClose} aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-        <div className="traceroute-dialog-content">
-          <p className="traceroute-dialog-description">
-            Paste the output from <code>traceroute</code>, <code>tracert</code>, <code>tracepath</code>, or <code>mtr --report</code> command below.
-          </p>
+      <div className="traceroute-dialog-content">
+        <p className="traceroute-dialog-description">
+          Paste the output from <code>traceroute</code>, <code>tracert</code>, <code>tracepath</code>, or <code>mtr --report</code> command below.
+        </p>
 
-          <textarea
-            className="traceroute-dialog-input"
-            placeholder={`Example (traceroute):
+        <textarea data-ai-fill="off"
+          className="ns-textarea traceroute-dialog-input"
+          placeholder={`Example (traceroute):
 traceroute to example.com (93.184.216.34), 30 hops max
  1  192.168.1.1  1.234 ms  0.987 ms  1.123 ms
  2  10.0.0.1  5.432 ms  4.321 ms  4.567 ms
@@ -114,54 +115,42 @@ traceroute to example.com (93.184.216.34), 30 hops max
 
 Example (mtr --report):
 HOST: myhost                  Loss%   Snt   Last   Avg  Best  Wrst StDev
-  1.|-- gateway                0.0%    10    0.5   0.6   0.4   1.2   0.2
-  2.|-- 10.0.0.1               0.0%    10    1.2   1.5   0.8   3.2   0.7
-  3.|-- 93.184.216.34           0.0%    10    8.7   9.1   7.5  12.3   1.4`}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            rows={12}
-            autoFocus
-          />
+1.|-- gateway                0.0%    10    0.5   0.6   0.4   1.2   0.2
+2.|-- 10.0.0.1               0.0%    10    1.2   1.5   0.8   3.2   0.7
+3.|-- 93.184.216.34           0.0%    10    8.7   9.1   7.5  12.3   1.4`}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          rows={12}
+          autoFocus
+        />
 
-          {preview && (
-            <div className="traceroute-dialog-preview">
-              <div className="preview-item">
-                <span className="preview-label">Destination:</span>
-                <span className="preview-value">{preview.destination}</span>
-              </div>
-              <div className="preview-item">
-                <span className="preview-label">Hops:</span>
-                <span className="preview-value">{preview.hopCount}</span>
-              </div>
-              <div className="preview-item">
-                <span className="preview-label">Status:</span>
-                <span className={`preview-value ${preview.complete ? 'status-complete' : 'status-incomplete'}`}>
-                  {preview.complete ? 'Complete' : 'Incomplete'}
-                </span>
-              </div>
+        {preview && (
+          <div className="traceroute-dialog-preview">
+            <div className="preview-item">
+              <span className="preview-label">Destination:</span>
+              <span className="preview-value">{preview.destination}</span>
             </div>
-          )}
-
-          {error && (
-            <div className="traceroute-dialog-error">
-              {error}
+            <div className="preview-item">
+              <span className="preview-label">Hops:</span>
+              <span className="preview-value">{preview.hopCount}</span>
             </div>
-          )}
-        </div>
+            <div className="preview-item">
+              <span className="preview-label">Status:</span>
+              <span className={`preview-value ${preview.complete ? 'status-complete' : 'status-incomplete'}`}>
+                {preview.complete ? 'Complete' : 'Incomplete'}
+              </span>
+            </div>
+          </div>
+        )}
 
-        <div className="traceroute-dialog-footer">
-          <button className="traceroute-dialog-btn secondary" onClick={handleClose}>
-            Cancel
-          </button>
-          <button
-            className="traceroute-dialog-btn primary"
-            onClick={handleVisualize}
-            disabled={!preview}
-          >
-            Visualize Path
-          </button>
-        </div>
+        {error && (
+          <div className="traceroute-dialog-error">
+            {error}
+          </div>
+        )}
       </div>
-    </div>
+
+      <DialogFooter primary={{ label: 'Visualize Path', onClick: handleVisualize, disabled: !preview }} onCancel={handleClose} />
+    </ModalFrame>
   );
 }

@@ -9,6 +9,7 @@ import {
 import './ProfilingAgentChat.css';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface ProfilingAgentChatProps {
   agentId: string;
   agentName: string;
@@ -127,23 +128,23 @@ export const ProfilingAgentChat: React.FC<ProfilingAgentChatProps> = ({
     <div className="profiling-chat">
       {/* Header */}
       <div className="profiling-chat-header">
-        <button
-          className="profiling-chat-back"
+        <Tooltip label="Back to agent list"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn profiling-chat-back"
           onClick={onBack}
-          title="Back to agent list"
+          aria-label="Back to agent list"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6" />
           </svg>
-        </button>
+        </button></Tooltip>
         <div className="profiling-chat-title">{agentName}</div>
         <div className="profiling-chat-device-count">
           {deviceStates.length} {deviceStates.length === 1 ? 'device' : 'devices'}
         </div>
         {anomalies.length > 0 && (
-          <div className="profiling-chat-anomaly-badge" title={`${anomalies.length} active anomalies`}>
+          <Tooltip label={`${anomalies.length} active anomalies`}><div className="profiling-chat-anomaly-badge">
             {anomalies.length}
-          </div>
+          </div></Tooltip>
         )}
       </div>
 
@@ -151,11 +152,10 @@ export const ProfilingAgentChat: React.FC<ProfilingAgentChatProps> = ({
       {deviceStates.length > 0 && (
         <div className="profiling-chat-health-strip">
           {deviceStates.map((device) => (
-            <div
-              key={device.id}
+            <Tooltip key={device.id} label={`${device.device_id}: ${device.health_score !== null ? device.health_score.toFixed(2) : 'no data'}`}><div
               className={`profiling-chat-health-dot ${getHealthColor(device.health_score)}`}
-              title={`${device.device_id}: ${device.health_score !== null ? device.health_score.toFixed(2) : 'no data'}`}
-            />
+              role="img" aria-label={`${device.device_id}: ${device.health_score !== null ? device.health_score.toFixed(2) : 'no data'}`}
+            /></Tooltip>
           ))}
         </div>
       )}
@@ -199,7 +199,7 @@ export const ProfilingAgentChat: React.FC<ProfilingAgentChatProps> = ({
 
       {/* Input area */}
       <div className="profiling-chat-input-area">
-        <textarea
+        <textarea data-ai-fill="off"
           className="profiling-chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -209,7 +209,7 @@ export const ProfilingAgentChat: React.FC<ProfilingAgentChatProps> = ({
           rows={1}
         />
         <button
-          className="profiling-chat-send"
+          className="ns-btn ns-btn--primary"
           onClick={handleSend}
           disabled={loading || !input.trim()}
         >

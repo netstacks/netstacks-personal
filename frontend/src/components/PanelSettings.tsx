@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import './StatusBarSettings.css' // Reuse existing settings styles
 import Switch from './Switch'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
 import {
   type PanelSettings,
   loadPanelSettings,
@@ -43,77 +44,53 @@ export default function PanelSettingsPanel() {
   }
 
   return (
-    <div className="status-bar-settings">
-      {/* Panel Behavior */}
-      <div className="status-bar-settings-section">
-        <div className="status-bar-settings-section-title">Default Behavior</div>
-
-        <div className="status-bar-settings-row">
-          <div className="status-bar-settings-label">
-            <span>Left Sidebar Pinned</span>
-            <span className="status-bar-settings-desc">
-              When pinned, the sidebar stays open. When unpinned, it auto-hides when focus moves away.
-            </span>
-          </div>
+    <SettingsSection
+      title="Panels"
+      description="How the sidebar and AI panel open, close and float."
+      actions={<button className="ns-btn ns-btn--small" onClick={handleReset}>Reset to Defaults</button>}
+    >
+      <div className="settings-group">
+        <SettingRow
+          label="Left Sidebar Pinned"
+          description="When pinned, the sidebar stays open. When unpinned, it auto-hides when focus moves away."
+        >
           <Switch
             checked={settings.leftSidebarPinned}
             onChange={(v) => updateSetting('leftSidebarPinned', v)}
             label="Left Sidebar Pinned"
           />
-        </div>
-
-        <div className="status-bar-settings-row">
-          <div className="status-bar-settings-label">
-            <span>AI Panel Pinned</span>
-            <span className="status-bar-settings-desc">
-              When pinned, the AI panel stays open. When unpinned, it auto-hides when focus moves away.
-            </span>
-          </div>
+        </SettingRow>
+        <SettingRow
+          label="AI Panel Pinned"
+          description="When pinned, the AI panel stays open. When unpinned, it auto-hides when focus moves away."
+        >
           <Switch
             checked={settings.aiPanelPinned}
             onChange={(v) => updateSetting('aiPanelPinned', v)}
             label="AI Panel Pinned"
           />
-        </div>
-
-        <div className="status-bar-settings-row">
-          <div className="status-bar-settings-label">
-            <span>Sidebar Overlay</span>
-            <span className="status-bar-settings-desc">
-              When enabled, the left sidebar floats over the terminal area. When disabled, opening the sidebar pushes the tabs and terminal to make room.
-            </span>
-          </div>
+        </SettingRow>
+        <SettingRow
+          label="Sidebar Overlay"
+          description="When enabled, the left sidebar floats over the terminal area. When disabled, opening the sidebar pushes the tabs and terminal to make room."
+        >
           <Switch
             checked={settings.sidebarOverlay}
             onChange={(v) => updateSetting('sidebarOverlay', v)}
             label="Sidebar Overlay"
           />
-        </div>
-      </div>
-
-      {/* Hot Edges */}
-      <div className="status-bar-settings-section">
-        <div className="status-bar-settings-section-title">Hot Edges</div>
-
-        <div className="status-bar-settings-row">
-          <div className="status-bar-settings-label">
-            <span>Enable Hot Edges</span>
-            <span className="status-bar-settings-desc">
-              Moving the mouse to the left or right edge of the window reveals hidden panels.
-            </span>
-          </div>
+        </SettingRow>
+        <SettingRow
+          label="Hot Edges"
+          description="Moving the mouse to the left or right edge of the window reveals hidden panels."
+        >
           <Switch
             checked={settings.hotEdgesEnabled}
             onChange={(v) => updateSetting('hotEdgesEnabled', v)}
             label="Enable Hot Edges"
           />
-        </div>
+        </SettingRow>
       </div>
-
-      {/* Reset Button */}
-      <button className="status-bar-settings-reset" onClick={handleReset}>
-        Reset to Defaults
-      </button>
-    </div>
+    </SettingsSection>
   )
 }

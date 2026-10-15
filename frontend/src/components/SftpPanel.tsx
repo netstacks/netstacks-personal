@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { copyToClipboard } from '../lib/clipboard'
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import ContextMenu, { type MenuItem } from './ContextMenu';
+import { isTauri } from '../lib/nativeWindow';
 import {
   sftpLs,
   sftpDownload,
@@ -21,6 +23,8 @@ import './SftpPanel.css';
 // --- Icons ---
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 const FolderIcon = () => (
   <svg viewBox="0 0 16 16" fill="currentColor">
     <path d="M14.5 3H7.71l-.85-.85A.5.5 0 006.5 2h-5a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h13a.5.5 0 00.5-.5v-10a.5.5 0 00-.5-.5z" />
@@ -154,7 +158,6 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
   // Selection and interaction
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -575,13 +578,6 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
     setContextMenu({ x: e.clientX, y: e.clientY, entry, parentPath });
   };
 
-  // Close context menu on any click
-  useEffect(() => {
-    const handleClick = () => setContextMenu(null);
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, []);
-
   // --- Drag & Drop ---
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -611,8 +607,7 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
   // Deliberately not memoized: it must see the latest `handleUpload`
   // (itself un-memoized) and reads the connection + directory from refs
   // captured at drop time, not at mount time.
-  const handleUploadFromPaths = async (paths: string[]) => {
-    const targetPath = rootPathRef.current;
+  const handleUploadFromPaths = async (paths: string[], targetPath = rootPathRef.current) => {
     if (!sftpIdRef.current || paths.length === 0) return;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -658,6 +653,57 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
     selector: '.sftp-panel',
     onDrop: (paths) => { void handleUploadFromPaths(paths); },
   });
+
+  // From a context menu there is no user gesture (native menus run their
+  // action outside one), so a hidden file input would not open: under Tauri
+  // pick with the native dialog instead.
+  const pickUploadFiles = async (targetPath: string) => {
+    if (!isTauri()) {
+      uploadTargetPath.current = targetPath;
+      fileInputRef.current?.click();
+      return;
+    }
+    const picked = await openFileDialog({ multiple: true, directory: false });
+    if (picked) await handleUploadFromPaths(picked, targetPath);
+  };
+
+  const openNewFolderDialog = (parentPath: string) => {
+    setNewFolderParent(parentPath);
+    setNewFolderName('');
+    setShowNewFolderDialog(true);
+  };
+
+  const sep = (id: string): MenuItem => ({ id, label: '', divider: true, action: () => {} });
+  const entryMenuItems = ({ entry, parentPath }: ContextMenuState): MenuItem[] => {
+    if (!entry) {
+      return [
+        { id: 'upload', label: 'Upload Files', icon: <UploadIcon />, action: () => { void pickUploadFiles(parentPath); } },
+        { id: 'new-folder', label: 'New Folder', icon: <NewFolderIcon />, action: () => openNewFolderDialog(parentPath) },
+        sep('refresh-divider'),
+        { id: 'refresh', label: 'Refresh', icon: <RefreshIcon />, action: () => { void refreshRoot(); } },
+      ];
+    }
+    const items: MenuItem[] = [];
+    if (!entry.is_dir) {
+      items.push({ id: 'download', label: 'Download', icon: <DownloadIcon />, action: () => { void handleDownload(entry); } });
+      if (isTextFile(entry.name, entry.size) && sftpId && activeConnection) {
+        items.push({ id: 'open-editor', label: 'Open in Editor', icon: <OpenFileIcon />, action: () => onOpenFile(sftpId, entry.path, entry.name, activeConnection.deviceName) });
+      }
+    } else {
+      items.push(
+        { id: 'new-folder', label: 'New Folder', icon: <NewFolderIcon />, action: () => openNewFolderDialog(entry.path) },
+        { id: 'upload-here', label: 'Upload Here', icon: <UploadIcon />, action: () => { void pickUploadFiles(entry.path); } },
+      );
+    }
+    items.push(
+      sep('rename-divider'),
+      { id: 'rename', label: 'Rename', icon: <EditIcon />, action: () => startRename(entry) },
+      { id: 'copy-path', label: 'Copy Path', icon: <CopyIcon />, action: () => handleCopyPath(entry.path) },
+      sep('delete-divider'),
+      { id: 'delete', label: 'Delete', icon: <TrashIcon />, danger: true, action: () => setDeleteTarget(entry) },
+    );
+    return items;
+  };
 
   // --- Transfer handlers ---
 
@@ -724,7 +770,7 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
 
           {/* Name or rename input */}
           {isRenaming ? (
-            <input
+            <input data-ai-fill="off" aria-label="New name"
               ref={renameInputRef}
               className="sftp-tree-rename-input"
               value={renameValue}
@@ -805,8 +851,8 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
       {/* Header: connection selector + close */}
       <div className="sftp-panel-header">
         <span className="sftp-panel-title">SFTP</span>
-        <select
-          className="sftp-panel-connection-select"
+        <select aria-label="SFTP connection"
+          className="ns-select sftp-panel-connection-select"
           value={activeConnectionId || ''}
           onChange={(e) => setActiveConnection(e.target.value)}
         >
@@ -817,35 +863,35 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
           ))}
         </select>
         {activeConnectionId && (
-          <button
-            className="sftp-panel-close-btn"
+          <Tooltip label="Disconnect SFTP"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn sftp-panel-close-btn"
             onClick={() => closeConnection(activeConnectionId)}
-            title="Disconnect SFTP"
+            aria-label="Disconnect SFTP"
           >
             <CloseIcon />
-          </button>
+          </button></Tooltip>
         )}
       </div>
 
       {/* Path bar */}
       {activeConnectionId && (
         <div className="sftp-panel-pathbar">
-          <input
-            className="sftp-panel-path-input"
+          <input data-ai-fill="off" aria-label="Path"
+            className="ns-input sftp-panel-path-input"
             value={pathInputValue}
             onChange={(e) => setPathInputValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handlePathSubmit();
             }}
           />
-          <button
-            className="sftp-panel-refresh-btn"
+          <Tooltip label="Refresh"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn sftp-panel-refresh-btn"
             onClick={refreshRoot}
             disabled={rootLoading}
-            title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshIcon />
-          </button>
+          </button></Tooltip>
         </div>
       )}
 
@@ -853,7 +899,7 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
       {error && (
         <div className="sftp-panel-error">
           <span>{error}</span>
-          <button onClick={() => setError(null)}>Dismiss</button>
+          <button className="ns-btn" onClick={() => setError(null)}>Dismiss</button>
         </div>
       )}
 
@@ -887,29 +933,27 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
       {/* Action bar */}
       {activeConnectionId && (
         <div className="sftp-panel-actions">
-          <button
-            className="sftp-panel-action-btn"
+          <Tooltip label="Upload files"><button
+            className="ns-btn"
             onClick={() => {
               uploadTargetPath.current = rootPath;
               fileInputRef.current?.click();
             }}
-            title="Upload files"
           >
             <UploadIcon />
             Upload
-          </button>
-          <button
-            className="sftp-panel-action-btn"
+          </button></Tooltip>
+          <Tooltip label="New folder"><button
+            className="ns-btn"
             onClick={() => {
               setNewFolderParent(rootPath);
               setNewFolderName('');
               setShowNewFolderDialog(true);
             }}
-            title="New folder"
           >
             <NewFolderIcon />
             New Folder
-          </button>
+          </button></Tooltip>
           {activeTransferCount > 0 && (
             <div
               className="sftp-panel-transfer-status"
@@ -956,184 +1000,54 @@ const SftpPanel: React.FC<SftpPanelProps> = ({ onOpenFile }) => {
         </div>
       )}
 
-      {/* Context menu */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="sftp-panel-context-menu"
-          style={contextMenuStyle}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenu.entry ? (
-            <>
-              {/* File-specific actions */}
-              {!contextMenu.entry.is_dir && (
-                <>
-                  <button
-                    className="sftp-panel-context-item"
-                    onClick={() => {
-                      handleDownload(contextMenu.entry!);
-                      setContextMenu(null);
-                    }}
-                  >
-                    <DownloadIcon /> Download
-                  </button>
-                  {isTextFile(contextMenu.entry.name, contextMenu.entry.size) &&
-                    sftpId &&
-                    activeConnection && (
-                      <button
-                        className="sftp-panel-context-item"
-                        onClick={() => {
-                          onOpenFile(
-                            sftpId!,
-                            contextMenu.entry!.path,
-                            contextMenu.entry!.name,
-                            activeConnection!.deviceName
-                          );
-                          setContextMenu(null);
-                        }}
-                      >
-                        <OpenFileIcon /> Open in Editor
-                      </button>
-                    )}
-                </>
-              )}
-              {/* Directory-specific actions */}
-              {contextMenu.entry.is_dir && (
-                <>
-                  <button
-                    className="sftp-panel-context-item"
-                    onClick={() => {
-                      setNewFolderParent(contextMenu.entry!.path);
-                      setNewFolderName('');
-                      setShowNewFolderDialog(true);
-                      setContextMenu(null);
-                    }}
-                  >
-                    <NewFolderIcon /> New Folder
-                  </button>
-                  <button
-                    className="sftp-panel-context-item"
-                    onClick={() => {
-                      uploadTargetPath.current = contextMenu.entry!.path;
-                      fileInputRef.current?.click();
-                      setContextMenu(null);
-                    }}
-                  >
-                    <UploadIcon /> Upload Here
-                  </button>
-                </>
-              )}
-              <div className="sftp-panel-context-divider" />
-              <button
-                className="sftp-panel-context-item"
-                onClick={() => startRename(contextMenu.entry!)}
-              >
-                <EditIcon /> Rename
-              </button>
-              <button
-                className="sftp-panel-context-item"
-                onClick={() => handleCopyPath(contextMenu.entry!.path)}
-              >
-                <CopyIcon /> Copy Path
-              </button>
-              <div className="sftp-panel-context-divider" />
-              <button
-                className="sftp-panel-context-item danger"
-                onClick={() => {
-                  setDeleteTarget(contextMenu.entry!);
-                  setContextMenu(null);
-                }}
-              >
-                <TrashIcon /> Delete
-              </button>
-            </>
-          ) : (
-            <>
-              {/* Empty space context menu */}
-              <button
-                className="sftp-panel-context-item"
-                onClick={() => {
-                  uploadTargetPath.current = contextMenu.parentPath;
-                  fileInputRef.current?.click();
-                  setContextMenu(null);
-                }}
-              >
-                <UploadIcon /> Upload Files
-              </button>
-              <button
-                className="sftp-panel-context-item"
-                onClick={() => {
-                  setNewFolderParent(contextMenu.parentPath);
-                  setNewFolderName('');
-                  setShowNewFolderDialog(true);
-                  setContextMenu(null);
-                }}
-              >
-                <NewFolderIcon /> New Folder
-              </button>
-              <div className="sftp-panel-context-divider" />
-              <button
-                className="sftp-panel-context-item"
-                onClick={() => {
-                  refreshRoot();
-                  setContextMenu(null);
-                }}
-              >
-                <RefreshIcon /> Refresh
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? entryMenuItems(contextMenu) : []}
+        onClose={() => setContextMenu(null)}
+      />
 
       {/* New folder dialog */}
       {showNewFolderDialog && (
-        <div className="sftp-panel-dialog-overlay" onClick={() => setShowNewFolderDialog(false)}>
-          <div className="sftp-panel-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>New Folder</h3>
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="Folder name"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleNewFolder();
-                if (e.key === 'Escape') setShowNewFolderDialog(false);
-              }}
-            />
-            <div className="sftp-panel-dialog-buttons">
-              <button className="secondary" onClick={() => setShowNewFolderDialog(false)}>
-                Cancel
-              </button>
-              <button className="primary" onClick={handleNewFolder}>
-                Create
-              </button>
-            </div>
+        <ModalFrame id="sftp-new-folder" onDismiss={() => setShowNewFolderDialog(false)} resizable={false} className="sftp-panel-dialog" label="New folder">
+          <h3>New Folder</h3>
+          <input data-ai-fill="off" className="ns-input"
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="Folder name"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleNewFolder();
+            }}
+          />
+          <div className="sftp-panel-dialog-buttons">
+            <button className="ns-btn" onClick={() => setShowNewFolderDialog(false)}>
+              Cancel
+            </button>
+            <button className="ns-btn ns-btn--primary" onClick={handleNewFolder}>
+              Create
+            </button>
           </div>
-        </div>
+        </ModalFrame>
       )}
 
       {/* Delete confirmation dialog */}
       {deleteTarget && (
-        <div className="sftp-panel-dialog-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="sftp-panel-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete {deleteTarget.is_dir ? 'Folder' : 'File'}</h3>
-            <p>
-              Are you sure you want to delete <strong>{deleteTarget.name}</strong>?
-              {deleteTarget.is_dir && ' This will delete all contents inside it.'}
-            </p>
-            <div className="sftp-panel-dialog-buttons">
-              <button className="secondary" onClick={() => setDeleteTarget(null)}>
-                Cancel
-              </button>
-              <button className="danger" onClick={handleDelete}>
-                Delete
-              </button>
-            </div>
+        <ModalFrame id="sftp-delete" onDismiss={() => setDeleteTarget(null)} resizable={false} className="sftp-panel-dialog" label="Delete file">
+          <h3>Delete {deleteTarget.is_dir ? 'Folder' : 'File'}</h3>
+          <p>
+            Are you sure you want to delete <strong>{deleteTarget.name}</strong>?
+            {deleteTarget.is_dir && ' This will delete all contents inside it.'}
+          </p>
+          <div className="sftp-panel-dialog-buttons">
+            <button className="ns-btn" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </button>
+            <button className="ns-btn ns-btn--danger" onClick={handleDelete}>
+              Delete
+            </button>
           </div>
-        </div>
+        </ModalFrame>
       )}
     </div>
   );

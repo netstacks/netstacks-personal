@@ -27,6 +27,7 @@ import { downloadFile } from '../../lib/formatters'
 import { buildShareFile, parseShareFile, planImport, serializeShareFile, shareFileName, toCreateRequest } from '../../lib/quickActionShare'
 import { notifyApiClientChanged, useApiClientChanged, API_CLIENT_REVEAL_EVENT } from './apiClientEvents'
 import './ApiClientSection.css'
+import Tooltip from '../Tooltip'
 
 export interface ApiClientSectionProps {
   /** Open a saved request (or a blank one against a resource) as a tab. */
@@ -414,10 +415,10 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
       {error && <div className="api-client-status error">{error}</div>}
 
       {!loading && !error && resources.length === 0 && (
-        <div className="api-client-empty">
+        <div className="sidebar-empty">
           <p>No API resources yet.</p>
-          <p className="hint">A resource is a base URL plus auth. Saved requests, Quick Calls, integrations and the AI all send through it.</p>
-          <button className="api-client-add-btn" onClick={() => setResourceDialog({ resource: null })}>
+          <p className="sidebar-empty-hint">A resource is a base URL plus auth. Saved requests, Quick Calls, integrations and the AI all send through it.</p>
+          <button className="ns-btn ns-btn--small" onClick={() => setResourceDialog({ resource: null })}>
             + Add API resource
           </button>
         </div>
@@ -439,24 +440,24 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
               <span className="api-client-icon">{Icons.globe}</span>
               <span className="api-client-name">{resource.name}</span>
               {!resource.has_credentials && resource.auth_type !== 'none' && (
-                <span className="api-client-dot" title="No credentials stored" />
+                <Tooltip label="No credentials stored"><span className="api-client-dot" role="img" aria-label="No credentials stored" /></Tooltip>
               )}
               {busy && <span className="api-client-spinner" />}
               <span className="api-client-row-actions">
-                <button
-                  className="api-client-row-btn"
-                  title="New request"
+                <Tooltip label="New request"><button
+                  className="ns-btn ns-btn--ghost ns-icon-btn"
+                  aria-label="New request"
                   onClick={(e) => { e.stopPropagation(); onOpenRequest({ resourceId: resource.id }) }}
                 >
                   {Icons.plus}
-                </button>
-                <button
-                  className="api-client-row-btn"
-                  title="More"
+                </button></Tooltip>
+                <Tooltip label="More"><button
+                  className="ns-btn ns-btn--ghost ns-icon-btn"
+                  aria-label="More"
                   onClick={(e) => openMenu(e, { kind: 'resource', resource })}
                 >
                   {Icons.more}
-                </button>
+                </button></Tooltip>
               </span>
             </div>
 
@@ -483,21 +484,21 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
                         {running ? (
                           <span className="api-client-spinner" />
                         ) : (
-                          <button
-                            className="api-client-row-btn"
-                            title={vars > 0 ? 'Open to fill in variables and run' : 'Run'}
+                          <Tooltip label={vars > 0 ? 'Open to fill in variables and run' : 'Run'}><button
+                            className="ns-btn ns-btn--ghost ns-icon-btn"
+                            aria-label={vars > 0 ? 'Open to fill in variables and run' : 'Run'}
                             onClick={(e) => { e.stopPropagation(); void runAction(action) }}
                           >
                             {Icons.play}
-                          </button>
+                          </button></Tooltip>
                         )}
-                        <button
-                          className="api-client-row-btn"
-                          title="More"
+                        <Tooltip label="More"><button
+                          className="ns-btn ns-btn--ghost ns-icon-btn"
+                          aria-label="More"
                           onClick={(e) => openActionMenu(e, action)}
                         >
                           {Icons.more}
-                        </button>
+                        </button></Tooltip>
                       </span>
                     </div>
                   )
@@ -513,9 +514,9 @@ export default function ApiClientSection({ onOpenRequest, onRunResult, onReveal 
           <button className="api-client-add-link" onClick={() => setResourceDialog({ resource: null })}>
             {Icons.plus} Add API resource
           </button>
-          <button className="api-client-add-link" onClick={() => fileInputRef.current?.click()} title="Import saved requests from a NetStacks JSON file">
+          <Tooltip label="Import saved requests from a NetStacks JSON file"><button className="api-client-add-link" onClick={() => fileInputRef.current?.click()}>
             Import requests…
-          </button>
+          </button></Tooltip>
           {selectedActions.length > 0 && (
             <span className="api-client-selection-hint">
               {selectedActions.length} selected — right-click to share

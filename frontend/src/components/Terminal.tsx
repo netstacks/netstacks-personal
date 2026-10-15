@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput'
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle, memo } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -8,6 +9,8 @@ import '@xterm/xterm/css/xterm.css'
 import './Terminal.css'
 import { getClient } from '../api/client'
 import ContextMenu, { getAIMenuItems, getDetectionMenuItems, getCustomCommandMenuItems } from './ContextMenu'
+import { zoomedFontSize } from '../commands/zoom'
+import DialogFooter from './DialogFooter'
 import ReconnectOverlay from './ReconnectOverlay'
 import FindBar, { type SearchOptions } from './FindBar'
 import { type LogFormat, processForLog } from './SessionLogging'
@@ -39,9 +42,6 @@ import { useHighlightRules } from '../hooks/useHighlightRules'
 import { networkPreset } from '../data/highlightPresets/network'
 import { useAIHighlighting } from '../hooks/useAIHighlighting'
 import { getHighlightTypeColor } from '../api/ai'
-import SessionContextPopup from './SessionContextPopup'
-import { useSessionContext } from '../hooks/useSessionContext'
-import type { SessionContext as SessionContextType } from '../types/sessionContext'
 // getWsUrl replaced by getClient().wsUrlWithAuth()
 import { getSession, listSessions, type TabProtocol } from '../api/sessions'
 import { listMappedKeys, revealMappedKey, type MappedKey } from '../api/mappedKeys'
@@ -50,7 +50,8 @@ import { executeQuickAction } from '../api/quickActions'
 import { runScript, runScriptStream, analyzeScript, getScript, type ScriptStreamEvent } from '../api/scripts'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { TracerouteParser } from '../lib/tracerouteParser'
-import { formatShortcut, getCurrentBinding, matchesBinding } from '../hooks/useKeyboard'
+import { getCurrentBinding, matchesBinding } from '../hooks/useKeyboard'
+import { platformMonoFont } from '../utils/fonts'
 import { findMappedKey, MAPPED_KEYS_CHANGED_EVENT } from '../lib/mappedKeys'
 import { CommandWarningDialog } from './CommandWarningDialog'
 import { GuardHoldDialog, type GuardHoldData } from './GuardHoldDialog'
@@ -65,6 +66,8 @@ import { useJumpboxTerminal } from '../hooks/useJumpboxTerminal'
 import { getErrorMessage } from '../api/errors'
 import { logger } from '../lib/logger'
 import { CLI_FLAVOR_META } from '../lib/cliFlavorMeta'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 
 interface TerminalMessage {
   type: 'Input' | 'Output' | 'Resize' | 'Close' | 'Error' | 'Connected' | 'Disconnected' | 'GuardHold' | 'GuardStatus'
@@ -113,6 +116,10 @@ interface TerminalProps {
   /** Open session settings dialog for this terminal's session */
   onSessionSettings?: () => void
   onStatusChange?: (status: ConnectionStatus) => void
+  /** Mount disconnected and wait for the user to connect (Connect button or the
+   *  reconnect action) instead of connecting on mount. Set on tabs restored
+   *  from the last run; auto-reconnect only applies once a live connection drops. */
+  awaitingConnect?: boolean
   autoReconnect?: boolean
   /** Seconds between automatic reconnect attempts */
   reconnectDelay?: number
@@ -126,10 +133,6 @@ interface TerminalProps {
   highlightingEnabled?: boolean
   /** Auto copy selection to clipboard (SecureCRT-style) */
   copyOnSelect?: boolean
-  /** Callback when user wants to ask AI about session context */
-  onAskAIContext?: (context: SessionContextType) => void
-  /** Callback when user wants to view all session contexts (open settings dialog) */
-  onViewAllContexts?: () => void
   /** Callback to visualize traceroute output on topology */
   onVisualizeTraceroute?: (output: string) => void
   // Troubleshooting session capture (Phase 26)
@@ -256,6 +259,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   onForceClick,
   onSessionSettings,
   onStatusChange,
+  awaitingConnect: mountAwaitingConnect,
   autoReconnect = true,
   reconnectDelay = DEFAULT_RECONNECT_DELAY,
   maxReconnectAttempts = DEFAULT_MAX_ATTEMPTS,
@@ -264,8 +268,6 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   onRegisterBroadcastListener,
   highlightingEnabled = true,
   copyOnSelect,
-  onAskAIContext,
-  onViewAllContexts,
   onVisualizeTraceroute,
   onTroubleshootingCapture,
   isTroubleshootingActive,
@@ -301,6 +303,12 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const dataDisposableRef = useRef<{ dispose: () => void } | null>(null)
   // Reconnect function ref for imperative handle
   const reconnectFnRef = useRef<(() => void) | null>(null)
+  // Restored terminals stay disconnected until the user connects; nothing
+  // (mount, keypress, hooks) may open a connection while this is set.
+  const [awaitingConnect, setAwaitingConnect] = useState(Boolean(mountAwaitingConnect))
+  const awaitingConnectRef = useRef(awaitingConnect)
+  awaitingConnectRef.current = awaitingConnect
+  const connectAwaitingRef = useRef<() => void>(() => {})
 
   // Store callbacks in refs to avoid re-running effect when they change
   const onCloseRef = useRef(onClose)
@@ -419,17 +427,6 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Image paste state
   const imageCounterRef = useRef<number>(1)
   const workspaceRootRef = useRef<string>('')
-
-  // Session context popup state (proactive notification on connect)
-  const [showContextPopup, setShowContextPopup] = useState(false)
-  const { contexts: sessionContexts, refresh: refreshSessionContexts } = useSessionContext({ sessionId: sessionId || '' })
-  // Store callbacks in refs to avoid re-running effects
-  const onAskAIContextRef = useRef(onAskAIContext)
-  onAskAIContextRef.current = onAskAIContext
-  const onViewAllContextsRef = useRef(onViewAllContexts)
-  onViewAllContextsRef.current = onViewAllContexts
-  const refreshSessionContextsRef = useRef(refreshSessionContexts)
-  refreshSessionContextsRef.current = refreshSessionContexts
 
   // Highlight engine state. Color highlight rules are now rendered by ANSI
   // injection (ansiHighlighterRef) so they survive copy/reflow; the decoration
@@ -818,7 +815,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     },
 
     reconnect: (): void => {
-      if (reconnectFnRef.current) {
+      if (awaitingConnectRef.current) {
+        connectAwaitingRef.current()
+      } else if (reconnectFnRef.current) {
         reconnectFnRef.current()
       }
     },
@@ -861,7 +860,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // profileId may be empty (agent-open / device-anchored) → controller resolves
   // the device's default profile.
   const enterpriseSSHHook = useEnterpriseSSH({
-    enabled: isEnterpriseMode,
+    enabled: isEnterpriseMode && !awaitingConnect,
     profileId: enterpriseProfileId ?? '',
     sessionDefinitionId: enterpriseSessionDefinitionId,
     host: enterpriseTargetHost,
@@ -960,7 +959,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Jumpbox terminal connection (conditional hook usage)
   // This hook is only active when isJumpbox is true and no enterprise credential/session
   const jumpboxTerminalHook = useJumpboxTerminal({
-    enabled: isJumpboxMode,
+    enabled: isJumpboxMode && !awaitingConnect,
     cols: fitAddonRef.current ? terminalRef.current?.cols || 80 : 80,
     rows: fitAddonRef.current ? terminalRef.current?.rows || 24 : 24,
     onData: (data) => {
@@ -1162,9 +1161,10 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   useEffect(() => {
     if (isEnterpriseMode && terminalInstance) {
       const disposable = terminalInstance.onData((data) => {
-        // Auto-reconnect on keypress if disconnected
+        // Auto-reconnect on keypress if disconnected (a restored terminal
+        // waits for an explicit Connect instead)
         if (!isConnectedRef.current) {
-          reconnectFnRef.current?.()
+          if (!awaitingConnectRef.current) reconnectFnRef.current?.()
           return
         }
         // Gate AI Overlord: mark command sent on Enter, clear on typing
@@ -1229,17 +1229,17 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
   // Show connecting message for enterprise SSH
   useEffect(() => {
-    if (isEnterpriseMode && terminalRef.current && enterpriseHost) {
+    if (isEnterpriseMode && !awaitingConnect && terminalRef.current && enterpriseHost) {
       terminalRef.current.writeln(`\x1b[2mConnecting to ${enterpriseHost}...\x1b[0m`)
     }
-  }, [isEnterpriseMode, enterpriseHost])
+  }, [isEnterpriseMode, awaitingConnect, enterpriseHost])
 
   // Show connecting message for jumpbox
   useEffect(() => {
-    if (isJumpboxMode && terminalRef.current) {
+    if (isJumpboxMode && !awaitingConnect && terminalRef.current) {
       terminalRef.current.writeln(`\x1b[2mStarting jumpbox container...\x1b[0m`)
     }
-  }, [isJumpboxMode])
+  }, [isJumpboxMode, awaitingConnect])
 
   // Fetch enterprise session host for display
   useEffect(() => {
@@ -1373,16 +1373,6 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
             // server-side TTY is sized wrong, TUIs (e.g. Ink-based CLIs) emit
             // cursor-positioning escapes that land off-by-N cells.
             handleResize()
-            // Fetch session context and show popup if any exists
-            if (sessionId) {
-              refreshSessionContextsRef.current().then((contexts) => {
-                if (contexts && contexts.length > 0) {
-                  setShowContextPopup(true)
-                }
-              }).catch((err) => {
-                console.error('Failed to fetch session context:', err)
-              })
-            }
             break
           case 'Output':
             if (typeof msg.data === 'string') {
@@ -1731,6 +1721,14 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   if (!isEnterpriseMode && !isJumpboxMode) {
     reconnectFnRef.current = handleReconnectNow
   }
+
+  // First connect of a terminal restored disconnected. The enterprise and
+  // jumpbox hooks connect once enabled; the agent socket connects here.
+  const connectAwaiting = useCallback(() => {
+    setAwaitingConnect(false)
+    if (!isEnterpriseMode && !isJumpboxMode) connectRef.current()
+  }, [isEnterpriseMode, isJumpboxMode])
+  connectAwaitingRef.current = connectAwaiting
 
   // Handle cancel button
   const handleCancel = useCallback(() => {
@@ -2327,8 +2325,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
     // Create terminal instance with theme and font settings (session-specific → global terminal settings → defaults).
     // The UI `fontSize` is the chrome size; the terminal has its own (NS-TERM-11).
-    const effectiveFontSize = fontSize ?? settingsRef.current['terminal.fontSize'] ?? 14
-    const effectiveFontFamily = fontFamily ?? settingsRef.current['terminal.fontFamily'] ?? 'Menlo, Monaco, Consolas, monospace'
+    const effectiveFontSize = zoomedFontSize(fontSize ?? settingsRef.current['terminal.fontSize'], settingsRef.current['view.zoomStep'])
+    const effectiveFontFamily = fontFamily || settingsRef.current['terminal.fontFamily'] || platformMonoFont()
     // Use session theme, or fall back to default theme from settings
     const effectiveTheme = terminalTheme ?? settingsRef.current['terminal.defaultTheme']
     // Font weight setting
@@ -2698,8 +2696,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Connect on mount after terminal is ready (use ref to prevent reconnection loops)
   // Deferred via setTimeout(0) so React StrictMode's rapid unmount/remount cycle
   // clears the timer before any WebSocket is created, preventing double SSH connections.
+  // A terminal mounted awaitingConnect skips this; connectAwaiting connects it.
   useEffect(() => {
-    if (terminalRef.current) {
+    if (terminalRef.current && !awaitingConnectRef.current) {
       let connectCleanup: (() => void) | undefined
       const timer = window.setTimeout(() => {
         connectCleanup = connectRef.current()
@@ -2780,8 +2779,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Update terminal font when props or global settings change
   useEffect(() => {
     if (terminalRef.current && fitAddonRef.current) {
-      const effectiveFontSize = fontSize ?? settings['terminal.fontSize'] ?? 14
-      const effectiveFontFamily = fontFamily ?? settings['terminal.fontFamily'] ?? 'Menlo, Monaco, Consolas, monospace'
+      const effectiveFontSize = zoomedFontSize(fontSize ?? settings['terminal.fontSize'], settings['view.zoomStep'])
+      const effectiveFontFamily = fontFamily || settings['terminal.fontFamily'] || platformMonoFont()
       terminalRef.current.options.fontSize = effectiveFontSize
       terminalRef.current.options.fontFamily = effectiveFontFamily
       // Re-fit terminal to account for font size changes
@@ -3365,21 +3364,6 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     }
   }, [contextMenuPosition, onAIFloatingChat, sessionId, sessionName, contextMenuText])
 
-  // Session context popup handlers
-  const handleContextPopupDismiss = useCallback(() => {
-    setShowContextPopup(false)
-  }, [])
-
-  const handleContextPopupAskAI = useCallback((context: SessionContextType) => {
-    setShowContextPopup(false)
-    onAskAIContextRef.current?.(context)
-  }, [])
-
-  const handleContextPopupViewAll = useCallback(() => {
-    setShowContextPopup(false)
-    onViewAllContextsRef.current?.()
-  }, [])
-
   // Detection action handlers for context menu
   const handleDetectionRunCommand = useCallback((cmd: string) => {
     if (isEnterpriseMode) {
@@ -3521,9 +3505,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
             {isShort ? result : <pre className="toast-script-output">{result}</pre>}
           </span>
           <span className="toast-result-actions">
-            <button
+            <Tooltip label="Open in tab"><button
               className="toast-open-tab"
-              title="Open in tab"
+              aria-label="Open in tab"
               onClick={(e) => { e.stopPropagation(); openInTab(); }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -3531,7 +3515,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
                 <polyline points="15,3 21,3 21,9" />
                 <line x1="10" y1="14" x2="21" y2="3" />
               </svg>
-            </button>
+            </button></Tooltip>
             {sessionAction && (
               <button
                 className="toast-action"
@@ -3712,7 +3696,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     {
       id: 'save-to-docs',
       label: 'Save Output to Docs...',
-      shortcut: formatShortcut(getCurrentBinding('saveTerminalOutput')),
+      shortcut: getCurrentBinding('saveTerminalOutput'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -3809,103 +3793,80 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       />
       {/* Logging indicator */}
       {isLogging && (
-        <div className="terminal-logging-indicator" title={logFilePath || 'Recording session'}>
+        <Tooltip label={logFilePath || 'Recording session'}><div className="terminal-logging-indicator">
           <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10">
             <circle cx="12" cy="12" r="8" />
           </svg>
           <span>LOG</span>
-        </div>
+        </div></Tooltip>
       )}
       {/* Recording indicator (asciicast) */}
       {isRecordingActive && (
-        <div className="terminal-recording-indicator" title="Recording terminal session">
+        <Tooltip label="Recording terminal session"><div className="terminal-recording-indicator">
           <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10">
             <circle cx="12" cy="12" r="8" />
           </svg>
           <span>REC</span>
-        </div>
+        </div></Tooltip>
       )}
       {/* Enterprise "via Controller" badge */}
       {isEnterpriseMode && (
-        <div className="terminal-proxy-badge" title="Connected via Controller (Enterprise Mode)">
+        <Tooltip label="Connected via Controller (Enterprise Mode)"><div className="terminal-proxy-badge">
           via {instanceName}
-        </div>
+        </div></Tooltip>
       )}
       {/* Jump badge — shows the resolved jump (host or session) for SSH
           connections that went through one. Stacks below the Controller
           pill when both are present so they don't overlap. */}
       {viaConsole && (
-        <div
+        <Tooltip label={`Out-of-band console via terminal server ${viaConsole}`}><div
           className="terminal-console-badge"
           style={isEnterpriseMode ? { top: 36 } : undefined}
-          title={`Out-of-band console via terminal server ${viaConsole}`}
         >
           console {viaConsole}
-        </div>
+        </div></Tooltip>
       )}
       {viaJumpName && (
-        <div
+        <Tooltip label={`Connected through jump: ${viaJumpName}`}><div
           className="terminal-jump-badge"
           style={isEnterpriseMode || viaConsole ? { top: 36 } : undefined}
-          title={`Connected through jump: ${viaJumpName}`}
         >
           via {viaJumpName}
-        </div>
+        </div></Tooltip>
       )}
       {/* Save to Docs dialog */}
       {showSaveDialog && (
-        <div className="terminal-save-dialog-overlay">
-          <div className="terminal-save-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="terminal-save-dialog-header">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-              <span>Save Terminal Output to Docs</span>
-              <button className="terminal-save-dialog-close" onClick={closeSaveDialog}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-            <div className="terminal-save-dialog-content">
-              <label>Document Path</label>
-              <div className="terminal-save-dialog-input-wrapper">
-                <span className="terminal-save-dialog-prefix">docs/</span>
-                <input
-                  ref={saveDialogInputRef}
-                  type="text"
-                  value={saveDialogPath}
-                  onChange={(e) => setSaveDialogPath(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleSaveDialogSubmit()
-                    } else if (e.key === 'Escape') {
-                      closeSaveDialog()
-                    }
-                  }}
-                  placeholder="configs/router1-config"
-                />
-              </div>
-              <div className="terminal-save-dialog-hint">
-                Use / to create folders (e.g., configs/site-a/router1)
-              </div>
-              <div className="terminal-save-dialog-preview">
-                <span>{saveDialogContent.split('\n').length} lines</span>
-                <span>{saveDialogContent.length.toLocaleString()} chars</span>
-              </div>
-            </div>
-            <div className="terminal-save-dialog-actions">
-              <button className="terminal-save-dialog-cancel" onClick={closeSaveDialog}>
-                Cancel
-              </button>
-              <button className="terminal-save-dialog-submit" onClick={handleSaveDialogSubmit}>
-                Save to Docs
-              </button>
+        <ModalFrame id="terminal-save-to-docs" onDismiss={closeSaveDialog} className="dialog" labelledBy="terminal-save-dialog-title">
+          <div className="dialog-header">
+            <h2 id="terminal-save-dialog-title">Save Terminal Output to Docs</h2>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={closeSaveDialog} aria-label="Close">×</button>
+          </div>
+          <div className="dialog-content">
+            <div className="form-group">
+              <label htmlFor="terminal-save-dialog-path">Document Path</label>
+              <AITabInput
+                id="terminal-save-dialog-path"
+                ref={saveDialogInputRef}
+                className="terminal-save-dialog-path"
+                value={saveDialogPath}
+                onChange={(e) => setSaveDialogPath(e.target.value)}
+                placeholder="configs/router1-config"
+                aiField="document path"
+                aiPlaceholder="folder/name path under docs/ for this saved terminal output"
+                aiContext={{ session: sessionName, firstLines: saveDialogContent.split('\n').slice(0, 5).join(' | ') }}
+                onAIValue={setSaveDialogPath}
+              />
+              <p className="form-hint">
+                Saved under docs/. Use / to create folders (e.g. configs/site-a/router1).
+                {' '}{saveDialogContent.split('\n').length} lines, {saveDialogContent.length.toLocaleString()} chars.
+              </p>
             </div>
           </div>
-        </div>
+          <DialogFooter
+            primary={{ label: 'Save to Docs', onClick: () => { void handleSaveDialogSubmit() } }}
+            onCancel={closeSaveDialog}
+          />
+        </ModalFrame>
       )}
       {/* Capture mode indicator (>> docs/path) */}
       {captureMode && (
@@ -3928,25 +3889,25 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
                 ? `${(captureMode.byteCount / 1024).toFixed(1)} KB`
                 : `${(captureMode.byteCount / 1048576).toFixed(1)} MB`}
           </span>
-          <button
+          <Tooltip label="Complete capture and save" shortcut="Ctrl+D"><button
             className="terminal-capture-complete"
             onClick={() => completeCapture()}
-            title="Complete capture and save (Ctrl+D)"
+            aria-label="Complete capture and save"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
               <polyline points="20 6 9 17 4 12" />
             </svg>
-          </button>
-          <button
+          </button></Tooltip>
+          <Tooltip label="Cancel capture (Esc)"><button
             className="terminal-capture-cancel"
             onClick={() => cancelCapture()}
-            title="Cancel capture (Esc)"
+            aria-label="Cancel capture (Esc)"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </button></Tooltip>
         </div>
       )}
       <div className="terminal-content-wrapper">
@@ -3954,7 +3915,13 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
           {showLineNumbers && (
             <div className="terminal-line-numbers" ref={gutterRef} />
           )}
-          <div className="terminal-content" ref={containerRef} />
+          {/* The host takes the theme background so its padding never shows
+              xterm's default black viewport as a frame. */}
+          <div
+            className="terminal-content"
+            ref={containerRef}
+            style={{ backgroundColor: getTerminalTheme(terminalTheme ?? settings['terminal.defaultTheme']).background }}
+          />
         </div>
         {settings['ai.inlineSuggestions'] && (
           <InlineSuggestion
@@ -3982,10 +3949,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         />
       </div>
       <ReconnectOverlay
-        visible={showReconnectOverlay}
+        visible={showReconnectOverlay || awaitingConnect}
+        restored={awaitingConnect}
         countdown={countdown}
         attemptCount={attemptCount}
-        onReconnectNow={() => reconnectFnRef.current?.()}
+        onReconnectNow={awaitingConnect ? connectAwaiting : () => reconnectFnRef.current?.()}
         onCancel={handleCancel}
         onDisableAutoReconnect={handleDisableAutoReconnect}
         autoReconnectDisabled={autoReconnectDisabled}
@@ -4006,16 +3974,6 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
           jumpSessionId={sessionJumpSessionIdRef.current}
           position={snmpQuickLook.position}
           onClose={() => setSnmpQuickLook(null)}
-        />
-      )}
-      {/* Session context popup - shown when connecting to device with existing context */}
-      {showContextPopup && sessionContexts.length > 0 && (
-        <SessionContextPopup
-          contexts={sessionContexts}
-          sessionName={sessionName || 'Session'}
-          onDismiss={handleContextPopupDismiss}
-          onAskAI={handleContextPopupAskAI}
-          onViewAll={handleContextPopupViewAll}
         />
       )}
       {/* Command safety warning dialog - shown when attempting to execute dangerous command */}

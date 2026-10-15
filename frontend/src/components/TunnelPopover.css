@@ -5,9 +5,9 @@
   margin-bottom: 4px;
   width: 360px;
   max-height: 400px;
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
@@ -17,33 +17,14 @@
 
 .tunnel-popover-search {
   padding: 8px;
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
-}
-
-.tunnel-popover-search input {
-  width: 100%;
-  padding: 6px 10px;
-  background: var(--bg-secondary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 4px;
-  color: var(--text-primary, #cccccc);
-  font-size: 13px;
-  box-sizing: border-box;
-}
-
-.tunnel-popover-search input:focus {
-  outline: none;
-  border-color: var(--accent-color, #007acc);
-}
-
-.tunnel-popover-search input::placeholder {
-  color: var(--text-secondary, #808080);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tunnel-popover-list {
   flex: 1;
   max-height: 300px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px 0;
 }
 
@@ -53,11 +34,11 @@
   gap: 8px;
   padding: 8px 12px;
   cursor: default;
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
 }
 
 .tunnel-popover-item:hover {
-  background: var(--bg-hover, #2a2d2e);
+  background: var(--bg-hover);
 }
 
 .tunnel-popover-dot {
@@ -65,7 +46,7 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: var(--text-secondary, #808080);
+  background: var(--text-secondary);
 }
 
 .tunnel-popover-dot.connected {
@@ -78,7 +59,7 @@
 
 .tunnel-popover-dot.reconnecting {
   background: #dcdcaa;
-  animation: tunnel-dot-pulse 1.5s ease-in-out infinite;
+  animation: blink 1.5s ease-in-out infinite;
 }
 
 .tunnel-popover-dot.failed {
@@ -86,14 +67,8 @@
 }
 
 .tunnel-popover-dot.disconnected {
-  background: var(--text-secondary, #808080);
+  background: var(--text-secondary);
 }
-
-@keyframes tunnel-dot-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
 .tunnel-popover-info {
   flex: 1;
   min-width: 0;
@@ -102,7 +77,7 @@
 .tunnel-popover-name {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -110,7 +85,7 @@
 
 .tunnel-popover-spec {
   font-size: 11px;
-  color: var(--text-secondary, #808080);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -118,12 +93,12 @@
 
 .tunnel-popover-meta {
   font-size: 11px;
-  color: var(--text-secondary, #808080);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .tunnel-popover-meta.error {
-  color: #f44747;
+  color: var(--color-error);
 }
 
 /* Start/stop toggle: components/Switch.tsx (size="sm"). */
@@ -134,20 +109,20 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-secondary, #808080);
+  color: var(--text-secondary);
 }
 
 .tunnel-popover-session-name {
   padding: 4px 12px 2px 20px;
   font-size: 11px;
-  color: var(--text-secondary, #808080);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
 .tunnel-popover-empty {
   padding: 32px 20px;
   text-align: center;
-  color: var(--text-secondary, #808080);
+  color: var(--text-secondary);
 }
 
 .tunnel-popover-empty-icon {
@@ -169,55 +144,9 @@
 
 .tunnel-popover-footer {
   padding: 8px;
-  border-top: 1px solid var(--border-color, #3c3c3c);
+  border-top: 1px solid var(--border-color);
 }
 
 .tunnel-popover-footer button {
   width: 100%;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary, #808080);
-  font-size: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.tunnel-popover-footer button:hover {
-  color: var(--text-primary, #cccccc);
-  background: var(--bg-hover, #2a2d2e);
-}
-
-.tunnel-context-menu {
-  /* Aligned with the canonical menu surface (see index.css menu-* tokens). */
-  position: fixed;
-  background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
-  border-radius: var(--menu-radius);
-  box-shadow: var(--menu-shadow);
-  z-index: var(--menu-z);
-  padding: var(--spacing-xs) 0;
-  min-width: var(--menu-min-width);
-}
-
-.tunnel-context-item {
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--text-primary, #cccccc);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tunnel-context-item:hover {
-  background: var(--bg-hover, #2a2d2e);
-}
-
-.tunnel-context-separator {
-  border-top: 1px solid var(--border-color, #3c3c3c);
-  margin: 4px 0;
 }

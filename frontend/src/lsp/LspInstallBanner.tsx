@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type FC } from 'react';
 import type { LspPluginListItem } from './types';
 import { installPlugin, subscribeToInstallProgress, type InstallEvent } from './installationApi';
+import './LspBanner.css';
 
 interface Props {
   plugin: LspPluginListItem;
@@ -89,25 +90,25 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
   };
 
   return (
-    <div className="lsp-install-banner">
+    <div className="lsp-banner">
       {state.kind === 'offer' && (
         <>
-          <span className="lsp-install-banner__icon">🐍</span>
-          <div className="lsp-install-banner__body">
+          <span className="lsp-banner__icon">🐍</span>
+          <div className="lsp-banner__body">
             <strong>Get rich {plugin.displayName} language features?</strong>
             <span>Install {plugin.displayName} for diagnostics, autocomplete, hover docs, and go-to-definition.</span>
           </div>
-          <div className="lsp-install-banner__actions">
-            <button className="primary" onClick={handleInstall} disabled={starting}>Install</button>
-            <button onClick={onDismiss}>Skip</button>
-            <button onClick={handleDontAskAgain}>Don't ask again</button>
+          <div className="lsp-banner__actions">
+            <button className="ns-btn ns-btn--small ns-btn--primary" onClick={handleInstall} disabled={starting}>Install</button>
+            <button className="ns-btn ns-btn--small" onClick={onDismiss}>Skip</button>
+            <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={handleDontAskAgain}>Don't ask again</button>
           </div>
         </>
       )}
       {state.kind === 'installing' && (
         <>
-          <span className="lsp-install-banner__icon">⏳</span>
-          <div className="lsp-install-banner__body">
+          <span className="lsp-banner__icon">⏳</span>
+          <div className="lsp-banner__body">
             <strong>Installing {plugin.displayName}…</strong>
             <span>
               {phaseLabel(state.phase)}
@@ -118,14 +119,14 @@ export const LspInstallBanner: FC<Props> = ({ plugin, onInstalled, onDismiss }) 
       )}
       {state.kind === 'error' && (
         <>
-          <span className="lsp-install-banner__icon">⚠️</span>
-          <div className="lsp-install-banner__body">
+          <span className="lsp-banner__icon">⚠️</span>
+          <div className="lsp-banner__body">
             <strong>{plugin.displayName} install failed</strong>
             <span>{state.message}</span>
           </div>
-          <div className="lsp-install-banner__actions">
-            <button onClick={handleInstall} disabled={starting}>Retry</button>
-            <button onClick={onDismiss}>Dismiss</button>
+          <div className="lsp-banner__actions">
+            <button className="ns-btn ns-btn--small ns-btn--primary" onClick={handleInstall} disabled={starting}>Retry</button>
+            <button className="ns-btn ns-btn--small" onClick={onDismiss}>Dismiss</button>
           </div>
         </>
       )}

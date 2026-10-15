@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { getSystemPrompt, AGENT_TYPES, AGENT_PROMPT, type AgentType } from '../aiModes'
+import { describe, it, expect, afterEach } from 'vitest'
+import { getSystemPrompt, getPermissionMode, AGENT_TYPES, AGENT_PROMPT, type AgentType } from '../aiModes'
+import { defaultSettings, setGlobalSettings } from '../../hooks/useSettings'
 
 const AGENT_TYPE_KEYS: AgentType[] = ['autopilot', 'overlord']
 const SENTINEL = '## Mode: SENTINEL\n\nThis is a test override.'
@@ -52,21 +53,30 @@ describe('AGENT_TYPES', () => {
     for (const agentType of AGENT_TYPE_KEYS) {
       expect(AGENT_TYPES[agentType]).toBeDefined()
       expect(AGENT_TYPES[agentType].label).toBeTruthy()
-      expect(AGENT_TYPES[agentType].enabledFlags.length).toBeGreaterThan(0)
     }
   })
+})
 
-  it('both modes are bash-capable (bash is allocated per-mode via disabledTools)', () => {
-    // run_bash can be allocated to either mode now; it is disabled by default
-    // for Overlord via ai.disabledTools.overlord = ['run_bash'].
-    expect(AGENT_TYPES.autopilot.allowsBash).toBe(true)
-    expect(AGENT_TYPES.overlord.allowsBash).toBe(true)
-    expect(AGENT_TYPES.overlord.enabledFlags).toContain('hasBash')
+describe('permission mode', () => {
+  afterEach(() => setGlobalSettings(defaultSettings))
+
+  it('defaults to auto for autopilot and ask for overlord', () => {
+    expect(getPermissionMode('autopilot')).toBe('auto')
+    expect(getPermissionMode('overlord')).toBe('ask')
   })
 
-  it('autopilot defaults to auto, overlord defaults to ask', () => {
-    expect(AGENT_TYPES.autopilot.defaultPermissionMode).toBe('auto')
-    expect(AGENT_TYPES.overlord.defaultPermissionMode).toBe('ask')
+  it('reads the per-agent-type setting and states it in the mode block', () => {
+    setGlobalSettings({ ...defaultSettings, 'ai.permissionMode.overlord': 'yolo' })
+    expect(getPermissionMode('overlord')).toBe('yolo')
+    expect(getSystemPrompt('overlord', false)).toContain('permission mode: Go Nuts')
+    expect(getSystemPrompt('autopilot', false)).toContain('permission mode: Auto')
+  })
+
+  it('reports run_bash per mode from the disabled-tools setting', () => {
+    expect(getSystemPrompt('autopilot', false)).toContain('You HAVE the local shell')
+    expect(getSystemPrompt('overlord', false)).toContain('You do NOT have the local shell')
+    setGlobalSettings({ ...defaultSettings, 'ai.disabledTools.overlord': [] })
+    expect(getSystemPrompt('overlord', false)).toContain('You HAVE the local shell')
   })
 })
 

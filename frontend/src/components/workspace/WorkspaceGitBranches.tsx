@@ -6,6 +6,9 @@ import type { MenuItem } from '../ContextMenu'
 import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter'
+import Tooltip from '../Tooltip'
+import ModalFrame from '../ModalFrame'
 interface WorkspaceGitBranchesProps {
   gitOps: GitOps
   currentBranch: GitBranchInfo | null
@@ -209,7 +212,7 @@ export default function WorkspaceGitBranches({
             value={newBranchName}
             onChange={e => setNewBranchName(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') handleCreateBranch()
+              if (e.key === 'Enter') { e.preventDefault(); handleCreateBranch() }
               if (e.key === 'Escape') { setShowNewBranch(false); setNewBranchName('') }
             }}
             autoFocus
@@ -269,20 +272,18 @@ export default function WorkspaceGitBranches({
                   {s.message || `stash@{${s.index}}`}
                 </span>
                 <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                  <button
-                    style={{ background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: 11, padding: '0 4px', fontFamily: 'var(--font-family)' }}
+                  <Tooltip label="Restore these changes"><button
+                    className="ns-btn ns-btn--ghost ns-btn--small"
                     onClick={() => handleStashPop(s.index)}
-                    title="Restore these changes"
                   >
                     Restore
-                  </button>
-                  <button
-                    style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 11, padding: '0 4px', fontFamily: 'var(--font-family)' }}
+                  </button></Tooltip>
+                  <Tooltip label="Discard these changes"><button
+                    className="ns-btn ns-btn--ghost ns-btn--small ns-btn--danger"
                     onClick={() => handleStashDrop(s.index)}
-                    title="Discard these changes"
                   >
                     Discard
-                  </button>
+                  </button></Tooltip>
                 </div>
               </div>
             ))}
@@ -297,28 +298,21 @@ export default function WorkspaceGitBranches({
       />
 
       {switchDialog && (
-        <div className="workspace-git-dialog-overlay">
-          <div className="workspace-git-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Unsaved Changes</h3>
-            <p>
-              You have changes that would be lost if you switch branches.
-            </p>
-            <p style={{ fontSize: '11px', opacity: 0.7 }}>
-              "Save for Later" sets your changes aside and restores them when you come back to this branch.
-            </p>
-            <div className="workspace-git-dialog-actions">
-              <button className="workspace-git-dialog-btn" onClick={() => setSwitchDialog(null)}>
-                Cancel
-              </button>
-              <button className="workspace-git-dialog-btn danger" onClick={handleForceSwitch}>
-                Discard Changes
-              </button>
-              <button className="workspace-git-dialog-btn primary" onClick={handleStashAndSwitch}>
-                Save for Later
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="git-unsaved-changes" resizable={false} className="workspace-git-dialog" label="Unsaved Changes">
+          <h3>Unsaved Changes</h3>
+          <p>
+            You have changes that would be lost if you switch branches.
+          </p>
+          <p style={{ fontSize: '11px', opacity: 0.7 }}>
+            "Save for Later" sets your changes aside and restores them when you come back to this branch.
+          </p>
+          <DialogFooter
+            primary={{ label: 'Save for Later', onClick: handleStashAndSwitch }}
+            onCancel={() => setSwitchDialog(null)}
+            leading={<button className="ns-btn ns-btn--danger" onClick={handleForceSwitch}>Discard Changes</button>}
+            inline
+          />
+        </ModalFrame>
       )}
     </div>
   )

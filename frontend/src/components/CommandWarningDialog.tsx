@@ -4,6 +4,9 @@ import { getSafetyColor, getSafeAlternatives } from '../lib/commandSafetyEngine'
 import { useModalKeyboard } from '../hooks/useModalKeyboard';
 import './CommandWarningDialog.css';
 
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface CommandWarningDialogProps {
   analysis: SafetyAnalysis;
   onProceed: () => void;
@@ -33,64 +36,52 @@ export function CommandWarningDialog({
   });
 
   return (
-    <div className="command-warning-overlay">
-      <div
-        className="command-warning-dialog"
-        style={{ borderTopColor: borderColor }}
-        ref={containerRef}
-        role="alertdialog"
-        aria-modal="true"
-      >
-        <div className="command-warning-header">
-          <span className="command-warning-icon">
-            {analysis.level === 'dangerous' ? '\u26A0\uFE0F' : '\u26A0'}
-          </span>
-          <h3>
-            {analysis.level === 'dangerous' ? 'Dangerous Command' : 'Command Warning'}
-          </h3>
-        </div>
+    <ModalFrame id="command-warning" ref={containerRef} role="alertdialog" resizable={false} className="command-warning-dialog" style={{ borderTopColor: borderColor }} label="Command warning">
+      <div className="command-warning-header">
+        <span className="command-warning-icon">
+          {analysis.level === 'dangerous' ? '\u26A0\uFE0F' : '\u26A0'}
+        </span>
+        <h3>
+          {analysis.level === 'dangerous' ? 'Dangerous Command' : 'Command Warning'}
+        </h3>
+      </div>
 
-        <div className="command-warning-command">
-          <code>{analysis.command}</code>
-        </div>
+      <div className="command-warning-command">
+        <code>{analysis.command}</code>
+      </div>
 
-        <div className="command-warning-list">
-          {analysis.warnings.map((warning, i) => (
-            <div key={i} className={`command-warning-item severity-${warning.severity}`}>
-              <span className="warning-bullet">{'\u2022'}</span>
-              <span>{warning.message}</span>
-            </div>
+      <div className="command-warning-list">
+        {analysis.warnings.map((warning, i) => (
+          <div key={i} className={`command-warning-item severity-${warning.severity}`}>
+            <span className="warning-bullet">{'\u2022'}</span>
+            <span>{warning.message}</span>
+          </div>
+        ))}
+      </div>
+
+      {alternatives.length > 0 && (
+        <div className="command-warning-alternatives">
+          <p className="alternatives-label">Consider instead:</p>
+          {alternatives.map((alt, i) => (
+            <Tooltip key={i} label={`Use: ${alt}`}><button
+              className="alternative-button"
+              onClick={() => onUseAlternative?.(alt)}
+              aria-label={`Use: ${alt}`}
+            >
+              <code>{alt}</code>
+            </button></Tooltip>
           ))}
         </div>
+      )}
 
-        {alternatives.length > 0 && (
-          <div className="command-warning-alternatives">
-            <p className="alternatives-label">Consider instead:</p>
-            {alternatives.map((alt, i) => (
-              <button
-                key={i}
-                className="alternative-button"
-                onClick={() => onUseAlternative?.(alt)}
-                title={`Use: ${alt}`}
-              >
-                <code>{alt}</code>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="command-warning-actions">
-          <button className="btn-secondary" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            className={`btn-${analysis.level === 'dangerous' ? 'danger' : 'warning'}`}
-            onClick={onProceed}
-          >
-            {analysis.level === 'dangerous' ? 'Proceed Anyway' : 'Continue'}
-          </button>
-        </div>
-      </div>
-    </div>
+      <DialogFooter
+        primary={{
+          label: analysis.level === 'dangerous' ? 'Proceed Anyway' : 'Continue',
+          onClick: onProceed,
+          danger: analysis.level === 'dangerous',
+        }}
+        onCancel={onCancel}
+      />
+    </ModalFrame>
   );
 }

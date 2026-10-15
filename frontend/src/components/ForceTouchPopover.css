@@ -41,12 +41,11 @@
   font-family: var(--font-family);
   font-size: 11px;
   text-align: left;
-  cursor: pointer;
   transition: background var(--transition-fast);
 }
 
 .force-touch-popover-option:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-fill);
 }
 
 .force-touch-popover-icon {

@@ -11,7 +11,7 @@
   -webkit-backdrop-filter: var(--glass-blur);
   color: var(--color-text-primary);
   border: 1px solid var(--glass-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), inset 0 1px 0 var(--glass-highlight);
   font-family: var(--font-family);
   font-size: 11px;
@@ -21,5 +21,5 @@
 
 /* Solidify on hover so content stays readable while interacting. */
 .popover-card:hover {
-  background: rgba(26, 26, 32, 0.92);
+  background: var(--color-bg-primary);
 }

@@ -28,6 +28,7 @@ import { stripAnsi } from '../lib/ansi'
 import { sendChatMessage } from '../api/ai'
 import { resolveProvider } from '../lib/aiProviderResolver'
 import type { WorkspaceConfig } from '../types/workspace'
+import Tooltip from './Tooltip'
 
 interface ScratchpadEditorProps {
   /**
@@ -413,7 +414,7 @@ Rules:
         )}
       </div>
       <div className="scratchpad-footer">
-        <span className="scratchpad-footer-hint" title="Right-click in the editor for tools and Ask AI">Right-click for tools · AI</span>
+        <Tooltip label="Right-click in the editor for tools and Ask AI"><span className="scratchpad-footer-hint">Right-click for tools · AI</span></Tooltip>
         <span className="scratchpad-footer-pos">Ln {cursor.line}, Col {cursor.col}</span>
       </div>
     </div>

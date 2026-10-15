@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput'
 import { useState, useEffect } from 'react';
 import { getClient } from '../api/client';
 import {
@@ -21,7 +22,9 @@ import {
   testNetStacksCrawlerSource,
   type NetStacksCrawlerSource,
 } from '../api/netstacksCrawler';
-import AskAiHelp from './AskAiHelp';
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
+import SettingRow from './settings/SettingRow';
 import NetBoxSourceDialog from './NetBoxSourceDialog';
 import NetBoxImportDialog from './NetBoxImportDialog';
 import SmtpSettingsSection from './SmtpSettingsSection';
@@ -37,47 +40,10 @@ import './IntegrationsTab.css';
 
 // Icons
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 const Icons = {
-  netbox: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="7" y1="8" x2="17" y2="8" />
-      <line x1="7" y1="12" x2="17" y2="12" />
-      <line x1="7" y1="16" x2="12" y2="16" />
-    </svg>
-  ),
-  sync: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-    </svg>
-  ),
-  edit: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  ),
-  trash: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-    </svg>
-  ),
-  plus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  ),
-  import: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  ),
   export: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -593,409 +559,277 @@ export default function IntegrationsTab() {
     return date.toLocaleString();
   };
 
-  const getStatusClass = (source: NetBoxSource): string => {
-    if (source.last_sync_result) {
-      return 'success';
-    }
-    return 'inactive';
-  };
+  const syncedOnce = (source: NetBoxSource): boolean => Boolean(source.last_sync_result);
 
   if (loading) {
-    return <div className="integrations-tab"><div className="integrations-loading">Loading integrations...</div></div>;
+    return <p className="form-hint">Loading integrations…</p>;
   }
 
   return (
-    <div className="integrations-tab">
-      <p className="integrations-intro">
+    <>
+      <p className="form-hint">
         Integrations connect NetStacks to external systems. Each source uses an{' '}
         <strong>API Resource</strong> (Settings&nbsp;→&nbsp;API&nbsp;Resources) for its URL and
         credentials &mdash; set one up first, then add a source here that points at it.
       </p>
 
-      {/* NetBox Sources Section */}
-      <section className="integrations-section">
-        <div className="section-header">
-          <h3>NETBOX SOURCES</h3>
-          <AskAiHelp prompt="Explain NetStacks Integrations vs API Resources, and walk me through adding a NetBox integration: create an API Resource (NetBox URL + API token), then a NetBox source that references it, and what device filters / profile mappings do." />
-        </div>
-        <p className="section-description">
+      <SettingsSection
+        title="NetBox Sources"
+        description={<>
           Import your NetBox device inventory as ready-to-connect sessions, with credential
-          profiles mapped by site and role.{' '}
-          <span className="section-description-req">Needs a NetBox API Resource.</span>
-        </p>
+          profiles mapped by site and role. Needs a NetBox API Resource.
+        </>}
+        help={{
+          topic: 'NetBox sources',
+          prompt: `Help me set up NetBox in NetStacks. I have ${sources.length} NetBox source(s)${sources.length ? ` (${sources.map(src => src.name).join(', ')})` : ''}. `
+            + 'Explain Integrations vs API Resources, then walk me through it: check my API Resources (list_api_resources) or open a pre-filled one (propose_api_resource: NetBox URL, bearer token, test path /api/status/), then add a NetBox source that references it, and explain device filters, profile mappings and CLI-flavor mappings.',
+        }}
+        actions={
+          <button className="ns-btn ns-btn--small" onClick={handleAddSource}>+ Add NetBox source</button>
+        }
+      >
+        {error && <p className="settings-error">{error}</p>}
+        {sources.length === 0 ? (
+          <p className="form-hint">No NetBox sources yet. Add a NetBox instance to import devices as sessions.</p>
+        ) : (
+          <div className="settings-group">
+            {sources.map((source) => (
+              <SettingsItem
+                key={source.id}
+                leading={<span className={`settings-status-dot${syncedOnce(source) ? ' settings-status-dot--ok' : ''}`} role="img" aria-label={syncedOnce(source) ? 'Synced' : 'Not synced yet'} />}
+                title={source.name}
+                meta={
+                  <>
+                    <span>Resource: {source.api_resource_id}</span>
+                    <span>{formatLastSync(source.last_sync_at)}</span>
+                  </>
+                }
+                actions={
+                  <>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleSync(source)}>Sync</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleEditSource(source)}>Edit</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDeleteClick(source)}>Delete</button>
+                  </>
+                }
+              />
+            ))}
+          </div>
+        )}
+      </SettingsSection>
 
-        {error && <div className="integrations-error">{error}</div>}
-
-        <div className="sources-list">
-          {sources.length === 0 ? (
-            <div className="sources-empty">
-              <p>No NetBox sources configured.</p>
-              <p>Add a NetBox instance to import devices as sessions.</p>
-            </div>
-          ) : (
-            sources.map((source) => (
-              <div key={source.id} className="source-item">
-                <div className="source-status">
-                  <span className={`status-dot ${getStatusClass(source)}`} />
-                </div>
-                <div className="source-info">
-                  <div className="source-header">
-                    <span className="source-icon">{Icons.netbox}</span>
-                    <span className="source-name">{source.name}</span>
-                  </div>
-                  <div className="source-details">
-                    <span className="source-url">Resource: {source.api_resource_id}</span>
-                    <span className="source-separator">|</span>
-                    <span className="source-sync">{formatLastSync(source.last_sync_at)}</span>
-                  </div>
-                </div>
-                <div className="source-actions">
-                  <button
-                    className="source-action-btn"
-                    onClick={() => handleSync(source)}
-                    title="Sync"
-                  >
-                    {Icons.sync}
-                    <span>Sync</span>
-                  </button>
-                  <button
-                    className="source-action-btn"
-                    onClick={() => handleEditSource(source)}
-                    title="Edit"
-                  >
-                    {Icons.edit}
-                    <span>Edit</span>
-                  </button>
-                  <button
-                    className="source-action-btn delete"
-                    onClick={() => handleDeleteClick(source)}
-                    title="Delete"
-                  >
-                    {Icons.trash}
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="section-footer">
-          <button className="btn-add-source" onClick={handleAddSource}>
-            {Icons.plus}
-            <span>Add NetBox Source</span>
-          </button>
-        </div>
-      </section>
-
-      {/* LibreNMS Sources Section */}
-      <section className="integrations-section">
-        <div className="section-header">
-          <h3>LIBRENMS SOURCES</h3>
-        </div>
-        <p className="section-description">
+      <SettingsSection
+        title="LibreNMS Sources"
+        description={<>
           Pull devices, CDP/LLDP links, and live interface port-stats from LibreNMS for
-          topology maps and link-utilization views.{' '}
-          <span className="section-description-req">Needs a LibreNMS API Resource.</span>
-        </p>
-
-        <div className="sources-list">
-          {libreSources.length === 0 && libreEditingId === null ? (
-            <div className="sources-empty">
-              <p>No LibreNMS sources configured.</p>
-              <p>Add a LibreNMS instance to pull devices and CDP/LLDP links into topology discovery.</p>
-            </div>
-          ) : (
-            libreSources.map((s) => (
-              <div key={s.id} className="source-item">
-                <div className="source-status"><span className="status-dot inactive" /></div>
-                <div className="source-info">
-                  <div className="source-header">
-                    <span className="source-name">{s.name}</span>
-                  </div>
-                  <div className="source-details">
-                    <span className="source-url">Resource: {s.api_resource_id}</span>
-                  </div>
-                </div>
-                <div className="source-actions">
-                  <button className="source-action-btn" onClick={() => handleLibreTest(s)} title="Test connection">
-                    <span>Test</span>
-                  </button>
-                  <button
-                    className="source-action-btn"
-                    onClick={() => openLibreNmsEdit(s)}
-                    title="Edit"
-                    disabled={libreSubmit.submitting}
-                  >
-                    {Icons.edit}
-                    <span>Edit</span>
-                  </button>
-                  <button
-                    className="source-action-btn delete"
-                    onClick={() => handleLibreDelete(s)}
-                    title="Delete"
-                    disabled={libreSubmit.submitting}
-                  >
-                    {Icons.trash}
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
+          topology maps and link-utilization views. Needs a LibreNMS API Resource.
+        </>}
+        help={{
+          topic: 'LibreNMS sources',
+          prompt: `Help me connect LibreNMS to NetStacks. I have ${libreSources.length} LibreNMS source(s)${libreSources.length ? ` (${libreSources.map(src => src.name).join(', ')})` : ''}. `
+            + 'Walk me through creating the LibreNMS API Resource (base URL = my LibreNMS URL, auth = api-key header X-Auth-Token, test path /api/v0/system; list_api_resources shows what I have, propose_api_resource can open the form), then adding the source, and what it gives me in topology discovery and link utilization.',
+        }}
+        actions={libreEditingId === null && (
+          <button className="ns-btn ns-btn--small" onClick={openLibreNmsAdd}>+ Add LibreNMS source</button>
+        )}
+      >
         {libreEditingId !== null && (
-          <div className="source-inline-form">
-            <input
-              type="text"
-              placeholder="Name (e.g. Prod LibreNMS)"
-              value={libreForm.name}
-              onChange={(e) => setLibreForm({ ...libreForm, name: e.target.value })}
-              disabled={libreSubmit.submitting}
-            />
+          <div className="settings-form">
+            <div className="form-group">
+              <label htmlFor="librenms-source-name">Name</label>
+              <AITabInput
+                id="librenms-source-name"
+                placeholder="e.g. Prod LibreNMS"
+                value={libreForm.name}
+                onChange={(e) => setLibreForm({ ...libreForm, name: e.target.value })}
+                disabled={libreSubmit.submitting}
+                aiField="LibreNMS source name"
+                aiPlaceholder="Short name for this LibreNMS instance (environment or region)"
+                onAIValue={(v) => setLibreForm({ ...libreForm, name: v })}
+              />
+            </div>
             <ApiResourcePicker
               value={libreForm.api_resource_id}
               onChange={(id) => setLibreForm({ ...libreForm, api_resource_id: id })}
               label="LibreNMS API Resource"
               required
             />
-            <div className="source-inline-form-actions">
-              <button className="btn-secondary" onClick={closeLibreNmsForm} disabled={libreSubmit.submitting}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={handleLibreNmsSave} disabled={libreSubmit.submitting}>
-                {libreSubmit.submitting ? 'Saving…' : libreEditingId === 'new' ? 'Add' : 'Save'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {libreEditingId === null && (
-          <div className="section-footer">
-            <button className="btn-add-source" onClick={openLibreNmsAdd}>
-              {Icons.plus}
-              <span>Add LibreNMS Source</span>
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* NetStacksCrawler Sources Section */}
-      <section className="integrations-section">
-        <div className="section-header">
-          <h3>NETSTACKS-CRAWLER SOURCES</h3>
-          <AskAiHelp prompt="What is the NetStacks-Crawler integration? Explain that it's just NetStacks' UI over Netdisco's REST API (/api/v1), and walk me through pointing a Crawler source at my existing Netdisco instance (API Resource base URL, auth, test path api/v1/device)." />
-        </div>
-        <p className="section-description">
-          Pull discovered Layer-2 topology and neighbor data from a Netdisco crawler to build
-          topology maps and enrich traceroute hops.{' '}
-          <span className="section-description-req">Needs a NetStacks-Crawler API Resource.</span>
-        </p>
-
-        <div className="sources-list">
-          {netstacksCrawlerSources.length === 0 && netstacksCrawlerEditingId === null ? (
-            <div className="sources-empty">
-              <p>No NetStacks-Crawler sources configured.</p>
-              <p>Add a NetStacks-Crawler instance for L2 topology and neighbor discovery.</p>
-            </div>
-          ) : (
-            netstacksCrawlerSources.map((s) => (
-              <div key={s.id} className="source-item">
-                <div className="source-status"><span className="status-dot inactive" /></div>
-                <div className="source-info">
-                  <div className="source-header">
-                    <span className="source-name">{s.name}</span>
-                  </div>
-                  <div className="source-details">
-                    <span className="source-url">Resource: {s.api_resource_id}</span>
-                  </div>
-                </div>
-                <div className="source-actions">
-                  <button className="source-action-btn" onClick={() => handleNetStacksCrawlerTest(s)} title="Test connection">
-                    <span>Test</span>
-                  </button>
-                  <button
-                    className="source-action-btn"
-                    onClick={() => openNetStacksCrawlerEdit(s)}
-                    title="Edit"
-                    disabled={netstacksCrawlerSubmit.submitting}
-                  >
-                    {Icons.edit}
-                    <span>Edit</span>
-                  </button>
-                  <button
-                    className="source-action-btn delete"
-                    onClick={() => handleNetStacksCrawlerDelete(s)}
-                    title="Delete"
-                    disabled={netstacksCrawlerSubmit.submitting}
-                  >
-                    {Icons.trash}
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {netstacksCrawlerEditingId !== null && (
-          <div className="source-inline-form">
-            <input
-              type="text"
-              placeholder="Name (e.g. Prod NetStacks-Crawler)"
-              value={netstacksCrawlerForm.name}
-              onChange={(e) => setNetStacksCrawlerForm({ ...netstacksCrawlerForm, name: e.target.value })}
-              disabled={netstacksCrawlerSubmit.submitting}
+            <DialogFooter
+              primary={{ label: libreSubmit.submitting ? 'Saving…' : libreEditingId === 'new' ? 'Add' : 'Save', onClick: handleLibreNmsSave, disabled: libreSubmit.submitting }}
+              onCancel={closeLibreNmsForm}
+              cancelDisabled={libreSubmit.submitting}
+              inline
             />
+          </div>
+        )}
+        {libreSources.length === 0 ? (
+          libreEditingId === null && <p className="form-hint">No LibreNMS sources yet. Add a LibreNMS instance to pull devices and CDP/LLDP links into topology discovery.</p>
+        ) : (
+          <div className="settings-group">
+            {libreSources.map((s) => (
+              <SettingsItem
+                key={s.id}
+                title={s.name}
+                meta={<span>Resource: {s.api_resource_id}</span>}
+                actions={
+                  <>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleLibreTest(s)}>Test</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => openLibreNmsEdit(s)} disabled={libreSubmit.submitting}>Edit</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleLibreDelete(s)} disabled={libreSubmit.submitting}>Delete</button>
+                  </>
+                }
+              />
+            ))}
+          </div>
+        )}
+      </SettingsSection>
+
+      <SettingsSection
+        title="NetStacks-Crawler Sources"
+        description={<>
+          Pull discovered Layer-2 topology and neighbor data from a Netdisco crawler to build
+          topology maps and enrich traceroute hops. Needs a NetStacks-Crawler API Resource.
+        </>}
+        help={{
+          topic: 'NetStacks-Crawler sources',
+          prompt: `Help me set up the NetStacks-Crawler integration. I have ${netstacksCrawlerSources.length} Crawler source(s)${netstacksCrawlerSources.length ? ` (${netstacksCrawlerSources.map(src => src.name).join(', ')})` : ''}. `
+            + "Explain that it is NetStacks' UI over Netdisco's REST API (/api/v1), then walk me through the API Resource for my Netdisco instance (base URL = Netdisco host, basic or api-key auth, test path api/v1/device; propose_api_resource can open the form) and adding the Crawler source.",
+        }}
+        actions={netstacksCrawlerEditingId === null && (
+          <button className="ns-btn ns-btn--small" onClick={openNetStacksCrawlerAdd}>+ Add Crawler source</button>
+        )}
+      >
+        {netstacksCrawlerEditingId !== null && (
+          <div className="settings-form">
+            <div className="form-group">
+              <label htmlFor="crawler-source-name">Name</label>
+              <AITabInput
+                id="crawler-source-name"
+                placeholder="e.g. Prod NetStacks-Crawler"
+                value={netstacksCrawlerForm.name}
+                onChange={(e) => setNetStacksCrawlerForm({ ...netstacksCrawlerForm, name: e.target.value })}
+                disabled={netstacksCrawlerSubmit.submitting}
+                aiField="NetStacks-Crawler source name"
+                aiPlaceholder="Short name for this Netdisco crawler instance (environment or region)"
+                onAIValue={(v) => setNetStacksCrawlerForm({ ...netstacksCrawlerForm, name: v })}
+              />
+            </div>
             <ApiResourcePicker
               value={netstacksCrawlerForm.api_resource_id}
               onChange={(id) => setNetStacksCrawlerForm({ ...netstacksCrawlerForm, api_resource_id: id })}
               label="NetStacks-Crawler API Resource"
               required
             />
-            <div className="source-inline-form-actions">
-              <button className="btn-secondary" onClick={closeNetStacksCrawlerForm} disabled={netstacksCrawlerSubmit.submitting}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={handleNetStacksCrawlerSave} disabled={netstacksCrawlerSubmit.submitting}>
-                {netstacksCrawlerSubmit.submitting
-                  ? 'Saving…'
-                  : netstacksCrawlerEditingId === 'new'
-                  ? 'Add'
-                  : 'Save'}
-              </button>
-            </div>
+            <DialogFooter
+              primary={{
+                label: netstacksCrawlerSubmit.submitting ? 'Saving…' : netstacksCrawlerEditingId === 'new' ? 'Add' : 'Save',
+                onClick: handleNetStacksCrawlerSave,
+                disabled: netstacksCrawlerSubmit.submitting,
+              }}
+              onCancel={closeNetStacksCrawlerForm}
+              cancelDisabled={netstacksCrawlerSubmit.submitting}
+              inline
+            />
           </div>
         )}
-
-        {netstacksCrawlerEditingId === null && (
-          <div className="section-footer">
-            <button className="btn-add-source" onClick={openNetStacksCrawlerAdd}>
-              {Icons.plus}
-              <span>Add NetStacks-Crawler Source</span>
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* SMTP Email Settings Section */}
-      <section className="integrations-section">
-        <div className="section-header">
-          <h3>EMAIL NOTIFICATIONS</h3>
-        </div>
-        <SmtpSettingsSection />
-      </section>
-
-      {/* Import/Export Section */}
-      <section className="integrations-section">
-        <div className="section-header">
-          <h3>IMPORT / EXPORT</h3>
-        </div>
-
-        <div className="import-export-actions">
-          <button className="btn-import-export" onClick={handleImportFromFile}>
-            {Icons.import}
-            <span>Import Sessions from File</span>
-          </button>
-          <button className="btn-import-export" onClick={() => setSecureCRTDialogOpen(true)}>
-            {Icons.import}
-            <span>Import from SecureCRT</span>
-          </button>
-          <button className="btn-import-export" onClick={handleExportToFile}>
-            {Icons.export}
-            <span>Export Sessions to File</span>
-          </button>
-        </div>
-      </section>
-
-      {/* Backup & Seed Section — whole-database export/import */}
-      {backupSupported() && (
-        <section className="integrations-section">
-          <div className="section-header">
-            <h3>BACKUP &amp; SEED</h3>
-          </div>
-          <p className="section-description">
-            Back up or migrate your entire NetStacks setup (sessions, profiles, integrations,
-            jump hosts — everything). Choose a save location when you export.
-          </p>
-
-          {/* Database Location */}
-          <div className="db-location-row">
-            <label className="db-location-label">Database Location</label>
-            <div className="db-location-field">
-              <input
-                className="db-location-input"
-                type="text"
-                value={dbPathDraft}
-                onChange={e => {
-                  setDbPathDraft(e.target.value);
-                  setDbPathDirty(e.target.value !== (dbInfo?.path ?? ''));
-                }}
-                placeholder="Database path…"
-                disabled={dbBusy}
+        {netstacksCrawlerSources.length === 0 ? (
+          netstacksCrawlerEditingId === null && <p className="form-hint">No NetStacks-Crawler sources yet. Add a NetStacks-Crawler instance for L2 topology and neighbor discovery.</p>
+        ) : (
+          <div className="settings-group">
+            {netstacksCrawlerSources.map((s) => (
+              <SettingsItem
+                key={s.id}
+                title={s.name}
+                meta={<span>Resource: {s.api_resource_id}</span>}
+                actions={
+                  <>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleNetStacksCrawlerTest(s)}>Test</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => openNetStacksCrawlerEdit(s)} disabled={netstacksCrawlerSubmit.submitting}>Edit</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleNetStacksCrawlerDelete(s)} disabled={netstacksCrawlerSubmit.submitting}>Delete</button>
+                  </>
+                }
               />
-              <button
-                className="db-location-browse"
-                onClick={handleDbPathBrowse}
-                disabled={dbBusy}
-                title="Browse…"
-              >
-                …
-              </button>
-              <button
-                className="db-location-open"
-                onClick={handleOpenDbDir}
-                disabled={!dbInfo}
-                title="Open folder in file manager"
-              >
-                {Icons.export}
-              </button>
-            </div>
-            {dbPathDirty && (
-              <button className="btn-primary" style={{ marginTop: '0.5rem', alignSelf: 'flex-start' }} onClick={handleDbPathApply} disabled={dbBusy}>
-                {dbBusy ? 'Working…' : 'Apply & restart'}
-              </button>
-            )}
+            ))}
           </div>
+        )}
+      </SettingsSection>
 
-          {/* Export */}
-          <div className="seed-export" style={{ marginBottom: '1.25rem', marginTop: '1rem' }}>
-            <fieldset style={{ border: '1px solid var(--border-color)', borderRadius: '4px', padding: '0.75rem', marginBottom: '0.75rem' }}>
-              <legend style={{ padding: '0 0.5rem', fontWeight: 500 }}>What to export</legend>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <input type="radio" checked={exportMode === 'full'} onChange={() => setExportMode('full')} />
-                <span><strong>Full backup</strong> — includes secrets (vault). For your own restore; protected by your master password.</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <input type="radio" checked={exportMode === 'seed'} onChange={() => setExportMode('seed')} />
-                <span><strong>Shareable seed</strong> — <em>no</em> secrets. Recipients set a master password and re-enter tokens/passwords in Settings.</span>
-              </label>
-            </fieldset>
-            <button className="btn-add-source" onClick={handleDbExport} disabled={dbBusy}>
-              {Icons.export}
-              <span>{dbBusy ? 'Working…' : 'Export database…'}</span>
-            </button>
-          </div>
+      <SmtpSettingsSection />
 
-          {/* Import */}
-          <div className="seed-import" style={{ marginBottom: '1rem' }}>
-            <button className="btn-import-export" onClick={handleDbImport} disabled={dbBusy}>
-              {Icons.import}
-              <span>Import database…</span>
-            </button>
-            <p className="section-description" style={{ marginTop: '0.5rem' }}>
-              Replaces your current data (backed up first), then restarts the app to apply.
-            </p>
-          </div>
+      <SettingsSection title="Import / Export Sessions">
+        <div className="settings-group">
+          <SettingRow label="Import sessions from a file" description="JSON or CSV exported from NetStacks or another tool.">
+            <button className="ns-btn ns-btn--small" onClick={handleImportFromFile}>Import…</button>
+          </SettingRow>
+          <SettingRow label="Import from SecureCRT" description="Read sessions from a SecureCRT export.">
+            <button className="ns-btn ns-btn--small" onClick={() => setSecureCRTDialogOpen(true)}>Import…</button>
+          </SettingRow>
+          <SettingRow label="Export sessions to a file">
+            <button className="ns-btn ns-btn--small" onClick={handleExportToFile}>Export…</button>
+          </SettingRow>
+        </div>
+      </SettingsSection>
 
-          {/* Factory Reset */}
-          <div className="seed-reset">
-            <button className="btn-danger" onClick={handleDbReset} disabled={dbBusy} style={{ fontSize: '0.8rem' }}>
-              Factory Reset…
-            </button>
-            <p className="section-description" style={{ marginTop: '0.5rem' }}>
-              Wipes all data and starts fresh. Current database is backed up first.
-            </p>
+      {backupSupported() && (
+        <SettingsSection
+          title="Backup & Seed"
+          description="Back up or migrate your entire NetStacks setup (sessions, profiles, integrations, jump hosts — everything). Choose a save location when you export."
+        >
+          <div className="settings-group">
+            <SettingRow label="Database Location" stacked>
+              <div className="integrations-db-path">
+                <input data-ai-fill="off"
+                  className="ns-input"
+                  aria-label="Database Location"
+                  type="text"
+                  value={dbPathDraft}
+                  onChange={e => {
+                    setDbPathDraft(e.target.value);
+                    setDbPathDirty(e.target.value !== (dbInfo?.path ?? ''));
+                  }}
+                  placeholder="Database path…"
+                  disabled={dbBusy}
+                />
+                <button className="ns-btn ns-btn--small" onClick={handleDbPathBrowse} disabled={dbBusy}>Browse…</button>
+                <Tooltip label="Open folder in file manager"><button
+                  className="ns-btn ns-btn--ghost ns-btn--small ns-icon-btn"
+                  onClick={handleOpenDbDir}
+                  disabled={!dbInfo}
+                  aria-label="Open folder in file manager"
+                >
+                  {Icons.export}
+                </button></Tooltip>
+                {dbPathDirty && (
+                  <button className="ns-btn ns-btn--small ns-btn--primary" onClick={handleDbPathApply} disabled={dbBusy}>
+                    {dbBusy ? 'Working…' : 'Apply & restart'}
+                  </button>
+                )}
+              </div>
+            </SettingRow>
+            <SettingRow label="Export database" stacked>
+              <div className="integrations-export-modes" role="radiogroup" aria-label="What to export">
+                <label>
+                  <input type="radio" checked={exportMode === 'full'} onChange={() => setExportMode('full')} />
+                  <span><strong>Full backup</strong> — includes secrets (vault). For your own restore; protected by your master password.</span>
+                </label>
+                <label>
+                  <input type="radio" checked={exportMode === 'seed'} onChange={() => setExportMode('seed')} />
+                  <span><strong>Shareable seed</strong> — <em>no</em> secrets. Recipients set a master password and re-enter tokens/passwords in Settings.</span>
+                </label>
+              </div>
+              <div>
+                <button className="ns-btn ns-btn--small ns-btn--primary" onClick={handleDbExport} disabled={dbBusy}>
+                  {dbBusy ? 'Working…' : 'Export database…'}
+                </button>
+              </div>
+            </SettingRow>
+            <SettingRow label="Import database" description="Replaces your current data (backed up first), then restarts the app to apply.">
+              <button className="ns-btn ns-btn--small" onClick={handleDbImport} disabled={dbBusy}>Import database…</button>
+            </SettingRow>
+            <SettingRow label="Factory reset" description="Wipes all data and starts fresh. The current database is backed up first.">
+              <button className="ns-btn ns-btn--small ns-btn--danger" onClick={handleDbReset} disabled={dbBusy}>Factory Reset…</button>
+            </SettingRow>
           </div>
-        </section>
+        </SettingsSection>
       )}
 
       {/* NetBox Source Dialog */}
@@ -1023,24 +857,20 @@ export default function IntegrationsTab() {
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="delete-confirm-overlay">
-          <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete NetBox Source</h3>
-            <p>Are you sure you want to delete "{deleteConfirm.name}"?</p>
-            <p className="delete-confirm-warning">
-              This will not delete sessions that were imported from this source.
-            </p>
-            <div className="delete-confirm-actions">
-              <button className="btn-secondary" onClick={handleDeleteCancel} disabled={deleting}>
-                Cancel
-              </button>
-              <button className="btn-danger" onClick={handleDeleteConfirm} disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="integration-delete" resizable={false} className="delete-confirm-dialog" label="Delete source">
+          <h3>Delete NetBox Source</h3>
+          <p>Are you sure you want to delete "{deleteConfirm.name}"?</p>
+          <p className="delete-confirm-warning">
+            This will not delete sessions that were imported from this source.
+          </p>
+          <DialogFooter
+            primary={{ label: deleting ? 'Deleting...' : 'Delete', onClick: handleDeleteConfirm, disabled: deleting, danger: true }}
+            onCancel={handleDeleteCancel}
+            cancelDisabled={deleting}
+            inline
+          />
+        </ModalFrame>
       )}
-    </div>
+    </>
   );
 }

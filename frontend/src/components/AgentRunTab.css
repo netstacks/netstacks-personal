@@ -2,8 +2,8 @@
 .agent-run-tab {
   height: 100%;
   overflow: hidden;
-  background: var(--color-bg-primary, #1b1b1d);
-  color: var(--color-text, #e8e8ea);
+  background: var(--color-bg-primary);
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
 }
@@ -14,7 +14,7 @@
 }
 .agent-run-empty-inner {
   margin: auto;
-  color: var(--color-text-tertiary, #8a8a8f);
+  color: var(--color-text-tertiary);
   font-size: 13px;
 }
 
@@ -30,7 +30,7 @@
 
 .agent-run-head {
   padding: 9px 0 9px;
-  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.07));
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .agent-run-head-top {
   display: flex;
@@ -46,14 +46,14 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 2px 9px;
-  border-radius: 6px;
-  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
-  color: var(--color-text-secondary, #b6b6bb);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
-.agent-run-status.status-running { background: rgba(var(--color-success-rgb, 78, 201, 176), 0.16); color: var(--color-success, #4ec9b0); }
-.agent-run-status.status-completed { background: rgba(var(--color-success-rgb, 78, 201, 176), 0.14); color: var(--color-success, #4ec9b0); }
-.agent-run-status.status-failed { background: rgba(var(--color-error-rgb, 244, 71, 71), 0.16); color: var(--color-error, #f48a8a); }
-.agent-run-status.status-cancelled { background: rgba(255, 255, 255, 0.06); color: var(--color-text-tertiary, #9a9aa0); }
+.agent-run-status.status-running { background: rgba(var(--color-success-rgb), 0.16); color: var(--color-success); }
+.agent-run-status.status-completed { background: rgba(var(--color-success-rgb), 0.14); color: var(--color-success); }
+.agent-run-status.status-failed { background: rgba(var(--color-error-rgb), 0.16); color: var(--color-error); }
+.agent-run-status.status-cancelled { background: var(--color-fill); color: var(--color-text-tertiary); }
 .agent-run-status-dot {
   width: 7px;
   height: 7px;
@@ -72,42 +72,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-/* "Continue in chat" lives up in the header now (no bottom bar when finished). */
-.agent-run-continue-btn {
-  border: 1px solid rgba(86, 156, 214, 0.3);
-  background: rgba(86, 156, 214, 0.18);
-  color: var(--color-accent, #569cd6);
-  border-radius: 7px;
-  font-size: 12px;
-  padding: 5px 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.agent-run-continue-btn:hover { background: rgba(86, 156, 214, 0.26); }
-
-/* Activity ⇄ Workflow segmented toggle */
-.agent-run-viewtoggle {
-  display: inline-flex;
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.14));
-  border-radius: 7px;
-  overflow: hidden;
-}
-.agent-run-viewtoggle button {
-  border: none;
-  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
-  color: var(--color-text-secondary, #b6b6bb);
-  font-size: 12px;
-  padding: 5px 12px;
-  cursor: pointer;
-}
-.agent-run-viewtoggle button.active {
-  background: rgba(86, 156, 214, 0.18);
-  color: var(--color-accent, #569cd6);
-}
-.agent-run-viewtoggle button + button {
-  border-left: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
 }
 
 /* Workflow = activity feed (left) beside the sub-agent graph (right), with a
@@ -129,28 +93,14 @@
 .agent-run-divider {
   flex: 0 0 6px;
   cursor: col-resize;
-  background: var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--color-border-subtle);
   touch-action: none;
 }
-.agent-run-divider:hover { background: var(--color-accent, #569cd6); }
+.agent-run-divider:hover { background: var(--color-accent); }
 
 /* Artifacts tray — a small, always-accessible list of docs this run saved.
    Opening one reuses the app's document tab + split-screen. */
 .agent-run-artifacts { position: relative; }
-.agent-run-artifacts-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.14));
-  border-radius: 7px;
-  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
-  color: var(--color-text-secondary, #b6b6bb);
-  font-size: 12px;
-  cursor: pointer;
-}
-.agent-run-artifacts-btn:hover { color: var(--color-text, #e8e8ea); }
 .agent-run-artifacts-list {
   position: absolute;
   top: calc(100% + 6px);
@@ -161,14 +111,15 @@
   max-width: 320px;
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 5px;
-  background: var(--color-bg-elevated, rgba(40, 40, 44, 0.92));
-  -webkit-backdrop-filter: var(--glass-blur, blur(20px) saturate(160%));
-  backdrop-filter: var(--glass-blur, blur(20px) saturate(160%));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
 }
@@ -179,22 +130,21 @@
   gap: 2px;
   text-align: left;
   padding: 7px 9px;
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.07));
-  border-radius: 8px;
-  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
-  color: var(--color-text, #e8e8ea);
-  cursor: pointer;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
 }
 .agent-run-artifact-card:hover {
-  background: var(--color-bg-hover, rgba(255, 255, 255, 0.06));
-  border-color: var(--color-border, rgba(255, 255, 255, 0.16));
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
 }
 .agent-run-artifact-name { font-size: 12.5px; font-weight: 500; word-break: break-word; }
 .agent-run-artifact-type {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  color: var(--color-text-tertiary, #8a8a8f);
+  color: var(--color-text-tertiary);
 }
 
 /* Single-line prompt button (full text in a click popover) keeps the header
@@ -212,16 +162,15 @@
   padding: 0;
   background: none;
   border: none;
-  cursor: pointer;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
-  color: var(--color-text, #e8e8ea);
+  color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.agent-run-prompt:hover { color: var(--color-accent, #569cd6); }
+.agent-run-prompt:hover { color: var(--color-accent); }
 .agent-run-prompt-backdrop {
   position: fixed;
   inset: 0;
@@ -236,11 +185,12 @@
   max-width: 560px;
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 12px;
-  background: var(--color-bg-elevated, rgba(40, 40, 44, 0.96));
-  -webkit-backdrop-filter: var(--glass-blur, blur(20px) saturate(160%));
-  backdrop-filter: var(--glass-blur, blur(20px) saturate(160%));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.1));
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
@@ -249,13 +199,13 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--color-text-tertiary, #8a8a8f);
+  color: var(--color-text-tertiary);
   margin-bottom: 6px;
 }
 .agent-run-prompt-pop-body {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--color-text, #e8e8ea);
+  color: var(--color-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -264,6 +214,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .agent-run-body .agent-run-center {
   display: flex;
@@ -275,8 +226,8 @@
 
 /* Composer / session input pinned to the bottom (chat-style). */
 .agent-run-composer {
-  border-top: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
-  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.02));
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-secondary);
   padding: 7px 0 7px;
 }
 .agent-run-ask-prompt {
@@ -288,24 +239,23 @@
 }
 .agent-run-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .agent-run-chip {
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
-  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
-  color: var(--color-text, #e8e8ea);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
   border-radius: 12px;
   padding: 3px 10px;
   font-size: 12px;
-  cursor: pointer;
 }
-.agent-run-chip:hover:not(:disabled) { background: rgba(86, 156, 214, 0.15); }
+.agent-run-chip:hover:not(:disabled) { background: var(--color-accent-tint-15); }
 .agent-run-input-row { display: flex; gap: 8px; align-items: flex-end; }
 .agent-run-input {
   flex: 1;
   resize: none;
   max-height: 140px;
-  background: var(--color-bg-input, rgba(0, 0, 0, 0.25));
-  color: var(--color-text, #e8e8ea);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
-  border-radius: 8px;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
@@ -315,11 +265,12 @@
   margin: 0 0 8px;
   max-height: 160px;
   overflow: auto;
-  background: var(--color-bg-input, rgba(0, 0, 0, 0.25));
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.06));
+  overscroll-behavior: contain;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 7px;
   padding: 6px 8px;
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-family-mono);
   font-size: 11.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -331,64 +282,39 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: var(--color-text-secondary, #b6b6bb);
+  color: var(--color-text-secondary);
 }
 .agent-run-working-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--color-success, #4ec9b0);
+  background: var(--color-success);
   animation: agent-run-pulse 1.6s ease-out infinite;
-}
-.agent-run-btn {
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.18));
-  border-radius: 7px;
-  padding: 6px 16px;
-  font-size: 13px;
-  cursor: pointer;
-  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
-  color: var(--color-text, #e8e8ea);
-}
-.agent-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.agent-run-btn.approve {
-  background: rgba(var(--color-success-rgb, 78, 201, 176), 0.18);
-  color: var(--color-success, #4ec9b0);
-  border-color: rgba(var(--color-success-rgb, 78, 201, 176), 0.3);
-}
-.agent-run-btn.reject:hover:not(:disabled) {
-  background: rgba(var(--color-error-rgb, 244, 71, 71), 0.15);
-  color: var(--color-error, #f48a8a);
-}
-.agent-run-btn.stop {
-  margin-left: auto;
-  background: rgba(var(--color-error-rgb, 244, 71, 71), 0.14);
-  color: var(--color-error, #f48a8a);
-  border-color: rgba(var(--color-error-rgb, 244, 71, 71), 0.3);
 }
 
 .agent-run-result {
-  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--color-border-subtle);
   border-radius: 12px;
-  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
+  background: var(--color-bg-secondary);
   padding: 12px 14px 14px;
 }
-.agent-run-result-error { border-color: rgba(var(--color-error-rgb, 244, 71, 71), 0.3); }
+.agent-run-result-error { border-color: rgba(var(--color-error-rgb), 0.3); }
 .agent-run-result-label {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--color-text-tertiary, #8a8a8f);
+  color: var(--color-text-tertiary);
   margin-bottom: 8px;
 }
-.agent-run-result-error .agent-run-result-label { color: var(--color-error, #f48a8a); }
+.agent-run-result-error .agent-run-result-label { color: var(--color-error); }
 .agent-run-result-body {
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--color-text, #dcdcde);
+  color: var(--color-text);
 }
 .agent-run-result-text { font-family: inherit; }
-pre.agent-run-result-body { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
+pre.agent-run-result-body { font-family: var(--font-family-mono); font-size: 12px; }

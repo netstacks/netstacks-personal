@@ -13,7 +13,9 @@ import { createFolder, createSession, listFolders } from '../api/sessions';
 // --- Inline SVG Icons ---
 
 import { getErrorMessage } from '../api/errors'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 const CloseIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <line x1="3" y1="3" x2="11" y2="11" />
@@ -88,7 +90,7 @@ function FolderTreeNode({
         style={{ paddingLeft: `${8 + depth * 20}px` }}
         onClick={() => onToggleSelect(folder)}
       >
-        <input
+        <input aria-label={`Select ${folder.name}`}
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(folder)}
@@ -505,172 +507,163 @@ export default function SecureCRTImportDialog({
 
   // Escape / backdrop close (NS-UI-4). Disabled mid-import so a stray Escape
   // can't abandon rows half-written; the header × still cancels explicitly.
-  const { backdropProps, contentProps } = useOverlayDismiss({
-    onDismiss: handleClose,
-    enabled: isOpen && stage !== 'importing',
-  });
 
   if (!isOpen) return null;
 
   return (
-    <div className="scrt-import-overlay" {...backdropProps}>
-      <div className="scrt-import-dialog" {...contentProps}>
-        {/* Header */}
-        <div className="scrt-import-header">
-          <h3>Import SecureCRT Sessions</h3>
-          <button
-            className="scrt-import-close-btn"
-            onClick={handleClose}
-            title={stage === 'importing' ? 'Cancel and close — finishes the current row first' : 'Close'}
-          >
-            <CloseIcon />
-          </button>
-        </div>
+    <ModalFrame id="securecrt-import" onDismiss={handleClose} dismissEnabled={stage !== 'importing'} className="scrt-import-dialog" label="Import from SecureCRT">
+      {/* Header */}
+      <div className="scrt-import-header">
+        <h3>Import SecureCRT Sessions</h3>
+        <Tooltip label={stage === 'importing' ? 'Cancel and close — finishes the current row first' : 'Close'}><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
+          onClick={handleClose}
+          aria-label={stage === 'importing' ? 'Cancel and close — finishes the current row first' : 'Close'}
+        >
+          <CloseIcon />
+        </button></Tooltip>
+      </div>
 
-        {/* Body */}
-        <div className="scrt-import-body">
-          {stage === 'select' && (
-            <>
-              {/* File picker */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xml"
-                style={{ display: 'none' }}
-                onChange={handleFileInputChange}
-              />
-              <div
-                className={`scrt-file-drop ${fileName ? 'has-file' : ''}`}
-                onClick={handleDropZoneClick}
-              >
-                {fileName ? (
-                  <>
-                    <span className="scrt-file-name">{fileName}</span>
-                    <span className="scrt-file-hint">Click to choose a different file</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="scrt-file-drop-label">
-                      <strong>Choose XML file</strong> to import
-                    </span>
-                    <span className="scrt-file-hint">SecureCRT session export (.xml)</span>
-                  </>
-                )}
-              </div>
-
-              {/* Error */}
-              {parseError && <div className="scrt-error">{parseError}</div>}
-
-              {/* Profile picker */}
-              {parseResult && (
-                <div className="scrt-profile-picker">
-                  <label>Credential Profile</label>
-                  <select
-                    value={selectedProfileId}
-                    onChange={(e) => setSelectedProfileId(e.target.value)}
-                  >
-                    {profiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.username})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Tree preview */}
-              {parseResult && parseResult.folders.length > 0 && (
+      {/* Body */}
+      <div className="scrt-import-body">
+        {stage === 'select' && (
+          <>
+            {/* File picker */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xml"
+              style={{ display: 'none' }}
+              onChange={handleFileInputChange}
+            />
+            <div
+              className={`scrt-file-drop ${fileName ? 'has-file' : ''}`}
+              onClick={handleDropZoneClick}
+            >
+              {fileName ? (
                 <>
-                  <div className="scrt-tree-header">
-                    <label>Folders to Import</label>
-                    <div className="scrt-tree-actions">
-                      <button onClick={handleSelectAll}>Select All</button>
-                      <button onClick={handleSelectNone}>Select None</button>
-                    </div>
-                  </div>
-                  <div className="scrt-tree-container">
-                    {parseResult.folders.map((folder) => (
-                      <FolderTreeNode
-                        key={folder.id}
-                        folder={folder}
-                        depth={0}
-                        selectedIds={selectedFolderIds}
-                        expandedIds={expandedFolderIds}
-                        onToggleSelect={handleToggleSelect}
-                        onToggleExpand={handleToggleExpand}
-                      />
-                    ))}
-                  </div>
-                  <div className="scrt-summary">
-                    <strong>{selectedSessionCount}</strong> session{selectedSessionCount !== 1 ? 's' : ''} selected
-                  </div>
+                  <span className="scrt-file-name">{fileName}</span>
+                  <span className="scrt-file-hint">Click to choose a different file</span>
+                </>
+              ) : (
+                <>
+                  <span className="scrt-file-drop-label">
+                    <strong>Choose XML file</strong> to import
+                  </span>
+                  <span className="scrt-file-hint">SecureCRT session export (.xml)</span>
                 </>
               )}
-            </>
-          )}
-
-          {stage === 'importing' && (
-            <div className="scrt-progress-section">
-              <div className="scrt-progress-bar">
-                <div className="scrt-progress-fill" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="scrt-progress-text">{progressText}</div>
             </div>
-          )}
 
-          {stage === 'done' && results && (
-            <div className="scrt-results">
-              <div className="scrt-results-success">Import complete</div>
-              <div className="scrt-results-stats">
-                <span>{results.foldersCreated} folder{results.foldersCreated !== 1 ? 's' : ''} created</span>
-                <span>{results.sessionsCreated} session{results.sessionsCreated !== 1 ? 's' : ''} created</span>
+            {/* Error */}
+            {parseError && <div className="scrt-error">{parseError}</div>}
+
+            {/* Profile picker */}
+            {parseResult && (
+              <div className="scrt-profile-picker">
+                <label>Credential Profile</label>
+                <select aria-label="Credential Profile" className="ns-select"
+                  value={selectedProfileId}
+                  onChange={(e) => setSelectedProfileId(e.target.value)}
+                >
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.username})
+                    </option>
+                  ))}
+                </select>
               </div>
-              {results.warnings.length > 0 && (
-                <div className="scrt-results-warnings">
-                  <div className="scrt-results-warnings-label">Warnings</div>
-                  <ul>
-                    {results.warnings.map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
-                  </ul>
+            )}
+
+            {/* Tree preview */}
+            {parseResult && parseResult.folders.length > 0 && (
+              <>
+                <div className="scrt-tree-header">
+                  <label>Folders to Import</label>
+                  <div className="scrt-tree-actions">
+                    <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={handleSelectAll}>Select All</button>
+                    <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={handleSelectNone}>Select None</button>
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
-        </div>
+                <div className="scrt-tree-container">
+                  {parseResult.folders.map((folder) => (
+                    <FolderTreeNode
+                      key={folder.id}
+                      folder={folder}
+                      depth={0}
+                      selectedIds={selectedFolderIds}
+                      expandedIds={expandedFolderIds}
+                      onToggleSelect={handleToggleSelect}
+                      onToggleExpand={handleToggleExpand}
+                    />
+                  ))}
+                </div>
+                <div className="scrt-summary">
+                  <strong>{selectedSessionCount}</strong> session{selectedSessionCount !== 1 ? 's' : ''} selected
+                </div>
+              </>
+            )}
+          </>
+        )}
 
-        {/* Footer */}
-        <div className="scrt-import-footer">
-          {stage === 'select' && (
-            <>
-              <button className="scrt-btn-cancel" onClick={handleClose}>
-                Cancel
-              </button>
-              <button
-                className="scrt-btn-import"
-                disabled={!parseResult || selectedSessionCount === 0 || !selectedProfileId}
-                onClick={handleImport}
-              >
-                Import {selectedSessionCount > 0 ? `(${selectedSessionCount})` : ''}
-              </button>
-            </>
-          )}
-          {stage === 'importing' && (
-            <button
-              className="scrt-btn-cancel"
-              onClick={handleCancelImport}
-              disabled={cancelRequested}
-            >
-              {cancelRequested ? 'Cancelling…' : 'Cancel'}
-            </button>
-          )}
-          {stage === 'done' && (
-            <button className="scrt-btn-import" onClick={() => { onImportComplete(); handleClose(); }}>
-              Done
-            </button>
-          )}
-        </div>
+        {stage === 'importing' && (
+          <div className="scrt-progress-section">
+            <div className="scrt-progress-bar">
+              <div className="scrt-progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="scrt-progress-text">{progressText}</div>
+          </div>
+        )}
+
+        {stage === 'done' && results && (
+          <div className="scrt-results">
+            <div className="scrt-results-success">Import complete</div>
+            <div className="scrt-results-stats">
+              <span>{results.foldersCreated} folder{results.foldersCreated !== 1 ? 's' : ''} created</span>
+              <span>{results.sessionsCreated} session{results.sessionsCreated !== 1 ? 's' : ''} created</span>
+            </div>
+            {results.warnings.length > 0 && (
+              <div className="scrt-results-warnings">
+                <div className="scrt-results-warnings-label">Warnings</div>
+                <ul>
+                  {results.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="scrt-import-footer">
+        {stage === 'select' && (
+          <DialogFooter
+            primary={{
+              label: `Import ${selectedSessionCount > 0 ? `(${selectedSessionCount})` : ''}`,
+              onClick: handleImport,
+              disabled: !parseResult || selectedSessionCount === 0 || !selectedProfileId,
+            }}
+            onCancel={handleClose}
+            inline
+          />
+        )}
+        {stage === 'importing' && (
+          <button
+            className="ns-btn"
+            onClick={handleCancelImport}
+            disabled={cancelRequested}
+          >
+            {cancelRequested ? 'Cancelling…' : 'Cancel'}
+          </button>
+        )}
+        {stage === 'done' && (
+          <button className="ns-btn ns-btn--primary" onClick={() => { onImportComplete(); handleClose(); }}>
+            Done
+          </button>
+        )}
+      </div>
+    </ModalFrame>
   );
 }

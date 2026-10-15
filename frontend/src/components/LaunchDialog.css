@@ -1,18 +1,9 @@
 /* terminal/frontend/src/components/LaunchDialog.css */
-.launch-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-}
 
 .launch-dialog {
-  background: var(--bg-secondary, #1f1f1f);
-  border: 1px solid var(--border, #444);
-  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
   width: 360px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
   overflow: hidden;
@@ -21,18 +12,18 @@
 .launch-dialog-title {
   padding: 14px 16px 8px;
   font-size: 14px;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .launch-dialog-sub {
   padding: 0 16px 14px;
   font-size: 11px;
-  color: var(--text-tertiary, #888);
+  color: var(--text-tertiary);
 }
 
 .launch-dialog-topo {
-  color: #ff9f4a;
+  color: var(--color-warning);
 }
 
 .launch-dialog-opts {
@@ -46,21 +37,20 @@
   display: flex;
   gap: 10px;
   padding: 10px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: transparent;
   border: 1px solid transparent;
   text-align: left;
-  cursor: pointer;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
 }
 
 .launch-dialog-opt:hover {
-  background: var(--bg-tertiary, #2a2a2a);
+  background: var(--bg-tertiary);
 }
 
 .launch-dialog-opt.recommended {
-  background: #1a3155;
-  border-color: #4a9eff;
+  background: var(--color-accent-tint-15);
+  border-color: var(--color-accent);
 }
 
 .launch-dialog-opt-icon {
@@ -81,7 +71,7 @@
 
 .launch-dialog-opt-desc {
   font-size: 10px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-tertiary);
   margin-top: 2px;
   line-height: 1.4;
 }
@@ -91,31 +81,20 @@
   display: flex;
   gap: 8px;
   align-items: center;
-  border-top: 1px solid var(--border, #2a2a2a);
+  border-top: 1px solid var(--border);
   margin-top: 4px;
   padding-top: 12px;
 }
 
 .launch-dialog-remember {
   font-size: 10px;
-  color: var(--text-tertiary, #888);
+  color: var(--text-tertiary);
   flex: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
 }
 
 .launch-dialog-remember input {
-  accent-color: #4a9eff;
-}
-
-.launch-dialog-cancel {
-  background: transparent;
-  border: 1px solid var(--border, #444);
-  color: var(--text-secondary, #ccc);
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 3px;
-  cursor: pointer;
+  accent-color: var(--color-text-accent);
 }

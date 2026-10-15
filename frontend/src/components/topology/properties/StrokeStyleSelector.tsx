@@ -3,6 +3,7 @@
  */
 
 import type { StrokeStyle } from '../../../types/annotations';
+import Tooltip from '../../Tooltip';
 
 interface StrokeStyleSelectorProps {
   value: StrokeStyle;
@@ -26,12 +27,11 @@ export default function StrokeStyleSelector({
       {label && <label className="stroke-style-label">{label}</label>}
       <div className="stroke-style-buttons">
         {STROKE_STYLES.map((style) => (
-          <button
-            key={style.value}
+          <Tooltip key={style.value} label={style.label}><button
             type="button"
             className={`stroke-style-btn ${value === style.value ? 'active' : ''}`}
             onClick={() => onChange(style.value)}
-            title={style.label}
+            aria-label={style.label}
           >
             <svg viewBox="0 0 40 10" width="40" height="10">
               <line
@@ -50,7 +50,7 @@ export default function StrokeStyleSelector({
                 }
               />
             </svg>
-          </button>
+          </button></Tooltip>
         ))}
       </div>
     </div>

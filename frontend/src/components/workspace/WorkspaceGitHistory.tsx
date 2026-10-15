@@ -7,6 +7,8 @@ import { showToast } from '../Toast'
 import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter'
+import ModalFrame from '../ModalFrame'
 interface WorkspaceGitHistoryProps {
   gitOps: GitOps
   onViewDiff: (filePath: string) => void
@@ -156,41 +158,31 @@ export default function WorkspaceGitHistory({ gitOps, onRefresh }: WorkspaceGitH
         onClose={() => setContextMenu(null)}
       />
       {newBranchFrom && (
-        <div className="workspace-git-dialog-overlay">
-          <div className="workspace-git-dialog" onClick={e => e.stopPropagation()}>
-            <h3>New Branch from Commit</h3>
-            <p>
-              Create a new branch starting from: <strong>{newBranchFrom.hash.slice(0, 7)}</strong> {newBranchFrom.message}
-            </p>
-            <AITabInput
-              className="workspace-git-new-branch-input"
-              placeholder="branch-name"
-              value={newBranchName}
-              onChange={e => setNewBranchName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') handleCreateBranchFromCommit()
-                if (e.key === 'Escape') { setNewBranchFrom(null); setNewBranchName('') }
-              }}
-              autoFocus
-              aiField="branch_name"
-              aiPlaceholder="git branch name for this commit"
-              aiContext={{ fromCommit: newBranchFrom.message }}
-              onAIValue={v => setNewBranchName(v)}
-            />
-            <div className="workspace-git-dialog-actions" style={{ marginTop: 12 }}>
-              <button className="workspace-git-dialog-btn" onClick={() => { setNewBranchFrom(null); setNewBranchName('') }}>
-                Cancel
-              </button>
-              <button
-                className="workspace-git-dialog-btn primary"
-                disabled={!newBranchName.trim()}
-                onClick={handleCreateBranchFromCommit}
-              >
-                Create & Switch
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="git-new-branch" className="workspace-git-dialog" label="New Branch from Commit">
+          <h3>New Branch from Commit</h3>
+          <p>
+            Create a new branch starting from: <strong>{newBranchFrom.hash.slice(0, 7)}</strong> {newBranchFrom.message}
+          </p>
+          <AITabInput
+            className="workspace-git-new-branch-input"
+            placeholder="branch-name"
+            value={newBranchName}
+            onChange={e => setNewBranchName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') { setNewBranchFrom(null); setNewBranchName('') }
+            }}
+            autoFocus
+            aiField="branch_name"
+            aiPlaceholder="git branch name for this commit"
+            aiContext={{ fromCommit: newBranchFrom.message }}
+            onAIValue={v => setNewBranchName(v)}
+          />
+          <DialogFooter
+            primary={{ label: 'Create & Switch', onClick: handleCreateBranchFromCommit, disabled: !newBranchName.trim() }}
+            onCancel={() => { setNewBranchFrom(null); setNewBranchName('') }}
+            inline
+          />
+        </ModalFrame>
       )}
     </div>
   )

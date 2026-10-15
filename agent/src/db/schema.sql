@@ -145,7 +145,6 @@ CREATE TABLE IF NOT EXISTS scripts (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     content TEXT NOT NULL,
-    is_template INTEGER DEFAULT 0,
     last_run_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))

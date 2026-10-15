@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import type { Connection } from '../types/topology';
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './ConnectionDetailsOverlay.css';
+import Tooltip from './Tooltip';
 
 interface ConnectionDetailsOverlayProps {
   /** Connection to display details for */
@@ -89,11 +90,11 @@ export default function ConnectionDetailsOverlay({
             hardcoded 'active' in the transform and protocols/cableId/
             circuitId are never populated. Removed until a backend
             pipeline exists; reintroduce alongside the data source. */}
-        <button className="connection-details-close" onClick={onClose} title="Close">
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Interface Info */}

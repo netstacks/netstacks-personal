@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import './DocumentViewer.css';
+import Tooltip from './Tooltip';
 
 interface CsvViewerProps {
   content: string;
@@ -159,15 +160,13 @@ function CsvViewer({ content }: CsvViewerProps) {
           <thead>
             <tr>
               {headers.map((header, idx) => (
-                <th
-                  key={idx}
+                <Tooltip key={idx} label={`Sort by ${header || `Column ${idx + 1}`}`}><th
                   onClick={() => handleSort(idx)}
                   className="csv-header-cell"
-                  title={`Sort by ${header || `Column ${idx + 1}`}`}
                 >
                   <span className="csv-header-text">{header || `Column ${idx + 1}`}</span>
                   {getSortIcon(idx)}
-                </th>
+                </th></Tooltip>
               ))}
             </tr>
           </thead>

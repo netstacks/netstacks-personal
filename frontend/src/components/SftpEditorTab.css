@@ -27,7 +27,7 @@
 }
 
 .sftp-editor-path-text {
-  font-family: var(--font-mono);
+  font-family: var(--font-family-mono);
   font-size: 13px;
   color: var(--color-text-primary);
   white-space: nowrap;
@@ -44,13 +44,13 @@
 }
 
 .sftp-editor-badge.modified {
-  background: rgba(241, 196, 15, 0.2);
-  color: #f1c40f;
+  background: rgba(var(--color-warning-rgb), 0.2);
+  color: var(--color-warning);
 }
 
 .sftp-editor-badge.saving {
-  background: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background: var(--color-accent-tint-20);
+  color: var(--color-accent);
   animation: sftp-editor-pulse 1.5s ease-in-out infinite;
 }
 
@@ -66,71 +66,17 @@
   flex-shrink: 0;
 }
 
-.sftp-editor-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.sftp-editor-btn:hover:not(:disabled) {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-}
-
-.sftp-editor-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.sftp-editor-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.sftp-editor-btn.primary {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: white;
-}
-
-.sftp-editor-btn.primary:hover:not(:disabled) {
-  background: var(--color-accent-hover, #9b59b6);
-  border-color: var(--color-accent-hover, #9b59b6);
-}
-
 /* Error banner */
 .sftp-editor-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: rgba(231, 76, 60, 0.15);
-  border-bottom: 1px solid rgba(231, 76, 60, 0.3);
-  color: #e74c3c;
+  background: rgba(var(--color-error-rgb), 0.15);
+  border-bottom: 1px solid rgba(var(--color-error-rgb), 0.3);
+  color: var(--color-error);
   font-size: 13px;
   flex-shrink: 0;
-}
-
-.sftp-editor-error-dismiss {
-  background: none;
-  border: none;
-  color: #e74c3c;
-  cursor: pointer;
-  font-size: 12px;
-  opacity: 0.7;
-  padding: 2px 6px;
-}
-
-.sftp-editor-error-dismiss:hover {
-  opacity: 1;
 }
 
 /* Editor body: line gutter + textarea */
@@ -154,7 +100,7 @@
 }
 
 .sftp-editor-line-numbers {
-  font-family: var(--font-mono);
+  font-family: var(--font-family-mono);
   font-size: 13px;
   line-height: 1.6;
   color: var(--color-text-muted);
@@ -173,13 +119,14 @@
   border: none;
   outline: none;
   resize: none;
-  font-family: var(--font-mono);
+  font-family: var(--font-family-mono);
   font-size: 13px;
   line-height: 1.6;
   color: var(--color-text-primary);
   tab-size: 2;
   white-space: pre;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .sftp-editor-textarea:focus {
@@ -259,22 +206,8 @@
 }
 
 .sftp-editor-load-error-message {
-  color: #e74c3c;
+  color: var(--color-error);
   font-size: 13px;
   text-align: center;
   max-width: 400px;
-}
-
-.sftp-editor-load-error button {
-  padding: 6px 14px;
-  background: var(--color-accent);
-  border: none;
-  border-radius: 4px;
-  color: white;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.sftp-editor-load-error button:hover {
-  opacity: 0.9;
 }

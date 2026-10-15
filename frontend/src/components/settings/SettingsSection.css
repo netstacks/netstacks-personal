@@ -1,0 +1,316 @@
+/* Settings sections (SettingsSection, and the list-style tabs that share the
+ * classes): header, then the body, 12px apart. */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.settings-section-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.settings-section-header h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.settings-section-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* ── Setting rows (SettingRow; base layout in dialog.css .setting-row) ── */
+.setting-label {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.setting-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-row > :not(:first-child) {
+  flex-shrink: 0;
+}
+
+.setting-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ── Groups ──────────────────────────────────────────────────────
+ * A section's rows — setting rows (.setting-row: label + description left,
+ * control right) and list items (SettingsItem). macOS: one rounded inset
+ * group with hairline separators (System Settings). Windows: each row its
+ * own card, 2px apart (Windows 11 Settings). */
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+}
+
+.settings-group > * {
+  padding: 10px var(--spacing-lg);
+  min-height: 44px;
+}
+
+.settings-group > * + * {
+  border-top: 1px solid var(--color-border);
+}
+
+:root[data-platform='windows'] .settings-group {
+  gap: 2px;
+  background: none;
+  border: none;
+}
+
+:root[data-platform='windows'] .settings-group > * {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+/* ── List items (SettingsItem) ──────────────────────────────────── */
+.settings-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.settings-item-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.settings-item--clickable:hover {
+  background: var(--color-fill);
+}
+
+.settings-item-body {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.settings-item-leading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--color-text-secondary);
+}
+
+.settings-item-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-item-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.settings-item-title > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs) var(--spacing-sm);
+  min-width: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+/* Fields and text holding code or machine text (patterns, commands, templates,
+ * headers, tokens); the UI font is the default everywhere else. Same size as the field. */
+.settings-code {
+  font-family: var(--font-family-mono);
+}
+
+.settings-item-meta code,
+.settings-item-mono {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+}
+
+.settings-item-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* Small uppercase badge in an item title or meta line (built-in, default, KEY, …). */
+.settings-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--radius-control);
+  background: var(--color-fill-strong);
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.settings-badge--accent {
+  background: rgba(var(--color-accent-rgb), 0.15);
+  color: var(--color-text-accent);
+}
+
+.settings-badge--success {
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+}
+
+.settings-badge--warning {
+  background: rgba(var(--color-warning-rgb), 0.15);
+  color: var(--color-warning);
+}
+
+.settings-badge--danger {
+  background: rgba(var(--color-error-rgb), 0.15);
+  color: var(--color-error);
+}
+
+/* Inline status lines inside a section (save results, load errors). */
+.settings-error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: var(--font-size-small);
+}
+
+.settings-success {
+  margin: 0;
+  color: var(--color-success);
+  font-size: var(--font-size-small);
+}
+
+.settings-section-heading kbd,
+.setting-row kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-fill);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+}
+
+/* ── Inline add/edit form inside a section (above or inside its list) ── */
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-bg-secondary);
+}
+
+.settings-group > .settings-form {
+  border-radius: 0;
+  border-width: 0;
+}
+
+.settings-group > * + .settings-form {
+  border-top-width: 1px;
+}
+
+.settings-form-title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.settings-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+}
+
+.settings-form-row > .form-group {
+  flex: 1;
+  min-width: 160px;
+}
+
+.settings-form-row > .form-group--narrow {
+  flex: 0 0 100px;
+  min-width: 0;
+}
+
+.settings-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+.settings-form-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-lg);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+/* Status dot in a SettingsItem's leading slot (connected / connecting / failed / idle). */
+.settings-status-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+}
+
+.settings-status-dot--ok {
+  background: var(--color-success);
+}
+
+.settings-status-dot--busy {
+  background: var(--color-warning);
+}
+
+.settings-status-dot--error {
+  background: var(--color-error);
+}

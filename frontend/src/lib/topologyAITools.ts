@@ -1472,3 +1472,32 @@ When asked to analyze:
 export function isTopologyTool(toolName: string): boolean {
   return toolName.startsWith('topology_');
 }
+
+/**
+ * Tools that change the topology's structure (devices, connections, layout).
+ * Withheld and denied unless `ai.topology.allowStructuralEdits` is on; the AI
+ * can always query, analyze, highlight, annotate, and export.
+ */
+export const STRUCTURAL_TOPOLOGY_TOOLS: ReadonlySet<string> = new Set([
+  'topology_add_device', 'topology_remove', 'topology_move',
+  'topology_add_connection', 'topology_update',
+]);
+
+/**
+ * Permission effect of each topology tool (see ToolEffect in agentTools).
+ * Highlighting only colours the current view; annotations are saved with the
+ * topology and an export writes a file, so both count as writes.
+ */
+export const TOPOLOGY_TOOL_EFFECTS: Readonly<Record<string, 'read' | 'write'>> = {
+  topology_query: 'read',
+  topology_path: 'read',
+  topology_analyze: 'read',
+  topology_highlight: 'read',
+  topology_add_device: 'write',
+  topology_add_connection: 'write',
+  topology_update: 'write',
+  topology_move: 'write',
+  topology_remove: 'write',
+  topology_annotate: 'write',
+  topology_export: 'write',
+};

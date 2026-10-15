@@ -27,8 +27,6 @@ pub enum CommandFilterError {
 pub struct CommandFilter {
     allowed_prefixes: Vec<&'static str>,
     blocked_patterns: Vec<BlockedPattern>,
-    /// When true, all commands are allowed (config mode enabled)
-    bypass: bool,
 }
 
 struct BlockedPattern {
@@ -186,7 +184,6 @@ impl CommandFilter {
                 "trace",
             ],
             blocked_patterns,
-            bypass: false,
         }
     }
 
@@ -205,9 +202,6 @@ impl CommandFilter {
     /// - `Ok(())` if the command is safe to execute
     /// - `Err(CommandFilterError)` if the command is blocked or not allowed
     pub fn is_allowed(&self, command: &str) -> Result<(), CommandFilterError> {
-        if self.bypass {
-            return Ok(());
-        }
         let normalized = command.trim().to_lowercase();
 
         // Check blocked patterns first (explicit deny)
@@ -285,6 +279,22 @@ mod tests {
         assert!(filter.is_allowed("commit").is_err());
         assert!(filter.is_allowed("edit protocols").is_err());
         assert!(filter.is_allowed("rollback 1").is_err());
+    }
+
+    /// The frontend's port of this filter (frontend/src/lib/readOnlyFilter.ts)
+    /// runs the same fixture, so the two classifications cannot drift apart.
+    #[test]
+    fn test_shared_fixture() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            command: String,
+            read_only: bool,
+        }
+        let cases: Vec<Case> = serde_json::from_str(include_str!("read_only_commands.json")).unwrap();
+        let filter = CommandFilter::new();
+        for case in cases {
+            assert_eq!(filter.is_allowed(&case.command).is_ok(), case.read_only, "{:?}", case.command);
+        }
     }
 
     #[test]

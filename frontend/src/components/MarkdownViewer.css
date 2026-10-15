@@ -3,11 +3,12 @@
 /* Base viewer styles */
 .markdown-viewer {
   padding: 16px 20px;
-  color: var(--text-primary, #e0e0e0);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text-primary);
+  font-family: var(--font-family);
   font-size: 14px;
   line-height: 1.6;
   overflow-y: auto;
+  overscroll-behavior: contain;
   height: 100%;
 }
 
@@ -17,8 +18,8 @@
   font-weight: 600;
   margin: 0 0 16px 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color, #3d3d3d);
-  color: var(--text-primary, #e0e0e0);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .markdown-viewer h2 {
@@ -26,22 +27,22 @@
   font-weight: 600;
   margin: 24px 0 12px 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--border-color, #3d3d3d);
-  color: var(--text-primary, #e0e0e0);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .markdown-viewer h3 {
   font-size: 1.25em;
   font-weight: 600;
   margin: 20px 0 10px 0;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text-primary);
 }
 
 .markdown-viewer h4 {
   font-size: 1.1em;
   font-weight: 600;
   margin: 16px 0 8px 0;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-secondary);
 }
 
 .markdown-viewer h5,
@@ -49,7 +50,7 @@
   font-size: 1em;
   font-weight: 600;
   margin: 14px 0 6px 0;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-secondary);
 }
 
 /* Paragraphs */
@@ -59,7 +60,7 @@
 
 /* Links */
 .markdown-viewer a {
-  color: var(--accent-blue, #4fc3f7);
+  color: var(--accent-blue);
   text-decoration: none;
 }
 
@@ -91,15 +92,15 @@
 
 .markdown-viewer li > input[type="checkbox"] {
   margin-right: 8px;
-  accent-color: var(--accent-green, #4caf50);
+  accent-color: var(--accent-green);
 }
 
 /* Blockquotes */
 .markdown-viewer blockquote {
   margin: 12px 0;
   padding: 8px 16px;
-  border-left: 4px solid var(--accent-blue, #4fc3f7);
-  background: var(--surface-secondary, #2a2a2a);
+  border-left: 4px solid var(--accent-blue);
+  background: var(--surface-secondary);
   border-radius: 0 4px 4px 0;
 }
 
@@ -114,36 +115,37 @@
 /* Horizontal rule */
 .markdown-viewer hr {
   border: none;
-  border-top: 1px solid var(--border-color, #3d3d3d);
+  border-top: 1px solid var(--border-color);
   margin: 20px 0;
 }
 
 /* Inline code */
 .markdown-inline-code {
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  font-family: var(--font-family-mono);
   font-size: 0.9em;
   padding: 2px 6px;
-  background: var(--surface-secondary, #2a2a2a);
-  border: 1px solid var(--border-color, #3d3d3d);
-  border-radius: 4px;
-  color: var(--accent-orange, #ffb74d);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  color: var(--accent-orange);
 }
 
 /* Code blocks */
 .markdown-viewer pre {
   margin: 12px 0;
   padding: 12px 16px;
-  background: var(--surface-tertiary, #1a1a1a);
-  border: 1px solid var(--border-color, #3d3d3d);
-  border-radius: 6px;
+  background: var(--surface-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
   overflow-x: auto;
+  overscroll-behavior: contain;
 }
 
 .markdown-viewer pre code {
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  font-family: var(--font-family-mono);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text-primary);
   background: none;
   padding: 0;
   border: none;
@@ -152,9 +154,10 @@
 /* Tables */
 .markdown-table-wrapper {
   overflow-x: auto;
+  overscroll-behavior: contain;
   margin: 12px 0;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #3d3d3d);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-color);
 }
 
 .markdown-viewer table {
@@ -164,17 +167,17 @@
 }
 
 .markdown-viewer th {
-  background: var(--surface-secondary, #2a2a2a);
+  background: var(--surface-secondary);
   font-weight: 600;
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 2px solid var(--border-color, #3d3d3d);
-  color: var(--text-primary, #e0e0e0);
+  border-bottom: 2px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .markdown-viewer td {
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color, #3d3d3d);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .markdown-viewer tr:last-child td {
@@ -183,35 +186,34 @@
 
 /* Zebra striping */
 .markdown-viewer tbody tr:nth-child(even) {
-  background: var(--surface-secondary, rgba(42, 42, 42, 0.5));
+  background: var(--surface-secondary);
 }
 
 .markdown-viewer tbody tr:hover {
-  background: var(--surface-hover, rgba(255, 255, 255, 0.05));
+  background: var(--surface-hover);
 }
 
 /* Details/Summary (collapsible sections) */
 .markdown-viewer details {
   margin: 12px 0;
-  border: 1px solid var(--border-color, #3d3d3d);
-  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
 .markdown-viewer summary {
   padding: 10px 14px;
-  background: var(--surface-secondary, #2a2a2a);
-  cursor: pointer;
+  background: var(--surface-secondary);
   font-weight: 500;
   user-select: none;
 }
 
 .markdown-viewer summary:hover {
-  background: var(--surface-hover, #333333);
+  background: var(--surface-hover);
 }
 
 .markdown-viewer details[open] summary {
-  border-bottom: 1px solid var(--border-color, #3d3d3d);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .markdown-viewer details > *:not(summary) {
@@ -230,14 +232,14 @@
 .markdown-viewer img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   margin: 8px 0;
 }
 
 /* Strong and emphasis */
 .markdown-viewer strong {
   font-weight: 600;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--text-primary);
 }
 
 .markdown-viewer em {
@@ -247,7 +249,7 @@
 /* Strikethrough (GFM) */
 .markdown-viewer del {
   text-decoration: line-through;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }
 
 /* ============================================
@@ -259,6 +261,7 @@
 .markdown-viewer pre code[class*="language-"] {
   display: block;
   overflow-x: auto;
+  overscroll-behavior: contain;
   color: #e0e0e0;
 }
 
@@ -369,53 +372,17 @@
   display: flex;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--surface-secondary, #2a2a2a);
-  border-bottom: 1px solid var(--border-color, #3d3d3d);
-}
-
-.markdown-editor-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--border-color, #3d3d3d);
-  border-radius: 4px;
-  background: var(--surface-primary, #1e1e1e);
-  color: var(--text-primary, #e0e0e0);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.markdown-editor-btn:hover {
-  background: var(--surface-hover, #333333);
-}
-
-.markdown-editor-btn.save {
-  background: var(--accent-green, #4caf50);
-  border-color: var(--accent-green, #4caf50);
-  color: white;
-}
-
-.markdown-editor-btn.save:hover {
-  background: #5cb860;
-}
-
-.markdown-editor-btn.cancel {
-  background: transparent;
-  color: var(--text-secondary, #b0b0b0);
-}
-
-.markdown-editor-btn.cancel:hover {
-  color: var(--text-primary, #e0e0e0);
-  background: var(--surface-hover, #333333);
+  background: var(--surface-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .markdown-editor-textarea {
   flex: 1;
   padding: 16px 20px;
-  background: var(--surface-primary, #1e1e1e);
+  background: var(--surface-primary);
   border: none;
-  color: var(--text-primary, #e0e0e0);
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
   font-size: 13px;
   line-height: 1.6;
   resize: none;
@@ -427,5 +394,5 @@
 }
 
 .markdown-editor-textarea::placeholder {
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
 }

@@ -11,6 +11,8 @@ import WorkspaceGitPanel from './WorkspaceGitPanel'
 import type { WorkspaceConfig } from '../../types/workspace'
 import type { Session } from '../../api/sessions'
 import './WorkspaceTab.css'
+import Tooltip from '../Tooltip'
+import ModalFrame from '../ModalFrame'
 
 interface WorkspaceTabProps {
   config: WorkspaceConfig
@@ -215,8 +217,8 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
             <div className="workspace-deploy-text">Failed to deploy remote agent</div>
             <div className="workspace-deploy-subtext">{state.remoteAgentError}</div>
             <button
-              className="workspace-terminal-action-btn"
-              style={{ marginTop: 8, padding: '6px 16px' }}
+              className="ns-btn"
+              style={{ marginTop: 8 }}
               onClick={() => workspace.retryDeploy()}
             >
               Retry
@@ -286,13 +288,12 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
                   <div className="workspace-zone3-tabs" onDoubleClick={() => { workspace.toggleTerminalPanel(); if (editorCollapsed) setEditorCollapsed(false) }}>
                     <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-text-secondary)' }}>{assistantName}</span>
                     <div style={{ flex: 1 }} />
-                    <button
-                      className="workspace-terminal-action-btn"
+                    <Tooltip label="Collapse AI panel"><button aria-label="Collapse AI panel"
+                      className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
                       onClick={() => { workspace.toggleTerminalPanel(); if (editorCollapsed) setEditorCollapsed(false) }}
-                      title="Collapse AI panel"
                     >
                       ▼
-                    </button>
+                    </button></Tooltip>
                   </div>
                   <div id="workspace-ai-panel-target" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }} />
                 </div>
@@ -334,13 +335,12 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
                       Output
                     </button>
                     <div style={{ flex: 1 }} />
-                    <button
-                      className="workspace-terminal-action-btn"
+                    <Tooltip label="Collapse terminal"><button aria-label="Collapse terminal"
+                      className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
                       onClick={() => { workspace.toggleTerminalPanel(); if (editorCollapsed) setEditorCollapsed(false) }}
-                      title="Collapse terminal"
                     >
                       ▼
-                    </button>
+                    </button></Tooltip>
                   </div>
                 )}
 
@@ -393,30 +393,28 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
         </div>
 
         {showRunModeDialog && (
-          <div className="workspace-new-dialog-overlay" onClick={() => { setShowRunModeDialog(false); setPendingRunPath(null) }}>
-            <div className="workspace-new-dialog" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
-              <h3>How should Python files run?</h3>
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-small)', margin: '0 0 16px' }}>
-                This choice will be remembered for this workspace.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <button className="workspace-run-mode-option" onClick={() => handleRunModeSelect('native')}>
-                  <span className="workspace-run-mode-icon">🐍</span>
-                  <div>
-                    <div className="workspace-run-mode-title">Native (python3)</div>
-                    <div className="workspace-run-mode-desc">Run with system Python. You manage dependencies yourself.</div>
-                  </div>
-                </button>
-                <button className="workspace-run-mode-option" onClick={() => handleRunModeSelect('netstacks')}>
-                  <span className="workspace-run-mode-icon">⚡</span>
-                  <div>
-                    <div className="workspace-run-mode-title">Netstacks Engine (UV)</div>
-                    <div className="workspace-run-mode-desc">Auto-installs dependencies from imports. Uses UV + PEP 723.</div>
-                  </div>
-                </button>
-              </div>
+          <ModalFrame id="workspace-run-mode" onDismiss={() => { setShowRunModeDialog(false); setPendingRunPath(null) }} className="workspace-new-dialog" style={{ width: 400 }} label="Run mode">
+            <h3>How should Python files run?</h3>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-small)', margin: '0 0 16px' }}>
+              This choice will be remembered for this workspace.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button className="workspace-run-mode-option" onClick={() => handleRunModeSelect('native')}>
+                <span className="workspace-run-mode-icon">🐍</span>
+                <div>
+                  <div className="workspace-run-mode-title">Native (python3)</div>
+                  <div className="workspace-run-mode-desc">Run with system Python. You manage dependencies yourself.</div>
+                </div>
+              </button>
+              <button className="workspace-run-mode-option" onClick={() => handleRunModeSelect('netstacks')}>
+                <span className="workspace-run-mode-icon">⚡</span>
+                <div>
+                  <div className="workspace-run-mode-title">Netstacks Engine (UV)</div>
+                  <div className="workspace-run-mode-desc">Auto-installs dependencies from imports. Uses UV + PEP 723.</div>
+                </div>
+              </button>
             </div>
-          </div>
+          </ModalFrame>
         )}
       </div>
     </>

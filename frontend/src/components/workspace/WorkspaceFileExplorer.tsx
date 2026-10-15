@@ -8,6 +8,9 @@ import type { MenuItem } from '../ContextMenu'
 import { getFileExplorerMenuItems } from './fileExplorerMenuItems'
 
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter'
+import Tooltip from '../Tooltip'
+import ModalFrame from '../ModalFrame'
 interface WorkspaceFileExplorerProps {
   rootPath: string
   mode: WorkspaceMode
@@ -484,7 +487,7 @@ export default function WorkspaceFileExplorer({
     <div className="workspace-file-entry" style={{ paddingLeft: depth * 16 + 4 }}>
       <span className="workspace-dir-toggle" />
       <span className="workspace-file-entry-icon">{isFolder ? '📁' : '📄'}</span>
-      <input
+      <input data-ai-fill="off"
         ref={inlineInputRef}
         className="workspace-inline-input"
         value={inlineValue}
@@ -517,7 +520,7 @@ export default function WorkspaceFileExplorer({
               <span className="workspace-dir-toggle" />
             )}
             <FileIcon name={entry.name} isDir={entry.isDir} isExpanded={isExpanded} />
-            <input
+            <input data-ai-fill="off" aria-label="Name"
               ref={inlineInputRef}
               className="workspace-inline-input"
               value={inlineValue}
@@ -598,23 +601,21 @@ export default function WorkspaceFileExplorer({
       <div className="workspace-explorer-header">
         <span>{rootName}</span>
         <div className="workspace-explorer-header-actions">
-          <button
-            className="workspace-explorer-header-btn"
+          <Tooltip label="New File"><button aria-label="New File"
+            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
             onClick={() => handleNewFile(selectedPath && expandedDirs.has(selectedPath) ? selectedPath : rootPath)}
-            title="New File"
           >
             +
-          </button>
-          <button
-            className="workspace-explorer-header-btn"
+          </button></Tooltip>
+          <Tooltip label="New Folder"><button aria-label="New Folder"
+            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
             onClick={() => handleNewFolder(selectedPath && expandedDirs.has(selectedPath) ? selectedPath : rootPath)}
-            title="New Folder"
           >
             📁+
-          </button>
-          <button className="workspace-explorer-header-btn" onClick={refreshAll} title="Refresh">
+          </button></Tooltip>
+          <Tooltip label="Refresh"><button aria-label="Refresh" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={refreshAll}>
             ⟳
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
@@ -648,40 +649,26 @@ export default function WorkspaceFileExplorer({
 
       {/* Delete Confirmation — single item */}
       {deleteConfirm && (
-        <div className="workspace-new-dialog-overlay" onClick={() => setDeleteConfirm(null)}>
-          <div className="workspace-new-dialog" onClick={e => e.stopPropagation()} style={{ width: 360 }}>
-            <h3>Delete {deleteConfirm.isDir ? 'Folder' : 'File'}</h3>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-small)', margin: '0 0 16px' }}>
-              Are you sure you want to delete <strong style={{ color: 'var(--color-text-primary)' }}>{deleteConfirm.name}</strong>?
-              {deleteConfirm.isDir && ' This will delete all contents.'}
-            </p>
-            <div className="workspace-new-dialog-actions">
-              <button className="workspace-new-dialog-btn" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="workspace-new-dialog-btn" style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)', color: 'white' }} onClick={confirmDelete}>
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="workspace-file-delete" onDismiss={() => setDeleteConfirm(null)} resizable={false} className="workspace-new-dialog" style={{ width: 360 }} label="Delete file">
+          <h3>Delete {deleteConfirm.isDir ? 'Folder' : 'File'}</h3>
+          <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-small)', margin: '0 0 16px' }}>
+            Are you sure you want to delete <strong style={{ color: 'var(--color-text-primary)' }}>{deleteConfirm.name}</strong>?
+            {deleteConfirm.isDir && ' This will delete all contents.'}
+          </p>
+          <DialogFooter primary={{ label: 'Delete', onClick: confirmDelete, danger: true }} onCancel={() => setDeleteConfirm(null)} inline />
+        </ModalFrame>
       )}
 
       {/* Delete Confirmation — bulk */}
       {bulkDeletePaths && bulkDeletePaths.size > 0 && (
-        <div className="workspace-new-dialog-overlay" onClick={() => setBulkDeletePaths(null)}>
-          <div className="workspace-new-dialog" onClick={e => e.stopPropagation()} style={{ width: 360 }}>
-            <h3>Delete {bulkDeletePaths.size} Items</h3>
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-small)', margin: '0 0 16px' }}>
-              Are you sure you want to delete <strong style={{ color: 'var(--color-text-primary)' }}>{bulkDeletePaths.size} items</strong>?
-              This cannot be undone.
-            </p>
-            <div className="workspace-new-dialog-actions">
-              <button className="workspace-new-dialog-btn" onClick={() => setBulkDeletePaths(null)}>Cancel</button>
-              <button className="workspace-new-dialog-btn" style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)', color: 'white' }} onClick={confirmBulkDelete}>
-                Delete All
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="workspace-bulk-delete" onDismiss={() => setBulkDeletePaths(null)} resizable={false} className="workspace-new-dialog" style={{ width: 360 }} label="Delete items">
+          <h3>Delete {bulkDeletePaths.size} Items</h3>
+          <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-small)', margin: '0 0 16px' }}>
+            Are you sure you want to delete <strong style={{ color: 'var(--color-text-primary)' }}>{bulkDeletePaths.size} items</strong>?
+            This cannot be undone.
+          </p>
+          <DialogFooter primary={{ label: 'Delete All', onClick: confirmBulkDelete, danger: true }} onCancel={() => setBulkDeletePaths(null)} inline />
+        </ModalFrame>
       )}
     </>
   )

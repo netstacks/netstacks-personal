@@ -73,7 +73,7 @@ export default function ScriptParamsForm({ params, values, onChange }: ScriptPar
             <input
               type="number"
               step="1"
-              className="script-param-input"
+              className="ns-input script-param-input"
               value={value === undefined || value === null ? '' : String(value)}
               onChange={(e) => {
                 const v = e.target.value;
@@ -94,7 +94,7 @@ export default function ScriptParamsForm({ params, values, onChange }: ScriptPar
             <input
               type="number"
               step="any"
-              className="script-param-input"
+              className="ns-input script-param-input"
               value={value === undefined || value === null ? '' : String(value)}
               onChange={(e) => {
                 const v = e.target.value;
@@ -124,8 +124,9 @@ export default function ScriptParamsForm({ params, values, onChange }: ScriptPar
               {!param.required && <span className="script-param-optional">(optional)</span>}
               <span className="script-param-type">{param.param_type}</span>
             </label>
-            <textarea
-              className={`script-param-textarea ${error ? 'has-error' : ''}`}
+            <textarea data-ai-fill="off"
+              className="ns-textarea script-param-textarea"
+              aria-invalid={!!error}
               value={raw}
               onChange={(e) => handleChange(param.name, e.target.value)}
               onBlur={(e) => handleJsonBlur(param.name, e.target.value)}

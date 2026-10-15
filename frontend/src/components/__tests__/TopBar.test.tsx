@@ -4,10 +4,6 @@ import TopBar from '../TopBar'
 
 const base = {
   platform: 'windows' as const,
-  sidebarOpen: true,
-  onToggleSidebar: vi.fn(),
-  aiPanelOpen: false,
-  onToggleAiPanel: vi.fn(),
   onOpenCommandCenter: vi.fn(),
 }
 
@@ -22,22 +18,6 @@ describe('TopBar', () => {
     render(<TopBar {...base} onOpenCommandCenter={onOpen} />)
     fireEvent.click(screen.getByTestId('command-center'))
     expect(onOpen).toHaveBeenCalledOnce()
-  })
-
-  it('toggles sidebar and AI panel', () => {
-    const onSidebar = vi.fn()
-    const onAi = vi.fn()
-    render(<TopBar {...base} onToggleSidebar={onSidebar} onToggleAiPanel={onAi} />)
-    fireEvent.click(screen.getByTestId('toggle-sidebar-btn'))
-    fireEvent.click(screen.getByTestId('toggle-ai-panel-btn'))
-    expect(onSidebar).toHaveBeenCalledOnce()
-    expect(onAi).toHaveBeenCalledOnce()
-  })
-
-  it('reflects active state on toggle buttons via aria-pressed', () => {
-    render(<TopBar {...base} sidebarOpen aiPanelOpen={false} />)
-    expect(screen.getByTestId('toggle-sidebar-btn')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('toggle-ai-panel-btn')).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('adds macos padding class only on macOS', () => {

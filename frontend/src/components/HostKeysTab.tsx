@@ -19,9 +19,12 @@ import {
 import { confirmDialog } from './ConfirmDialog'
 import { showToast } from './Toast'
 import { useSubmitting } from '../hooks/useSubmitting'
-import './HostKeysTab.css'
+import SearchField from './SearchField'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip'
 export default function HostKeysTab() {
   const [keys, setKeys] = useState<TrustedHostKey[]>([])
   const [loading, setLoading] = useState(true)
@@ -117,114 +120,75 @@ export default function HostKeysTab() {
     : keys
 
   return (
-    <div className="host-keys-tab settings-content">
-      <div className="settings-section">
-        <div className="host-keys-header">
-          <div>
-            <h3>Trusted SSH Host Keys</h3>
-            <p className="settings-section-description">
-              Every host:port you've trusted via the TOFU prompt. Revoke
-              an entry to be re-prompted on the next connection — useful
-              after an unintended trust click or a legitimate device
-              re-key.
-            </p>
-          </div>
-          <div className="host-keys-header-actions">
-            {keys.length > 0 && (
-              <button
-                className="btn-danger"
-                onClick={handlePurgeAll}
-                disabled={loading || submitting}
-                title="Remove all trusted host keys"
-              >
-                Purge All
-              </button>
-            )}
-            <button
-              className="btn-secondary"
-              onClick={load}
+    <SettingsSection
+      title="Trusted SSH Host Keys"
+      description="Every host:port you've trusted via the first-connection prompt. Revoke an entry to be re-prompted on the next connection — useful after an unintended trust click or a legitimate device re-key."
+      actions={
+        <>
+          <Tooltip label="Reload trusted host keys"><button
+            className="ns-btn ns-btn--small ns-btn--ghost"
+            onClick={load}
+            disabled={loading || submitting}
+          >
+            {loading ? 'Loading…' : 'Refresh'}
+          </button></Tooltip>
+          {keys.length > 0 && (
+            <Tooltip label="Remove all trusted host keys"><button
+              className="ns-btn ns-btn--small ns-btn--danger"
+              onClick={handlePurgeAll}
               disabled={loading || submitting}
-              title="Reload trusted host keys"
             >
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
-          </div>
-        </div>
+              Purge All
+            </button></Tooltip>
+          )}
+        </>
+      }
+    >
+      {error && <p className="settings-error">{error}</p>}
 
-        {error && <div className="settings-error">{error}</div>}
+      {!loading && keys.length === 0 && !error && (
+        <p className="form-hint">
+          No trusted host keys yet. The first time you SSH to a new host you'll be prompted to verify and accept its
+          fingerprint; accepted entries appear here for later audit and revocation.
+        </p>
+      )}
 
-        {!loading && keys.length === 0 && !error && (
-          <div className="host-keys-empty">
-            <p>No trusted host keys yet.</p>
-            <p className="settings-note">
-              The first time you SSH to a new host you'll be prompted to
-              verify and accept its fingerprint. Accepted entries appear
-              here for later audit and revocation.
-            </p>
-          </div>
-        )}
-
-        {keys.length > 0 && (
-          <>
-            <div className="host-keys-filter">
-              <input
-                type="search"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filter by host, port, key type, or fingerprint…"
-              />
-              {filter && (
-                <button
-                  className="host-keys-filter-clear"
-                  onClick={() => setFilter('')}
-                  title="Clear filter"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-
-            <div className="host-keys-list">
-              {filtered.length === 0 ? (
-                <div className="host-keys-empty">
-                  <p>No matches for "{filter}".</p>
-                </div>
-              ) : (
-                filtered.map((entry) => (
-                  <div
-                    key={`${entry.host}:${entry.port}`}
-                    className="host-keys-item"
-                  >
-                    <div className="host-keys-item-info">
-                      <div className="host-keys-item-host">
-                        <strong>{entry.host}</strong>
-                        <span className="host-keys-item-port">:{entry.port}</span>
-                        <span className="host-keys-item-type">{entry.key_type}</span>
-                      </div>
-                      <div className="host-keys-item-fp" title={entry.fingerprint}>
-                        {entry.fingerprint}
-                      </div>
-                    </div>
-                    <button
-                      className="btn-danger host-keys-item-revoke"
+      {keys.length > 0 && (
+        <>
+          <SearchField
+            value={filter}
+            onChange={setFilter}
+            placeholder="Filter by host, port, key type, or fingerprint…"
+          />
+          {filtered.length === 0 ? (
+            <p className="form-hint">No matches for "{filter}".</p>
+          ) : (
+            <div className="settings-group">
+              {filtered.map((entry) => (
+                <SettingsItem
+                  key={`${entry.host}:${entry.port}`}
+                  title={`${entry.host}:${entry.port}`}
+                  badges={<span className="settings-badge">{entry.key_type}</span>}
+                  meta={<code title={entry.fingerprint}>{entry.fingerprint}</code>}
+                  actions={
+                    <Tooltip label="Revoke trust — next connection will re-prompt"><button
+                      className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger"
                       onClick={() => handleRevoke(entry)}
                       disabled={submitting}
-                      title="Revoke trust — next connection will re-prompt"
                     >
                       Revoke
-                    </button>
-                  </div>
-                ))
-              )}
+                    </button></Tooltip>
+                  }
+                />
+              ))}
             </div>
-
-            <p className="settings-note">
-              Showing {filtered.length} of {keys.length} trusted{' '}
-              {keys.length === 1 ? 'host' : 'hosts'}.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+          <p className="form-hint">
+            Showing {filtered.length} of {keys.length} trusted{' '}
+            {keys.length === 1 ? 'host' : 'hosts'}.
+          </p>
+        </>
+      )}
+    </SettingsSection>
   )
 }

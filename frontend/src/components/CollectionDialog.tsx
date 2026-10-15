@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput';
 import { getErrorMessage } from '../api/errors'
 /**
  * CollectionDialog - Data collection dialog for topology building
@@ -13,9 +14,11 @@ import { NeighborParser } from '../lib/neighborParser';
 import type { DeviceType } from '../types/topology';
 import { getClient } from '../api/client';
 import { getLibreNmsDevices } from '../api/librenms';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './CollectionDialog.css';
 
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame';
 /** Props for CollectionDialog */
 export interface CollectionDialogProps {
   /** Whether the dialog is open */
@@ -478,7 +481,6 @@ export default function CollectionDialog({
 
   // Hooks must run unconditionally (before any early return). Gate the overlay
   // dismiss with `enabled: isOpen` so behavior matches "only active when open".
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, clickOutside: false, enabled: isOpen });
 
   if (!isOpen) return null;
 
@@ -487,303 +489,305 @@ export default function CollectionDialog({
   const selectedConnectionCount = discoveredConnections.filter(c => c.selected).length;
 
   return (
-    <div className="collection-dialog-overlay" {...backdropProps}>
-      <div className="collection-dialog" {...contentProps}>
-        {/* Header */}
-        <div className="collection-dialog-header">
-          <h2>Collect Topology Data</h2>
-          <button className="close-btn" onClick={onClose} title="Close">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <ModalFrame id="collection" onDismiss={onClose} clickOutside={false} className="collection-dialog" label="Collection">
+      {/* Header */}
+      <div className="collection-dialog-header">
+        <h2>Collect Topology Data</h2>
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button></Tooltip>
+      </div>
 
-        {/* Tabs */}
-        <div className="collection-tabs">
-          <button
-            className={`collection-tab ${activeTab === 'integrations' ? 'active' : ''}`}
-            onClick={() => setActiveTab('integrations')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-            Integrations
-          </button>
-          <button
-            className={`collection-tab ${activeTab === 'cli' ? 'active' : ''}`}
-            onClick={() => setActiveTab('cli')}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-            CLI Script
-          </button>
-        </div>
+      {/* Tabs */}
+      <div className="collection-tabs">
+        <button
+          className={`collection-tab ${activeTab === 'integrations' ? 'active' : ''}`}
+          onClick={() => setActiveTab('integrations')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          Integrations
+        </button>
+        <button
+          className={`collection-tab ${activeTab === 'cli' ? 'active' : ''}`}
+          onClick={() => setActiveTab('cli')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+          CLI Script
+        </button>
+      </div>
 
-        {/* Tab Content */}
-        <div className="collection-content">
-          {/* Integrations Tab */}
-          {activeTab === 'integrations' && (
-            <div className="integrations-tab">
-              <p className="tab-description">
-                Import topology data from configured integration sources.
-              </p>
-              {loadingIntegrations ? (
-                <div className="loading-state">Loading integrations...</div>
-              ) : integrationSources.length === 0 ? (
-                <div className="empty-state">
-                  <p>No integrations configured.</p>
-                  <p className="hint">Configure NetBox, LibreNMS, or NetStacks-Crawler in Settings &gt; Integrations.</p>
+      {/* Tab Content */}
+      <div className="collection-content">
+        {/* Integrations Tab */}
+        {activeTab === 'integrations' && (
+          <div className="integrations-tab">
+            <p className="tab-description">
+              Import topology data from configured integration sources.
+            </p>
+            {loadingIntegrations ? (
+              <div className="loading-state">Loading integrations...</div>
+            ) : integrationSources.length === 0 ? (
+              <div className="empty-state">
+                <p>No integrations configured.</p>
+                <p className="hint">Configure NetBox, LibreNMS, or NetStacks-Crawler in Settings &gt; Integrations.</p>
+              </div>
+            ) : (
+              <div className="source-list">
+                {integrationSources.map(source => (
+                  <div key={source.id} className="source-card">
+                    <div className="source-info">
+                      <span className={`source-type-badge ${source.type}`}>
+                        {source.type}
+                      </span>
+                      <span className="source-name">{source.name}</span>
+                      <span className={`source-status ${source.status}`}>
+                        {source.status}
+                      </span>
+                    </div>
+                    <button
+                      className="ns-btn"
+                      onClick={() => importFromIntegration(source)}
+                      disabled={importing || source.status !== 'connected'}
+                    >
+                      {importing ? 'Importing...' : 'Import Devices'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MCP Server tab intentionally absent — MCP-driven topology
+            discovery isn't wired up yet. Re-add the tab when it lands. */}
+
+        {/* CLI Script Tab */}
+        {activeTab === 'cli' && (
+          <div className="cli-tab">
+            <p className="tab-description">
+              Run commands on connected sessions to discover network topology.
+            </p>
+
+            {/* Session Selection */}
+            <div className="form-section">
+              <div className="section-header">
+                <h3>Sessions</h3>
+                <button className="select-all-btn" onClick={selectAllSessions}>
+                  {selectedSessionIds.length === connectedSessions.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              {connectedSessions.length === 0 ? (
+                <div className="empty-state small">
+                  <p>No connected sessions.</p>
+                  <p className="hint">Connect to devices first, then run collection scripts.</p>
                 </div>
               ) : (
-                <div className="source-list">
-                  {integrationSources.map(source => (
-                    <div key={source.id} className="source-card">
-                      <div className="source-info">
-                        <span className={`source-type-badge ${source.type}`}>
-                          {source.type}
-                        </span>
-                        <span className="source-name">{source.name}</span>
-                        <span className={`source-status ${source.status}`}>
-                          {source.status}
-                        </span>
-                      </div>
-                      <button
-                        className="import-btn"
-                        onClick={() => importFromIntegration(source)}
-                        disabled={importing || source.status !== 'connected'}
-                      >
-                        {importing ? 'Importing...' : 'Import Devices'}
-                      </button>
-                    </div>
+                <div className="session-list">
+                  {connectedSessions.map(session => (
+                    <label key={session.id} className="session-item">
+                      <input
+                        type="checkbox"
+                        checked={selectedSessionIds.includes(session.id)}
+                        onChange={() => toggleSessionSelection(session.id)}
+                      />
+                      <span className="session-name">{session.name}</span>
+                      <span className="session-host">{session.host}</span>
+                    </label>
                   ))}
                 </div>
               )}
             </div>
-          )}
 
-          {/* MCP Server tab intentionally absent — MCP-driven topology
-              discovery isn't wired up yet. Re-add the tab when it lands. */}
+            {/* Command Input */}
+            <div className="form-section">
+              <div className="section-header">
+                <h3>Command</h3>
+                <select aria-label="Command template"
+                  className="ns-select"
+                  value=""
+                  onChange={e => {
+                    if (e.target.value) applyTemplate(e.target.value);
+                  }}
+                >
+                  <option value="">Templates...</option>
+                  {COMMAND_TEMPLATES.map(t => (
+                    <option key={t.command} value={t.command}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <AITabInput
+                className="command-input"
+                aria-label="Command"
+                value={command}
+                onChange={e => setCommand(e.target.value)}
+                placeholder="Enter command..."
+                aiField="discovery command"
+                aiPlaceholder="Read-only CLI command to run on the selected devices to collect neighbor/topology data"
+                aiContext={{ parseMethod, devices: selectedSessionIds.length }}
+                onAIValue={setCommand}
+              />
+            </div>
 
-          {/* CLI Script Tab */}
-          {activeTab === 'cli' && (
-            <div className="cli-tab">
-              <p className="tab-description">
-                Run commands on connected sessions to discover network topology.
-              </p>
+            {/* Parse Method */}
+            <div className="form-section">
+              <h3>Parse Method</h3>
+              <div className="parse-options">
+                <label className="parse-option">
+                  <input
+                    type="radio"
+                    name="parseMethod"
+                    value="cdp"
+                    checked={parseMethod === 'cdp'}
+                    onChange={() => setParseMethod('cdp')}
+                  />
+                  <span>CDP Parser</span>
+                </label>
+                <label className="parse-option">
+                  <input
+                    type="radio"
+                    name="parseMethod"
+                    value="lldp"
+                    checked={parseMethod === 'lldp'}
+                    onChange={() => setParseMethod('lldp')}
+                  />
+                  <span>LLDP Parser</span>
+                </label>
+                <label className="parse-option">
+                  <input
+                    type="radio"
+                    name="parseMethod"
+                    value="regex"
+                    checked={parseMethod === 'regex'}
+                    onChange={() => setParseMethod('regex')}
+                  />
+                  <span>Custom Regex</span>
+                </label>
+              </div>
+              {parseMethod === 'regex' && (
+                <AITabInput
+                  className="regex-input"
+                  aria-label="Parse regex"
+                  value={regexPattern}
+                  onChange={e => setRegexPattern(e.target.value)}
+                  placeholder="e.g., (?<name>\S+)\s+(?<ip>\d+\.\d+\.\d+\.\d+)"
+                  aiField="output parse regex"
+                  aiPlaceholder="Regex with named groups (name, ip, interface…) that extracts neighbors from the command output"
+                  aiContext={{ command }}
+                  onAIValue={setRegexPattern}
+                />
+              )}
+            </div>
 
-              {/* Session Selection */}
-              <div className="form-section">
-                <div className="section-header">
-                  <h3>Sessions</h3>
-                  <button className="select-all-btn" onClick={selectAllSessions}>
-                    {selectedSessionIds.length === connectedSessions.length ? 'Deselect All' : 'Select All'}
+            {/* Run Button */}
+            <button
+              className="ns-btn ns-btn--primary"
+              onClick={executeCLIScript}
+              disabled={cliRunning || selectedSessionIds.length === 0 || !command}
+            >
+              {cliRunning ? (
+                <>
+                  <span className="spinner" />
+                  Running... {cliProgress && `(${cliProgress.current}/${cliProgress.total})`}
+                </>
+              ) : (
+                'Run Script'
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Results Preview */}
+        {hasDiscoveredData && (
+          <div className="results-section">
+            <h3>Discovered Data</h3>
+
+            {/* Devices */}
+            {discoveredDevices.length > 0 && (
+              <div className="results-group">
+                <div className="results-header">
+                  <span>Devices ({selectedDeviceCount}/{discoveredDevices.length} selected)</span>
+                  <button className="toggle-all-btn" onClick={toggleAllDevices}>
+                    {discoveredDevices.every(d => d.selected) ? 'Deselect All' : 'Select All'}
                   </button>
                 </div>
-                {connectedSessions.length === 0 ? (
-                  <div className="empty-state small">
-                    <p>No connected sessions.</p>
-                    <p className="hint">Connect to devices first, then run collection scripts.</p>
-                  </div>
-                ) : (
-                  <div className="session-list">
-                    {connectedSessions.map(session => (
-                      <label key={session.id} className="session-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedSessionIds.includes(session.id)}
-                          onChange={() => toggleSessionSelection(session.id)}
-                        />
-                        <span className="session-name">{session.name}</span>
-                        <span className="session-host">{session.host}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                <div className="results-list">
+                  {discoveredDevices.map((device, i) => (
+                    <label key={`${device.name}-${i}`} className="result-item">
+                      <input
+                        type="checkbox"
+                        checked={device.selected}
+                        onChange={() => toggleDeviceSelection(i)}
+                      />
+                      <span className="result-name">{device.name}</span>
+                      {device.ip && <span className="result-ip">{device.ip}</span>}
+                      <span className={`result-type ${device.type}`}>{device.type}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
+            )}
 
-              {/* Command Input */}
-              <div className="form-section">
-                <div className="section-header">
-                  <h3>Command</h3>
-                  <select
-                    className="template-select"
-                    value=""
-                    onChange={e => {
-                      if (e.target.value) applyTemplate(e.target.value);
-                    }}
-                  >
-                    <option value="">Templates...</option>
-                    {COMMAND_TEMPLATES.map(t => (
-                      <option key={t.command} value={t.command}>{t.name}</option>
-                    ))}
-                  </select>
+            {/* Connections */}
+            {discoveredConnections.length > 0 && (
+              <div className="results-group">
+                <div className="results-header">
+                  <span>Connections ({selectedConnectionCount}/{discoveredConnections.length} selected)</span>
+                  <button className="toggle-all-btn" onClick={toggleAllConnections}>
+                    {discoveredConnections.every(c => c.selected) ? 'Deselect All' : 'Select All'}
+                  </button>
                 </div>
-                <input
-                  type="text"
-                  className="command-input"
-                  value={command}
-                  onChange={e => setCommand(e.target.value)}
-                  placeholder="Enter command..."
-                />
+                <div className="results-list connections">
+                  {discoveredConnections.map((conn, i) => (
+                    <label key={`${conn.sourceName}-${conn.targetName}-${i}`} className="result-item connection">
+                      <input
+                        type="checkbox"
+                        checked={conn.selected}
+                        onChange={() => toggleConnectionSelection(i)}
+                      />
+                      <span className="conn-source">{conn.sourceName}</span>
+                      {conn.sourceInterface && <span className="conn-intf">({conn.sourceInterface})</span>}
+                      <span className="conn-arrow">→</span>
+                      <span className="conn-target">{conn.targetName}</span>
+                      {conn.targetInterface && <span className="conn-intf">({conn.targetInterface})</span>}
+                    </label>
+                  ))}
+                </div>
               </div>
+            )}
+          </div>
+        )}
 
-              {/* Parse Method */}
-              <div className="form-section">
-                <h3>Parse Method</h3>
-                <div className="parse-options">
-                  <label className="parse-option">
-                    <input
-                      type="radio"
-                      name="parseMethod"
-                      value="cdp"
-                      checked={parseMethod === 'cdp'}
-                      onChange={() => setParseMethod('cdp')}
-                    />
-                    <span>CDP Parser</span>
-                  </label>
-                  <label className="parse-option">
-                    <input
-                      type="radio"
-                      name="parseMethod"
-                      value="lldp"
-                      checked={parseMethod === 'lldp'}
-                      onChange={() => setParseMethod('lldp')}
-                    />
-                    <span>LLDP Parser</span>
-                  </label>
-                  <label className="parse-option">
-                    <input
-                      type="radio"
-                      name="parseMethod"
-                      value="regex"
-                      checked={parseMethod === 'regex'}
-                      onChange={() => setParseMethod('regex')}
-                    />
-                    <span>Custom Regex</span>
-                  </label>
-                </div>
-                {parseMethod === 'regex' && (
-                  <input
-                    type="text"
-                    className="regex-input"
-                    value={regexPattern}
-                    onChange={e => setRegexPattern(e.target.value)}
-                    placeholder="e.g., (?<name>\S+)\s+(?<ip>\d+\.\d+\.\d+\.\d+)"
-                  />
-                )}
-              </div>
-
-              {/* Run Button */}
-              <button
-                className="run-script-btn"
-                onClick={executeCLIScript}
-                disabled={cliRunning || selectedSessionIds.length === 0 || !command}
-              >
-                {cliRunning ? (
-                  <>
-                    <span className="spinner" />
-                    Running... {cliProgress && `(${cliProgress.current}/${cliProgress.total})`}
-                  </>
-                ) : (
-                  'Run Script'
-                )}
-              </button>
-            </div>
-          )}
-
-          {/* Results Preview */}
-          {hasDiscoveredData && (
-            <div className="results-section">
-              <h3>Discovered Data</h3>
-
-              {/* Devices */}
-              {discoveredDevices.length > 0 && (
-                <div className="results-group">
-                  <div className="results-header">
-                    <span>Devices ({selectedDeviceCount}/{discoveredDevices.length} selected)</span>
-                    <button className="toggle-all-btn" onClick={toggleAllDevices}>
-                      {discoveredDevices.every(d => d.selected) ? 'Deselect All' : 'Select All'}
-                    </button>
-                  </div>
-                  <div className="results-list">
-                    {discoveredDevices.map((device, i) => (
-                      <label key={`${device.name}-${i}`} className="result-item">
-                        <input
-                          type="checkbox"
-                          checked={device.selected}
-                          onChange={() => toggleDeviceSelection(i)}
-                        />
-                        <span className="result-name">{device.name}</span>
-                        {device.ip && <span className="result-ip">{device.ip}</span>}
-                        <span className={`result-type ${device.type}`}>{device.type}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Connections */}
-              {discoveredConnections.length > 0 && (
-                <div className="results-group">
-                  <div className="results-header">
-                    <span>Connections ({selectedConnectionCount}/{discoveredConnections.length} selected)</span>
-                    <button className="toggle-all-btn" onClick={toggleAllConnections}>
-                      {discoveredConnections.every(c => c.selected) ? 'Deselect All' : 'Select All'}
-                    </button>
-                  </div>
-                  <div className="results-list connections">
-                    {discoveredConnections.map((conn, i) => (
-                      <label key={`${conn.sourceName}-${conn.targetName}-${i}`} className="result-item connection">
-                        <input
-                          type="checkbox"
-                          checked={conn.selected}
-                          onChange={() => toggleConnectionSelection(i)}
-                        />
-                        <span className="conn-source">{conn.sourceName}</span>
-                        {conn.sourceInterface && <span className="conn-intf">({conn.sourceInterface})</span>}
-                        <span className="conn-arrow">→</span>
-                        <span className="conn-target">{conn.targetName}</span>
-                        {conn.targetInterface && <span className="conn-intf">({conn.targetInterface})</span>}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Errors */}
-          {importErrors.length > 0 && (
-            <div className="errors-section">
-              <h4>Errors</h4>
-              <ul>
-                {importErrors.map((err, i) => (
-                  <li key={i}>{err}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="collection-dialog-footer">
-          <button className="cancel-btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="import-btn primary"
-            onClick={importSelected}
-            disabled={importing || (selectedDeviceCount === 0 && selectedConnectionCount === 0)}
-          >
-            {importing ? 'Importing...' : `Import ${selectedDeviceCount} Devices, ${selectedConnectionCount} Connections`}
-          </button>
-        </div>
+        {/* Errors */}
+        {importErrors.length > 0 && (
+          <div className="errors-section">
+            <h4>Errors</h4>
+            <ul>
+              {importErrors.map((err, i) => (
+                <li key={i}>{err}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <DialogFooter
+        primary={{
+          label: importing ? 'Importing...' : `Import ${selectedDeviceCount} Devices, ${selectedConnectionCount} Connections`,
+          onClick: importSelected,
+          disabled: importing || (selectedDeviceCount === 0 && selectedConnectionCount === 0),
+        }}
+        onCancel={onClose}
+      />
+    </ModalFrame>
   );
 }

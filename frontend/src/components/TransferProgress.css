@@ -8,7 +8,7 @@
   max-height: 400px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   z-index: var(--z-modal);
   display: flex;
@@ -40,7 +40,7 @@
   font-weight: 500;
   padding: 2px 8px;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-text-on-accent);
   border-radius: 10px;
 }
 
@@ -54,11 +54,10 @@
   padding: 4px 10px;
   background: transparent;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-secondary);
   font-size: 11px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .transfer-progress-clear-all:hover {
@@ -75,10 +74,9 @@
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .transfer-progress-minimize svg {
@@ -94,6 +92,7 @@
 .transfer-progress-list {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px;
 }
 
@@ -104,7 +103,7 @@
   gap: 12px;
   padding: 10px;
   background: var(--color-bg-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   margin-bottom: 6px;
 }
 
@@ -120,7 +119,7 @@
   align-items: center;
   justify-content: center;
   background: var(--color-bg-tertiary);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 
 .transfer-item-icon svg {
@@ -134,11 +133,11 @@
 }
 
 .transfer-item-completed .transfer-item-icon svg {
-  stroke: #22c55e;
+  stroke: var(--color-success);
 }
 
 .transfer-item-error .transfer-item-icon svg {
-  stroke: #ef4444;
+  stroke: var(--color-error);
 }
 
 .transfer-item-cancelled .transfer-item-icon svg {
@@ -238,10 +237,9 @@
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
 .transfer-item-action svg {
@@ -254,8 +252,8 @@
 }
 
 .transfer-item-cancel:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: rgba(var(--color-error-rgb), 0.15);
+  color: var(--color-error);
 }
 
 .transfer-item-clear:hover {
@@ -306,10 +304,9 @@
   padding: 10px 14px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: var(--z-modal);
-  cursor: pointer;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 

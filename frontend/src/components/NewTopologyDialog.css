@@ -27,18 +27,10 @@
 .new-topology-dialog .dialog-body {
   padding: var(--spacing-lg);
   overflow-y: auto;
+  overscroll-behavior: contain;
   flex: 1;
   display: flex;
   flex-direction: column;
-}
-
-.new-topology-dialog .dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-tertiary);
 }
 
 /* Form field styling */
@@ -62,31 +54,14 @@
   color: var(--color-text-secondary);
 }
 
-.new-topology-dialog .form-field input[type="text"] {
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  box-sizing: border-box;
-  transition: border-color var(--transition-fast);
-}
-
-.new-topology-dialog .form-field input[type="text"]:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
 /* Session checklist */
 .new-topology-dialog .session-checklist {
   flex: 1;
   min-height: 80px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--color-bg-primary);
 }
 
@@ -97,7 +72,6 @@
   padding: 8px 12px;
   width: auto;
   height: auto;
-  cursor: pointer;
   border: none;
   border-bottom: 1px solid var(--color-border);
   border-radius: 0;
@@ -125,7 +99,6 @@
   border: 2px solid var(--color-border);
   border-radius: 3px;
   background: var(--color-bg-primary);
-  cursor: pointer;
   flex-shrink: 0;
   position: relative;
   transition: border-color var(--transition-fast), background var(--transition-fast);
@@ -175,7 +148,7 @@
   flex-shrink: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
-  font-family: var(--font-family-mono, monospace);
+  font-family: var(--font-family-mono);
 }
 
 /* Empty state */
@@ -190,9 +163,13 @@
 .new-topology-dialog .error-message {
   padding: var(--spacing-sm) var(--spacing-md);
   margin-top: var(--spacing-md);
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid rgba(244, 67, 54, 0.3);
-  border-radius: 4px;
-  color: #f44336;
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  border-radius: var(--radius-control);
+  color: var(--color-error);
   font-size: var(--font-size-small);
+}
+
+.topology-device-search {
+  margin-bottom: 6px;
 }

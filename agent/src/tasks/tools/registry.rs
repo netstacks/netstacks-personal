@@ -44,6 +44,11 @@ impl ToolRegistry {
         self.tools.insert(name, tool);
     }
 
+    /// Keep only the tools whose name passes `keep`.
+    pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        self.tools.retain(|name, _| keep(name));
+    }
+
     /// Get a tool by name
     ///
     /// Returns None if no tool with that name is registered.
@@ -157,5 +162,16 @@ mod tests {
         let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"tool1"));
         assert!(names.contains(&"tool2"));
+    }
+
+    #[test]
+    fn test_retain() {
+        let mut registry = ToolRegistry::new();
+        for name in ["keep", "drop"] {
+            registry.register(Arc::new(TestTool { name: name.to_string() }));
+        }
+        registry.retain(|name| name != "drop");
+        assert!(registry.get("keep").is_some());
+        assert!(registry.get("drop").is_none());
     }
 }

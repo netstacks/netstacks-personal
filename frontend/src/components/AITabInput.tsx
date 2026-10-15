@@ -1,10 +1,12 @@
 /**
  * AITabInput — Drop-in replacement for <input> and <textarea> with Tab-to-autocomplete.
  *
- * Shows a "TAB ✨" badge when the field is empty and focused.
+ * Shows a "Tab ✦" badge when the field is empty and focused.
  * Pressing Tab generates AI content from: the field's name/purpose, sibling form
  * values (aiContext), NetStacks concept facts, and the current workspace context
  * (active session/device via getFormAiContext) so the AI knows where the field lives.
+ * Tab with a value, Shift+Tab, and Tab while a value is generating move focus as
+ * usual; Escape cancels a generation. Password fields never call the AI.
  *
  * Usage:
  *   <AITabInput
@@ -35,6 +37,7 @@ import { sendChatMessage, AiNotConfiguredError } from '../api/ai';
 import { logger } from '../lib/logger';
 import { NETSTACKS_CONCEPTS_PRIMER } from '../lib/aiModes';
 import { getFormAiContext } from '../lib/aiFormContext';
+import { SparkleIcon } from './icons/SparkleIcon';
 import './AITabInput.css';
 
 interface AITabInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
@@ -77,10 +80,19 @@ const AITabInput = forwardRef<HTMLInputElement, AITabInputProps>(function AITabI
   const abortRef = useRef<AbortController | null>(null);
 
   const isEmpty = !value.trim();
-  const showHint = focused && isEmpty && !loading && aiConfigured;
+  // Secrets are never generated.
+  const aiAllowed = rest.type !== 'password';
+  const offerAi = focused && isEmpty && !loading && aiAllowed;
 
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent<HTMLInputElement & HTMLTextAreaElement>) => {
-    if (e.key === 'Tab' && !e.shiftKey && isEmpty && aiConfigured) {
+    if (e.key === 'Escape' && loading) {
+      e.preventDefault();
+      e.stopPropagation();
+      abortRef.current?.abort();
+      setLoading(false);
+      return;
+    }
+    if (e.key === 'Tab' && !e.shiftKey && isEmpty && aiConfigured && aiAllowed && !loading) {
       e.preventDefault();
 
       abortRef.current?.abort();
@@ -135,7 +147,7 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
       // (e.g. Cmd+Enter to submit, Escape to close) so composing works.
       onKeyDownProp?.(e);
     }
-  }, [isEmpty, aiField, aiPlaceholder, aiContext, onAIValue, rest.placeholder, aiConfigured, onKeyDownProp]);
+  }, [isEmpty, aiField, aiPlaceholder, aiContext, onAIValue, rest.placeholder, aiConfigured, aiAllowed, loading, onKeyDownProp]);
 
   // Clean up abort on unmount
   useEffect(() => {
@@ -162,13 +174,17 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
         onKeyDown={handleKeyDown}
         onFocus={(e: React.FocusEvent<HTMLInputElement & HTMLTextAreaElement>) => { setFocused(true); onFocusProp?.(e); }}
         onBlur={(e: React.FocusEvent<HTMLInputElement & HTMLTextAreaElement>) => { setFocused(false); onBlurProp?.(e); }}
-        className={`ai-tab-input ${className || ''}`}
+        className={`${as === 'textarea' ? 'ns-textarea' : 'ns-input'} ai-tab-input ${className || ''}`}
         rows={as === 'textarea' ? rows : undefined}
+        aria-busy={loading || undefined}
         {...(rest as React.HTMLAttributes<HTMLInputElement & HTMLTextAreaElement>)}
         type={as === 'input' ? (rest.type ?? 'text') : undefined}
       />
-      {showHint && (
-        <span className="ai-tab-badge">TAB ✨</span>
+      {offerAi && aiConfigured && (
+        <span className="ai-tab-badge" aria-hidden="true">Tab <SparkleIcon size={9} /></span>
+      )}
+      {offerAi && !aiConfigured && (
+        <span className="ai-tab-badge ai-tab-badge--muted" aria-hidden="true">AI not set up</span>
       )}
       {loading && (
         <span className="ai-tab-loading">

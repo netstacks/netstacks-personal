@@ -4,12 +4,11 @@ import { useAuthStore, connectAuthStoreToClient } from '../../stores/authStore';
 import { useMode } from '../../hooks/useMode';
 import { useProactiveRefresh } from '../../hooks/useProactiveRefresh';
 import { useIdleTimeout } from '../../hooks/useIdleTimeout';
-import { restoreSessionState, clearSessionState } from '../../utils/sessionState';
 import { LoginScreen } from './LoginScreen';
 import { IdleWarningDialog } from './IdleWarningDialog';
 import { NetworkStatusBanner } from '../NetworkStatusBanner';
-import { logger } from '../../lib/logger'
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter';
 import './LoginScreen.css'; // For auth-loading styles
 
 function isTlsError(error: unknown): boolean {
@@ -60,7 +59,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [fingerprintMismatch, setFingerprintMismatch] = useState(false);
   const hasCheckedAuth = useRef(false);
   const hasConnectedClient = useRef(false);
-  const hasRestoredState = useRef(false);
 
   const isTlsCertError = connectionError?.includes('untrusted TLS certificate') ?? false;
 
@@ -213,24 +211,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     retryConnection();
   }, [isInitialized, isEnterprise, retryConnection]);
 
-  // Restore session state after re-authentication
-  useEffect(() => {
-    if (isEnterprise && isAuthenticated && !hasRestoredState.current) {
-      hasRestoredState.current = true;
-
-      const restoredState = restoreSessionState();
-      if (restoredState) {
-        logger.log('[AuthProvider] Dispatching session-restored event');
-        // Dispatch custom event to App.tsx for tab recreation
-        window.dispatchEvent(
-          new CustomEvent('session-restored', { detail: restoredState })
-        );
-        // Clear state after successful restoration
-        clearSessionState();
-      }
-    }
-  }, [isEnterprise, isAuthenticated]);
-
   // Not initialized yet - show loading
   if (!isInitialized) {
     return (
@@ -322,17 +302,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
               }}>
                 {pendingCert.fingerprint}
               </div>
-              <input
+              <input data-ai-fill="off"
                 type="text"
                 placeholder="Paste the expected fingerprint here (recommended)…"
                 value={expectedFingerprint}
                 onChange={(e) => { setExpectedFingerprint(e.target.value); setFingerprintMismatch(false); }}
+                className="ns-input"
                 style={{
-                  width: '100%', boxSizing: 'border-box', padding: '8px',
-                  fontFamily: 'ui-monospace, monospace', fontSize: '12px',
-                  background: '#1f2937', color: '#f3f4f6',
-                  border: fingerprintMismatch ? '1px solid #dc2626' : '1px solid #374151',
-                  borderRadius: 4, marginBottom: 8,
+                  width: '100%', marginBottom: 8, fontFamily: 'var(--font-family-mono)',
+                  ...(fingerprintMismatch && { borderColor: 'var(--color-error)' }),
                 }}
               />
               {fingerprintMismatch && (
@@ -341,31 +319,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   this could be a man-in-the-middle attack.
                 </p>
               )}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <button onClick={handleCancelTrust} disabled={trustingCert}
-                  style={{ padding: '8px 14px', background: 'transparent', color: '#9ca3af',
-                           border: '1px solid #4b5563', borderRadius: 4, cursor: 'pointer' }}>
-                  Cancel
-                </button>
-                <button onClick={() => handleConfirmAndInstall('visual')} disabled={trustingCert}
-                  style={{ padding: '8px 14px', background: '#374151', color: '#f3f4f6',
-                           border: 'none', borderRadius: 4, cursor: 'pointer' }}>
-                  Install (visual check only)
-                </button>
-                <button onClick={() => handleConfirmAndInstall('verified')}
-                  disabled={trustingCert || expectedFingerprint.trim().length === 0}
-                  style={{ padding: '8px 14px', background: '#16a34a', color: '#fff',
-                           border: 'none', borderRadius: 4, cursor: 'pointer',
-                           opacity: trustingCert || expectedFingerprint.trim().length === 0 ? 0.6 : 1 }}>
-                  {trustingCert ? 'Installing…' : 'Verify & Install'}
-                </button>
-              </div>
+              <DialogFooter
+                primary={{
+                  label: trustingCert ? 'Installing…' : 'Verify & Install',
+                  onClick: () => handleConfirmAndInstall('verified'),
+                  disabled: trustingCert || expectedFingerprint.trim().length === 0,
+                }}
+                onCancel={handleCancelTrust}
+                cancelDisabled={trustingCert}
+                leading={
+                  <button className="ns-btn" onClick={() => handleConfirmAndInstall('visual')} disabled={trustingCert}>
+                    Install (visual check only)
+                  </button>
+                }
+                inline
+              />
             </div>
           ) : (
             <div className="connection-error-actions">
               {isTlsCertError && (
                 <button
-                  className="trust-cert-button"
+                  className="ns-btn"
                   onClick={handleFetchCert}
                   disabled={trustingCert}
                 >
@@ -373,7 +347,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 </button>
               )}
               <button
-                className="retry-button"
+                className="ns-btn ns-btn--primary"
                 onClick={retryConnection}
               >
                 Retry

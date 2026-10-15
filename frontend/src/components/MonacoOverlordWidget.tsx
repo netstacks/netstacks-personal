@@ -5,6 +5,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import './MonacoOverlordWidget.css';
+import Tooltip from './Tooltip';
 
 interface MonacoOverlordWidgetProps {
   position: { top: number; left: number };
@@ -85,7 +86,7 @@ export default function MonacoOverlordWidget({
             <path d="M8 1l1.5 3.5L13 6l-3 2.5L11 12 8 10l-3 2 1-3.5L3 6l3.5-1.5z" />
           </svg>
         </div>
-        <input
+        <input data-ai-fill="off"
           ref={inputRef}
           type="text"
           value={prompt}
@@ -98,11 +99,11 @@ export default function MonacoOverlordWidget({
           <div className="overlord-widget-spinner" />
         )}
         {!loading && prompt.trim() && (
-          <button type="submit" className="overlord-widget-submit" title="Generate (Enter)">
+          <Tooltip label="Generate (Enter)"><button type="submit" className="overlord-widget-submit" aria-label="Generate (Enter)">
             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
               <path d="M1 8.5l5 5v-3h6a2 2 0 002-2v-1a2 2 0 00-2-2H6v-3l-5 5z" transform="rotate(-90 8 8)" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
       </form>
       {error && (

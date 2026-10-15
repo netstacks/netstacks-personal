@@ -14,7 +14,7 @@
 }
 
 .movable-popup kbd {
-  font-family: var(--font-mono);
+  font-family: var(--font-family-mono);
   font-size: 10px;
   padding: 0 4px;
   border: 1px solid var(--color-border);
@@ -35,24 +35,13 @@
 }
 
 .movable-popup-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-small);
   font-weight: 600;
   color: var(--color-text-primary);
 }
 
 .movable-popup-close {
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
   width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.movable-popup-close:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .movable-popup-resize {

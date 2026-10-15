@@ -10,7 +10,9 @@ import type { AiContext } from '../api/ai'
 import type { Document, DocumentCategory } from '../api/docs'
 import type { LiveContextDeps } from '../lib/aiLiveContext'
 import MarkdownViewer from './MarkdownViewer'
+import AIApprovalCard from './AIApprovalCard'
 import './AIFloatingChat.css'
+import Tooltip from './Tooltip'
 
 // Session info for the agent
 interface AvailableSession {
@@ -46,9 +48,10 @@ interface AIFloatingChatProps {
   onSaveDocument?: (path: string, content: string, category?: DocumentCategory, mode?: 'overwrite' | 'append', sessionId?: string) => Promise<{ id: string; name: string }>
   // Topology AI tools for the active topology (Phase 27-07)
   topologyCallbacks?: TopologyAICallbacks
-  allowStructuralTopologyEdits?: boolean
   /** When set, auto-send this prompt on open (contextual Ask-AI help). */
   initialPrompt?: string
+  /** Opens a Settings tab (the AI's navigate_to_settings tool, and "Open AI Settings" on errors). */
+  onNavigateToSettings?: (tab?: string) => void
   // Callback to continue conversation in full panel
   onContinueInPanel?: (messages: AgentMessage[], context?: AiContext) => void
 }
@@ -75,8 +78,8 @@ const AIFloatingChat = ({
   onSearchDocuments,
   onSaveDocument,
   topologyCallbacks,
-  allowStructuralTopologyEdits,
   initialPrompt,
+  onNavigateToSettings,
   onContinueInPanel,
 }: AIFloatingChatProps) => {
   const assistantName = useAssistantName()
@@ -136,15 +139,18 @@ const AIFloatingChat = ({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Use unified AI agent hook with tools
+  // Use unified AI agent hook with tools. Tool calls follow the Auto Pilot
+  // permission settings (the default agent type).
   const {
     messages,
     agentState,
     sendMessage,
     stopAgent,
     clearMessages,
+    pendingCommands,
+    approveCommands,
+    rejectCommands,
   } = useAIAgent({
-    permissionMode: 'auto',
     provider: selectedProvider || undefined,
     model: selectedModel,
     sessions: availableSessions?.map(s => ({
@@ -165,33 +171,34 @@ const AIFloatingChat = ({
     onSearchDocuments,
     onSaveDocument,
     topologyCallbacks,
-    allowStructuralTopologyEdits,
+    onNavigateToSettings,
   })
 
   const isLoading = agentState === 'thinking' || agentState === 'executing'
 
   // Auto-send a seeded help prompt (contextual Ask-AI). Waits for provider
-  // initialization so the request uses the resolved default provider, and only
-  // fires into an empty conversation. Reset on close so reopening re-asks.
+  // initialization so the request uses the resolved default provider. A new
+  // question while the pop-over is open starts a fresh conversation. Reset on
+  // close so reopening re-asks.
   const autoSentPromptRef = useRef<string | null>(null)
   useEffect(() => {
     if (!isOpen) {
       autoSentPromptRef.current = null
       return
     }
-    if (
-      initialPrompt &&
-      providerInitialized &&
-      autoSentPromptRef.current !== initialPrompt &&
-      messages.length === 0
-    ) {
+    if (!initialPrompt || autoSentPromptRef.current === initialPrompt) return
+    if (messages.length > 0) {
+      clearMessages()
+      return
+    }
+    if (providerInitialized) {
       autoSentPromptRef.current = initialPrompt
       sendMessage(initialPrompt)
     }
-  }, [isOpen, initialPrompt, providerInitialized, messages.length, sendMessage])
+  }, [isOpen, initialPrompt, providerInitialized, messages.length, sendMessage, clearMessages])
 
   // Has content (messages or loading)
-  const hasContent = messages.length > 0 || isLoading
+  const hasContent = messages.length > 0 || isLoading || pendingCommands.length > 0
 
   // Update position when prop changes (new open). Clamp to the viewport so a
   // right-click near the bottom/right edge doesn't open the chat off-screen.
@@ -208,8 +215,8 @@ const AIFloatingChat = ({
       const timer = setTimeout(() => inputRef.current?.focus(), 100)
       return () => clearTimeout(timer)
     }
-    // Closed: stop the loop — auto mode would otherwise keep running tool
-    // commands on the terminal after the chat is gone.
+    // Closed: stop the loop — it would otherwise keep running tool commands
+    // on the terminal after the chat is gone.
     stopAgent()
   }, [isOpen, position, clearMessages, stopAgent, moveTo])
 
@@ -299,7 +306,16 @@ const AIFloatingChat = ({
         </div>
       )
     } else if (msg.type === 'error') {
-      return <div key={msg.id} className="ai-floating-chat-error">{msg.content}</div>
+      return (
+        <div key={msg.id} className="ai-floating-chat-error">
+          {msg.content}
+          {onNavigateToSettings && (
+            <button type="button" className="ns-btn ns-btn--small" onClick={() => onNavigateToSettings('ai')}>
+              Open AI Settings
+            </button>
+          )}
+        </div>
+      )
     }
     return null
   }
@@ -330,16 +346,16 @@ const AIFloatingChat = ({
         <span className="ai-floating-chat-title">{assistantName}</span>
         <div className="ai-floating-chat-actions" onMouseDown={e => e.stopPropagation()}>
           {onContinueInPanel && messages.length > 0 && (
-            <button className="ai-floating-chat-expand" onClick={handleContinueInPanel} title="Continue in panel">
+            <Tooltip label="Continue in panel"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleContinueInPanel} aria-label="Continue in panel">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                 <polyline points="15 3 21 3 21 9" />
                 <polyline points="9 21 3 21 3 15" />
                 <line x1="21" y1="3" x2="14" y2="10" />
                 <line x1="3" y1="21" x2="10" y2="14" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
-          <button className="ai-floating-chat-close" onClick={onClose}>
+          <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -352,6 +368,7 @@ const AIFloatingChat = ({
       {hasContent && (
         <div className="ai-floating-chat-content">
           {messages.map(msg => renderMessage(msg))}
+          <AIApprovalCard pending={pendingCommands} onApprove={approveCommands} onReject={rejectCommands} />
           {isLoading && (
             <div className="ai-floating-chat-message assistant">
               <div className="ai-floating-chat-loading">
@@ -392,7 +409,7 @@ const AIFloatingChat = ({
       {/* Input row */}
       <div className="ai-floating-chat-input-row">
         <form className="ai-floating-chat-input-form" onSubmit={handleSubmit}>
-          <input
+          <input data-ai-fill="off"
             ref={inputRef}
             type="text"
             className="ai-floating-chat-input"
@@ -403,20 +420,21 @@ const AIFloatingChat = ({
             disabled={!providerInitialized || isLoading}
           />
           {isLoading ? (
-            <button
+            <Tooltip label="Stop generating"><button
               type="button"
               className="ai-floating-chat-send ai-stop-btn"
               onClick={stopAgent}
-              title="Stop generating"
+              aria-label="Stop generating"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>
-            </button>
+            </button></Tooltip>
           ) : (
             <button
               type="submit"
               className="ai-floating-chat-send"
+              aria-label="Send"
               disabled={!providerInitialized || !input.trim()}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">

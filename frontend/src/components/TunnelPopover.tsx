@@ -4,8 +4,9 @@ import { useTunnelStore, SESSION_TUNNEL_PREFIX } from '../stores/tunnelStore'
 import { formatTunnelSpec, formatUptime, startTunnel, stopTunnel, reconnectTunnel } from '../api/tunnels'
 import type { TunnelWithState } from '../api/tunnels'
 import './TunnelPopover.css'
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition'
+import ContextMenu, { type MenuItem } from './ContextMenu'
 import Switch from './Switch'
+import SearchField from './SearchField'
 import { showToast } from './Toast'
 import { getErrorMessage } from '../api/errors'
 
@@ -19,7 +20,6 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
   const loadError = useTunnelStore(state => state.error)
   const [search, setSearch] = useState('')
   const [contextMenu, setContextMenu] = useState<{ tunnel: TunnelWithState; x: number; y: number } | null>(null)
-  const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu)
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -43,13 +43,6 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose, contextMenu])
-
-  useEffect(() => {
-    if (!contextMenu) return
-    const handleClick = () => setContextMenu(null)
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [contextMenu])
 
   const { persistentTunnels, sessionGroups } = useMemo(() => {
     const searchLwr = search.toLowerCase()
@@ -104,7 +97,6 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
   }
 
   const handleAction = async (action: string, tunnel: TunnelWithState) => {
-    setContextMenu(null)
     try {
       switch (action) {
         case 'stop': await stopTunnel(tunnel.id); break
@@ -119,6 +111,16 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
       showToast(getErrorMessage(err, `Failed to ${verb} ${tunnel.name}`), 'error')
     }
   }
+
+  const tunnelMenuItems = (tunnel: TunnelWithState): MenuItem[] => [
+    ...(tunnel.status === 'connected' ? [{ id: 'pause', label: 'Pause', action: () => { void handleAction('stop', tunnel) } }] : []),
+    ...(tunnel.status === 'failed' || tunnel.status === 'disconnected'
+      ? [{ id: 'reconnect', label: 'Reconnect', action: () => { void handleAction('reconnect', tunnel) } }]
+      : []),
+    { id: 'copy', label: 'Copy local address', action: () => { void handleAction('copy', tunnel) } },
+    { id: 'edit-divider', label: '', divider: true, action: () => {} },
+    { id: 'edit', label: 'Edit', action: () => { void handleAction('edit', tunnel) } },
+  ]
 
   const renderTunnelRow = (tunnel: TunnelWithState, isSession: boolean) => (
     <div
@@ -143,7 +145,7 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
           checked={isActive(tunnel)}
           onChange={() => handleToggle(tunnel)}
           label={`${isActive(tunnel) ? 'Stop' : 'Start'} tunnel ${tunnel.name}`}
-          title={isActive(tunnel) ? 'Stop tunnel' : 'Start tunnel'}
+          tooltip={isActive(tunnel) ? 'Stop tunnel' : 'Start tunnel'}
         />
       )}
     </div>
@@ -152,13 +154,7 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
   return (
     <div className="tunnel-popover" ref={menuRef}>
       <div className="tunnel-popover-search">
-        <input
-          ref={searchRef}
-          type="search"
-          placeholder="Search tunnels..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <SearchField inputRef={searchRef} value={search} onChange={setSearch} placeholder="Search tunnels..." />
       </div>
       <div className="tunnel-popover-list">
         {totalVisible === 0 ? (
@@ -197,24 +193,16 @@ export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopove
         )}
       </div>
       <div className="tunnel-popover-footer">
-        <button onClick={() => { onManageTunnels(); onClose() }}>
+        <button className="ns-btn ns-btn--ghost" onClick={() => { onManageTunnels(); onClose() }}>
           &#9881; Manage Tunnels...
         </button>
       </div>
 
-      {contextMenu && (
-        <div ref={contextMenuRef} className="tunnel-context-menu" style={contextMenuStyle}>
-          {contextMenu.tunnel.status === 'connected' && (
-            <div className="tunnel-context-item" onClick={() => handleAction('stop', contextMenu.tunnel)}>&#9198; Pause</div>
-          )}
-          {(contextMenu.tunnel.status === 'failed' || contextMenu.tunnel.status === 'disconnected') && (
-            <div className="tunnel-context-item" onClick={() => handleAction('reconnect', contextMenu.tunnel)}>&#128260; Reconnect</div>
-          )}
-          <div className="tunnel-context-item" onClick={() => handleAction('copy', contextMenu.tunnel)}>&#128203; Copy local address</div>
-          <div className="tunnel-context-separator" />
-          <div className="tunnel-context-item" onClick={() => handleAction('edit', contextMenu.tunnel)}>&#9999;&#65039; Edit</div>
-        </div>
-      )}
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? tunnelMenuItems(contextMenu.tunnel) : []}
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   )
 }

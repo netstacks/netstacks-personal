@@ -1,0 +1,126 @@
+/* Overlay + window chrome shared by every modal dialog (ModalFrame.tsx).
+ * Dialog components style their own surface and content via `className`;
+ * the frame owns the backdrop, centring, moving and resizing. */
+.ns-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  animation: ns-modal-fade-in 0.15s ease;
+}
+
+.ns-modal-overlay--modal {
+  z-index: var(--z-modal);
+}
+
+.ns-modal-overlay--gate {
+  z-index: var(--z-gate);
+}
+
+/* Non-modal: no backdrop, the page behind stays usable. */
+.ns-modal-overlay--modeless {
+  background: transparent;
+  pointer-events: none;
+  animation: none;
+}
+
+.ns-modal-overlay--modeless > .ns-modal {
+  pointer-events: auto;
+}
+
+@keyframes ns-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ns-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Default open animation; a dialog's own animation (single class) wins. */
+:where(.ns-modal) {
+  animation: ns-modal-pop-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes ns-modal-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Once sized by the user, the body scrolls and header/footer stay put.
+ * Zero-specificity so a dialog's own body rule (flex: 1) wins. */
+.ns-modal--sized {
+  overflow: hidden;
+}
+
+.ns-modal--sized > :where(*) {
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.ns-modal--sized > .dialog-content,
+.ns-modal--sized > .ns-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ns-modal-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ns-modal--move,
+.ns-modal--resize {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ns-modal--move,
+.ns-modal--move * {
+  cursor: grabbing;
+}
+
+/* Invisible resize hit areas along each edge and corner. */
+.ns-modal-resize {
+  position: absolute;
+  z-index: 2;
+}
+
+.ns-modal-resize--n,
+.ns-modal-resize--s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.ns-modal-resize--e,
+.ns-modal-resize--w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.ns-modal-resize--n { top: 0; }
+.ns-modal-resize--s { bottom: 0; }
+.ns-modal-resize--e { right: 0; }
+.ns-modal-resize--w { left: 0; }
+
+.ns-modal-resize--ne,
+.ns-modal-resize--nw,
+.ns-modal-resize--se,
+.ns-modal-resize--sw {
+  width: 12px;
+  height: 12px;
+}
+
+.ns-modal-resize--ne { top: 0; right: 0; cursor: nesw-resize; }
+.ns-modal-resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.ns-modal-resize--nw { top: 0; left: 0; cursor: nwse-resize; }
+.ns-modal-resize--se { bottom: 0; right: 0; cursor: nwse-resize; }

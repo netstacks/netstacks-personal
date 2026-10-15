@@ -18,9 +18,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--color-bg-primary, #1e1e1e);
-  border: 1px solid var(--color-accent, #0078d4);
-  border-radius: 6px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
   padding: 4px 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 120, 212, 0.3);
   min-width: 360px;
@@ -30,7 +30,7 @@
 .overlord-widget-icon {
   display: flex;
   align-items: center;
-  color: var(--color-accent, #0078d4);
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 
@@ -39,7 +39,7 @@
   background: transparent;
   border: none;
   outline: none;
-  color: var(--color-text-primary, #cccccc);
+  color: var(--color-text-primary);
   font-size: 13px;
   font-family: var(--font-family);
   padding: 4px 0;
@@ -51,7 +51,7 @@
 }
 
 .overlord-widget-input::placeholder {
-  color: var(--color-text-secondary, #858585);
+  color: var(--color-text-secondary);
 }
 
 .overlord-widget-input:disabled {
@@ -65,24 +65,23 @@
   width: 22px;
   height: 22px;
   padding: 0;
-  background: var(--color-accent, #0078d4);
+  background: var(--color-accent);
   border: none;
-  border-radius: 4px;
-  color: white;
-  cursor: pointer;
+  border-radius: var(--radius-control);
+  color: var(--color-text-on-accent);
   flex-shrink: 0;
   transition: background 0.1s;
 }
 
 .overlord-widget-submit:hover {
-  background: var(--color-accent-hover, #0062a3);
+  background: var(--color-accent-hover);
 }
 
 .overlord-widget-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--color-text-secondary, #858585);
-  border-top-color: var(--color-accent, #0078d4);
+  border: 2px solid var(--color-text-secondary);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: overlord-spin 0.6s linear infinite;
   flex-shrink: 0;
@@ -93,12 +92,12 @@
 }
 
 .overlord-widget-error {
-  background: var(--color-bg-primary, #1e1e1e);
-  border: 1px solid var(--color-error, #f14c4c);
-  border-radius: 4px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-control);
   padding: 4px 8px;
   font-size: 11px;
-  color: var(--color-error, #f14c4c);
+  color: var(--color-error);
   max-width: 500px;
 }
 
@@ -108,10 +107,10 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: var(--color-bg-secondary, #252525);
-  border-top: 1px solid var(--color-accent, #0078d4);
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-accent);
   font-size: 12px;
-  color: var(--color-text-secondary, #858585);
+  color: var(--color-text-secondary);
 }
 
 .overlord-accept-bar span {
@@ -122,11 +121,10 @@
   padding: 3px 12px;
   background: #2ea043;
   border: none;
-  border-radius: 4px;
-  color: white;
+  border-radius: var(--radius-control);
+  color: var(--color-text-on-accent);
   font-size: 11px;
   font-family: var(--font-family);
-  cursor: pointer;
 }
 
 .overlord-accept-btn:hover {
@@ -136,28 +134,27 @@
 .overlord-reject-btn {
   padding: 3px 12px;
   background: transparent;
-  border: 1px solid var(--color-border, #3e3e3e);
-  border-radius: 4px;
-  color: var(--color-text-secondary, #858585);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text-secondary);
   font-size: 11px;
   font-family: var(--font-family);
-  cursor: pointer;
 }
 
 .overlord-reject-btn:hover {
   background: var(--color-bg-hover);
-  color: var(--color-error, #f14c4c);
-  border-color: var(--color-error, #f14c4c);
+  color: var(--color-error);
+  border-color: var(--color-error);
 }
 
 /* Highlight decoration for AI-generated code in the editor */
 .overlord-inline-highlight {
-  background: rgba(0, 120, 212, 0.08);
-  border-left: 2px solid var(--color-accent, #0078d4);
+  background: var(--color-accent-tint-8);
+  border-left: 2px solid var(--color-accent);
 }
 
 .overlord-inline-glyph {
-  background: var(--color-accent, #0078d4);
+  background: var(--color-accent);
   width: 4px !important;
   margin-left: 3px;
   border-radius: 2px;

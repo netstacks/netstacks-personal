@@ -5,15 +5,9 @@
  * Why this exists
  * ---------------
  * Every Monaco editor in the app (DocumentTabEditor, ScriptEditor,
- * TemplateDetailTab, WorkspaceCodeEditor) used to hardcode fontSize
- * (13 / 14 — drift) and fall back to Monaco's default fontFamily. The
- * Settings → Appearance → Font Size / Font Family controls only
- * affected the terminal. Consolidating here so:
- *
- *   - Every editor honors the user's setting.
- *   - Sizes stay in lockstep across editors.
- *   - Future split (editor.fontSize separate from global) is a
- *     one-line change here, not a sweep across components.
+ * TemplateDetailTab, WorkspaceCodeEditor) reads its font here so they all
+ * honor Settings → Appearance → Editor Font Size / Font Family and the
+ * View → Zoom step, and stay in lockstep.
  *
  * Usage
  * -----
@@ -28,6 +22,8 @@
 
 import { useMemo } from 'react'
 import { useSettings } from './useSettings'
+import { platformMonoFont } from '../utils/fonts'
+import { zoomedFontSize } from '../commands/zoom'
 
 interface EditorFontSettings {
   /** Monaco fontSize option (pixels). */
@@ -57,26 +53,22 @@ interface EditorFontSettings {
  * ever added there, add it here too.
  */
 const KNOWN_SANS_PRESETS: ReadonlySet<string> = new Set([
-  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif",
+  '', // System Default (the platform UI font)
   "-apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif",
   "'Helvetica Neue', Helvetica, Arial, sans-serif",
   'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
 ])
 
 function ensureMonoSafe(family: string): string {
-  if (KNOWN_SANS_PRESETS.has(family)) {
-    return `'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace`
-  }
-  return family
+  return KNOWN_SANS_PRESETS.has(family) ? platformMonoFont() : family
 }
 
 export function useEditorFontSettings(): EditorFontSettings {
   const { settings } = useSettings()
+  const fontSize = zoomedFontSize(settings['editor.fontSize'], settings['view.zoomStep'])
+  const { fontFamily } = settings
   return useMemo<EditorFontSettings>(
-    () => ({
-      fontSize: settings.fontSize,
-      fontFamily: ensureMonoSafe(settings.fontFamily),
-    }),
-    [settings.fontSize, settings.fontFamily],
+    () => ({ fontSize, fontFamily: ensureMonoSafe(fontFamily) }),
+    [fontSize, fontFamily],
   )
 }

@@ -24,16 +24,16 @@ export default function WorkspaceBrowser({ initialUrl }: WorkspaceBrowserProps) 
   return (
     <div className="workspace-browser">
       <div className="workspace-browser-toolbar">
-        <button className="workspace-browser-nav-btn" onClick={() => iframeRef.current?.contentWindow?.history.back()}>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => iframeRef.current?.contentWindow?.history.back()} aria-label="Back">
           ◀
         </button>
-        <button className="workspace-browser-nav-btn" onClick={() => iframeRef.current?.contentWindow?.history.forward()}>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => iframeRef.current?.contentWindow?.history.forward()} aria-label="Forward">
           ▶
         </button>
-        <button className="workspace-browser-nav-btn" onClick={() => iframeRef.current?.contentWindow?.location.reload()}>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => iframeRef.current?.contentWindow?.location.reload()} aria-label="Reload">
           ⟳
         </button>
-        <input
+        <input data-ai-fill="off" aria-label="URL"
           className="workspace-browser-url"
           value={inputUrl}
           onChange={e => setInputUrl(e.target.value)}

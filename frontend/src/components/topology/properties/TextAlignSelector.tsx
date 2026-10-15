@@ -4,6 +4,7 @@
 
 import type { ReactElement } from 'react';
 import type { TextAlign } from '../../../types/annotations';
+import Tooltip from '../../Tooltip';
 
 interface TextAlignSelectorProps {
   value: TextAlign;
@@ -57,15 +58,15 @@ export default function TextAlignSelector({
       {label && <label className="text-align-label">{label}</label>}
       <div className="text-align-buttons">
         {ALIGN_OPTIONS.map((option) => (
-          <button
-            key={option.value}
+          <Tooltip key={option.value} label={option.title}><button
             type="button"
             className={`text-align-btn ${value === option.value ? 'active' : ''}`}
             onClick={() => onChange(option.value)}
-            title={option.title}
+            aria-label={option.title}
+            aria-pressed={value === option.value}
           >
             {option.icon}
-          </button>
+          </button></Tooltip>
         ))}
       </div>
     </div>

@@ -21,7 +21,6 @@
 
 .script-param-label-checkbox {
   flex-direction: row;
-  cursor: pointer;
 }
 
 .script-param-label-checkbox input[type="checkbox"] {
@@ -42,41 +41,12 @@
   background: var(--color-bg-tertiary);
   padding: 1px 5px;
   border-radius: 3px;
-  font-family: var(--font-mono);
-}
-
-.script-param-input {
-  padding: 6px 10px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-}
-
-.script-param-input:focus {
-  outline: none;
-  border-color: var(--color-accent);
+  font-family: var(--font-family-mono);
 }
 
 .script-param-textarea {
-  padding: 6px 10px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  font-family: var(--font-mono);
+  font-family: var(--font-family-mono);
   resize: vertical;
-}
-
-.script-param-textarea:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.script-param-textarea.has-error {
-  border-color: var(--color-error);
 }
 
 .script-param-error {

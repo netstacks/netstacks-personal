@@ -3,11 +3,13 @@ import { extractJinjaVariables, inferVariableType } from '../lib/jinjaVariableEx
 import type { ExtractedVariable } from '../lib/jinjaVariableExtractor';
 import { renderTemplate } from '../api/docs';
 import type { RenderTemplateResponse } from '../api/docs';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import { copyToClipboard } from '../lib/clipboard';
 import './TemplateRenderModal.css';
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface TemplateRenderModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -148,174 +150,157 @@ export function TemplateRenderModal({
     onClose();
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: handleClose, clickOutside: false, enabled: isOpen });
 
   if (!isOpen) return null;
 
   return (
-    <div className="template-render-overlay" {...backdropProps}>
-      <div className="template-render-modal" {...contentProps}>
-        <div className="template-render-header">
-          <h2>Render Template</h2>
-          <span className="template-render-name">{documentName}</span>
-          <button className="template-render-close" onClick={handleClose}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="template-render-body">
-          {!renderedOutput ? (
-            <>
-              {variables.length === 0 ? (
-                <div className="template-render-no-vars">
-                  <p>No variables found in this template.</p>
-                  <p className="template-render-hint">
-                    Variables should be in the format: <code>{'{{ variable_name }}'}</code>
-                  </p>
-                </div>
-              ) : (
-                <div className="template-render-variables">
-                  <div className="template-render-vars-header">
-                    <span>Variables ({variables.length})</span>
-                  </div>
-                  <div className="template-render-vars-list">
-                    {variables.map((v) => {
-                      const type = inferVariableType(v);
-                      const isArray = type === 'array';
-
-                      return (
-                        <div key={v.name} className="template-render-var-item">
-                          <div className="template-render-var-label">
-                            <span className="template-render-var-name">{v.name}</span>
-                            {v.isLoop && (
-                              <span className="template-render-var-badge array">array</span>
-                            )}
-                            {v.filters.length > 0 && (
-                              <span className="template-render-var-filters">
-                                | {v.filters.join(' | ')}
-                              </span>
-                            )}
-                            <span className="template-render-var-line">Line {v.line}</span>
-                          </div>
-
-                          {isArray ? (
-                            <div className="template-render-array-inputs">
-                              {(arrayValues[v.name] || ['']).map((val, idx) => (
-                                <div key={idx} className="template-render-array-row">
-                                  <input
-                                    type="text"
-                                    value={val}
-                                    onChange={(e) => handleArrayValueChange(v.name, idx, e.target.value)}
-                                    placeholder={`Item ${idx + 1} (JSON object or string)`}
-                                    className="template-render-input"
-                                  />
-                                  <button
-                                    className="template-render-array-remove"
-                                    onClick={() => handleRemoveArrayItem(v.name, idx)}
-                                    title="Remove item"
-                                  >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                      <path d="M18 6L6 18M6 6l12 12" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              ))}
-                              <button
-                                className="template-render-array-add"
-                                onClick={() => handleAddArrayItem(v.name)}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M12 5v14M5 12h14" />
-                                </svg>
-                                Add Item
-                              </button>
-                            </div>
-                          ) : (
-                            <input
-                              type="text"
-                              value={values[v.name] || ''}
-                              onChange={(e) => handleValueChange(v.name, e.target.value)}
-                              placeholder={`Enter value for ${v.name}`}
-                              className="template-render-input"
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div className="template-render-error">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 8v4M12 16h.01" />
-                  </svg>
-                  {error}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="template-render-output">
-              <div className="template-render-output-header">
-                <span>Rendered Output</span>
-                <button
-                  className={`template-render-copy-btn ${copied ? 'copied' : ''}`}
-                  onClick={handleCopy}
-                  title="Copy to clipboard"
-                >
-                  {copied ? (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" />
-                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                      </svg>
-                      Copy
-                    </>
-                  )}
-                </button>
-              </div>
-              <pre className="template-render-output-content">{renderedOutput}</pre>
-            </div>
-          )}
-        </div>
-
-        <div className="template-render-footer">
-          {renderedOutput ? (
-            <>
-              <button className="template-render-btn secondary" onClick={() => setRenderedOutput(null)}>
-                Back to Variables
-              </button>
-              <button className={`template-render-btn primary ${copied ? 'copied' : ''}`} onClick={handleCopy}>
-                {copied ? 'Copied!' : 'Copy Output'}
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="template-render-btn secondary" onClick={handleClose}>
-                Cancel
-              </button>
-              <button
-                className="template-render-btn primary"
-                onClick={handleRender}
-                disabled={isRendering}
-              >
-                {isRendering ? 'Rendering...' : 'Render'}
-              </button>
-            </>
-          )}
-        </div>
+    <ModalFrame id="template-render" onDismiss={handleClose} clickOutside={false} className="template-render-modal" label="Render Template">
+      <div className="template-render-header">
+        <h2>Render Template</h2>
+        <span className="template-render-name">{documentName}</span>
+        <button className="template-render-close" onClick={handleClose} aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
       </div>
-    </div>
+
+      <div className="template-render-body">
+        {!renderedOutput ? (
+          <>
+            {variables.length === 0 ? (
+              <div className="template-render-no-vars">
+                <p>No variables found in this template.</p>
+                <p className="template-render-hint">
+                  Variables should be in the format: <code>{'{{ variable_name }}'}</code>
+                </p>
+              </div>
+            ) : (
+              <div className="template-render-variables">
+                <div className="template-render-vars-header">
+                  <span>Variables ({variables.length})</span>
+                </div>
+                <div className="template-render-vars-list">
+                  {variables.map((v) => {
+                    const type = inferVariableType(v);
+                    const isArray = type === 'array';
+
+                    return (
+                      <div key={v.name} className="template-render-var-item">
+                        <div className="template-render-var-label">
+                          <span className="template-render-var-name">{v.name}</span>
+                          {v.isLoop && (
+                            <span className="template-render-var-badge array">array</span>
+                          )}
+                          {v.filters.length > 0 && (
+                            <span className="template-render-var-filters">
+                              | {v.filters.join(' | ')}
+                            </span>
+                          )}
+                          <span className="template-render-var-line">Line {v.line}</span>
+                        </div>
+
+                        {isArray ? (
+                          <div className="template-render-array-inputs">
+                            {(arrayValues[v.name] || ['']).map((val, idx) => (
+                              <div key={idx} className="template-render-array-row">
+                                <input data-ai-fill="off"
+                                  type="text"
+                                  value={val}
+                                  onChange={(e) => handleArrayValueChange(v.name, idx, e.target.value)}
+                                  placeholder={`Item ${idx + 1} (JSON object or string)`}
+                                  className="ns-input template-render-input"
+                                />
+                                <Tooltip label="Remove item"><button
+                                  className="template-render-array-remove"
+                                  onClick={() => handleRemoveArrayItem(v.name, idx)}
+                                  aria-label="Remove item"
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M18 6L6 18M6 6l12 12" />
+                                  </svg>
+                                </button></Tooltip>
+                              </div>
+                            ))}
+                            <button
+                              className="template-render-array-add"
+                              onClick={() => handleAddArrayItem(v.name)}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 5v14M5 12h14" />
+                              </svg>
+                              Add Item
+                            </button>
+                          </div>
+                        ) : (
+                          <input data-ai-fill="off"
+                            type="text"
+                            value={values[v.name] || ''}
+                            onChange={(e) => handleValueChange(v.name, e.target.value)}
+                            placeholder={`Enter value for ${v.name}`}
+                            className="ns-input template-render-input"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="template-render-error">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 8v4M12 16h.01" />
+                </svg>
+                {error}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="template-render-output">
+            <div className="template-render-output-header">
+              <span>Rendered Output</span>
+              <Tooltip label="Copy to clipboard"><button
+                className={`ns-btn ns-btn--small ${copied ? 'template-render-copied' : ''}`}
+                onClick={handleCopy}
+              >
+                {copied ? (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" />
+                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                    </svg>
+                    Copy
+                  </>
+                )}
+              </button></Tooltip>
+            </div>
+            <pre className="template-render-output-content">{renderedOutput}</pre>
+          </div>
+        )}
+      </div>
+
+      {renderedOutput ? (
+        <DialogFooter
+          primary={{ label: copied ? 'Copied!' : 'Copy Output', onClick: handleCopy }}
+          onCancel={() => setRenderedOutput(null)}
+          cancelLabel="Back to Variables"
+        />
+      ) : (
+        <DialogFooter
+          primary={{ label: isRendering ? 'Rendering...' : 'Render', onClick: handleRender, disabled: isRendering }}
+          onCancel={handleClose}
+        />
+      )}
+    </ModalFrame>
   );
 }

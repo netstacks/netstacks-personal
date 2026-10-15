@@ -31,46 +31,7 @@
 .sftp-panel-connection-select {
   flex: 1;
   min-width: 0;
-  padding: 4px 6px;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
   font-family: var(--font-family);
-  outline: none;
-  cursor: pointer;
-  transition: border-color var(--transition-fast);
-}
-
-.sftp-panel-connection-select:focus {
-  border-color: var(--color-accent);
-}
-
-.sftp-panel-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.sftp-panel-close-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-error);
-}
-
-.sftp-panel-close-btn svg {
-  width: 14px;
-  height: 14px;
 }
 
 /* Path bar */
@@ -84,64 +45,21 @@
 
 .sftp-panel-path-input {
   flex: 1;
-  padding: 4px 8px;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: 12px;
-  font-family: var(--font-mono, 'SF Mono', 'Consolas', monospace);
-  outline: none;
-  transition: border-color var(--transition-fast);
-}
-
-.sftp-panel-path-input:focus {
-  border-color: var(--color-accent);
-}
-
-.sftp-panel-refresh-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  margin-left: var(--spacing-xs);
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.sftp-panel-refresh-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.sftp-panel-refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.sftp-panel-refresh-btn svg {
-  width: 14px;
-  height: 14px;
+  font-family: var(--font-family-mono);
 }
 
 /* File tree area */
 .sftp-panel-tree {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--spacing-xs) 0;
 }
 
 .sftp-panel-tree.dragging-over {
   outline: 2px dashed var(--color-accent);
   outline-offset: -4px;
-  background: rgba(0, 136, 255, 0.03);
+  background: var(--color-accent-tint-5);
 }
 
 /* Status messages */
@@ -161,22 +79,6 @@
   flex-direction: column;
   gap: var(--spacing-sm);
   align-items: center;
-}
-
-.sftp-panel-error button {
-  padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.sftp-panel-error button:hover {
-  background: var(--color-bg-hover);
 }
 
 .sftp-panel-empty {
@@ -211,7 +113,6 @@
   gap: 4px;
   padding: 3px 8px;
   padding-right: var(--spacing-md);
-  cursor: pointer;
   border-radius: 0;
   transition: background var(--transition-fast);
   user-select: none;
@@ -224,7 +125,7 @@
 }
 
 .sftp-tree-item.selected {
-  background: var(--color-list-active-selection-bg, rgba(0, 136, 255, 0.15));
+  background: var(--color-list-active-selection-bg);
 }
 
 /* Arrow toggle for directories */
@@ -268,7 +169,7 @@
 }
 
 .sftp-tree-icon.folder {
-  color: var(--color-warning, #e6a23c);
+  color: var(--color-warning);
 }
 
 .sftp-tree-icon.file {
@@ -328,13 +229,8 @@
   border: 2px solid var(--color-border);
   border-top-color: var(--color-accent);
   border-radius: 50%;
-  animation: sftp-spin 0.6s linear infinite;
+  animation: spin 0.6s linear infinite;
 }
-
-@keyframes sftp-spin {
-  to { transform: rotate(360deg); }
-}
-
 /* Action bar */
 .sftp-panel-actions {
   display: flex;
@@ -345,36 +241,6 @@
   flex-shrink: 0;
 }
 
-.sftp-panel-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.sftp-panel-action-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.sftp-panel-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.sftp-panel-action-btn svg {
-  width: 13px;
-  height: 13px;
-}
-
 .sftp-panel-transfer-status {
   margin-left: auto;
   font-size: 11px;
@@ -382,7 +248,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
 }
 
 .sftp-panel-transfer-status:hover {
@@ -402,75 +267,12 @@
   50% { opacity: 0.4; }
 }
 
-/* Context Menu */
-.sftp-panel-context-menu {
-  /* Aligned with the canonical menu surface (see index.css menu-* tokens). */
-  position: fixed;
-  z-index: var(--menu-z);
-  background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
-  border-radius: var(--menu-radius);
-  box-shadow: var(--menu-shadow);
-  min-width: var(--menu-min-width);
-  padding: var(--menu-padding);
-}
-
-.sftp-panel-context-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.sftp-panel-context-item:hover {
-  background: var(--color-bg-hover);
-}
-
-.sftp-panel-context-item.danger {
-  color: var(--color-error);
-}
-
-.sftp-panel-context-item.danger:hover {
-  background: rgba(241, 76, 76, 0.15);
-}
-
-.sftp-panel-context-item svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.sftp-panel-context-divider {
-  height: 1px;
-  margin: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-border);
-}
-
 /* New folder dialog */
-.sftp-panel-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1001;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
 .sftp-panel-dialog {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   padding: 20px;
   min-width: 300px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -485,20 +287,8 @@
 
 .sftp-panel-dialog input {
   width: 100%;
-  padding: var(--spacing-sm);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
   font-family: var(--font-family);
-  outline: none;
-  transition: border-color var(--transition-fast);
   box-sizing: border-box;
-}
-
-.sftp-panel-dialog input:focus {
-  border-color: var(--color-accent);
 }
 
 .sftp-panel-dialog-buttons {
@@ -506,35 +296,6 @@
   gap: var(--spacing-sm);
   margin-top: var(--spacing-md);
   justify-content: flex-end;
-}
-
-.sftp-panel-dialog-buttons button {
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: 4px;
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.sftp-panel-dialog-buttons button.secondary {
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.sftp-panel-dialog-buttons button.secondary:hover {
-  background: var(--color-bg-hover);
-}
-
-.sftp-panel-dialog-buttons button.primary {
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: white;
-}
-
-.sftp-panel-dialog-buttons button.primary:hover {
-  background: var(--color-accent-hover);
 }
 
 /* Confirm delete dialog */
@@ -545,22 +306,12 @@
   line-height: 1.5;
 }
 
-.sftp-panel-dialog .danger {
-  background: var(--color-error);
-  border-color: var(--color-error);
-  color: white;
-}
-
-.sftp-panel-dialog .danger:hover {
-  opacity: 0.9;
-}
-
 /* Drop zone overlay */
 .sftp-panel-drop-overlay {
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: rgba(0, 136, 255, 0.08);
+  background: var(--color-accent-tint-8);
   border: 2px dashed var(--color-accent);
   display: flex;
   align-items: center;
@@ -572,7 +323,7 @@
   padding: 8px 16px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-accent);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: var(--color-accent);
   font-size: var(--font-size-small);
   font-weight: 500;
@@ -584,4 +335,14 @@
   flex-shrink: 0;
   max-height: 200px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sftp-panel-close-btn:hover:not(:disabled) {
+  color: var(--color-error);
+}
+
+.sftp-panel-refresh-btn {
+  margin-left: var(--spacing-xs);
+  flex-shrink: 0;
 }

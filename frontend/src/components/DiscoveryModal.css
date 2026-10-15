@@ -1,14 +1,4 @@
 /* Discovery Modal */
-.discovery-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-  backdrop-filter: blur(2px);
-}
 
 .discovery-modal {
   background: var(--bg-primary);
@@ -41,26 +31,16 @@
 .discovery-modal-group {
   background: var(--bg-tertiary);
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.discovery-modal-close {
+.discovery-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 24px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  opacity: 0.7;
-  transition: opacity 0.15s;
-}
-
-.discovery-modal-close:hover {
-  opacity: 1;
 }
 
 /* Content */
@@ -110,11 +90,12 @@
   min-height: 200px;
   max-height: 300px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   padding: 12px;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
 }
 
@@ -138,19 +119,19 @@
 }
 
 .discovery-log-level.info {
-  color: #60a5fa;
+  color: var(--color-text-accent);
 }
 
 .discovery-log-level.success {
-  color: #34d399;
+  color: var(--color-success);
 }
 
 .discovery-log-level.warning {
-  color: #fbbf24;
+  color: var(--color-warning);
 }
 
 .discovery-log-level.error {
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .discovery-log-device {
@@ -164,11 +145,11 @@
 }
 
 .discovery-log-entry.error .discovery-log-message {
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .discovery-log-entry.success .discovery-log-message {
-  color: #34d399;
+  color: var(--color-success);
 }
 
 /* Footer */
@@ -193,38 +174,4 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.discovery-btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.discovery-btn.primary {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  border: none;
-  color: white;
-}
-
-.discovery-btn.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-}
-
-.discovery-btn.secondary {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-}
-
-.discovery-btn.secondary:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.discovery-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }

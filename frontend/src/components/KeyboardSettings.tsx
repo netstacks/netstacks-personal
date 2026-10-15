@@ -13,8 +13,13 @@ import {
   formatShortcut,
   isMac,
 } from '../hooks/useKeyboard'
+import SearchField from './SearchField'
 import './KeyboardSettings.css'
 
+import DialogFooter from './DialogFooter'
+import Tooltip from './Tooltip'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
 interface KeyboardSettingsProps {
   keyboard: UseKeyboardReturn
 }
@@ -117,106 +122,76 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
     : <span>Tip: combine Ctrl, Shift, Alt with a key. Changes apply immediately.</span>
 
   return (
-    <div className="keyboard-settings">
-      <div className="keyboard-settings-header">
-        <div className="keyboard-search">
-          <input
-            type="search"
-            placeholder="Search shortcuts..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="keyboard-search-input"
-          />
-        </div>
-        <button className="keyboard-reset-all" onClick={handleResetAll}>
-          Reset All
-        </button>
-      </div>
+    <>
+      <SettingsSection
+        title="Keyboard Shortcuts"
+        description={modifierTip}
+        actions={<button className="ns-btn ns-btn--small" onClick={handleResetAll}>Reset All</button>}
+      >
+        <SearchField
+          placeholder="Search shortcuts..."
+          value={search}
+          onChange={setSearch}
+        />
+        {groupedActions.length === 0 && <p className="form-hint">No shortcuts match your search.</p>}
+      </SettingsSection>
 
-      <div className="keyboard-settings-content">
-        {groupedActions.length === 0 ? (
-          <div className="keyboard-empty">No shortcuts found</div>
-        ) : (
-          groupedActions.map(({ category, actions }) => (
-            <div key={category} className="keyboard-category">
-              <h3 className="keyboard-category-title">{category}</h3>
-              <div className="keyboard-action-list">
-                {actions.map(a => (
-                  <div
-                    key={a.id}
-                    className={`keyboard-action-item ${editingAction === a.id ? 'editing' : ''}`}
-                  >
-                    <div className="keyboard-action-label">{a.label}</div>
-                    <div className="keyboard-action-binding">
-                      {editingAction === a.id ? (
-                        <div className="keyboard-edit-mode">
-                          <input
-                            ref={inputRef}
-                            type="text"
-                            className="keyboard-binding-input"
-                            value={pendingBinding ? formatShortcut(pendingBinding) : 'Press keys...'}
-                            readOnly
-                            onKeyDown={(e) => e.preventDefault()}
-                          />
-                          {conflict && (
-                            <div className="keyboard-conflict">
-                              {conflict.action
-                                ? `Already used by "${conflict.label}" — change that shortcut first.`
-                                : `Reserved for "${conflict.label}".`}
-                            </div>
-                          )}
-                          <div className="keyboard-edit-actions">
-                            <button
-                              className="keyboard-btn keyboard-btn-save"
-                              onClick={handleSave}
-                              disabled={!pendingBinding || !!conflict}
-                            >
-                              Save
-                            </button>
-                            <button
-                              className="keyboard-btn keyboard-btn-cancel"
-                              onClick={stopEditing}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <kbd className={`keyboard-kbd ${keyboard.isCustomized(a.id) ? 'customized' : ''}`}>
-                            {formatShortcut(keyboard.getBinding(a.id))}
-                          </kbd>
-                          <div className="keyboard-action-buttons">
-                            <button
-                              className="keyboard-btn keyboard-btn-edit"
-                              onClick={() => handleEdit(a.id)}
-                            >
-                              Edit
-                            </button>
-                            {keyboard.isCustomized(a.id) && (
-                              <button
-                                className="keyboard-btn keyboard-btn-reset"
-                                onClick={() => handleReset(a.id)}
-                                title={`Reset to default (${formatShortcut(isMac() ? a.defaultBinding.mac : a.defaultBinding.windows)})`}
-                              >
-                                Reset
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
+      {groupedActions.map(({ category, actions }) => (
+        <SettingsSection key={category} title={category}>
+          <div className="settings-group">
+            {actions.map(a => (
+              <SettingsItem
+                key={a.id}
+                title={a.label}
+                actions={editingAction !== a.id && (
+                  <>
+                    <kbd className={`keyboard-kbd ${keyboard.isCustomized(a.id) ? 'customized' : ''}`}>
+                      {formatShortcut(keyboard.getBinding(a.id))}
+                    </kbd>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleEdit(a.id)}>
+                      Edit
+                    </button>
+                    {keyboard.isCustomized(a.id) && (
+                      <Tooltip label={`Reset to default (${formatShortcut(isMac() ? a.defaultBinding.mac : a.defaultBinding.windows)})`}><button
+                        className="ns-btn ns-btn--small ns-btn--ghost"
+                        onClick={() => handleReset(a.id)}
+                      >
+                        Reset
+                      </button></Tooltip>
+                    )}
+                  </>
+                )}
+              >
+                {editingAction === a.id && (
+                  <div className="keyboard-edit-mode">
+                    <input aria-label="Key binding"
+                      ref={inputRef}
+                      type="text"
+                      className="ns-input keyboard-binding-input"
+                      value={pendingBinding ? formatShortcut(pendingBinding) : 'Press keys...'}
+                      readOnly
+                      onKeyDown={(e) => e.preventDefault()}
+                    />
+                    {conflict && (
+                      <p className="settings-error">
+                        {conflict.action
+                          ? `Already used by "${conflict.label}" — change that shortcut first.`
+                          : `Reserved for "${conflict.label}".`}
+                      </p>
+                    )}
+                    <DialogFooter
+                      primary={{ label: 'Save', onClick: handleSave, disabled: !pendingBinding || !!conflict }}
+                      onCancel={stopEditing}
+                      inline
+                      small
+                    />
                   </div>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="keyboard-settings-footer">
-        <div className="keyboard-hint">{modifierTip}</div>
-      </div>
-    </div>
+                )}
+              </SettingsItem>
+            ))}
+          </div>
+        </SettingsSection>
+      ))}
+    </>
   )
 }

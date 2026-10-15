@@ -30,8 +30,8 @@ export default function VariableInputs({ variables, values, onChange }: Variable
             {v.required && <span className="var-input-required">*</span>}
             <span className="var-input-type">{v.type}</span>
           </label>
-          <input
-            className="var-input-field"
+          <input data-ai-fill="off"
+            className="ns-input var-input-field"
             value={values[v.name] || ''}
             onChange={(e) => updateVar(v.name, e.target.value)}
             placeholder={v.description || `Enter ${v.name}...`}

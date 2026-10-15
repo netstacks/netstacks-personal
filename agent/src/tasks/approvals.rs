@@ -2,7 +2,7 @@
 //!
 //! Originally a binary approve/reject gate on mutating tools. Feature B
 //! generalizes it into a typed, two-way **interaction** channel: the ReAct
-//! loop can park on an `Approval` (mutating-tool gate), a free-form
+//! loop can park on an `Approval` (permission-resolver gate), a free-form
 //! `Question` (the `ask_user` tool), a `Plan` review, or a `Checkpoint` that
 //! carries a masked credential — and resume the SAME Tokio task with the
 //! user's typed `HumanResponse`.
@@ -31,14 +31,6 @@ use super::store::TaskStore;
 /// long-running agent task.
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Returns true when the named tool requires explicit user approval per
-/// invocation. Add new mutating tools here.
-pub fn is_mutating_tool(name: &str) -> bool {
-    // Delegate to the canonical tool-name catalog (Feature A) so this and the
-    // output validator can never silently disagree on a tool's classification.
-    super::tools::catalog::is_mutating(name)
-}
-
 /// What kind of decision the task is parked on. Drives the frontend's
 /// InteractionPanel render (approve/reject vs free-text vs plan-edit vs a
 /// masked credential checkpoint). STRUCTURAL INVARIANT: a `Question` answer
@@ -47,7 +39,7 @@ pub fn is_mutating_tool(name: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InteractionKind {
-    /// Mutating-tool gate (the legacy approve/reject path).
+    /// Tool-call approval gate (approve/reject).
     Approval,
     /// Free-form clarifying question from the `ask_user` tool.
     Question,
@@ -141,11 +133,13 @@ impl TaskApprovalService {
     }
 
     /// Approval-gate convenience: park on an `Approval`-kind interaction for a
-    /// mutating tool. Cancel-aware + fail-closed.
+    /// tool call the permission resolver (`tasks::permissions`) sent to the
+    /// user. `prompt` is shown verbatim. Cancel-aware + fail-closed.
     pub async fn request(
         &self,
         task_id: String,
         kind: InteractionKind,
+        prompt: String,
         tool_name: String,
         tool_input: serde_json::Value,
         cancel_token: &CancellationToken,
@@ -155,7 +149,7 @@ impl TaskApprovalService {
                 id: Uuid::new_v4().to_string(),
                 task_id,
                 kind,
-                prompt: format!("Approve tool: {}", tool_name),
+                prompt,
                 choices: None,
                 tool_name: Some(tool_name),
                 tool_input: Some(tool_input),

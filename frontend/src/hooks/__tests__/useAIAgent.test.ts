@@ -3,14 +3,12 @@ import { describe, it, expect } from 'vitest';
 import {
   sanitizeToolName,
   unsanitizeToolName,
-  resolveCommandList,
   describeToolCall,
   buildApprovalRequest,
   completeToolResults,
   skippedToolResults,
-  NEEDS_APPROVAL,
   type ToolNameMap, consolePromptBlockReason } from '../useAIAgent';
-import { validateReadOnlyCommands } from '../../lib/readOnlyFilter';
+import { resolveCommandList } from '../../lib/aiPermissions';
 
 describe('sanitizeToolName — per-instance map, collision-safe truncation', () => {
   it('leaves non-MCP names untouched and round-trips MCP names', () => {
@@ -74,17 +72,6 @@ describe('resolveCommandList / describeToolCall — command vs commands[] (NS-AI
 });
 
 describe('console tools', () => {
-  it('are gated behind approval in ask mode', () => {
-    expect(NEEDS_APPROVAL.has('open_console')).toBe(true);
-    expect(NEEDS_APPROVAL.has('run_console_command')).toBe(true);
-    const req = buildApprovalRequest(
-      { id: 'c1', name: 'run_console_command', input: { session_id: 's1', commands: ['show ver', 'configure terminal'] } },
-      () => 'cisco-ios' as const,
-    );
-    expect(req.validation.allowed).toBe(false);
-    expect(buildApprovalRequest({ id: 'c2', name: 'open_console', input: { session_id: 's1' } }, () => undefined).validation.allowed).toBe(true);
-  });
-
   it('only types into an exec/shell prompt', () => {
     const at = (tail: string) => consolePromptBlockReason(computeStateSummary(`banner\n${tail}`, 'auto'));
     expect(at('edge-1#')).toBeNull();
@@ -100,38 +87,28 @@ describe('console tools', () => {
   });
 });
 
-describe('buildApprovalRequest — ask-mode gating (NS-AI-6, NS-AI-14)', () => {
-  const flavor = () => 'cisco-ios' as const;
-
-  it('does not crash on commands[] input and validates every command', () => {
+describe('buildApprovalRequest — any tool, with the resolver\'s reason (NS-AI-6, NS-AI-14)', () => {
+  it('renders commands[] batches without crashing', () => {
     const req = buildApprovalRequest(
       { id: 't1', name: 'run_command', input: { session_id: 's1', commands: ['show ver', 'configure terminal'] } },
-      flavor,
+      'Not read-only',
     );
     expect(req.command).toBe('show ver\nconfigure terminal');
     expect(req.sessionId).toBe('s1');
-    expect(req.validation.allowed).toBe(false);
-
-    const ok = buildApprovalRequest(
-      { id: 't2', name: 'run_command', input: { session_id: 's1', commands: ['show ver', 'show clock'] } },
-      flavor,
-    );
-    expect(ok.validation.allowed).toBe(true);
+    expect(req.reason).toBe('Not read-only');
   });
 
-  it('gates ai_ssh_execute, run_bash and the file tools', () => {
-    for (const name of ['run_command', 'ai_ssh_execute', 'run_bash', 'write_file', 'edit_file', 'patch_file']) {
-      expect(NEEDS_APPROVAL.has(name)).toBe(true);
-    }
-    expect(NEEDS_APPROVAL.has('list_sessions')).toBe(false);
-
-    const bash = buildApprovalRequest({ id: 'b', name: 'run_bash', input: { command: 'rm -rf /' } }, flavor);
+  it('labels bash as the local host and describes non-command tools generically', () => {
+    const bash = buildApprovalRequest({ id: 'b', name: 'run_bash', input: { command: 'ls' } }, 'Ask mode');
     expect(bash.sessionName).toBe('local host');
-    expect(bash.validation.allowed).toBe(false);
 
-    const wf = buildApprovalRequest({ id: 'w', name: 'write_file', input: { session_id: 's1', filepath: '/tmp/a', content: 'x' } }, flavor);
-    expect(wf.validation.allowed).toBe(false);
+    const wf = buildApprovalRequest({ id: 'w', name: 'write_file', input: { session_id: 's1', filepath: '/tmp/a', content: 'x' } }, 'r');
     expect(wf.command).toContain('write_file /tmp/a');
+
+    const list = buildApprovalRequest({ id: 'l', name: 'list_sessions', input: {} }, 'Ask mode');
+    expect(list.name).toBe('list_sessions');
+    expect(list.command).toBe('list_sessions()');
+    expect(list.sessionId).toBe('');
   });
 });
 
@@ -177,19 +154,5 @@ describe('skippedToolResults — single-turn orphan guard (NS-AI-25)', () => {
 
   it('yields nothing when there were no tool_use blocks', () => {
     expect(skippedToolResults([])).toEqual([]);
-  });
-});
-
-describe('validateReadOnlyCommands — batch validation', () => {
-  it('allows only when every command is read-only', () => {
-    expect(validateReadOnlyCommands(['show ver', 'show clock'], 'cisco-ios').allowed).toBe(true);
-    const bad = validateReadOnlyCommands(['show ver', 'reload'], 'cisco-ios');
-    expect(bad.allowed).toBe(false);
-    expect(bad.reason).toContain('blocked pattern');
-    expect(bad.command).toBe('show ver\nreload');
-  });
-
-  it('rejects an empty batch', () => {
-    expect(validateReadOnlyCommands([], 'auto').allowed).toBe(false);
   });
 });

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import './SessionPanel.css';
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
 import {
   listSessions,
   listFolders,
@@ -31,9 +30,11 @@ import {
 } from '../api/sessions';
 import { listProfiles } from '../api/profiles';
 import SessionSettingsDialog from './SessionSettingsDialog';
+import ContextMenu, { type MenuItem } from './ContextMenu';
 import { ConsoleIcon } from './icons/ConsoleIcon';
 import BroadcastCommandDialog from './BroadcastCommandDialog';
 import GroupsPanel from './GroupsPanel';
+import SearchField from './SearchField';
 import { useSessionSelection, SessionSelectionProvider } from '../hooks/useSessionSelection';
 import { downloadFile } from '../lib/formatters';
 import { showToast } from './Toast';
@@ -42,6 +43,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 const isSortOrder = (v: unknown): v is 'default' | 'reverse' =>
   v === 'default' || v === 'reverse';
 
@@ -88,12 +90,6 @@ interface SessionPanelProps {
 
 // Icons
 const Icons = {
-  search: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
   folder: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -192,12 +188,6 @@ const Icons = {
       <polyline points="12 6 12 12 16 14" />
     </svg>
   ),
-  x: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  ),
   broadcast: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" />
@@ -233,6 +223,11 @@ const Icons = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M3 4h5M3 8h9M3 12h13" />
       <path d="M17 20V4M14 7l3-3 3 3" />
+    </svg>
+  ),
+  remoteWindow: (
+    <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+      <path d="M14 1H2a1 1 0 00-1 1v8a1 1 0 001 1h5v2H5v1h6v-1H9v-2h5a1 1 0 001-1V2a1 1 0 00-1-1zm0 9H2V2h12v8z"/>
     </svg>
   ),
   collapseAll: (
@@ -311,8 +306,6 @@ function SessionPanelContent({
   const [dialogConsoleIntent, setDialogConsoleIntent] = useState(false);
   const [sessionContextMenu, setSessionContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folderId: string } | null>(null);
-  const { ref: sessionMenuRef, style: sessionMenuStyle } = useClampedMenuPosition(sessionContextMenu);
-  const { ref: folderMenuRef, style: folderMenuStyle } = useClampedMenuPosition(folderContextMenu);
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renameFolderValue, setRenameFolderValue] = useState('');
   const [showRecent, setShowRecent] = usePersistedState('session-panel-show-recent', true);
@@ -483,18 +476,6 @@ function SessionPanelContent({
   const favoriteSessions = useMemo(() => {
     return sessions.filter(s => favoriteSessionIds.has(s.id)).sort((a, b) => a.name.localeCompare(b.name));
   }, [sessions, favoriteSessionIds]);
-
-  // Close context menus on click outside
-  useEffect(() => {
-    const handleClick = () => {
-      setSessionContextMenu(null);
-      setFolderContextMenu(null);
-    };
-    if (sessionContextMenu || folderContextMenu) {
-      document.addEventListener('click', handleClick);
-      return () => document.removeEventListener('click', handleClick);
-    }
-  }, [sessionContextMenu, folderContextMenu]);
 
   // Focus rename input when renaming
   useEffect(() => {
@@ -1389,29 +1370,27 @@ function SessionPanelContent({
         style={{ touchAction: 'none', marginLeft: depth > 0 ? `${depth * 16}px` : undefined }}
       >
         <div className="session-item-header">
-          <button
+          <Tooltip label={isFavorite(session.id) ? 'Remove from favorites' : 'Add to favorites'}><button aria-label={isFavorite(session.id) ? 'Remove from favorites' : 'Add to favorites'}
             className={`session-favorite-btn ${isFavorite(session.id) ? 'is-favorite' : ''}`}
             onClick={(e) => toggleFavorite(session.id, e)}
-            title={isFavorite(session.id) ? 'Remove from favorites' : 'Add to favorites'}
           >
             {isFavorite(session.id) ? Icons.starFilled : Icons.star}
-          </button>
+          </button></Tooltip>
           <span className="session-item-name">{formatName(session.name)}</span>
           {hasConsoleAccess(session) && (
-            <span className="session-item-console" title={`Console: ${session.console_host}:${session.console_port}`}>
+            <Tooltip label={`Console: ${session.console_host}:${session.console_port}`}><span className="session-item-console">
               {Icons.console}
-            </span>
+            </span></Tooltip>
           )}
-          <button
+          <Tooltip label="Connect"><button
             className="session-connect-btn"
             onClick={(e) => {
               e.stopPropagation();
               onConnect(session);
             }}
-            title="Connect"
           >
             Connect
-          </button>
+          </button></Tooltip>
         </div>
         <div className="session-item-details">
           <div className="session-item-details-inner">
@@ -1490,7 +1469,7 @@ function SessionPanelContent({
           {isExpanded ? Icons.folderOpen : Icons.folder}
         </span>
         {isRenaming ? (
-          <input
+          <input data-ai-fill="off" aria-label="Folder name"
             ref={renameInputRef}
             className="folder-rename-input"
             value={renameFolderValue}
@@ -1513,18 +1492,160 @@ function SessionPanelContent({
   // Session the right-click menu is open for (drives the console + remote-window items).
   const ctxSession = sessionContextMenu ? sessions.find(s => s.id === sessionContextMenu.sessionId) : undefined;
 
+  const handleBulkConnect = async () => {
+    if (!onBulkConnect || bulkConnecting) return;
+    setBulkConnecting(true);
+    try {
+      await onBulkConnect(Array.from(selectedSessionIds));
+      clearSelection();
+    } catch (err) {
+      console.error('Bulk connect failed:', err);
+    } finally {
+      setBulkConnecting(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ok = await confirmDialog({
+      title: 'Delete selected sessions?',
+      body: `Delete ${selectedSessionIds.size} session${selectedSessionIds.size === 1 ? '' : 's'}? Empty folders will be cleaned up.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await bulkDeleteSessions(Array.from(selectedSessionIds));
+      // Remove deleted sessions from local state
+      const remainingSessions = sessions.filter(s => !selectedSessionIds.has(s.id));
+      setSessions(remainingSessions);
+      clearSelection();
+
+      // Check for empty folders and offer to delete them
+      // Find all folders that became empty (recursively from leaves up)
+      const findEmptyFolders = (currentFolders: typeof folders, currentSessions: typeof sessions): typeof folders => {
+        const empty: typeof folders = [];
+        let remaining = [...currentFolders];
+        let changed = true;
+
+        while (changed) {
+          changed = false;
+          const newEmpty: typeof folders = [];
+          remaining = remaining.filter(f => {
+            const hasSession = currentSessions.some(s => s.folder_id === f.id);
+            const hasChildFolder = remaining.some(child => child.parent_id === f.id && !empty.some(e => e.id === child.id));
+            if (!hasSession && !hasChildFolder) {
+              newEmpty.push(f);
+              changed = true;
+              return false;
+            }
+            return true;
+          });
+          empty.push(...newEmpty);
+        }
+        return empty;
+      };
+
+      // Only folders that this delete emptied — folders the user
+      // left empty on purpose (already empty before) are theirs to keep.
+      const emptyBefore = new Set(findEmptyFolders(folders, sessions).map(f => f.id));
+      const emptyFolders = findEmptyFolders(folders, remainingSessions)
+        .filter(f => !emptyBefore.has(f.id));
+
+      if (emptyFolders.length > 0) {
+        // Auto-delete empty folders
+        const foldersToDelete = [...emptyFolders].reverse();
+        for (const folder of foldersToDelete) {
+          try {
+            await deleteFolder(folder.id);
+          } catch (e) {
+            console.error('Failed to delete folder:', folder.name, e);
+          }
+        }
+        setFolders(prev => prev.filter(f => !emptyFolders.some(ef => ef.id === f.id)));
+      }
+
+      if (result.failed > 0) {
+        showToast(`Deleted ${result.deleted} sessions, ${result.failed} failed`, 'warning');
+      }
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Failed to delete sessions'), 'error');
+    }
+  };
+
+  const sessionMenuItems = (sessionId: string): MenuItem[] => {
+    const consoleReady = ctxSession !== undefined && hasConsoleAccess(ctxSession);
+    const remoteWindow = ctxSession !== undefined && ctxSession.protocol === 'ssh'
+      && (ctxSession.cli_flavor === 'linux' || ctxSession.cli_flavor === 'auto') && onOpenRemoteWindow;
+    const favorite = isFavorite(sessionId);
+    const items: MenuItem[] = [];
+    if (selectionCount > 1) {
+      items.push(
+        { id: 'bulk-connect', label: `Connect All (${selectionCount})`, icon: Icons.connect, disabled: bulkConnecting || !onBulkConnect, action: () => { void handleBulkConnect(); } },
+        { id: 'bulk-broadcast', label: 'Broadcast Command...', icon: Icons.broadcast, action: () => setBroadcastDialogOpen(true) },
+        { id: 'bulk-delete', label: `Delete Selected (${selectionCount})`, icon: Icons.trash, danger: true, action: () => { void handleBulkDelete(); } },
+        { id: 'bulk-divider', label: '', divider: true, action: () => {} },
+      );
+    }
+    items.push(
+      { id: 'connect', label: 'Connect', icon: Icons.connect, action: () => handleConnectSession(sessionId) },
+      { id: 'connect-new-tab', label: 'Connect in New Tab', icon: Icons.newTab, action: () => handleConnectInNewTab(sessionId) },
+    );
+    if (onOpenConsole) {
+      items.push({ id: 'console', label: consoleReady ? 'Open Console' : 'Open Console...', icon: Icons.console, action: () => handleOpenConsole(sessionId) });
+    }
+    if (isSessionConnected(sessionId) && onDisconnect) {
+      items.push({ id: 'disconnect', label: 'Disconnect', action: () => handleDisconnectSession(sessionId) });
+    }
+    items.push(
+      { id: 'favorite-divider', label: '', divider: true, action: () => {} },
+      { id: 'favorite', label: favorite ? 'Remove from Favorites' : 'Add to Favorites', icon: favorite ? Icons.starFilled : Icons.star, action: () => toggleFavorite(sessionId) },
+    );
+    if (remoteWindow) {
+      items.push(
+        { id: 'remote-divider', label: '', divider: true, action: () => {} },
+        { id: 'remote-window', label: 'Open Remote Window', icon: Icons.remoteWindow, action: () => onOpenRemoteWindow(sessionId) },
+      );
+    }
+    items.push(
+      { id: 'settings-divider', label: '', divider: true, action: () => {} },
+      { id: 'settings', label: 'Settings...', icon: Icons.settings, action: () => handleOpenSettings(sessionId) },
+      { id: 'duplicate', label: 'Duplicate Session', icon: Icons.duplicate, action: () => handleDuplicateSession(sessionId) },
+      { id: 'export-divider', label: '', divider: true, action: () => {} },
+      { id: 'export', label: 'Export Session...', icon: Icons.export, action: () => handleExportSession(sessionId) },
+      { id: 'delete-divider', label: '', divider: true, action: () => {} },
+      { id: 'delete', label: 'Delete Session', icon: Icons.trash, danger: true, action: () => handleDeleteSession(sessionId) },
+    );
+    return items;
+  };
+
+  const folderMenuItems = (folderId: string): MenuItem[] => [
+    { id: 'new-session', label: 'New Session in Folder', icon: Icons.plus, action: () => handleNewSessionInFolder(folderId) },
+    { id: 'new-subfolder', label: 'New Subfolder', icon: Icons.folderPlus, action: () => handleNewSubfolder(folderId) },
+    { id: 'rename-divider', label: '', divider: true, action: () => {} },
+    { id: 'rename', label: 'Rename Folder', icon: Icons.edit, action: () => handleRenameFolder(folderId) },
+    { id: 'expand-divider', label: '', divider: true, action: () => {} },
+    { id: 'expand-all', label: 'Expand All Folders', icon: Icons.expandAll, action: expandAllFolders },
+    { id: 'collapse-all', label: 'Collapse All Folders', icon: Icons.collapseAll, action: collapseAllFolders },
+    { id: 'export-divider', label: '', divider: true, action: () => {} },
+    { id: 'export', label: 'Export Folder...', icon: Icons.export, action: () => handleExportFolder(folderId) },
+    { id: 'import', label: 'Import Sessions...', icon: Icons.import, action: handleImportSessions },
+    { id: 'delete-divider', label: '', divider: true, action: () => {} },
+    { id: 'delete', label: 'Delete Folder', icon: Icons.trash, danger: true, action: () => handleDeleteFolder(folderId) },
+  ];
+
+
   return (
     <div className="session-panel" data-testid="session-panel">
       {/* Sub-tab navigation (Phase 25) */}
-      <div className="session-panel-tabs">
+      <div className="session-panel-tabs ns-segmented">
         <button
-          className={`session-panel-tab ${activeSubTab === 'sessions' ? 'active' : ''}`}
+          className={`ns-segment ${activeSubTab === 'sessions' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('sessions')} data-testid="tab-sessions"
         >
           Sessions
         </button>
         <button
-          className={`session-panel-tab ${activeSubTab === 'groups' ? 'active' : ''}`}
+          className={`ns-segment ${activeSubTab === 'groups' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('groups')}
           data-testid="tab-groups"
         >
@@ -1535,86 +1656,68 @@ function SessionPanelContent({
       {activeSubTab === 'sessions' ? (
         <>
           <div className="session-panel-toolbar">
-            <button
-              className="session-panel-btn icon-only primary"
+            <Tooltip label="New Session"><button
+              className="ns-btn ns-btn--primary ns-icon-btn"
               onClick={handleNewSession} data-testid="btn-new-session"
-              title="New Session"
+              aria-label="New Session"
             >
               {Icons.plus}
-            </button>
-            <button
-              className="session-panel-btn icon-only"
+            </button></Tooltip>
+            <Tooltip label="New Folder"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={handleNewFolder}
-              title="New Folder"
+              aria-label="New Folder"
             >
               {Icons.folderPlus}
-            </button>
-            <button
-              className="session-panel-btn icon-only"
+            </button></Tooltip>
+            <Tooltip label="Local Shell"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={onOpenLocalShell}
-              title="Local Shell"
+              aria-label="Local Shell"
             >
               {Icons.terminal}
-            </button>
-            <button
-              className="session-panel-btn icon-only"
+            </button></Tooltip>
+            <Tooltip label="Refresh"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={fetchData}
-              title="Refresh"
+              aria-label="Refresh"
               disabled={loading}
             >
               {Icons.refresh}
-            </button>
-            <button
-              className={`session-panel-btn icon-only ${sortOrder === 'reverse' ? 'active' : ''}`}
+            </button></Tooltip>
+            <Tooltip label={sortOrder === 'default' ? 'Sort: Folders first (click to show sessions first)' : 'Sort: Sessions first (click to show folders first)'}><button
+              className={`ns-btn ns-btn--ghost ns-icon-btn ${sortOrder === 'reverse' ? 'active' : ''}`}
               onClick={toggleSortOrder}
-              title={sortOrder === 'default' ? 'Sort: Folders first (click to show sessions first)' : 'Sort: Sessions first (click to show folders first)'}
+              aria-label="Toggle sort order"
             >
               {sortOrder === 'default' ? Icons.sortAsc : Icons.sortDesc}
-            </button>
+            </button></Tooltip>
             <div className="session-panel-toolbar-separator" />
-            <button
-              className="session-panel-btn icon-only"
+            <Tooltip label="Export CSV"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={handleExportCSV}
-              title="Export CSV"
+              aria-label="Export CSV"
             >
               {Icons.export}
-            </button>
-            <button
-              className="session-panel-btn icon-only"
+            </button></Tooltip>
+            <Tooltip label="Import CSV/JSON"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={handleImportSessions}
-              title="Import CSV/JSON"
+              aria-label="Import CSV/JSON"
             >
               {Icons.import}
-            </button>
-            <button
-              className="session-panel-btn icon-only"
+            </button></Tooltip>
+            <Tooltip label="Download Example CSV Template (columns: name, host, port, folder, profile, console_host, console_port, console_protocol, console_profile, console_legacy_ssh)"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={handleDownloadExampleCSV}
-              title="Download Example CSV Template (columns: name, host, port, folder, profile, console_host, console_port, console_protocol, console_profile, console_legacy_ssh)"
+              aria-label="Download Example CSV Template (columns: name, host, port, folder, profile, console_host, console_port, console_protocol, console_profile, console_legacy_ssh)"
             >
               {Icons.duplicate}
-            </button>
+            </button></Tooltip>
           </div>
 
           {/* Search input */}
-          <div className="session-search">
-            <span className="session-search-icon">{Icons.search}</span>
-            <input
-              type="text"
-              className="session-search-input"
-              placeholder="Search sessions..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button
-                className="session-search-clear"
-                onClick={() => setSearchQuery('')}
-                title="Clear search"
-              >
-                {Icons.x}
-              </button>
-            )}
-          </div>
+          <SearchField value={searchQuery} onChange={setSearchQuery} placeholder="Search sessions..." />
 
           {/* Hidden file input for import */}
           <input
@@ -1634,7 +1737,7 @@ function SessionPanelContent({
           {error && (
             <div className="session-panel-error">
               {error}
-              <button onClick={fetchData}>Retry</button>
+              <button className="ns-btn" onClick={fetchData}>Retry</button>
             </div>
           )}
 
@@ -1668,29 +1771,28 @@ function SessionPanelContent({
                           title={`${session.host}:${session.port}`}
                         >
                           <div className="session-item-header">
-                            <button
+                            <Tooltip label="Remove from favorites"><button
                               className="session-favorite-btn is-favorite"
                               onClick={(e) => toggleFavorite(session.id, e)}
-                              title="Remove from favorites"
+                              aria-label="Remove from favorites"
                             >
                               {Icons.starFilled}
-                            </button>
+                            </button></Tooltip>
                             <span className="session-item-name">{formatName(session.name)}</span>
                             {hasConsoleAccess(session) && (
-                              <span className="session-item-console" title={`Console: ${session.console_host}:${session.console_port}`}>
+                              <Tooltip label={`Console: ${session.console_host}:${session.console_port}`}><span className="session-item-console">
                                 {Icons.console}
-                              </span>
+                              </span></Tooltip>
                             )}
-                            <button
+                            <Tooltip label="Connect"><button
                               className="session-connect-btn"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onConnect(session);
                               }}
-                              title="Connect"
                             >
                               Connect
-                            </button>
+                            </button></Tooltip>
                           </div>
                           <div className="session-item-details">
                             <div className="session-item-details-inner">
@@ -1739,9 +1841,8 @@ function SessionPanelContent({
                               {session?.name || `${entry.username}@${entry.host}`}
                             </span>
                             <span className="recent-time">{formatRelativeTime(entry.connected_at)}</span>
-                            <button
+                            <Tooltip label="Remove from history"><button
                               className="recent-clear-btn"
-                              title="Remove from history"
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 // Optimistic remove; if delete fails the next
@@ -1755,7 +1856,7 @@ function SessionPanelContent({
                               }}
                             >
                               &times;
-                            </button>
+                            </button></Tooltip>
                           </div>
                         );
                       })}
@@ -1837,297 +1938,16 @@ function SessionPanelContent({
         />
       )}
 
-      {/* Session Context Menu */}
-      {sessionContextMenu && (
-        <div
-          ref={sessionMenuRef}
-          className="session-context-menu"
-          style={sessionMenuStyle}
-        >
-          {/* Bulk actions when multiple sessions selected */}
-          {selectionCount > 1 && (
-            <>
-              <button
-                className="context-menu-item"
-                onClick={async () => {
-                  setSessionContextMenu(null);
-                  if (!onBulkConnect || bulkConnecting) return;
-                  setBulkConnecting(true);
-                  try {
-                    await onBulkConnect(Array.from(selectedSessionIds));
-                    clearSelection();
-                  } catch (err) {
-                    console.error('Bulk connect failed:', err);
-                  } finally {
-                    setBulkConnecting(false);
-                  }
-                }}
-                disabled={bulkConnecting || !onBulkConnect}
-              >
-                {Icons.connect}
-                <span>Connect All ({selectionCount})</span>
-              </button>
-              <button
-                className="context-menu-item"
-                onClick={() => {
-                  setSessionContextMenu(null);
-                  setBroadcastDialogOpen(true);
-                }}
-              >
-                {Icons.broadcast}
-                <span>Broadcast Command...</span>
-              </button>
-              <button
-                className="context-menu-item danger"
-                onClick={async () => {
-                  setSessionContextMenu(null);
-                  const ok = await confirmDialog({
-                    title: 'Delete selected sessions?',
-                    body: `Delete ${selectedSessionIds.size} session${selectedSessionIds.size === 1 ? '' : 's'}? Empty folders will be cleaned up.`,
-                    confirmLabel: 'Delete',
-                    destructive: true,
-                  });
-                  if (!ok) return;
-                  try {
-                    const result = await bulkDeleteSessions(Array.from(selectedSessionIds));
-                    // Remove deleted sessions from local state
-                    const remainingSessions = sessions.filter(s => !selectedSessionIds.has(s.id));
-                    setSessions(remainingSessions);
-                    clearSelection();
-
-                    // Check for empty folders and offer to delete them
-                    // Find all folders that became empty (recursively from leaves up)
-                    const findEmptyFolders = (currentFolders: typeof folders, currentSessions: typeof sessions): typeof folders => {
-                      const empty: typeof folders = [];
-                      let remaining = [...currentFolders];
-                      let changed = true;
-
-                      while (changed) {
-                        changed = false;
-                        const newEmpty: typeof folders = [];
-                        remaining = remaining.filter(f => {
-                          const hasSession = currentSessions.some(s => s.folder_id === f.id);
-                          const hasChildFolder = remaining.some(child => child.parent_id === f.id && !empty.some(e => e.id === child.id));
-                          if (!hasSession && !hasChildFolder) {
-                            newEmpty.push(f);
-                            changed = true;
-                            return false;
-                          }
-                          return true;
-                        });
-                        empty.push(...newEmpty);
-                      }
-                      return empty;
-                    };
-
-                    // Only folders that this delete emptied — folders the user
-                    // left empty on purpose (already empty before) are theirs to keep.
-                    const emptyBefore = new Set(findEmptyFolders(folders, sessions).map(f => f.id));
-                    const emptyFolders = findEmptyFolders(folders, remainingSessions)
-                      .filter(f => !emptyBefore.has(f.id));
-
-                    if (emptyFolders.length > 0) {
-                      // Auto-delete empty folders
-                      const foldersToDelete = [...emptyFolders].reverse();
-                      for (const folder of foldersToDelete) {
-                        try {
-                          await deleteFolder(folder.id);
-                        } catch (e) {
-                          console.error('Failed to delete folder:', folder.name, e);
-                        }
-                      }
-                      setFolders(prev => prev.filter(f => !emptyFolders.some(ef => ef.id === f.id)));
-                    }
-
-                    if (result.failed > 0) {
-                      showToast(`Deleted ${result.deleted} sessions, ${result.failed} failed`, 'warning');
-                    }
-                  } catch (err) {
-                    showToast(getErrorMessage(err, 'Failed to delete sessions'), 'error');
-                  }
-                }}
-              >
-                {Icons.trash}
-                <span>Delete Selected ({selectionCount})</span>
-              </button>
-              <div className="context-menu-divider" />
-            </>
-          )}
-          <button
-            className="context-menu-item"
-            onClick={() => handleConnectSession(sessionContextMenu.sessionId)}
-          >
-            {Icons.connect}
-            <span>Connect</span>
-          </button>
-          <button
-            className="context-menu-item"
-            onClick={() => handleConnectInNewTab(sessionContextMenu.sessionId)}
-          >
-            {Icons.newTab}
-            <span>Connect in New Tab</span>
-          </button>
-          {onOpenConsole && (
-            <button
-              className="context-menu-item"
-              onClick={() => handleOpenConsole(sessionContextMenu.sessionId)}
-              title={ctxSession && hasConsoleAccess(ctxSession)
-                ? `Console via ${ctxSession.console_host}:${ctxSession.console_port} (${ctxSession.console_protocol.toUpperCase()})`
-                : 'Set up out-of-band console access for this device'}
-            >
-              {Icons.console}
-              <span>{ctxSession && hasConsoleAccess(ctxSession) ? 'Open Console' : 'Open Console...'}</span>
-            </button>
-          )}
-          {isSessionConnected(sessionContextMenu.sessionId) && onDisconnect && (
-            <button
-              className="context-menu-item"
-              onClick={() => handleDisconnectSession(sessionContextMenu.sessionId)}
-              title="Close every connected terminal tab for this session"
-            >
-              <span>Disconnect</span>
-            </button>
-          )}
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item"
-            onClick={() => {
-              toggleFavorite(sessionContextMenu.sessionId);
-              setSessionContextMenu(null);
-            }}
-          >
-            {isFavorite(sessionContextMenu.sessionId) ? Icons.starFilled : Icons.star}
-            <span>{isFavorite(sessionContextMenu.sessionId) ? 'Remove from Favorites' : 'Add to Favorites'}</span>
-          </button>
-          {(() => {
-            const sess = ctxSession
-            if (sess && sess.protocol === 'ssh' && (sess.cli_flavor === 'linux' || sess.cli_flavor === 'auto') && onOpenRemoteWindow) {
-              return (
-                <>
-                  <div className="context-menu-divider" />
-                  <button
-                    className="context-menu-item"
-                    onClick={() => { onOpenRemoteWindow(sessionContextMenu.sessionId); setSessionContextMenu(null) }}
-                  >
-                    <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
-                      <path d="M14 1H2a1 1 0 00-1 1v8a1 1 0 001 1h5v2H5v1h6v-1H9v-2h5a1 1 0 001-1V2a1 1 0 00-1-1zm0 9H2V2h12v8z"/>
-                    </svg>
-                    <span>Open Remote Window</span>
-                  </button>
-                </>
-              )
-            }
-            return null
-          })()}
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item"
-            onClick={() => handleOpenSettings(sessionContextMenu.sessionId)}
-          >
-            {Icons.settings}
-            <span>Settings...</span>
-          </button>
-          <button
-            className="context-menu-item"
-            onClick={() => handleDuplicateSession(sessionContextMenu.sessionId)}
-          >
-            {Icons.duplicate}
-            <span>Duplicate Session</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item"
-            onClick={() => handleExportSession(sessionContextMenu.sessionId)}
-          >
-            {Icons.export}
-            <span>Export Session...</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item danger"
-            onClick={() => handleDeleteSession(sessionContextMenu.sessionId)}
-          >
-            {Icons.trash}
-            <span>Delete Session</span>
-          </button>
-        </div>
-      )}
-
-      {/* Folder Context Menu */}
-      {folderContextMenu && (
-        <div
-          ref={folderMenuRef}
-          className="session-context-menu"
-          style={folderMenuStyle}
-        >
-          <button
-            className="context-menu-item"
-            onClick={() => handleNewSessionInFolder(folderContextMenu.folderId)}
-          >
-            {Icons.plus}
-            <span>New Session in Folder</span>
-          </button>
-          <button
-            className="context-menu-item"
-            onClick={() => handleNewSubfolder(folderContextMenu.folderId)}
-          >
-            {Icons.folderPlus}
-            <span>New Subfolder</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item"
-            onClick={() => handleRenameFolder(folderContextMenu.folderId)}
-          >
-            {Icons.edit}
-            <span>Rename Folder</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item"
-            onClick={() => {
-              expandAllFolders();
-              setFolderContextMenu(null);
-            }}
-          >
-            {Icons.expandAll}
-            <span>Expand All Folders</span>
-          </button>
-          <button
-            className="context-menu-item"
-            onClick={() => {
-              collapseAllFolders();
-              setFolderContextMenu(null);
-            }}
-          >
-            {Icons.collapseAll}
-            <span>Collapse All Folders</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item"
-            onClick={() => handleExportFolder(folderContextMenu.folderId)}
-          >
-            {Icons.export}
-            <span>Export Folder...</span>
-          </button>
-          <button
-            className="context-menu-item"
-            onClick={handleImportSessions}
-          >
-            {Icons.import}
-            <span>Import Sessions...</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item danger"
-            onClick={() => handleDeleteFolder(folderContextMenu.folderId)}
-          >
-            {Icons.trash}
-            <span>Delete Folder</span>
-          </button>
-        </div>
-      )}
+      <ContextMenu
+        position={sessionContextMenu}
+        items={sessionContextMenu ? sessionMenuItems(sessionContextMenu.sessionId) : []}
+        onClose={() => setSessionContextMenu(null)}
+      />
+      <ContextMenu
+        position={folderContextMenu}
+        items={folderContextMenu ? folderMenuItems(folderContextMenu.folderId) : []}
+        onClose={() => setFolderContextMenu(null)}
+      />
 
       {/* Session Dialog (Create/Edit) */}
       <SessionSettingsDialog

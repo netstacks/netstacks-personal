@@ -1,0 +1,325 @@
+/* ── Shared UI primitives ─────────────────────────────────────────
+ * One look per control type, everywhere in the app. Platform tokens make
+ * them native: macOS gets soft filled, borderless controls; Windows gets
+ * bordered Fluent controls with an accent underline on text fields.
+ * Components use these classes instead of styling their own variants. */
+
+/* Buttons: .ns-btn (secondary) + --primary | --danger | --ghost; .ns-icon-btn for icon-only. */
+.ns-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-height);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ns-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.ns-btn:disabled {
+  opacity: 0.5;
+}
+
+.ns-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.ns-btn--primary {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+.ns-btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.ns-btn--danger {
+  border-color: transparent;
+  background: var(--color-error);
+  color: var(--color-text-on-accent);
+}
+
+.ns-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error) 85%, black);
+}
+
+.ns-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.ns-btn--ghost:hover:not(:disabled) {
+  background: var(--color-fill);
+  color: var(--color-text-primary);
+}
+
+.ns-icon-btn {
+  width: var(--control-height);
+  padding: 0;
+}
+
+.ns-btn--large {
+  height: calc(var(--control-height) + 10px);
+  padding: 0 20px;
+  font-size: var(--font-size-base);
+}
+
+/* macOS push buttons: soft fill, no border. */
+:root[data-platform='macos'] .ns-btn:not(.ns-btn--primary, .ns-btn--danger, .ns-btn--ghost) {
+  border-color: transparent;
+  background: var(--color-fill);
+}
+
+:root[data-platform='macos'] .ns-btn:not(.ns-btn--primary, .ns-btn--danger, .ns-btn--ghost):hover:not(:disabled) {
+  background: var(--color-fill-strong);
+}
+
+/* Text inputs and selects. */
+.ns-input,
+.ns-select {
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  outline: none;
+}
+
+/* Hero fields (vault unlock, sign-in) — matches ns-btn--large. */
+.ns-input--large {
+  height: calc(var(--control-height) + 10px);
+  padding: 0 12px;
+  font-size: var(--font-size-base);
+}
+
+.ns-textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+}
+
+.ns-input::placeholder,
+.ns-textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.ns-input:focus,
+.ns-select:focus,
+.ns-textarea:focus {
+  border-color: var(--color-accent);
+}
+
+.ns-input:disabled,
+.ns-select:disabled,
+.ns-textarea:disabled {
+  opacity: 0.6;
+}
+
+/* Selects: our own pop-up button (not the browser's default control).
+ * macOS: Xcode-style filled pop-up with up/down chevrons; Windows: Fluent
+ * combo box with a down chevron. The open menu stays the native one. */
+.ns-select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 24px;
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+:root[data-platform='macos'] .ns-select,
+:root[data-platform='linux'] .ns-select {
+  border-color: transparent;
+  background-color: var(--color-fill);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12' fill='none' stroke='%23a6a6a6' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 4.5 4 2l2.5 2.5M1.5 7.5 4 10l2.5-2.5'/%3E%3C/svg%3E");
+}
+
+:root[data-platform='macos'][data-theme='light'] .ns-select,
+:root[data-platform='linux'][data-theme='light'] .ns-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12' fill='none' stroke='%23595959' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 4.5 4 2l2.5 2.5M1.5 7.5 4 10l2.5-2.5'/%3E%3C/svg%3E");
+}
+
+:root[data-platform='windows'] .ns-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23a6a6a6' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+}
+
+:root[data-platform='windows'][data-theme='light'] .ns-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23595959' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+}
+
+/* Search field: wrapper with icon, input and clear button (SearchField.tsx). */
+.ns-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--color-fill-subtle);
+  color: var(--color-text-secondary);
+}
+
+.ns-search:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.ns-search-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.ns-search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ns-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-small);
+  outline: none;
+}
+
+.ns-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.ns-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-fill-strong);
+  color: var(--color-text-secondary);
+}
+
+.ns-search-clear svg {
+  width: 8px;
+  height: 8px;
+}
+
+/* Windows: Fluent text boxes — bordered, accent underline when focused. */
+:root[data-platform='windows'] .ns-search,
+:root[data-platform='windows'] .ns-input,
+:root[data-platform='windows'] .ns-select,
+:root[data-platform='windows'] .ns-textarea {
+  border-color: var(--color-border);
+  border-bottom-color: var(--color-text-muted);
+  background-color: var(--color-bg-primary);
+}
+
+:root[data-platform='windows'] .ns-search:focus-within,
+:root[data-platform='windows'] .ns-input:focus,
+:root[data-platform='windows'] .ns-select:focus,
+:root[data-platform='windows'] .ns-textarea:focus {
+  border-bottom-color: var(--color-accent);
+  box-shadow: inset 0 -1px 0 var(--color-accent);
+}
+
+/* Segmented control: full-width, selected segment filled with the accent. */
+.ns-segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--color-fill-subtle);
+}
+
+.ns-segment {
+  flex: 1 0 auto;
+  padding: 3px 10px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+}
+
+.ns-segment:hover {
+  color: var(--color-text-primary);
+}
+
+.ns-segment[aria-checked='true'],
+.ns-segment[aria-selected='true'],
+.ns-segment.active {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+:root[data-window-focused='false'] .ns-segment:is([aria-checked='true'], [aria-selected='true'], .active) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.ns-search-input::-webkit-search-decoration,
+.ns-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ns-btn--ghost:is(.active, [aria-pressed='true']) {
+  background: var(--color-fill);
+  color: var(--color-text-accent);
+}
+
+.ns-btn--small {
+  height: calc(var(--control-height) - 4px);
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.ns-icon-btn.ns-btn--small {
+  width: calc(var(--control-height) - 4px);
+  padding: 0;
+}
+
+/* Ghost destructive (row delete actions): red text, no fill until hovered. */
+.ns-btn--ghost.ns-btn--danger {
+  background: transparent;
+  color: var(--color-error);
+}
+
+.ns-btn--ghost.ns-btn--danger:hover:not(:disabled) {
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+}
+
+/* Invalid fields (aria-invalid="true"): red border on every platform. */
+.ns-input[aria-invalid='true'],
+.ns-select[aria-invalid='true'],
+.ns-textarea[aria-invalid='true'],
+:root[data-platform='windows'] :is(.ns-input, .ns-select, .ns-textarea)[aria-invalid='true'] {
+  border-color: var(--color-error);
+}

@@ -10,6 +10,7 @@ import type { Connection, Device } from '../types/topology';
 import type { LinkEnrichment, InterfaceEnrichment } from '../types/enrichment';
 import { formatBytes, getStatusColor } from '../lib/enrichmentHelpers';
 import './LinkDetailCard.css';
+import Tooltip from './Tooltip';
 
 interface LinkDetailCardProps {
   /** The connection to display details for */
@@ -236,11 +237,11 @@ export default function LinkDetailCard({
           <span className="link-detail-title-arrow">&#8596;</span>
           <span>{targetDevice.name}</span>
         </div>
-        <button className="link-detail-close" onClick={onClose} title="Close (Esc)">
+        <Tooltip label="Close (Esc)"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close (Esc)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Content */}
@@ -276,7 +277,7 @@ export default function LinkDetailCard({
       {/* Footer with action buttons */}
       <div className="link-detail-footer">
         {onOpenInTab && (
-          <button className="link-detail-action" onClick={onOpenInTab}>
+          <button className="ns-btn" onClick={onOpenInTab}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
               <polyline points="15 3 21 3 21 9" />
@@ -286,7 +287,7 @@ export default function LinkDetailCard({
           </button>
         )}
         {onSaveToDocs && (
-          <button className="link-detail-action" onClick={onSaveToDocs}>
+          <button className="ns-btn" onClick={onSaveToDocs}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />

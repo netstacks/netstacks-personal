@@ -20,6 +20,7 @@ import { createUserMessage, createThinkingMessage, type AgentMessage } from '../
 import AgentActivity from './AgentActivity';
 import AgentWorkflowGraph from './AgentWorkflowGraph';
 import './AgentRunTab.css';
+import Tooltip from './Tooltip';
 
 const EMPTY: TaskMessage[] = [];
 
@@ -227,13 +228,12 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
             {STATUS_LABEL[task.status] ?? task.status}
           </span>
           <div className="agent-run-prompt-wrap">
-            <button
+            <Tooltip label="Click to view the full prompt"><button
               className="agent-run-prompt"
               onClick={() => setShowPrompt((v) => !v)}
-              title="Click to view the full prompt"
             >
               {task.prompt}
-            </button>
+            </button></Tooltip>
             {showPrompt && (
               <>
                 <div className="agent-run-prompt-backdrop" onClick={() => setShowPrompt(false)} />
@@ -246,40 +246,38 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
           </div>
           <div className="agent-run-head-actions">
             {!isActive && onContinueChat && (
-              <button
-                className="agent-run-continue-btn"
+              <Tooltip label="Continue this run as a chat"><button
+                className="ns-btn ns-btn--primary"
                 onClick={() => onContinueChat(buildSeed())}
-                title="Continue this run as a chat"
               >
                 Continue in chat
-              </button>
+              </button></Tooltip>
             )}
             {hasSubagents && (
-              <div className="agent-run-viewtoggle">
-                <button className={view === 'activity' ? 'active' : ''} onClick={() => setView('activity')}>
+              <div className="ns-segmented">
+                <button className={`ns-segment ${view === 'activity' ? 'active' : ''}`} onClick={() => setView('activity')}>
                   Activity
                 </button>
-                <button className={view === 'both' ? 'active' : ''} onClick={() => setView('both')}>
+                <button className={`ns-segment ${view === 'both' ? 'active' : ''}`} onClick={() => setView('both')}>
                   Both
                 </button>
-                <button className={view === 'workflow' ? 'active' : ''} onClick={() => setView('workflow')}>
+                <button className={`ns-segment ${view === 'workflow' ? 'active' : ''}`} onClick={() => setView('workflow')}>
                   Workflow
                 </button>
               </div>
             )}
             {artifacts.length > 0 && (
               <div className="agent-run-artifacts">
-                <button
-                  className="agent-run-artifacts-btn"
+                <Tooltip label="Documents the agent saved this run — click to open"><button
+                  className="ns-btn"
                   onClick={() => setShowArtifacts((v) => !v)}
-                  title="Documents the agent saved this run — click to open"
                 >
                   <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M14 3v4a1 1 0 0 0 1 1h4" />
                     <path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
                   </svg>
                   {artifacts.length} artifact{artifacts.length === 1 ? '' : 's'}
-                </button>
+                </button></Tooltip>
                 {showArtifacts && (
                   <div className="agent-run-artifacts-list">
                     {artifacts.map((a) => (
@@ -315,13 +313,12 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
           <div className="agent-run-body agent-run-split-main" style={{ flex: `0 0 ${splitPct}%` }}>
             {activityCenter}
           </div>
-          <div
+          <Tooltip label="Drag to resize"><div
             className="agent-run-divider"
             onPointerDown={onDivDown}
             onPointerMove={onDivMove}
             onPointerUp={onDivUp}
-            title="Drag to resize"
-          />
+          /></Tooltip>
           <div className="agent-run-split-graph">
             <AgentWorkflowGraph rootId={taskId} onOpenRun={(id) => onOpenRun?.(id)} />
           </div>
@@ -347,7 +344,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
                 </div>
               )}
               <div className="agent-run-input-row">
-                <textarea
+                <textarea data-ai-fill="off"
                   className="agent-run-input"
                   rows={1}
                   value={answer}
@@ -361,7 +358,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
                   }}
                 />
                 <button
-                  className="agent-run-btn approve"
+                  className="ns-btn ns-btn--primary"
                   disabled={busy || !answer.trim()}
                   onClick={() => void resolve({ kind: 'answer', text: answer.trim() })}
                 >
@@ -380,11 +377,11 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
                 </pre>
               )}
               <div className="agent-run-input-row agent-run-approval-actions">
-                <button className="agent-run-btn reject" disabled={busy}
+                <button className="ns-btn" disabled={busy}
                   onClick={() => void resolve({ kind: 'reject' })}>
                   Reject
                 </button>
-                <button className="agent-run-btn approve" disabled={busy}
+                <button className="ns-btn ns-btn--primary" disabled={busy}
                   onClick={() => void resolve({ kind: 'approve' })}>
                   Approve
                 </button>
@@ -396,7 +393,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
                 <span className="agent-run-working-dot" />
                 Agent is working… it'll ask here if it needs you.
               </span>
-              <button className="agent-run-btn stop" onClick={() => cancelTask(taskId)}>
+              <button className="ns-btn ns-btn--danger" onClick={() => cancelTask(taskId)}>
                 Stop
               </button>
             </div>

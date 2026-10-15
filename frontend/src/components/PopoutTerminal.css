@@ -39,23 +39,8 @@
 
 .popout-terminal-popin-btn {
   display: flex;
-  align-items: center;
-  justify-content: center;
   width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
-}
-
-.popout-terminal-popin-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .popout-terminal-body {

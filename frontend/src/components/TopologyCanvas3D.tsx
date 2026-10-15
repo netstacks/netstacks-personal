@@ -11,6 +11,7 @@ import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
 import type { LayerVisibility } from './TopologyToolbar';
 import { isInsideBox } from '../lib/topologySelection';
 import './TopologyCanvas3D.css';
+import Tooltip from './Tooltip';
 
 /** Initial camera position type */
 type CameraPosition = 'top-down' | 'perspective';
@@ -696,11 +697,11 @@ export default function TopologyCanvas3D({
       </KeyboardControls>
 
       {/* Control mode toggle buttons */}
-      <div className="topology-canvas3d-mode-toggle">
-        <button
-          className={`topology-canvas3d-mode-btn ${controlMode === 'orbit' ? 'active' : ''}`}
+      <div className="topology-canvas3d-mode-toggle ns-segmented">
+        <Tooltip label="Orbit Mode - Drag to rotate, scroll to zoom"><button
+          className={`ns-segment ${controlMode === 'orbit' ? 'active' : ''}`}
           onClick={() => handleModeChange('orbit')}
-          title="Orbit Mode - Drag to rotate, scroll to zoom"
+          aria-label="Orbit Mode - Drag to rotate, scroll to zoom"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="16" height="16">
             {/* Circular arrows icon for orbit */}
@@ -708,18 +709,18 @@ export default function TopologyCanvas3D({
             <path d="M12 4V2M12 22v-2M4 12H2M22 12h-2" />
             <path d="M16.95 7.05l1.41-1.41M5.64 18.36l1.41-1.41M16.95 16.95l1.41 1.41M5.64 5.64l1.41 1.41" />
           </svg>
-        </button>
-        <button
-          className={`topology-canvas3d-mode-btn ${controlMode === 'fly' ? 'active' : ''}`}
+        </button></Tooltip>
+        <Tooltip label="Fly Mode - WASD to move, mouse to look"><button
+          className={`ns-segment ${controlMode === 'fly' ? 'active' : ''}`}
           onClick={() => handleModeChange('fly')}
-          title="Fly Mode - WASD to move, mouse to look"
+          aria-label="Fly Mode - WASD to move, mouse to look"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="16" height="16">
             {/* Eye/camera icon for fly mode */}
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
             <circle cx="12" cy="12" r="3" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Fly mode instruction overlay */}

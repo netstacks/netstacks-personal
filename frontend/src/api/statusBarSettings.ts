@@ -3,6 +3,8 @@
  * Customization options for the main application status bar
  */
 
+import { getPlatform } from '../utils/platform';
+
 // Theme presets for quick selection
 export type StatusBarTheme = 'vscode-blue' | 'dark' | 'minimal' | 'accent' | 'custom';
 
@@ -51,7 +53,8 @@ export const DEFAULT_STATUS_BAR_SETTINGS: StatusBarSettings = {
   showCommandPalette: true,
   showSettings: true,
   showScratchpad: true,
-  theme: 'vscode-blue',
+  // macOS status bars are neutral (no colored fill); elsewhere the bar follows the accent.
+  theme: getPlatform() === 'macos' ? 'minimal' : 'accent',
   customColors: {
     background: '#007acc',
     text: '#ffffff',
@@ -88,7 +91,7 @@ export const STATUS_BAR_THEMES: Record<StatusBarTheme, {
   'minimal': {
     label: 'Minimal',
     colors: {
-      background: 'transparent',
+      background: 'var(--color-bg-primary)',
       text: 'var(--color-text-secondary)',
       hoverBackground: 'var(--color-bg-hover)',
       accentBackground: 'transparent',

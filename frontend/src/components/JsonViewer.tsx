@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import './DocumentViewer.css';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface JsonViewerProps {
   content: string;
   filename?: string; // Reserved for future use (e.g., display in header)
@@ -163,9 +164,9 @@ function JsonNode({
   return (
     <div className="json-node">
       <div className="json-node-line">
-        <button className="json-node-toggle" onClick={handleToggle} title={isExpanded ? 'Collapse' : 'Expand'}>
+        <Tooltip label={isExpanded ? 'Collapse' : 'Expand'}><button aria-label={isExpanded ? 'Collapse' : 'Expand'} className="json-node-toggle" onClick={handleToggle}>
           {isExpanded ? Icons.chevronDown : Icons.chevronRight}
-        </button>
+        </button></Tooltip>
         {renderName()}
         <span className="json-bracket">{isArray ? '[' : '{'}</span>
         {!isExpanded && (

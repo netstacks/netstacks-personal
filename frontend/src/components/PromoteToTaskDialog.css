@@ -1,20 +1,11 @@
-.promote-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-}
-
 .promote-dialog {
   width: 500px;
   max-width: 90vw;
   max-height: 80vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--color-bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   border: 1px solid var(--color-border);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
@@ -31,18 +22,6 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-}
-
-.promote-dialog-close {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  padding: 4px;
-}
-
-.promote-dialog-close:hover {
-  color: var(--color-text-primary);
 }
 
 .promote-dialog form {
@@ -63,8 +42,7 @@
   padding: 10px 12px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  cursor: pointer;
+  border-radius: var(--radius-control);
   transition: border-color 0.15s;
 }
 
@@ -74,7 +52,7 @@
 
 .promote-mode.active {
   border-color: var(--color-accent);
-  background: rgba(0, 136, 255, 0.08);
+  background: var(--color-accent-tint-8);
 }
 
 .promote-mode input {
@@ -112,31 +90,20 @@
 
 .promote-dialog-prompt textarea {
   width: 100%;
-  padding: 10px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  font-family: inherit;
   resize: vertical;
   min-height: 100px;
-}
-
-.promote-dialog-prompt textarea:focus {
-  outline: none;
-  border-color: var(--color-accent);
 }
 
 .promote-dialog-preview {
   padding: 10px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 12px;
   color: var(--color-text-secondary);
   max-height: 150px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   white-space: pre-wrap;
   line-height: 1.5;
 }
@@ -148,48 +115,10 @@
 .promote-dialog-error {
   padding: 8px 10px;
   margin-bottom: 12px;
-  background: rgba(241, 76, 76, 0.1);
+  background: rgba(var(--color-error-rgb), 0.1);
   color: var(--color-error);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 12px;
-}
-
-.promote-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.promote-dialog-actions button {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.promote-dialog-actions button:not(.primary) {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.promote-dialog-actions button:not(.primary):hover {
-  background: var(--color-bg-hover);
-}
-
-.promote-dialog-actions button.primary {
-  background: var(--color-accent);
-  border: none;
-  color: white;
-}
-
-.promote-dialog-actions button.primary:hover:not(:disabled) {
-  background: var(--color-accent-hover, #0077e6);
-}
-
-.promote-dialog-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .promote-dialog-hint {

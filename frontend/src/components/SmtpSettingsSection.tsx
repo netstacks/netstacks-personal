@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput'
 import { useState, useEffect, useCallback } from 'react';
 import {
   getSmtpConfig,
@@ -10,47 +11,9 @@ import {
 import { confirmDialog } from './ConfirmDialog';
 import { PasswordInput } from './PasswordInput';
 import './SmtpSettingsSection.css';
+import SettingsSection from './settings/SettingsSection';
 
-// Icons
 import { getErrorMessage } from '../api/errors'
-const Icons = {
-  mail: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-      <polyline points="22,6 12,13 2,6" />
-    </svg>
-  ),
-  check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  x: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  ),
-  info: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  ),
-  loader: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" className="smtp-spin">
-      <line x1="12" y1="2" x2="12" y2="6" />
-      <line x1="12" y1="18" x2="12" y2="22" />
-      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-      <line x1="2" y1="12" x2="6" y2="12" />
-      <line x1="18" y1="12" x2="22" y2="12" />
-      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-    </svg>
-  ),
-};
 
 interface SmtpSettingsSectionProps {
   onSaved?: () => void;
@@ -254,51 +217,27 @@ export default function SmtpSettingsSection({ onSaved }: SmtpSettingsSectionProp
     );
   }
 
+  const busy = testing || saving || deleting;
+
   return (
-    <div className="smtp-settings-section">
-      {/* Section Header */}
-      <div className="smtp-section-header">
-        <div className="smtp-section-title">
-          {Icons.mail}
-          <h3>SMTP Email Settings</h3>
-        </div>
-        <div className="smtp-config-status">
-          <span className={`status-dot ${hasExistingConfig ? 'configured' : 'not-configured'}`} />
-          <span>{hasExistingConfig ? 'Configured' : 'Not configured'}</span>
-        </div>
-      </div>
+    <SettingsSection
+      title="Email Notifications"
+      description="SMTP server used to send email notifications and reports. Common providers: Gmail (smtp.gmail.com:587), Office 365 (smtp.office365.com:587), SendGrid (smtp.sendgrid.net:587)."
+      actions={
+        <span className={hasExistingConfig ? 'settings-badge settings-badge--success' : 'settings-badge'}>
+          {hasExistingConfig ? 'Configured' : 'Not configured'}
+        </span>
+      }
+    >
+      {testResult && <p className={testResult.success ? 'settings-success' : 'settings-error'}>{testResult.message}</p>}
+      {saveError && <p className="settings-error">{saveError}</p>}
+      {saveSuccess && <p className="settings-success">SMTP configuration saved.</p>}
 
-      {/* Status Messages */}
-      {testResult && (
-        <div className={`smtp-status ${testResult.success ? 'success' : 'error'}`}>
-          <span className="smtp-status-icon">
-            {testResult.success ? Icons.check : Icons.x}
-          </span>
-          <span>{testResult.message}</span>
-        </div>
-      )}
-
-      {saveError && (
-        <div className="smtp-status error">
-          <span className="smtp-status-icon">{Icons.x}</span>
-          <span>{saveError}</span>
-        </div>
-      )}
-
-      {saveSuccess && (
-        <div className="smtp-status success">
-          <span className="smtp-status-icon">{Icons.check}</span>
-          <span>SMTP configuration saved successfully</span>
-        </div>
-      )}
-
-      {/* Form */}
-      <div className="smtp-settings-form">
-        {/* Server Settings Row */}
-        <div className="smtp-form-row">
-          <div className="smtp-form-group">
+      <div className="settings-form">
+        <div className="settings-form-row">
+          <div className="form-group">
             <label htmlFor="smtp-host">SMTP Host</label>
-            <input
+            <input data-ai-fill="off" className="ns-input"
               id="smtp-host"
               type="text"
               value={host}
@@ -306,9 +245,9 @@ export default function SmtpSettingsSection({ onSaved }: SmtpSettingsSectionProp
               placeholder="smtp.example.com"
             />
           </div>
-          <div className="smtp-form-group" style={{ flex: '0 0 120px' }}>
+          <div className="form-group smtp-port">
             <label htmlFor="smtp-port">Port</label>
-            <input
+            <input className="ns-input"
               id="smtp-port"
               type="number"
               value={port}
@@ -317,18 +256,17 @@ export default function SmtpSettingsSection({ onSaved }: SmtpSettingsSectionProp
               max={65535}
             />
             <div className="smtp-port-presets">
-              <span className="smtp-port-preset" onClick={() => setPortPreset(587, true)}>587</span>
-              <span className="smtp-port-preset" onClick={() => setPortPreset(465, true)}>465</span>
-              <span className="smtp-port-preset" onClick={() => setPortPreset(25, false)}>25</span>
+              <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => setPortPreset(587, true)}>587</button>
+              <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => setPortPreset(465, true)}>465</button>
+              <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => setPortPreset(25, false)}>25</button>
             </div>
           </div>
         </div>
 
-        {/* Auth Settings Row */}
-        <div className="smtp-form-row">
-          <div className="smtp-form-group">
+        <div className="settings-form-row">
+          <div className="form-group">
             <label htmlFor="smtp-username">Username</label>
-            <input
+            <input data-ai-fill="off" className="ns-input"
               id="smtp-username"
               type="text"
               value={username}
@@ -336,7 +274,7 @@ export default function SmtpSettingsSection({ onSaved }: SmtpSettingsSectionProp
               placeholder="user@example.com"
             />
           </div>
-          <div className="smtp-form-group">
+          <div className="form-group">
             <label htmlFor="smtp-password">Password</label>
             <PasswordInput
               id="smtp-password"
@@ -345,16 +283,15 @@ export default function SmtpSettingsSection({ onSaved }: SmtpSettingsSectionProp
               placeholder={hasExistingPassword ? '(unchanged)' : 'Enter password'}
             />
             {hasExistingPassword && !password && (
-              <span className="smtp-password-hint">Leave blank to keep existing password</span>
+              <p className="form-hint">Leave blank to keep the existing password</p>
             )}
           </div>
         </div>
 
-        {/* From Settings Row */}
-        <div className="smtp-form-row">
-          <div className="smtp-form-group">
+        <div className="settings-form-row">
+          <div className="form-group">
             <label htmlFor="smtp-from-email">From Email</label>
-            <input
+            <input className="ns-input"
               id="smtp-from-email"
               type="email"
               value={fromEmail}
@@ -362,69 +299,43 @@ export default function SmtpSettingsSection({ onSaved }: SmtpSettingsSectionProp
               placeholder="noreply@example.com"
             />
           </div>
-          <div className="smtp-form-group">
+          <div className="form-group">
             <label htmlFor="smtp-from-name">From Name (optional)</label>
-            <input
+            <AITabInput
               id="smtp-from-name"
-              type="text"
               value={fromName}
               onChange={(e) => setFromName(e.target.value)}
               placeholder="NetStacks"
+              aiField="email sender display name"
+              aiPlaceholder="Display name shown as the sender of NetStacks notification emails"
+              onAIValue={setFromName}
             />
           </div>
         </div>
 
-        {/* TLS Checkbox */}
-        <div className="smtp-checkbox-group">
+        <label>
           <input
-            id="smtp-use-tls"
             type="checkbox"
             checked={useTls}
             onChange={(e) => setUseTls(e.target.checked)}
           />
-          <label htmlFor="smtp-use-tls">Use TLS (recommended)</label>
-        </div>
+          Use TLS (recommended)
+        </label>
 
-        {/* Actions */}
-        <div className="smtp-form-actions">
-          <button
-            className="smtp-btn smtp-btn-secondary"
-            onClick={handleTest}
-            disabled={testing || saving || deleting}
-          >
-            {testing ? Icons.loader : Icons.check}
-            <span>{testing ? 'Testing...' : 'Test Connection'}</span>
-          </button>
-          <button
-            className="smtp-btn smtp-btn-primary"
-            onClick={handleSave}
-            disabled={testing || saving || deleting}
-          >
-            {saving ? Icons.loader : Icons.check}
-            <span>{saving ? 'Saving...' : 'Save'}</span>
-          </button>
+        <div className="settings-form-actions">
           {hasExistingConfig && (
-            <button
-              className="smtp-btn smtp-btn-danger"
-              onClick={handleDelete}
-              disabled={testing || saving || deleting}
-            >
-              {deleting ? Icons.loader : Icons.x}
-              <span>{deleting ? 'Deleting...' : 'Delete'}</span>
+            <button className="ns-btn ns-btn--ghost ns-btn--danger" onClick={handleDelete} disabled={busy}>
+              {deleting ? 'Deleting...' : 'Delete'}
             </button>
           )}
+          <button className="ns-btn" onClick={handleTest} disabled={busy}>
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+          <button className="ns-btn ns-btn--primary" onClick={handleSave} disabled={busy}>
+            {saving ? 'Saving...' : 'Save'}
+          </button>
         </div>
       </div>
-
-      {/* Info */}
-      <div className="smtp-status info">
-        <span className="smtp-status-icon">{Icons.info}</span>
-        <span>
-          SMTP settings are used to send email notifications and reports.
-          Common providers: Gmail (smtp.gmail.com:587), Office 365 (smtp.office365.com:587),
-          SendGrid (smtp.sendgrid.net:587)
-        </span>
-      </div>
-    </div>
+    </SettingsSection>
   );
 }

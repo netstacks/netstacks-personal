@@ -1,10 +1,15 @@
+import AITabInput from './AITabInput'
 import { useState, useEffect, useCallback } from 'react'
 import { getClient } from '../api/client'
 import { showToast } from './Toast'
 import { confirmDialog } from './ConfirmDialog'
 import { PasswordInput } from './PasswordInput'
+import './GitAccountsSettingsTab.css'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter'
 interface GitAccountView {
   id: string
   name: string
@@ -164,288 +169,148 @@ export default function GitAccountsSettingsTab() {
   const providerLabel = (value: string) => PROVIDERS.find(p => p.value === value)?.label || value
 
   return (
-    <div className="settings-tab-content" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>Git Accounts</h3>
-        {!showForm && (
-          <button
-            style={{
-              padding: '4px 12px',
-              background: 'var(--color-accent)',
-              color: 'white',
-              border: 'none',
-              borderRadius: 4,
-              cursor: 'pointer',
-              fontSize: 12,
-              fontFamily: 'var(--font-family)',
-            }}
-            onClick={() => { setForm(emptyForm); setTestResult(null); setShowForm(true) }}
-          >
-            + Add Account
-          </button>
-        )}
-      </div>
-
+    <SettingsSection
+      title="Git Accounts"
+      description="Accounts workspaces use to clone and push. The default account is used unless a workspace picks another."
+      help={{
+        topic: 'git accounts',
+        prompt: `Help me connect git accounts to NetStacks workspaces. I have ${accounts.length} account(s)${accounts.length ? ` (${accounts.map(a => `${a.name}: ${a.provider}`).join(', ')})` : ''}. Explain which providers are supported (GitHub, GitLab, Bitbucket, self-hosted), what token scopes a personal access token needs, how the default account is used for clone/push in a workspace, and how to test the connection.`,
+      }}
+      actions={!showForm && (
+        <button
+          type="button"
+          className="ns-btn ns-btn--small"
+          onClick={() => { setForm(emptyForm); setTestResult(null); setShowForm(true) }}
+        >
+          + Add account
+        </button>
+      )}
+    >
       {showForm && (
-        <div style={{
-          background: 'var(--color-bg-secondary)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 16,
-        }}>
-          <h4 style={{ margin: '0 0 12px', fontSize: 13 }}>{form.id ? 'Edit Account' : 'Add Account'}</h4>
+        <div className="settings-form">
+          <h4 className="settings-form-title">{form.id ? 'Edit Account' : 'Add Account'}</h4>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Name</label>
-              <input
-                style={{
-                  width: '100%',
-                  padding: '6px 8px',
-                  background: 'var(--color-bg-primary)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 4,
-                  color: 'var(--color-text-primary)',
-                  fontSize: 13,
-                  fontFamily: 'var(--font-family)',
-                }}
-                placeholder="e.g. Personal GitHub"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          <div className="form-group">
+            <label htmlFor="git-account-name">Name</label>
+            <AITabInput
+              id="git-account-name"
+              placeholder="e.g. Personal GitHub"
+              value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              aiField="git account name"
+              aiPlaceholder="Short label for this git hosting account"
+              aiContext={{ provider: form.provider, host: form.host }}
+              onAIValue={(v) => setForm(f => ({ ...f, name: v }))}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="git-account-provider">Provider</label>
+            <select
+              id="git-account-provider"
+              className="ns-select"
+              value={form.provider}
+              onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}
+            >
+              {PROVIDERS.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {NEEDS_HOST.has(form.provider) && (
+            <div className="form-group">
+              <label htmlFor="git-account-host">Host URL</label>
+              <input data-ai-fill="off"
+                id="git-account-host"
+                className="ns-input"
+                placeholder="https://ghe.corp.net"
+                value={form.host}
+                onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
               />
             </div>
+          )}
 
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Provider</label>
-              <select
-                style={{
-                  width: '100%',
-                  padding: '6px 8px',
-                  background: 'var(--color-bg-primary)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 4,
-                  color: 'var(--color-text-primary)',
-                  fontSize: 13,
-                  fontFamily: 'var(--font-family)',
-                }}
-                value={form.provider}
-                onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}
-              >
-                {PROVIDERS.map(p => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-            </div>
+          <div className="form-group">
+            <label htmlFor="git-account-token">Personal Access Token</label>
+            <PasswordInput
+              id="git-account-token"
+              className="git-accounts-token"
+              placeholder={form.id ? '(unchanged)' : 'ghp_...'}
+              value={form.credential}
+              onChange={e => setForm(f => ({ ...f, credential: e.target.value }))}
+            />
+          </div>
 
-            {NEEDS_HOST.has(form.provider) && (
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Host URL</label>
-                <input
-                  style={{
-                    width: '100%',
-                    padding: '6px 8px',
-                    background: 'var(--color-bg-primary)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 4,
-                    color: 'var(--color-text-primary)',
-                    fontSize: 13,
-                    fontFamily: 'var(--font-family)',
-                  }}
-                  placeholder="https://ghe.corp.net"
-                  value={form.host}
-                  onChange={e => setForm(f => ({ ...f, host: e.target.value }))}
-                />
-              </div>
-            )}
+          <label>
+            <input
+              type="checkbox"
+              checked={form.is_default}
+              onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))}
+            />
+            Set as default account
+          </label>
 
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>
-                Personal Access Token
-              </label>
-              <PasswordInput
-                style={{
-                  padding: '6px 8px',
-                  background: 'var(--color-bg-primary)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 4,
-                  color: 'var(--color-text-primary)',
-                  fontSize: 13,
-                  fontFamily: 'var(--font-family-mono)',
-                }}
-                placeholder={form.id ? '(unchanged)' : 'ghp_...'}
-                value={form.credential}
-                onChange={e => setForm(f => ({ ...f, credential: e.target.value }))}
-              />
-            </div>
+          {testResult && (
+            <p className={testResult.connected ? 'settings-success' : 'settings-error'}>
+              {testResult.connected
+                ? `Connected as ${testResult.username}`
+                : `Connection failed: ${testResult.error}`}
+            </p>
+          )}
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={form.is_default}
-                onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))}
-              />
-              Set as default account
-            </label>
-
-            {testResult && (
-              <div style={{
-                padding: '6px 10px',
-                borderRadius: 4,
-                fontSize: 12,
-                background: testResult.connected ? 'rgba(46,160,67,0.1)' : 'rgba(248,81,73,0.1)',
-                color: testResult.connected ? 'var(--color-success)' : 'var(--color-error)',
-                border: `1px solid ${testResult.connected ? 'var(--color-success)' : 'var(--color-error)'}`,
-              }}>
-                {testResult.connected
-                  ? `Connected as ${testResult.username}`
-                  : `Connection failed: ${testResult.error}`}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <DialogFooter
+            primary={{ label: form.id ? 'Update' : 'Add', onClick: handleSave, disabled: !form.name.trim() }}
+            onCancel={() => { setShowForm(false); setForm(emptyForm); setTestResult(null) }}
+            leading={
               <button
-                style={{
-                  padding: '6px 12px',
-                  background: 'none',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 4,
-                  color: 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontFamily: 'var(--font-family)',
-                }}
+                type="button"
+                className="ns-btn"
                 onClick={handleTestConnection}
                 disabled={testing || !form.credential}
               >
                 {testing ? 'Testing...' : 'Test Connection'}
               </button>
-              <div style={{ flex: 1 }} />
-              <button
-                style={{
-                  padding: '6px 12px',
-                  background: 'none',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 4,
-                  color: 'var(--color-text-primary)',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontFamily: 'var(--font-family)',
-                }}
-                onClick={() => { setShowForm(false); setForm(emptyForm); setTestResult(null) }}
-              >
-                Cancel
-              </button>
-              <button
-                style={{
-                  padding: '6px 12px',
-                  background: 'var(--color-accent)',
-                  border: 'none',
-                  borderRadius: 4,
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontFamily: 'var(--font-family)',
-                }}
-                onClick={handleSave}
-                disabled={!form.name.trim()}
-              >
-                {form.id ? 'Update' : 'Add'}
-              </button>
-            </div>
-          </div>
+            }
+            inline
+          />
         </div>
       )}
 
       {loading ? (
-        <div style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>Loading...</div>
+        <p className="form-hint">Loading…</p>
       ) : loadError && accounts.length === 0 ? (
-        <div style={{ color: 'var(--color-error)', fontSize: 12, textAlign: 'center', padding: 32 }}>
-          Couldn't load Git accounts: {loadError}
-          <div style={{ marginTop: 8 }}>
-            <button
-              style={{
-                padding: '2px 8px',
-                background: 'none',
-                border: '1px solid var(--color-border)',
-                borderRadius: 4,
-                color: 'var(--color-text-secondary)',
-                cursor: 'pointer',
-                fontSize: 11,
-                fontFamily: 'var(--font-family)',
-              }}
-              onClick={() => { setLoading(true); void fetchAccounts() }}
-            >
-              Retry
-            </button>
-          </div>
-        </div>
+        <p className="settings-error">
+          Couldn't load Git accounts: {loadError}{' '}
+          <button
+            type="button"
+            className="ns-btn ns-btn--small"
+            onClick={() => { setLoading(true); void fetchAccounts() }}
+          >
+            Retry
+          </button>
+        </p>
       ) : accounts.length === 0 && !showForm ? (
-        <div style={{ color: 'var(--color-text-secondary)', fontSize: 12, textAlign: 'center', padding: 32 }}>
-          No git accounts configured. Click "+ Add Account" to get started.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <p className="form-hint">No git accounts yet.</p>
+      ) : accounts.length > 0 && (
+        <div className="settings-group">
           {accounts.map(account => (
-            <div
+            <SettingsItem
               key={account.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '8px 12px',
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 6,
-              }}
-            >
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: account.has_credential ? 'var(--color-success)' : 'var(--color-text-secondary)' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>
-                  {account.name}
-                  {account.is_default && (
-                    <span style={{ fontSize: 10, color: 'var(--color-accent)', marginLeft: 6 }}>DEFAULT</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                  {providerLabel(account.provider)}
-                  {account.host && ` — ${account.host}`}
-                </div>
-              </div>
-              <button
-                style={{
-                  padding: '2px 8px',
-                  background: 'none',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 4,
-                  color: 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontFamily: 'var(--font-family)',
-                }}
-                onClick={() => handleEdit(account)}
-              >
-                Edit
-              </button>
-              <button
-                style={{
-                  padding: '2px 8px',
-                  background: 'none',
-                  border: '1px solid var(--color-error)',
-                  borderRadius: 4,
-                  color: 'var(--color-error)',
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontFamily: 'var(--font-family)',
-                }}
-                onClick={() => handleDelete(account.id)}
-              >
-                Delete
-              </button>
-            </div>
+              leading={<span className={`settings-status-dot${account.has_credential ? ' settings-status-dot--ok' : ''}`} role="img" aria-label={account.has_credential ? 'Token stored' : 'No token'} />}
+              title={account.name}
+              badges={account.is_default && <span className="settings-badge settings-badge--accent">default</span>}
+              meta={<span>{providerLabel(account.provider)}{account.host && ` — ${account.host}`}</span>}
+              actions={
+                <>
+                  <button type="button" className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleEdit(account)}>Edit</button>
+                  <button type="button" className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(account.id)}>Delete</button>
+                </>
+              }
+            />
           ))}
         </div>
       )}
-    </div>
+    </SettingsSection>
   )
 }

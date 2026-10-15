@@ -20,6 +20,8 @@ import { useMode } from '../hooks/useMode';
 import { useAuthStore } from '../stores/authStore';
 
 import { getErrorMessage } from '../api/errors'
+import ModalFrame from './ModalFrame';
+import './HostKeyPromptModal.css'
 /** Server-side prompt timeout (matches `approvals::PROMPT_TIMEOUT`). */
 const PROMPT_TIMEOUT_SECS = 120;
 
@@ -117,63 +119,18 @@ export default function HostKeyPromptModal() {
 
   if (!prompt) return null;
 
-  const overlayStyle: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0, 0, 0, 0.7)',
-    zIndex: 10000,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  };
-
-  const cardStyle: React.CSSProperties = {
-    background: '#1f2937',
-    color: '#f3f4f6',
-    border: prompt.is_changed_key ? '2px solid #dc2626' : '1px solid #374151',
-    borderRadius: 8,
-    padding: 24,
-    maxWidth: 560,
-    width: '90%',
-    fontFamily: 'system-ui, sans-serif',
-    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
-  };
-
-  const fingerprintStyle: React.CSSProperties = {
-    fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", monospace',
-    fontSize: '13px',
-    background: '#111827',
-    padding: '8px 12px',
-    borderRadius: 4,
-    border: '1px solid #374151',
-    wordBreak: 'break-all',
-  };
-
-  const buttonStyle = (variant: 'danger' | 'primary' | 'ghost'): React.CSSProperties => ({
-    padding: '8px 16px',
-    borderRadius: 4,
-    cursor: busy ? 'not-allowed' : 'pointer',
-    fontSize: '14px',
-    fontWeight: 500,
-    opacity: busy ? 0.6 : 1,
-    background:
-      variant === 'danger' ? '#dc2626' :
-      variant === 'primary' ? '#16a34a' :
-      'transparent',
-    color: variant === 'ghost' ? '#9ca3af' : '#fff',
-    border: variant === 'ghost' ? '1px solid #4b5563' : 'none',
-  });
-
   return (
-    <div style={overlayStyle} role="alertdialog" aria-modal="true">
-      <div style={cardStyle}>
-        <h2 style={{ margin: '0 0 8px', fontSize: '18px' }}>
+    <ModalFrame id="host-key-prompt" layer="gate" role="alertdialog" className={`dialog host-key-prompt${prompt.is_changed_key ? ' changed' : ''}`} labelledBy="host-key-prompt-title">
+      <div className="dialog-header">
+        <h2 id="host-key-prompt-title">
           {prompt.is_changed_key
             ? '⚠ SSH host key has CHANGED'
             : '🔑 Confirm SSH host key'}
         </h2>
+      </div>
 
-        <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#d1d5db' }}>
+      <div className="dialog-content host-key-prompt-content">
+        <p>
           {prompt.is_changed_key ? (
             <>
               The remote host <strong>{prompt.host}:{prompt.port}</strong> presented
@@ -193,44 +150,37 @@ export default function HostKeyPromptModal() {
         </p>
 
         {prompt.is_changed_key && prompt.previous_fingerprint && (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: 4 }}>
-              Previously-trusted key:
-            </div>
-            <div style={fingerprintStyle}>{prompt.previous_fingerprint}</div>
+          <div className="form-group">
+            <span className="form-hint">Previously-trusted key:</span>
+            <div className="host-key-prompt-fingerprint">{prompt.previous_fingerprint}</div>
           </div>
         )}
 
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: 4 }}>
-            Key the host just presented:
-          </div>
-          <div style={fingerprintStyle}>{prompt.fingerprint}</div>
+        <div className="form-group">
+          <span className="form-hint">Key the host just presented:</span>
+          <div className="host-key-prompt-fingerprint">{prompt.fingerprint}</div>
         </div>
 
-        <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: 16 }}>
+        <p className="form-hint">
           Auto-rejects in <strong>{secondsRemaining}s</strong> if not resolved.
-        </div>
+        </p>
 
-        {error && (
-          <div style={{ color: '#fca5a5', fontSize: '12px', marginBottom: 12 }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={handleReject} disabled={busy} style={buttonStyle('ghost')}>
-            Reject
-          </button>
-          <button
-            onClick={handleApprove}
-            disabled={busy}
-            style={buttonStyle(prompt.is_changed_key ? 'danger' : 'primary')}
-          >
-            {busy ? 'Working…' : prompt.is_changed_key ? 'Trust New Key Anyway' : 'Trust This Key'}
-          </button>
-        </div>
+        {error && <div className="dialog-error">{error}</div>}
       </div>
-    </div>
+
+      <div className="dialog-actions">
+        <button type="button" className="ns-btn" onClick={handleReject} disabled={busy}>
+          Reject
+        </button>
+        <button
+          type="button"
+          className={`ns-btn ${prompt.is_changed_key ? 'ns-btn--danger' : 'ns-btn--primary'}`}
+          onClick={handleApprove}
+          disabled={busy}
+        >
+          {busy ? 'Working…' : prompt.is_changed_key ? 'Trust New Key Anyway' : 'Trust This Key'}
+        </button>
+      </div>
+    </ModalFrame>
   );
 }

@@ -13,6 +13,7 @@ import type { LayoutType } from '../lib/topologyLayout';
 import { useMultipleDropdowns } from '../hooks/useDropdown';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import './TopologyToolbar.css';
+import Tooltip from './Tooltip';
 
 /** Dropdown keys for the toolbar */
 const DROPDOWN_KEYS = ['device', 'shape', 'layers', 'export', 'enrich', 'layout'] as const;
@@ -247,11 +248,10 @@ function EnrichDropdown({
 
   return (
     <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('enrich')}>
-      <button
-        className={`toolbar-tool-btn toolbar-enrich-btn ${enrichmentRunning ? 'running' : ''} ${dropdown.isOpen('enrich') ? 'active' : ''}`}
+      <Tooltip label="Enrich topology devices with DNS, WHOIS, NetBox, and more"><button
+        className={`ns-btn ns-btn--ghost toolbar-enrich-btn ${enrichmentRunning ? 'running' : ''} ${dropdown.isOpen('enrich') ? 'active' : ''}`}
         onClick={() => !enrichmentRunning && dropdown.toggle('enrich')}
         disabled={enrichmentRunning}
-        title="Enrich topology devices with DNS, WHOIS, NetBox, and more"
       >
         {enrichmentRunning ? (
           <span className="toolbar-enrich-spinner" />
@@ -270,7 +270,7 @@ function EnrichDropdown({
             <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         )}
-      </button>
+      </button></Tooltip>
 
       {dropdown.isOpen('enrich') && (
         <div className="toolbar-dropdown toolbar-enrich-dropdown">
@@ -290,15 +290,14 @@ function EnrichDropdown({
           {/* Topology expansion section */}
           <div className="enrich-section">
             <div className="enrich-section-label">Topology</div>
-            <label className="enrich-check-item" title="Run SNMP LLDP/CDP discovery on each device with a profile and add any neighbors as new nodes (1 hop)">
+            <Tooltip label="Run SNMP LLDP/CDP discovery on each device with a profile and add any neighbors as new nodes (1 hop)"><label className="enrich-check-item">
               <input type="checkbox" checked={discoverNeighbors} onChange={() => setDiscoverNeighbors(!discoverNeighbors)} />
               <span>Discover neighbors (1 hop)</span>
-            </label>
-            <label
-              className="enrich-check-item"
-              title={selectedLibrenms.size === 0
+            </label></Tooltip>
+            <Tooltip label={selectedLibrenms.size === 0
                 ? 'Select a LibreNMS source above to enable port stats'
-                : 'Fetch per-port utilization/errors/speed from LibreNMS and colorize edges'}
+                : 'Fetch per-port utilization/errors/speed from LibreNMS and colorize edges'}><label
+              className="enrich-check-item"
             >
               <input
                 type="checkbox"
@@ -307,7 +306,7 @@ function EnrichDropdown({
                 onChange={() => setEnableLinkStats(!enableLinkStats)}
               />
               <span>Show port stats (LibreNMS)</span>
-            </label>
+            </label></Tooltip>
           </div>
 
           {/* Integrations section */}
@@ -369,7 +368,7 @@ function EnrichDropdown({
           <div className="enrich-dropdown-footer">
             <span className="enrich-device-count">{enrichableDeviceCount} devices</span>
             <button
-              className="enrich-run-btn"
+              className="ns-btn ns-btn--primary ns-btn--small"
               onClick={handleRun}
               disabled={enrichableDeviceCount === 0}
             >
@@ -444,11 +443,10 @@ export default function TopologyToolbar({
       {/* View Mode Toggle */}
       {onViewModeChange && (
         <>
-          <div className="toolbar-group view-toggle-group">
-            <button
-              className={`toolbar-view-btn ${viewMode === '2d' ? 'active' : ''}`}
+          <div className="toolbar-group ns-segmented">
+            <Tooltip label="2D View"><button
+              className={`ns-segment ${viewMode === '2d' ? 'active' : ''}`}
               onClick={() => onViewModeChange('2d')}
-              title="2D View"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                 <rect x="3" y="3" width="7" height="7" />
@@ -457,11 +455,10 @@ export default function TopologyToolbar({
                 <rect x="3" y="14" width="7" height="7" />
               </svg>
               <span>2D</span>
-            </button>
-            <button
-              className={`toolbar-view-btn ${viewMode === '3d' ? 'active' : ''}`}
+            </button></Tooltip>
+            <Tooltip label="3D View"><button
+              className={`ns-segment ${viewMode === '3d' ? 'active' : ''}`}
               onClick={() => onViewModeChange('3d')}
-              title="3D View"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
@@ -469,7 +466,7 @@ export default function TopologyToolbar({
                 <path d="M2 12l10 5 10-5" />
               </svg>
               <span>3D</span>
-            </button>
+            </button></Tooltip>
           </div>
           <div className="toolbar-divider" />
         </>
@@ -480,10 +477,10 @@ export default function TopologyToolbar({
         <>
           <div className="toolbar-group">
             <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('layout')}>
-              <button
-                className="toolbar-tool-btn has-dropdown"
+              <Tooltip label="Auto-layout"><button
+                className="ns-btn ns-btn--ghost has-dropdown"
                 onClick={() => dropdown.toggle('layout')}
-                title="Auto-layout"
+                aria-label="Auto-layout"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                   <circle cx="5" cy="6" r="2" />
@@ -494,7 +491,7 @@ export default function TopologyToolbar({
                 <svg className="dropdown-arrow" viewBox="0 0 12 12" width="8" height="8">
                   <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
                 </svg>
-              </button>
+              </button></Tooltip>
               {dropdown.isOpen('layout') && (
                 <div className="toolbar-dropdown">
                   {LAYOUTS.map(({ type, label }) => (
@@ -517,27 +514,27 @@ export default function TopologyToolbar({
       {/* Tool Selection Group */}
       <div className="toolbar-group">
         {/* Select Tool */}
-        <button
-          className={`toolbar-tool-btn ${currentTool === 'select' ? 'active' : ''}`}
+        <Tooltip label="Select (V)"><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${currentTool === 'select' ? 'active' : ''}`}
           onClick={() => onToolChange('select')}
-          title="Select (V)"
+          aria-label="Select (V)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <path d="M4 4l7 18 3-8 8-3L4 4z" />
           </svg>
-        </button>
+        </button></Tooltip>
 
         {/* Pan Tool */}
-        <button
-          className={`toolbar-tool-btn ${currentTool === 'pan' ? 'active' : ''}`}
+        <Tooltip label="Pan (H)"><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${currentTool === 'pan' ? 'active' : ''}`}
           onClick={() => onToolChange('pan')}
-          title="Pan (H)"
+          aria-label="Pan (H)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <path d="M18 11V6a2 2 0 00-2-2 2 2 0 00-2 2v0M14 10V4a2 2 0 00-2-2 2 2 0 00-2 2v2M10 10.5V6a2 2 0 00-2-2 2 2 0 00-2 2v8" />
             <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.9-5.5-2.3A3 3 0 016 18v-.5" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="toolbar-divider" />
@@ -546,10 +543,10 @@ export default function TopologyToolbar({
       <div className="toolbar-group">
         {/* Device Tool with Dropdown */}
         <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('device')}>
-          <button
-            className={`toolbar-tool-btn has-dropdown ${currentTool === 'device' ? 'active' : ''}`}
+          <Tooltip label="Device (D)"><button
+            className={`ns-btn ns-btn--ghost has-dropdown ${currentTool === 'device' ? 'active' : ''}`}
             onClick={() => dropdown.toggle('device')}
-            title="Device (D)"
+            aria-label="Device (D)"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <rect x="2" y="2" width="20" height="20" rx="2" />
@@ -559,7 +556,7 @@ export default function TopologyToolbar({
             <svg className="dropdown-arrow" viewBox="0 0 12 12" width="8" height="8">
               <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
-          </button>
+          </button></Tooltip>
           {dropdown.isOpen('device') && (
             <div className="toolbar-dropdown">
               {DEVICE_TYPES.map(({ type, label, icon }) => (
@@ -577,17 +574,17 @@ export default function TopologyToolbar({
         </div>
 
         {/* Connect Tool */}
-        <button
-          className={`toolbar-tool-btn ${currentTool === 'connect' ? 'active' : ''}`}
+        <Tooltip label="Connect (C)"><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${currentTool === 'connect' ? 'active' : ''}`}
           onClick={() => onToolChange('connect')}
-          title="Connect (C)"
+          aria-label="Connect (C)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <circle cx="5" cy="12" r="3" />
             <circle cx="19" cy="12" r="3" />
             <path d="M8 12h8" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="toolbar-divider" />
@@ -595,22 +592,22 @@ export default function TopologyToolbar({
       {/* Annotation Group */}
       <div className="toolbar-group">
         {/* Text Tool */}
-        <button
-          className={`toolbar-tool-btn ${currentTool === 'text' ? 'active' : ''}`}
+        <Tooltip label="Text (T)"><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${currentTool === 'text' ? 'active' : ''}`}
           onClick={() => onToolChange('text')}
-          title="Text (T)"
+          aria-label="Text (T)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <path d="M4 7V4h16v3M9 20h6M12 4v16" />
           </svg>
-        </button>
+        </button></Tooltip>
 
         {/* Shape Tool with Dropdown */}
         <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('shape')}>
-          <button
-            className={`toolbar-tool-btn has-dropdown ${currentTool === 'shape' ? 'active' : ''}`}
+          <Tooltip label="Shape (S)"><button
+            className={`ns-btn ns-btn--ghost has-dropdown ${currentTool === 'shape' ? 'active' : ''}`}
             onClick={() => dropdown.toggle('shape')}
-            title="Shape (S)"
+            aria-label="Shape (S)"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -618,7 +615,7 @@ export default function TopologyToolbar({
             <svg className="dropdown-arrow" viewBox="0 0 12 12" width="8" height="8">
               <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
-          </button>
+          </button></Tooltip>
           {dropdown.isOpen('shape') && (
             <div className="toolbar-dropdown">
               {SHAPE_TYPES.map(({ type, label }) => (
@@ -662,44 +659,44 @@ export default function TopologyToolbar({
         </div>
 
         {/* Line Tool */}
-        <button
-          className={`toolbar-tool-btn ${currentTool === 'line' ? 'active' : ''}`}
+        <Tooltip label="Line (L)"><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${currentTool === 'line' ? 'active' : ''}`}
           onClick={() => onToolChange('line')}
-          title="Line (L)"
+          aria-label="Line (L)"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <path d="M4 20L20 4" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="toolbar-divider" />
 
       {/* Undo/Redo Group */}
       <div className="toolbar-group">
-        <button
-          className="toolbar-tool-btn"
+        <Tooltip label="Undo" shortcut="Cmd+Z"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={onUndo}
           disabled={!canUndo}
-          title="Undo (Cmd+Z)"
+          aria-label="Undo"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <path d="M3 10h10a5 5 0 015 5v0a5 5 0 01-5 5H8" />
             <path d="M7 6l-4 4 4 4" />
           </svg>
-        </button>
+        </button></Tooltip>
 
-        <button
-          className="toolbar-tool-btn"
+        <Tooltip label="Redo" shortcut="Cmd+Shift+Z"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={onRedo}
           disabled={!canRedo}
-          title="Redo (Cmd+Shift+Z)"
+          aria-label="Redo"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <path d="M21 10H11a5 5 0 00-5 5v0a5 5 0 005 5h5" />
             <path d="M17 6l4 4-4 4" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Center hint area */}
@@ -728,11 +725,10 @@ export default function TopologyToolbar({
       <div className="toolbar-group toolbar-right-actions">
         {/* Discover Network Button (traceroute topologies only, professional+) */}
         {isTracerouteTopology && onDiscoverNetwork && hasIntegrations && (
-          <button
-            className="toolbar-tool-btn has-dropdown"
+          <Tooltip label="Discover neighbors for each hop along the traceroute path"><button
+            className="ns-btn ns-btn--ghost has-dropdown"
             onClick={onDiscoverNetwork}
             disabled={isDiscovering}
-            title="Discover neighbors for each hop along the traceroute path"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="16" height="16">
               <circle cx="12" cy="12" r="3" />
@@ -742,15 +738,14 @@ export default function TopologyToolbar({
             <span style={{ fontSize: '11px', marginLeft: '3px', whiteSpace: 'nowrap' }}>
               {isDiscovering ? 'Discovering...' : 'Discover'}
             </span>
-          </button>
+          </button></Tooltip>
         )}
 
         {/* Live SNMP Toggle (professional+) */}
         {onToggleLive && liveAvailable && hasIntegrations && (
-          <button
-            className={`toolbar-tool-btn toolbar-live-btn ${isLive ? 'active' : ''}`}
+          <Tooltip label={isLive ? 'Stop live SNMP polling' : 'Start live SNMP polling'}><button
+            className={`ns-btn ns-btn--ghost toolbar-live-btn ${isLive ? 'active' : ''}`}
             onClick={onToggleLive}
-            title={isLive ? 'Stop live SNMP polling' : 'Start live SNMP polling'}
           >
             {isLive && <span className="toolbar-live-dot" />}
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
@@ -761,7 +756,7 @@ export default function TopologyToolbar({
               <circle cx="12" cy="12" r="2" fill="currentColor" />
             </svg>
             <span className="toolbar-live-label">Live</span>
-          </button>
+          </button></Tooltip>
         )}
 
         {/* Enrich Button with Dropdown (professional+) */}
@@ -777,10 +772,10 @@ export default function TopologyToolbar({
 
         {/* Layers Dropdown */}
         <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('layers')}>
-          <button
-            className="toolbar-tool-btn has-dropdown"
+          <Tooltip label="Layers"><button
+            className="ns-btn ns-btn--ghost has-dropdown"
             onClick={() => dropdown.toggle('layers')}
-            title="Layers"
+            aria-label="Layers"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
@@ -790,7 +785,7 @@ export default function TopologyToolbar({
             <svg className="dropdown-arrow" viewBox="0 0 12 12" width="8" height="8">
               <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
-          </button>
+          </button></Tooltip>
           {dropdown.isOpen('layers') && (
             <div className="toolbar-dropdown layers-dropdown">
               {LAYERS.map(({ key, label }) => (
@@ -843,27 +838,27 @@ export default function TopologyToolbar({
 
         {/* Save Topology Button (for temporary topologies) */}
         {onSaveTopology && (
-          <button
-            className={`toolbar-tool-btn save-topology-btn ${savingTopology ? 'saving' : ''}`}
+          <Tooltip label="Save topology to database"><button
+            className={`ns-btn ns-btn--ghost ns-icon-btn save-topology-btn ${savingTopology ? 'saving' : ''}`}
             onClick={onSaveTopology}
             disabled={savingTopology}
-            title="Save topology to database"
+            aria-label="Save topology to database"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />
               <polyline points="7 3 7 8 15 8" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
 
         {/* Export to Docs Button */}
         {onSaveToDocs && (
-          <button
-            className={`toolbar-tool-btn save-docs-btn ${savingToDocs ? 'saving' : ''}`}
+          <Tooltip label="Export snapshot to Docs"><button
+            className={`ns-btn ns-btn--ghost ns-icon-btn save-docs-btn ${savingToDocs ? 'saving' : ''}`}
             onClick={onSaveToDocs}
             disabled={savingToDocs}
-            title="Export snapshot to Docs"
+            aria-label="Export snapshot to Docs"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -871,15 +866,15 @@ export default function TopologyToolbar({
               <line x1="16" y1="13" x2="8" y2="13" />
               <line x1="16" y1="17" x2="8" y2="17" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
 
         {/* Export Dropdown */}
         <div className="toolbar-dropdown-wrapper" ref={dropdown.getRef('export')}>
-          <button
-            className="toolbar-tool-btn has-dropdown"
+          <Tooltip label="Export"><button
+            className="ns-btn ns-btn--ghost has-dropdown"
             onClick={() => dropdown.toggle('export')}
-            title="Export"
+            aria-label="Export"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -889,7 +884,7 @@ export default function TopologyToolbar({
             <svg className="dropdown-arrow" viewBox="0 0 12 12" width="8" height="8">
               <path d="M3 5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
-          </button>
+          </button></Tooltip>
           {dropdown.isOpen('export') && (
             <div className="toolbar-dropdown export-dropdown">
               <button className="dropdown-item" onClick={() => handleExportSelect('png')}>

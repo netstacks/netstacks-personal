@@ -41,6 +41,11 @@ import { TOAST_DURATION } from '../constants/toast';
 
 import { logger } from '../lib/logger'
 import { useQuickPromptsStore } from '../stores/quickPrompts'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import SettingsSection from './settings/SettingsSection';
+import SettingsItem from './settings/SettingsItem';
+import ModalFrame from './ModalFrame';
 type SystemKey =
   | 'autopilot'
   | 'overlord'
@@ -387,124 +392,84 @@ export default function PromptsSettingsTab() {
   const renderSystemPromptItem = (key: SystemKey) => {
     const meta = SYSTEM_PROMPT_META[key];
     const value = getPromptValue(key);
-    const isWorkspaceInit = key === 'workspaceInit';
+    const effective = (value || meta.default).replace(/\s+/g, ' ').trim();
 
     return (
-      <div key={key} className="prompt-item">
-        <div className="prompt-item-header">
-          <span className="prompt-item-icon">{'\u{1F916}'}</span>
-          <span className="prompt-item-name">{(key === 'autopilot' || key === 'overlord') ? modeNames[key] : meta.label}</span>
-          <div className="prompt-item-actions">
-            <button onClick={() => handleEditSystem(key)} title="Edit">{'\u270E'}</button>
-            <button
-              onClick={() => handleResetSystem(key)}
-              title="Reset to default"
-              disabled={!value}
-            >
-              {'\u21BA'}
+      <SettingsItem
+        key={key}
+        title={(key === 'autopilot' || key === 'overlord') ? modeNames[key] : meta.label}
+        badges={!value && <span className="settings-badge">default</span>}
+        meta={<span className="prompts-preview">{effective}</span>}
+        actions={
+          <>
+            <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleEditSystem(key)}>Edit</button>
+            <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleResetSystem(key)} disabled={!value}>
+              Reset
             </button>
-            {isWorkspaceInit && (
-              <button
-                onClick={() => handleCopyToClipboard(key)}
-                title="Copy to clipboard"
-              >
-                {'\u{1F4CB}'}
-              </button>
+            {key === 'workspaceInit' && (
+              <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleCopyToClipboard(key)}>Copy</button>
             )}
-          </div>
-        </div>
-        <div className="prompt-item-preview">
-          {(() => {
-            const effective = (value || meta.default).replace(/\s+/g, ' ').trim();
-            const preview = effective.length > 100 ? effective.slice(0, 100) + '…' : effective;
-            return value ? preview : `Default · ${preview}`;
-          })()}
-        </div>
-      </div>
+          </>
+        }
+      />
     );
   };
 
-  return (
-    <div className="prompts-settings">
-      {/* System Prompts Section */}
-      <div className="prompts-section">
-        <div className="prompts-section-header">
-          <span className="prompts-section-title">System Prompts</span>
-        </div>
-        <p className="prompts-section-description">
-          These control how the AI behaves in different contexts.
-        </p>
+  const renderUserPrompt = (prompt: QuickPrompt) => (
+    <SettingsItem
+      key={prompt.id}
+      leading={
+        <Tooltip label={prompt.is_favorite ? 'Remove from favorites' : 'Add to favorites'}><button
+          type="button"
+          className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small prompts-favorite"
+          aria-label={prompt.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+          aria-pressed={prompt.is_favorite}
+          onClick={() => handleToggleFavorite(prompt)}
+        >
+          {prompt.is_favorite ? '\u2605' : '\u2606'}
+        </button></Tooltip>
+      }
+      title={prompt.name}
+      meta={<span className="prompts-preview">{prompt.prompt}</span>}
+      actions={
+        <>
+          <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleEdit(prompt)}>Edit</button>
+          <button className="ns-btn ns-btn--ghost ns-btn--danger ns-btn--small" onClick={() => handleDelete(prompt.id)}>Delete</button>
+        </>
+      }
+    />
+  );
 
-        <div className="prompts-subsection-title">AI Modes</div>
-        <div className="prompts-list">
+  return (
+    <>
+      <SettingsSection title="AI Mode Prompts" description="The system prompt each AI mode starts from.">
+        <div className="settings-group">
           {MODE_KEYS.map(key => renderSystemPromptItem(key))}
         </div>
+      </SettingsSection>
 
-        <div className="prompts-subsection-title">Specialized Tasks</div>
-        <div className="prompts-list">
+      <SettingsSection title="Task Prompts" description="Prompts for specialized AI tasks such as discovery, topology, scripts and workspaces.">
+        <div className="settings-group">
           {TASK_KEYS.map(key => renderSystemPromptItem(key))}
         </div>
-      </div>
+      </SettingsSection>
 
-      {/* User Prompts Section */}
-      <div className="prompts-section">
-        <div className="prompts-section-header">
-          <span className="prompts-section-title">Your Prompts</span>
-          <button className="btn-new-prompt" onClick={handleCreateNew}>
-            + New Prompt
-          </button>
-        </div>
+      <SettingsSection
+        title="Your Prompts"
+        description="Saved prompts for common AI tasks; favorites appear first."
+        actions={<button className="ns-btn ns-btn--small" onClick={handleCreateNew}>+ New prompt</button>}
+      >
         {loading ? (
-          <p>Loading...</p>
+          <p className="form-hint">Loading…</p>
         ) : prompts.length === 0 ? (
-          <p className="prompts-section-description">
-            No custom prompts yet. Create one to quickly run common AI tasks.
-          </p>
+          <p className="form-hint">No custom prompts yet. Create one to quickly run common AI tasks.</p>
         ) : (
-          <div className="prompts-list">
-            {favorites.map(prompt => (
-              <div key={prompt.id} className="prompt-item">
-                <div className="prompt-item-header">
-                  <span
-                    className="prompt-item-icon"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => handleToggleFavorite(prompt)}
-                    title="Remove from favorites"
-                  >
-                    {'\u2605'}
-                  </span>
-                  <span className="prompt-item-name">{prompt.name}</span>
-                  <div className="prompt-item-actions">
-                    <button onClick={() => handleEdit(prompt)} title="Edit">{'\u270E'}</button>
-                    <button onClick={() => handleDelete(prompt.id)} title="Delete">{'\uD83D\uDDD1'}</button>
-                  </div>
-                </div>
-                <div className="prompt-item-preview">{prompt.prompt.substring(0, 60)}...</div>
-              </div>
-            ))}
-            {others.map(prompt => (
-              <div key={prompt.id} className="prompt-item">
-                <div className="prompt-item-header">
-                  <span
-                    className="prompt-item-icon"
-                    style={{ cursor: 'pointer', opacity: 0.3 }}
-                    onClick={() => handleToggleFavorite(prompt)}
-                    title="Add to favorites"
-                  >
-                    {'\u2606'}
-                  </span>
-                  <span className="prompt-item-name">{prompt.name}</span>
-                  <div className="prompt-item-actions">
-                    <button onClick={() => handleEdit(prompt)} title="Edit">{'\u270E'}</button>
-                    <button onClick={() => handleDelete(prompt.id)} title="Delete">{'\uD83D\uDDD1'}</button>
-                  </div>
-                </div>
-                <div className="prompt-item-preview">{prompt.prompt.substring(0, 60)}...</div>
-              </div>
-            ))}
+          <div className="settings-group">
+            {favorites.map(renderUserPrompt)}
+            {others.map(renderUserPrompt)}
           </div>
         )}
-      </div>
+      </SettingsSection>
 
       {/* Editor Modal */}
       {editor.isOpen && (
@@ -518,7 +483,7 @@ export default function PromptsSettingsTab() {
           onClose={handleCloseEditor}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -569,60 +534,50 @@ function PromptEditor({
   };
 
   return (
-    <div className="prompt-editor-overlay">
-      <div className="prompt-editor" onClick={e => e.stopPropagation()}>
-        <div className="prompt-editor-header">{title}</div>
-        <div className="prompt-editor-body">
-          {mode !== 'system' && (
-            <div className="prompt-editor-field">
-              <label>Name</label>
-              <AITabInput
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g., Check BGP Status"
-                autoFocus
-                aiField="prompt_name"
-                aiPlaceholder="Name for this custom prompt"
-                aiContext={{ prompt: text }}
-                onAIValue={(v) => setName(v)}
-              />
-            </div>
-          )}
+    <ModalFrame id="prompt-editor" className="prompt-editor" label="Prompt editor">
+      <div className="prompt-editor-header">{title}</div>
+      <div className="prompt-editor-body">
+        {mode !== 'system' && (
           <div className="prompt-editor-field">
-            <label>Prompt</label>
+            <label>Name</label>
             <AITabInput
-              as="textarea"
-              value={text}
-              onChange={e => setText(e.target.value)}
-              placeholder="Enter the prompt text..."
-              rows={mode === 'system' ? 20 : 8}
-              aiField="prompt_content"
-              aiPlaceholder="Custom prompt template"
-              aiContext={{ name }}
-              onAIValue={(v) => setText(v)}
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g., Check BGP Status"
+              autoFocus
+              aiField="prompt_name"
+              aiPlaceholder="Name for this custom prompt"
+              aiContext={{ prompt: text }}
+              onAIValue={(v) => setName(v)}
             />
           </div>
-          {mode !== 'system' && (
-            <div className="prompt-editor-checkbox">
-              <input
-                type="checkbox"
-                id="favorite"
-                checked={isFavorite}
-                onChange={e => setIsFavorite(e.target.checked)}
-              />
-              <span>Add to favorites</span>
-            </div>
-          )}
+        )}
+        <div className="prompt-editor-field">
+          <label>Prompt</label>
+          <AITabInput
+            as="textarea"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Enter the prompt text..."
+            rows={mode === 'system' ? 20 : 8}
+            aiField="prompt_content"
+            aiPlaceholder="Custom prompt template"
+            aiContext={{ name }}
+            onAIValue={(v) => setText(v)}
+          />
         </div>
-        <div className="prompt-editor-footer">
-          <button className="btn-cancel" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn-save" onClick={handleSave} disabled={!canSave}>
-            Save
-          </button>
-        </div>
+        {mode !== 'system' && (
+          <label className="prompt-editor-checkbox">
+            <input
+              type="checkbox"
+              checked={isFavorite}
+              onChange={e => setIsFavorite(e.target.checked)}
+            />
+            <span>Add to favorites</span>
+          </label>
+        )}
       </div>
-    </div>
+      <DialogFooter primary={{ label: 'Save', onClick: handleSave, disabled: !canSave }} onCancel={onClose} />
+    </ModalFrame>
   );
 }

@@ -10,7 +10,9 @@ import type { AgentMessage } from '../hooks/useAIAgent'
 import type { LiveContextDeps } from '../lib/aiLiveContext'
 import AIContextSummary from './AIContextSummary'
 import MarkdownViewer from './MarkdownViewer'
+import AIApprovalCard from './AIApprovalCard'
 import './AIInlinePopup.css'
+import Tooltip from './Tooltip'
 
 // Available session info for the agent
 interface AvailableSession {
@@ -123,15 +125,18 @@ const AIInlinePopup = ({
   const [isResizing, setIsResizing] = useState(false)
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 })
 
-  // Use unified AI agent hook with ALL tools (no singleTurn - allow continuation)
+  // Use unified AI agent hook with ALL tools (no singleTurn - allow continuation).
+  // Tool calls follow the Auto Pilot permission settings (the default agent type).
   const {
     messages,
     agentState,
     sendMessage,
     stopAgent,
     clearMessages,
+    pendingCommands,
+    approveCommands,
+    rejectCommands,
   } = useAIAgent({
-    permissionMode: 'auto',
     provider: selectedProvider || undefined,
     model: selectedModel,
     // Session/terminal tools (map availableSessions to sessions for hook)
@@ -235,8 +240,8 @@ const AIInlinePopup = ({
     })
   }, [])
 
-  // Reset state when closed. Stop FIRST — the popup runs in auto mode, so a
-  // loop left running would keep executing tool commands on the terminal.
+  // Reset state when closed. Stop FIRST — a loop left running would keep
+  // executing tool commands on the terminal.
   useEffect(() => {
     if (!isOpen) {
       stopAgent()
@@ -356,16 +361,16 @@ const AIInlinePopup = ({
         </span>
         <div className="ai-inline-popup-actions" onMouseDown={e => e.stopPropagation()}>
           {onContinueInPanel && messages.length > 0 && (
-            <button className="ai-inline-popup-expand" onClick={handleContinueInPanel} title="Continue in panel">
+            <Tooltip label="Continue in panel"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleContinueInPanel} aria-label="Continue in panel">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                 <polyline points="15 3 21 3 21 9" />
                 <polyline points="9 21 3 21 3 15" />
                 <line x1="21" y1="3" x2="14" y2="10" />
                 <line x1="3" y1="21" x2="10" y2="14" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
-          <button className="ai-inline-popup-close" onClick={onClose}>
+          <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -424,6 +429,7 @@ const AIInlinePopup = ({
           }
           return null
         })}
+        <AIApprovalCard pending={pendingCommands} onApprove={approveCommands} onReject={rejectCommands} />
         {isLoading && (
           <div className="ai-popup-message ai-popup-message-assistant">
             <div className="ai-inline-popup-loading">
@@ -453,7 +459,7 @@ const AIInlinePopup = ({
 
       {/* Input for follow-up messages */}
       <form className="ai-inline-popup-input-form" onSubmit={handleSubmit}>
-        <input
+        <input data-ai-fill="off"
           ref={inputRef}
           type="text"
           className="ai-inline-popup-input"
@@ -463,13 +469,13 @@ const AIInlinePopup = ({
           disabled={!providerInitialized || isLoading}
         />
         {isLoading ? (
-          <button type="button" className="ai-inline-popup-submit ai-stop-btn" onClick={stopAgent} title="Stop generating">
+          <Tooltip label="Stop generating"><button type="button" className="ai-inline-popup-submit ai-stop-btn" onClick={stopAgent} aria-label="Stop generating">
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
               <rect x="6" y="6" width="12" height="12" rx="2" />
             </svg>
-          </button>
+          </button></Tooltip>
         ) : (
-          <button type="submit" className="ai-inline-popup-submit" disabled={!providerInitialized || !input.trim()}>
+          <button type="submit" className="ai-inline-popup-submit" aria-label="Send" disabled={!providerInitialized || !input.trim()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
               <line x1="22" y1="2" x2="11" y2="13" />
               <polygon points="22 2 15 22 11 13 2 9 22 2" />

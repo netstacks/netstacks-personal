@@ -28,6 +28,7 @@ import DeviceSelector from './DeviceSelector';
 import ScriptParamsForm from './ScriptParamsForm';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 export interface ScriptEditorHandle {
   /** Get current script content */
   getContent: () => string;
@@ -254,7 +255,6 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
         savedScript = await createScript({
           name: nameRef.current,
           content: contentRef.current,
-          is_template: false,
         });
         setCurrentScriptId(savedScript.id);
       }
@@ -695,57 +695,51 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
           {saveStatus === 'saved' && <span className="status-saved">Saved</span>}
         </div>
         <div className="script-editor-actions">
-          <button
-            className={`script-editor-btn ${runConfigOpen ? 'active' : ''}`}
+          <Tooltip label="Run Configuration"><button
+            className={`ns-btn ns-btn--ghost ${runConfigOpen ? 'active' : ''}`}
             onClick={() => setRunConfigOpen(!runConfigOpen)}
-            title="Run Configuration"
           >
             {Icons.target}
             <span>Input</span>
             {selectedDeviceIds.length > 0 && (
               <span className="script-editor-device-badge">{selectedDeviceIds.length}</span>
             )}
-          </button>
-          <button
-            className="script-editor-btn"
+          </button></Tooltip>
+          <Tooltip label="Save" shortcut="Cmd+S"><button
+            className="ns-btn ns-btn--ghost"
             onClick={handleSave}
             disabled={saving}
-            title="Save (Cmd+S)"
           >
             {Icons.save}
             <span>Save</span>
-          </button>
+          </button></Tooltip>
           {/* AUDIT FIX (EXEC-014): user must approve AI-authored scripts
               before run. Approve replaces Run while approval is pending. */}
           {needsApproval ? (
-            <button
-              className="script-editor-btn primary"
+            <Tooltip label="Review the script content, then approve before running"><button
+              className="ns-btn ns-btn--primary"
               onClick={handleApprove}
               disabled={approving || !currentScriptId}
-              title="Review the script content, then approve before running"
-              style={{ background: '#b45309', borderColor: '#92400e' }}
             >
               {Icons.check}
               <span>{approving ? 'Approving...' : 'Approve to Run'}</span>
-            </button>
+            </button></Tooltip>
           ) : running ? (
-            <button
-              className="script-editor-btn danger"
+            <Tooltip label="Stop — closes the SSE stream and kills the Python process"><button
+              className="ns-btn ns-btn--danger"
               onClick={() => runAbortRef.current?.abort()}
-              title="Stop — closes the SSE stream and kills the Python process"
             >
               <span>Stop</span>
-            </button>
+            </button></Tooltip>
           ) : (
-            <button
-              className="script-editor-btn primary"
+            <Tooltip label="Run" shortcut="Cmd+Enter"><button
+              className="ns-btn ns-btn--primary"
               onClick={handleRun}
               disabled={running}
-              title="Run (Cmd+Enter)"
             >
               {Icons.play}
               <span>Run</span>
-            </button>
+            </button></Tooltip>
           )}
         </div>
       </div>
@@ -819,8 +813,9 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
                     </button>
                   )}
                 </div>
-                <textarea
-                  className={`run-config-textarea ${customInputError ? 'has-error' : ''}`}
+                <textarea data-ai-fill="off"
+                  className="ns-textarea run-config-textarea"
+                  aria-invalid={!!customInputError}
                   value={customInput}
                   onChange={(e) => setCustomInput(e.target.value)}
                   onBlur={handleCustomInputBlur}
@@ -836,17 +831,17 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
 
           <div className="run-config-section run-config-mode">
             <label className="run-config-label">Execution</label>
-            <div className="run-config-toggle">
+            <div className="ns-segmented">
               <button
                 type="button"
-                className={`run-config-mode-btn ${executionMode === 'parallel' ? 'active' : ''}`}
+                className={`ns-segment ${executionMode === 'parallel' ? 'active' : ''}`}
                 onClick={() => setExecutionMode('parallel')}
               >
                 Parallel
               </button>
               <button
                 type="button"
-                className={`run-config-mode-btn ${executionMode === 'sequential' ? 'active' : ''}`}
+                className={`ns-segment ${executionMode === 'sequential' ? 'active' : ''}`}
                 onClick={() => setExecutionMode('sequential')}
               >
                 Sequential
@@ -968,8 +963,8 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
             <span>Output</span>
             {output && outputSummary()}
             {output && (
-              <button
-                className="output-clear"
+              <Tooltip label="Export output"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={async (e) => {
                   e.stopPropagation();
                   // Build text from output
@@ -1007,21 +1002,21 @@ const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(function 
                     URL.revokeObjectURL(url);
                   }
                 }}
-                title="Export output"
+                aria-label="Export output"
               >
                 {Icons.export}
-              </button>
+              </button></Tooltip>
             )}
-            <button
-              className="output-clear"
+            <Tooltip label="Clear output"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 handleClearOutput();
               }}
-              title="Clear output"
+              aria-label="Clear output"
             >
               {Icons.clear}
-            </button>
+            </button></Tooltip>
           </div>
           {outputPanelOpen && (
             <div className="output-content">

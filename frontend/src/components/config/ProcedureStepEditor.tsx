@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AITabInput from '../AITabInput'
 import './ProcedureStepEditor.css'
+import Tooltip from '../Tooltip'
 
 export interface ProcedureStep {
   id: string
@@ -106,8 +107,8 @@ export default function ProcedureStepEditor({
 
         {/* API Action: dropdown */}
         {step.execution_source === 'quick_action' && (
-          <select
-            className="proc-step-command"
+          <select aria-label="API action"
+            className="ns-select proc-step-command"
             value={step.quick_action_id || ''}
             onChange={e => {
               const actionId = e.target.value
@@ -128,8 +129,8 @@ export default function ProcedureStepEditor({
 
         {/* Script: dropdown */}
         {step.execution_source === 'script' && (
-          <select
-            className="proc-step-command"
+          <select aria-label="Script"
+            className="ns-select proc-step-command"
             value={step.script_id || ''}
             onChange={e => {
               const scriptId = e.target.value
@@ -148,8 +149,8 @@ export default function ProcedureStepEditor({
           </select>
         )}
 
-        <select
-          className="proc-step-source"
+        <select aria-label="Execution source"
+          className="ns-select proc-step-source"
           value={step.execution_source}
           onChange={e => handleSourceChange(e.target.value)}
         >
@@ -157,17 +158,18 @@ export default function ProcedureStepEditor({
           <option value="quick_action">API Action</option>
           <option value="script">Script</option>
         </select>
-        <button
+        <Tooltip label={expanded ? 'Collapse' : 'Expand'}><button
           className={`proc-step-expand ${expanded ? 'open' : ''}`}
           onClick={() => setExpanded(!expanded)}
-          title={expanded ? 'Collapse' : 'Expand'}
+          aria-label={expanded ? 'Collapse' : 'Expand'}
+          aria-expanded={expanded}
         >
           {expanded ? '\u25BC' : '\u25B6'}
-        </button>
+        </button></Tooltip>
         <div className="proc-step-actions">
-          <button className="proc-step-btn" onClick={() => onMove('up')} disabled={index === 0} title="Move up">{'\u25B2'}</button>
-          <button className="proc-step-btn" onClick={() => onMove('down')} disabled={index === total - 1} title="Move down">{'\u25BC'}</button>
-          <button className="proc-step-btn proc-step-btn-remove" onClick={onRemove} title="Remove">{'\u2715'}</button>
+          <Tooltip label="Move up"><button aria-label="Move up" className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => onMove('up')} disabled={index === 0}>{'\u25B2'}</button></Tooltip>
+          <Tooltip label="Move down"><button aria-label="Move down" className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => onMove('down')} disabled={index === total - 1}>{'\u25BC'}</button></Tooltip>
+          <Tooltip label="Remove"><button aria-label="Remove" className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn" onClick={onRemove}>{'\u2715'}</button></Tooltip>
         </div>
       </div>
 
@@ -195,10 +197,15 @@ export default function ProcedureStepEditor({
           </div>
           <div className="proc-step-field">
             <label>Expected Output</label>
-            <input
+            <AITabInput
+              aria-label="Expected output"
               value={step.expected_output}
               onChange={e => update('expected_output', e.target.value)}
               placeholder="CONTAINS: pattern  or  REGEX: ^pattern$"
+              aiField="expected output check"
+              aiPlaceholder="CONTAINS: text or REGEX: pattern that the step's command output must satisfy"
+              aiContext={{ command: step.command, description: step.description }}
+              onAIValue={(v) => update('expected_output', v)}
             />
           </div>
           <div className="proc-step-field-row">

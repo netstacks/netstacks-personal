@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { installPlugin, deletePlugin, updatePlugin, type LspPluginListItem, type InstallEvent, subscribeToInstallProgress } from '../../lsp/installationApi';
 import { showToast } from '../Toast';
 import { confirmDialog } from '../ConfirmDialog';
+import SettingsItem from './SettingsItem';
 
 interface Props {
   plugin: LspPluginListItem;
@@ -83,33 +84,36 @@ export function LspPluginRow({ plugin, onChanged, onEdit }: Props) {
     }
   };
 
+  const status = isUnavailable
+    ? <span className="settings-badge settings-badge--danger">Unavailable in Enterprise Mode</span>
+    : isInstalling
+      ? <span className="settings-badge settings-badge--accent">Installing… {installPhase}</span>
+      : <span className={plugin.installStatus === 'installed' ? 'settings-badge settings-badge--success' : 'settings-badge'}>{plugin.installStatus}</span>;
+
   return (
-    <div className="lsp-plugin-row">
-      <div className="lsp-plugin-row__info">
-        <strong>{plugin.displayName}</strong>
-        <span className="lsp-plugin-row__meta">
-          {plugin.language} · {plugin.fileExtensions.join(', ')}
-        </span>
-      </div>
-      <div className="lsp-plugin-row__status">
-        {isUnavailable && <span className="status-badge unavailable">Unavailable in Enterprise Mode</span>}
-        {isInstalling && <span className="status-badge installing">Installing… {installPhase}</span>}
-        {!isUnavailable && !isInstalling && (
-          <span className={`status-badge ${plugin.installStatus}`}>{plugin.installStatus}</span>
-        )}
-      </div>
-      <div className="lsp-plugin-row__actions">
-        {!isInstalled && !isUnavailable && !isInstalling && plugin.installation.kind === 'on-demand-download' && (
-          <button disabled={busy} onClick={handleInstall}>Install</button>
-        )}
-        {isInstalled && (
-          <button disabled={busy} onClick={handleUninstall}>{isBuiltIn ? 'Uninstall' : 'Remove'}</button>
-        )}
-        <button disabled={busy} onClick={onEdit}>Edit</button>
-        <button disabled={busy} onClick={handleToggleEnabled}>
-          {plugin.defaultEnabled ? 'Disable' : 'Enable'}
-        </button>
-      </div>
-    </div>
+    <SettingsItem
+      title={plugin.displayName}
+      badges={
+        <>
+          {!isBuiltIn && <span className="settings-badge">custom</span>}
+          {status}
+        </>
+      }
+      meta={<span>{plugin.language} · {plugin.fileExtensions.join(', ')}</span>}
+      actions={
+        <>
+          {!isInstalled && !isUnavailable && !isInstalling && plugin.installation.kind === 'on-demand-download' && (
+            <button className="ns-btn ns-btn--small ns-btn--primary" disabled={busy} onClick={handleInstall}>Install</button>
+          )}
+          {isInstalled && (
+            <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" disabled={busy} onClick={handleUninstall}>{isBuiltIn ? 'Uninstall' : 'Remove'}</button>
+          )}
+          <button className="ns-btn ns-btn--small ns-btn--ghost" disabled={busy} onClick={onEdit}>Edit</button>
+          <button className="ns-btn ns-btn--small ns-btn--ghost" disabled={busy} onClick={handleToggleEnabled}>
+            {plugin.defaultEnabled ? 'Disable' : 'Enable'}
+          </button>
+        </>
+      }
+    />
   );
 }

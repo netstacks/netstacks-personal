@@ -1,3 +1,4 @@
+import ModalFrame from '../ModalFrame';
 import './IdleWarningDialog.css';
 
 interface IdleWarningDialogProps {
@@ -18,21 +19,19 @@ export function IdleWarningDialog({
   onStaySignedIn,
 }: IdleWarningDialogProps) {
   return (
-    <div className="idle-warning-overlay">
-      <div className="idle-warning-card">
-        <div className="idle-warning-icon">⚠️</div>
-        <h2 className="idle-warning-title">Session Expiring</h2>
-        <p className="idle-warning-message">
-          Your session will expire due to inactivity.
-        </p>
-        <p className="idle-warning-countdown">
-          Logging out in <strong>{secondsRemaining}</strong> seconds
-        </p>
-        <button className="idle-warning-button" onClick={onStaySignedIn}>
-          Stay Signed In
-        </button>
-      </div>
-    </div>
+    <ModalFrame id="idle-warning" layer="gate" role="alertdialog" resizable={false} className="idle-warning-card" label="Session about to expire">
+      <div className="idle-warning-icon">⚠️</div>
+      <h2 className="idle-warning-title">Session Expiring</h2>
+      <p className="idle-warning-message">
+        Your session will expire due to inactivity.
+      </p>
+      <p className="idle-warning-countdown">
+        Logging out in <strong>{secondsRemaining}</strong> seconds
+      </p>
+      <button className="ns-btn ns-btn--primary" onClick={onStaySignedIn}>
+        Stay Signed In
+      </button>
+    </ModalFrame>
   );
 }
 

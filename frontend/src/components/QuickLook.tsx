@@ -6,6 +6,7 @@ import JinjaViewer from './JinjaViewer';
 import type { Document, DocumentCategory } from '../api/docs';
 import { showToast } from './Toast';
 import { getErrorMessage } from '../api/errors';
+import Tooltip from './Tooltip';
 
 // Icons
 const Icons = {
@@ -169,7 +170,7 @@ export default function QuickLook({
     if (isEditing) {
       return (
         <div className="quicklook-edit">
-          <textarea
+          <textarea data-ai-fill="off" aria-label="Content"
             className="quicklook-edit-textarea"
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
@@ -220,21 +221,20 @@ export default function QuickLook({
           </div>
           <div className="quicklook-header-actions">
             {document && isEditable && (
-              <button
-                className={`quicklook-header-btn ${isEditing ? 'active' : ''}`}
+              <Tooltip label={isEditing ? 'Cancel Edit' : 'Quick Edit'}><button aria-label={isEditing ? 'Cancel Edit' : 'Quick Edit'}
+                className={`ns-btn ns-btn--ghost ns-icon-btn quicklook-header-btn ${isEditing ? 'active' : ''}`}
                 onClick={handleEditToggle}
-                title={isEditing ? 'Cancel Edit' : 'Quick Edit'}
               >
                 {isEditing ? Icons.cancel : Icons.edit}
-              </button>
+              </button></Tooltip>
             )}
-            <button
-              className="quicklook-header-btn quicklook-close-btn"
+            <Tooltip label="Close (Esc)"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn quicklook-header-btn"
               onClick={onClose}
-              title="Close (Esc)"
+              aria-label="Close (Esc)"
             >
               {Icons.close}
-            </button>
+            </button></Tooltip>
           </div>
         </div>
 
@@ -248,34 +248,31 @@ export default function QuickLook({
           <div className="quicklook-footer">
             {isEditing ? (
               <>
-                <button
-                  className="quicklook-btn quicklook-btn-primary"
+                <Tooltip label="Save changes"><button
+                  className="ns-btn quicklook-btn ns-btn--primary"
                   onClick={handleSave}
                   disabled={isSaving}
-                  title="Save changes"
                 >
                   {Icons.save}
                   <span>{isSaving ? 'Saving...' : 'Save'}</span>
-                </button>
-                <button
-                  className="quicklook-btn"
+                </button></Tooltip>
+                <Tooltip label="Cancel editing"><button
+                  className="ns-btn quicklook-btn"
                   onClick={handleEditToggle}
                   disabled={isSaving}
-                  title="Cancel editing"
                 >
                   {Icons.cancel}
                   <span>Cancel</span>
-                </button>
+                </button></Tooltip>
               </>
             ) : (
-              <button
-                className="quicklook-btn quicklook-btn-primary"
+              <Tooltip label="Open in Tab"><button
+                className="ns-btn quicklook-btn ns-btn--primary"
                 onClick={handleOpenInTab}
-                title="Open in Tab"
               >
                 {Icons.openInTab}
                 <span>Open in Tab</span>
-              </button>
+              </button></Tooltip>
             )}
           </div>
         )}

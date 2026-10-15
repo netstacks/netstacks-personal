@@ -9,6 +9,7 @@ import WorkspaceMarkdownPreview from './WorkspaceMarkdownPreview'
 import ContextMenu from '../ContextMenu'
 import type { MenuItem } from '../ContextMenu'
 import type { InnerTab, FileOps, GitOps } from '../../types/workspace'
+import Tooltip from '../Tooltip'
 
 const RUNNABLE_EXTS = new Set(['py', 'sh', 'bash', 'zsh', 'js', 'ts'])
 
@@ -197,6 +198,7 @@ export default function WorkspaceEditorArea({
               <button
                 className="workspace-inner-tab-close"
                 onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id) }}
+                aria-label={`Close ${tab.title}`}
               >
                 ×
               </button>
@@ -204,24 +206,23 @@ export default function WorkspaceEditorArea({
           ))}
         </div>
         {canRun && (
-          <button
+          <Tooltip label={`Run ${activeTab.title}`}><button
             className="workspace-run-btn"
             onClick={() => onRunFile(activeTab.filePath!)}
-            title={`Run ${activeTab.title}`}
+            aria-label={`Run ${activeTab.title}`}
           >
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
               <path d="M8 5v14l11-7z" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
         {onCollapse && (
-          <button
-            className="workspace-terminal-action-btn"
+          <Tooltip label="Collapse editor"><button aria-label="Collapse editor"
+            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
             onClick={onCollapse}
-            title="Collapse editor"
           >
             ▲
-          </button>
+          </button></Tooltip>
         )}
       </div>
       <div className="workspace-inner-tab-content">

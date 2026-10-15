@@ -5,6 +5,9 @@ import {
   setActiveProfile,
   type EnterpriseAiProfile,
 } from '../api/aiEngineerProfile'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
+import './EnterpriseProfileSelector.css'
 
 export default function EnterpriseProfileSelector() {
   const [profiles, setProfiles] = useState<EnterpriseAiProfile[]>([])
@@ -46,97 +49,67 @@ export default function EnterpriseProfileSelector() {
   }
 
   if (loading) {
-    return <div className="settings-content"><div className="settings-empty">Loading profiles...</div></div>
+    return <p className="form-hint">Loading profiles…</p>
   }
 
+  const detail = (label: string, value: string) => (
+    <SettingRow label={label}><span className="enterprise-ai-profile-value">{value}</span></SettingRow>
+  )
+
   return (
-    <div className="settings-content">
-      {error && <div className="settings-error">{error}</div>}
-
-      <div className="settings-category">
-        <h3 className="settings-category-title">AI Engineer Profile</h3>
-        <div className="setting-description" style={{ marginBottom: 12 }}>
-          Your organization&apos;s admin manages AI engineer profiles. Select which profile to use for all AI features.
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Active Profile</span>
-            <div className="setting-control">
-              <select
-                className="setting-select"
-                value={activeProfileId || ''}
-                onChange={(e) => handleSelect(e.target.value || null)}
-                disabled={saving}
-              >
-                <option value="">None (use default AI)</option>
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="setting-description">
-            {profiles.length === 0
+    <>
+      <SettingsSection
+        title="AI Engineer Profile"
+        description="Your organization's admin manages AI engineer profiles. Select which profile to use for all AI features."
+      >
+        {error && <p className="settings-error">{error}</p>}
+        <div className="settings-group">
+          <SettingRow
+            label="Active Profile"
+            description={profiles.length === 0
               ? 'No profiles available. Ask your admin to create AI engineer profiles.'
               : `${profiles.length} profile${profiles.length !== 1 ? 's' : ''} available`}
-          </div>
+          >
+            <select aria-label="Active Profile"
+              className="ns-select setting-select-field"
+              value={activeProfileId || ''}
+              onChange={(e) => handleSelect(e.target.value || null)}
+              disabled={saving}
+            >
+              <option value="">None (use default AI)</option>
+              {profiles.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </SettingRow>
         </div>
-      </div>
+        {saving && <p className="form-hint">Saving…</p>}
+      </SettingsSection>
 
-      {/* Show detail of selected profile */}
       {activeProfileDetail && (
-        <div className="settings-category">
-          <h3 className="settings-category-title">Profile Details: {activeProfileDetail.name}</h3>
-          {activeProfileDetail.description && (
-            <div className="setting-description" style={{ marginBottom: 8 }}>{activeProfileDetail.description}</div>
-          )}
-          <div className="setting-item">
-            <div className="setting-label">Working Style</div>
-            <div className="setting-description" style={{ textTransform: 'capitalize' }}>{activeProfileDetail.behavior_mode}</div>
+        <SettingsSection title={`Profile Details: ${activeProfileDetail.name}`} description={activeProfileDetail.description || undefined}>
+          <div className="settings-group">
+            {detail('Working Style', activeProfileDetail.behavior_mode)}
+            {detail('Autonomy', activeProfileDetail.autonomy_level)}
+            {Object.keys(activeProfileDetail.vendor_weights).length > 0 && detail(
+              'Vendor Focus',
+              Object.entries(activeProfileDetail.vendor_weights)
+                .sort(([,a], [,b]) => b - a)
+                .map(([vendor, weight]) => `${vendor} (${Math.round(weight * 100)}%)`)
+                .join(', '),
+            )}
+            {Object.keys(activeProfileDetail.domain_focus).length > 0 && detail(
+              'Domain Focus',
+              Object.entries(activeProfileDetail.domain_focus)
+                .sort(([,a], [,b]) => b - a)
+                .map(([domain]) => domain.replace('_', ' '))
+                .join(', '),
+            )}
+            {activeProfileDetail.verbosity && detail('Verbosity', activeProfileDetail.verbosity)}
+            {activeProfileDetail.risk_tolerance && detail('Risk Tolerance', activeProfileDetail.risk_tolerance)}
           </div>
-          <div className="setting-item">
-            <div className="setting-label">Autonomy</div>
-            <div className="setting-description" style={{ textTransform: 'capitalize' }}>{activeProfileDetail.autonomy_level}</div>
-          </div>
-          {Object.keys(activeProfileDetail.vendor_weights).length > 0 && (
-            <div className="setting-item">
-              <div className="setting-label">Vendor Focus</div>
-              <div className="setting-description">
-                {Object.entries(activeProfileDetail.vendor_weights)
-                  .sort(([,a], [,b]) => b - a)
-                  .map(([vendor, weight]) => `${vendor} (${Math.round(weight * 100)}%)`)
-                  .join(', ')}
-              </div>
-            </div>
-          )}
-          {Object.keys(activeProfileDetail.domain_focus).length > 0 && (
-            <div className="setting-item">
-              <div className="setting-label">Domain Focus</div>
-              <div className="setting-description">
-                {Object.entries(activeProfileDetail.domain_focus)
-                  .sort(([,a], [,b]) => b - a)
-                  .map(([domain]) => domain.replace('_', ' '))
-                  .join(', ')}
-              </div>
-            </div>
-          )}
-          {activeProfileDetail.verbosity && (
-            <div className="setting-item">
-              <div className="setting-label">Verbosity</div>
-              <div className="setting-description" style={{ textTransform: 'capitalize' }}>{activeProfileDetail.verbosity}</div>
-            </div>
-          )}
-          {activeProfileDetail.risk_tolerance && (
-            <div className="setting-item">
-              <div className="setting-label">Risk Tolerance</div>
-              <div className="setting-description" style={{ textTransform: 'capitalize' }}>{activeProfileDetail.risk_tolerance}</div>
-            </div>
-          )}
-        </div>
+        </SettingsSection>
       )}
-
-      {saving && <div className="settings-saving-indicator">Saving...</div>}
-    </div>
+    </>
   )
 }

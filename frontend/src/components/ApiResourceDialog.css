@@ -1,27 +1,9 @@
 /* ApiResourceDialog — matches NetStacks dialog conventions (see NetBoxSourceDialog.css) */
 
-/* === Overlay + window === */
-
-.api-resource-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-  animation: apiResDialogFadeIn 0.15s ease;
-}
-
-@keyframes apiResDialogFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 .api-resource-dialog {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   width: 90%;
   max-width: 600px;
@@ -41,40 +23,16 @@
 .api-resource-dialog-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--spacing-sm);
   padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
 }
 
 .api-resource-dialog-header h2 {
+  flex: 1;
   margin: 0;
   font-size: var(--font-size-base);
   font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.api-resource-dialog-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.api-resource-dialog-close svg {
-  width: 16px;
-  height: 16px;
-}
-
-.api-resource-dialog-close:hover {
-  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 
@@ -83,6 +41,7 @@
 .api-resource-dialog-content {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--spacing-lg);
   display: flex;
   flex-direction: column;
@@ -91,95 +50,22 @@
 
 .api-resource-dialog-error {
   padding: var(--spacing-sm) var(--spacing-md);
-  background: rgba(241, 76, 76, 0.15);
+  background: rgba(var(--color-error-rgb), 0.15);
   border: 1px solid var(--color-error);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-error);
   font-size: var(--font-size-small);
 }
 
 /* === Sections (uppercase header, tertiary bg — matches NetBoxSourceDialog.form-section) === */
 
-.api-resource-dialog .form-section {
-  padding: var(--spacing-md);
-  background: var(--color-bg-tertiary);
-  border-radius: 6px;
-}
-
-.api-resource-dialog .form-section h3 {
-  margin: 0 0 var(--spacing-md) 0;
-  font-size: var(--font-size-small);
-  font-weight: 600;
-  color: var(--color-text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 /* === Form groups === */
-
-.api-resource-dialog .form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  margin-bottom: var(--spacing-md);
-}
-
-.api-resource-dialog .form-group:last-child {
-  margin-bottom: 0;
-}
-
-.api-resource-dialog .form-group > label {
-  font-size: var(--font-size-small);
-  font-weight: 500;
-  color: var(--color-text-secondary);
-}
-
-.api-resource-dialog .form-group > input[type="text"],
-.api-resource-dialog .form-group > input[type="number"],
-.api-resource-dialog .form-group > input[type="password"],
-.api-resource-dialog .form-group > select,
-.api-resource-dialog .form-group > textarea {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: var(--font-family);
-  transition: border-color var(--transition-fast);
-}
-
-.api-resource-dialog .form-group > textarea {
-  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: var(--font-size-small);
-  resize: vertical;
-  min-height: 60px;
-}
-
-.api-resource-dialog .form-group > input:focus,
-.api-resource-dialog .form-group > select:focus,
-.api-resource-dialog .form-group > textarea:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.api-resource-dialog .form-group > input::placeholder,
-.api-resource-dialog .form-group > textarea::placeholder {
-  color: var(--color-text-secondary);
-  opacity: 0.6;
-}
-
-.api-resource-dialog .form-hint {
-  font-size: var(--font-size-small);
-  color: var(--color-text-secondary);
-  margin-top: 4px;
-}
 
 .api-resource-dialog .form-hint code {
   background: var(--color-bg-primary);
   padding: 1px 4px;
   border-radius: 3px;
-  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-family-mono);
   font-size: 11px;
 }
 
@@ -193,10 +79,9 @@
 .api-resource-dialog .checkbox-label {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: 6px;
   font-size: var(--font-size-small);
   color: var(--color-text-primary);
-  cursor: pointer;
 }
 
 .api-resource-dialog .form-group.inline {
@@ -220,7 +105,7 @@
   padding: var(--spacing-sm);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .api-resource-dialog .headers-row {
@@ -228,68 +113,6 @@
   grid-template-columns: 1fr 2fr auto;
   gap: var(--spacing-xs);
   align-items: center;
-}
-
-.api-resource-dialog .headers-row input {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-family: var(--font-family);
-  transition: border-color var(--transition-fast);
-}
-
-.api-resource-dialog .headers-row input::placeholder {
-  color: var(--color-text-secondary);
-  opacity: 0.6;
-}
-
-.api-resource-dialog .headers-row input:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.api-resource-dialog .headers-row .btn-icon-small {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.api-resource-dialog .headers-row .btn-icon-small:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-error);
-}
-
-.api-resource-dialog .headers-table .btn-small {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.api-resource-dialog .headers-table .btn-small:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-accent);
 }
 
 /* === Auth flow steps === */
@@ -314,29 +137,11 @@
   letter-spacing: 0.4px;
 }
 
-.api-resource-dialog .auth-flow-header .btn-small {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: white;
-  border-radius: 4px;
-  font-size: var(--font-size-small);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.api-resource-dialog .auth-flow-header .btn-small:hover {
-  background: var(--color-accent-hover);
-}
-
 .api-resource-dialog .auth-flow-step {
   padding: var(--spacing-md);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
@@ -357,55 +162,11 @@
   gap: var(--spacing-sm);
 }
 
-.api-resource-dialog .auth-flow-step-fields input,
-.api-resource-dialog .auth-flow-step-fields select {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-}
-
-.api-resource-dialog .auth-flow-step-fields input:focus,
-.api-resource-dialog .auth-flow-step-fields select:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.api-resource-dialog .auth-flow-step-header .btn-small,
-.api-resource-dialog .auth-flow-step-header .btn-icon-small {
-  padding: 3px 8px;
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  color: var(--color-text-primary);
-  font-size: 11px;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.api-resource-dialog .auth-flow-step-header .btn-small:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  border-color: var(--color-accent);
-}
-
-.api-resource-dialog .auth-flow-step-header .btn-small:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.api-resource-dialog .auth-flow-step-header .btn-icon-small:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-error);
-  border-color: var(--color-error);
-}
-
 /* Step test result */
 
 .api-resource-dialog .step-test-result {
   padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: var(--font-size-small);
   display: flex;
   flex-direction: column;
@@ -413,15 +174,15 @@
 }
 
 .api-resource-dialog .step-test-result.ok {
-  background: rgba(40, 167, 69, 0.1);
-  border: 1px solid rgba(40, 167, 69, 0.35);
-  color: #4ec76b;
+  background: rgba(var(--color-success-rgb), 0.1);
+  border: 1px solid rgba(var(--color-success-rgb), 0.35);
+  color: var(--color-success);
 }
 
 .api-resource-dialog .step-test-result.err {
-  background: rgba(220, 53, 69, 0.1);
-  border: 1px solid rgba(220, 53, 69, 0.35);
-  color: #f08b94;
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.35);
+  color: var(--color-error);
 }
 
 .api-resource-dialog .step-test-result-row,
@@ -450,7 +211,7 @@
 }
 
 .api-resource-dialog .step-test-error {
-  color: #f08b94;
+  color: var(--color-error);
 }
 
 .api-resource-dialog .step-test-body {
@@ -458,7 +219,6 @@
 }
 
 .api-resource-dialog .step-test-body summary {
-  cursor: pointer;
   color: var(--color-text-secondary);
   font-size: 11px;
 }
@@ -468,17 +228,18 @@
   padding: var(--spacing-sm);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 11px;
   max-height: 200px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 /* === Overall test result === */
 
 .api-resource-dialog .test-result {
   padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: var(--font-size-small);
   display: flex;
   flex-direction: column;
@@ -509,7 +270,7 @@
   padding: 2px 6px;
   border-radius: 3px;
   color: var(--color-text-primary);
-  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-family-mono);
   word-break: break-all;
 }
 
@@ -519,78 +280,28 @@
 }
 
 .api-resource-dialog .test-result.success {
-  background: rgba(40, 167, 69, 0.15);
-  border: 1px solid rgba(40, 167, 69, 0.4);
-  color: #4ec76b;
+  background: rgba(var(--color-success-rgb), 0.15);
+  border: 1px solid rgba(var(--color-success-rgb), 0.4);
+  color: var(--color-success);
 }
 
 .api-resource-dialog .test-result.failure {
-  background: rgba(220, 53, 69, 0.1);
-  border: 1px solid rgba(220, 53, 69, 0.35);
-  color: #f08b94;
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.35);
+  color: var(--color-error);
 }
 
 .api-resource-dialog .test-result.warning {
-  background: rgba(240, 173, 78, 0.12);
-  border: 1px solid rgba(240, 173, 78, 0.4);
-  color: #e8b563;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.4);
+  color: var(--color-warning);
 }
 
-/* === Footer === */
-
-.api-resource-dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-top: 1px solid var(--color-border);
+.api-resource-dialog .headers-table .ns-btn--small {
+  align-self: flex-start;
 }
 
-.api-resource-dialog-footer-right {
-  display: flex;
-  gap: var(--spacing-sm);
-  margin-left: auto;
-}
-
-.api-resource-dialog-footer .btn-primary,
-.api-resource-dialog-footer .btn-secondary {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: 4px;
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.api-resource-dialog-footer .btn-primary {
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: white;
-}
-
-.api-resource-dialog-footer .btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
-}
-
-.api-resource-dialog-footer .btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.api-resource-dialog-footer .btn-secondary {
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.api-resource-dialog-footer .btn-secondary:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.api-resource-dialog-footer .btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.api-resource-dialog .form-group > textarea {
+  font-family: var(--font-family-mono);
+  min-height: 60px;
 }

@@ -21,6 +21,8 @@ import type {
 import AITabInput from './AITabInput'
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter'
+import Tooltip from './Tooltip'
 interface IncidentDetailTabProps {
   incidentId?: string
   onOpenAlertTab: (id: string) => void
@@ -202,8 +204,8 @@ export default function IncidentDetailTab({
                 </div>
                 <div className="incident-detail-form-group">
                   <label className="incident-detail-form-label">Severity</label>
-                  <select
-                    className="incident-detail-select"
+                  <select aria-label="Severity"
+                    className="incident-detail-select ns-select"
                     value={createSeverity}
                     onChange={(e) => setCreateSeverity(e.target.value as IncidentSeverity)}
                   >
@@ -216,22 +218,12 @@ export default function IncidentDetailTab({
                 {createError && (
                   <div className="incident-detail-form-error">{createError}</div>
                 )}
-                <div className="incident-detail-form-actions">
-                  <button
-                    className="incident-detail-btn primary"
-                    onClick={handleCreate}
-                    disabled={creating || !createTitle.trim()}
-                  >
-                    {creating ? 'Creating...' : 'Create'}
-                  </button>
-                  <button
-                    className="incident-detail-btn"
-                    onClick={onClose}
-                    disabled={creating}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <DialogFooter
+                  primary={{ label: creating ? 'Creating...' : 'Create', onClick: handleCreate, disabled: creating || !createTitle.trim() }}
+                  onCancel={onClose}
+                  cancelDisabled={creating}
+                  inline
+                />
               </div>
             </div>
           </div>
@@ -260,7 +252,7 @@ export default function IncidentDetailTab({
       <div className="incident-detail-container">
         <div className="incident-detail-error">
           <span>Failed to load incident. {error}</span>
-          <button className="incident-detail-btn" onClick={fetchData}>
+          <button className="ns-btn" onClick={fetchData}>
             Retry
           </button>
         </div>
@@ -381,7 +373,7 @@ export default function IncidentDetailTab({
                 }
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && editTitle.trim()) handleSaveField('title', editTitle.trim())
+                if (e.key === 'Enter' && editTitle.trim()) { e.preventDefault(); handleSaveField('title', editTitle.trim()) }
                 if (e.key === 'Escape') setEditingTitle(false)
               }}
               autoFocus
@@ -392,18 +384,16 @@ export default function IncidentDetailTab({
               onAIValue={(v) => setEditTitle(v)}
             />
           ) : (
-            <h2
+            <Tooltip label="Click to edit title"><h2
               className="incident-detail-title"
               onClick={() => { setEditTitle(incident.title); setEditingTitle(true) }}
-              title="Click to edit title"
-              style={{ cursor: 'pointer' }}
             >
               {incident.title}
-            </h2>
+            </h2></Tooltip>
           )}
           {editingSeverity ? (
-            <select
-              className="incident-detail-severity-select"
+            <select aria-label="Severity"
+              className="incident-detail-severity-select ns-select"
               value={incident.severity}
               onChange={(e) => handleSaveField('severity', e.target.value)}
               onBlur={() => setEditingSeverity(false)}
@@ -415,14 +405,12 @@ export default function IncidentDetailTab({
               ))}
             </select>
           ) : (
-            <span
+            <Tooltip label="Click to change severity"><span
               className={severityBadgeClass(incident.severity)}
               onClick={() => setEditingSeverity(true)}
-              title="Click to change severity"
-              style={{ cursor: 'pointer' }}
             >
               {incident.severity}
-            </span>
+            </span></Tooltip>
           )}
           <span className={stateBadgeClass(incident.state)}>
             {incident.state.replace(/_/g, ' ')}
@@ -430,7 +418,7 @@ export default function IncidentDetailTab({
         </div>
         <div className="incident-detail-header-actions">
           <button
-            className="incident-detail-btn primary"
+            className="ns-btn ns-btn--primary"
             onClick={() => {
               setNewState(incident.state)
               setShowUpdateState(true)
@@ -440,7 +428,7 @@ export default function IncidentDetailTab({
             Update State
           </button>
           <button
-            className="incident-detail-btn danger"
+            className="ns-btn ns-btn--danger"
             onClick={() => {
               setShowDelete(true)
               setShowUpdateState(false)
@@ -487,8 +475,8 @@ export default function IncidentDetailTab({
               </p>
               <div className="incident-detail-form-group">
                 <label className="incident-detail-form-label">New State</label>
-                <select
-                  className="incident-detail-select"
+                <select aria-label="New State"
+                  className="incident-detail-select ns-select"
                   value={newState}
                   onChange={(e) => setNewState(e.target.value as IncidentState)}
                 >
@@ -499,21 +487,11 @@ export default function IncidentDetailTab({
                   ))}
                 </select>
               </div>
-              <div className="incident-detail-inline-panel-actions">
-                <button
-                  className="incident-detail-btn"
-                  onClick={() => setShowUpdateState(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="incident-detail-btn primary"
-                  onClick={handleUpdateState}
-                  disabled={updatingState}
-                >
-                  {updatingState ? 'Updating...' : 'Update State'}
-                </button>
-              </div>
+              <DialogFooter
+                primary={{ label: updatingState ? 'Updating...' : 'Update State', onClick: handleUpdateState, disabled: updatingState }}
+                onCancel={() => setShowUpdateState(false)}
+                inline
+              />
             </div>
           </div>
         )}
@@ -532,21 +510,11 @@ export default function IncidentDetailTab({
                   Severity: {incident.severity} | State: {incident.state}
                 </div>
               </div>
-              <div className="incident-detail-inline-panel-actions">
-                <button
-                  className="incident-detail-btn"
-                  onClick={() => setShowDelete(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="incident-detail-btn danger"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                >
-                  {deleting ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
+              <DialogFooter
+                primary={{ label: deleting ? 'Deleting...' : 'Delete', onClick: handleDelete, disabled: deleting, danger: true }}
+                onCancel={() => setShowDelete(false)}
+                inline
+              />
             </div>
           </div>
         )}
@@ -580,14 +548,13 @@ export default function IncidentDetailTab({
                 onAIValue={(v) => setEditDescription(v)}
               />
             ) : (
-              <p
+              <Tooltip label="Click to edit description"><p
                 className="incident-detail-description"
                 onClick={() => { setEditDescription(incident.description ?? ''); setEditingDescription(true) }}
-                title="Click to edit description"
-                style={{ cursor: 'pointer', minHeight: 40 }}
+                style={{ minHeight: 40 }}
               >
                 {incident.description && incident.description !== 'None' ? incident.description : <span style={{ color: 'var(--text-muted, #5a5a5a)', fontStyle: 'italic' }}>Click to add description...</span>}
-              </p>
+              </p></Tooltip>
             )}
           </div>
         </div>
@@ -635,14 +602,14 @@ export default function IncidentDetailTab({
 
           {/* Link alert form */}
           <div className="incident-detail-link-form">
-            <input
-              className="incident-detail-input"
+            <input data-ai-fill="off"
+              className="incident-detail-input ns-input"
               value={linkAlertId}
               onChange={(e) => setLinkAlertId(e.target.value)}
               placeholder="Alert ID (UUID)..."
             />
             <button
-              className="incident-detail-btn primary"
+              className="ns-btn ns-btn--primary"
               onClick={handleLinkAlert}
               disabled={linking || !linkAlertId.trim()}
             >
@@ -691,9 +658,8 @@ export default function IncidentDetailTab({
                         {formatDate(alert.linked_at)}
                       </td>
                       <td>
-                        <button
-                          className="incident-detail-btn-icon"
-                          title="Unlink alert"
+                        <Tooltip label="Unlink alert"><button aria-label="Unlink alert"
+                          className="ns-btn ns-btn--ghost ns-icon-btn"
                           disabled={unlinking === alert.alert_id}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -701,7 +667,7 @@ export default function IncidentDetailTab({
                           }}
                         >
                           &#x2715;
-                        </button>
+                        </button></Tooltip>
                       </td>
                     </tr>
                   ))}
@@ -733,7 +699,7 @@ export default function IncidentDetailTab({
               onAIValue={(v) => setCommentText(v)}
             />
             <button
-              className="incident-detail-btn primary"
+              className="ns-btn ns-btn--primary"
               onClick={handleAddComment}
               disabled={posting || !commentText.trim()}
             >

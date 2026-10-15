@@ -17,18 +17,6 @@
 
 .clip-history-filter {
   flex: none;
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.clip-history-filter.active {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
 }
 
 .clip-history-row {
@@ -49,8 +37,8 @@
 }
 
 .clip-history-text {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
   color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -82,7 +70,7 @@
 
 .clip-badge-warn {
   color: #e5a50a;
-  border-color: rgba(229, 165, 10, 0.5);
+  border-color: rgba(var(--color-warning-rgb), 0.5);
   text-transform: none;
 }
 
@@ -114,17 +102,6 @@
 
 .clip-history-actions button {
   width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.clip-history-actions button:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .clip-history-foot {
@@ -135,18 +112,4 @@
   border-top: 1px solid var(--color-border);
   font-size: 11px;
   color: var(--color-text-muted);
-}
-
-.clip-history-clear {
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-secondary);
-  border-radius: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.clip-history-clear:disabled {
-  opacity: 0.4;
-  cursor: default;
 }

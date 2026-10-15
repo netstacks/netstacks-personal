@@ -18,21 +18,7 @@
 }
 
 .profiling-chat-back {
-  background: none;
-  border: none;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: 4px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--transition-fast);
-}
-
-.profiling-chat-back:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-hover);
-  border-radius: 4px;
 }
 
 .profiling-chat-title {
@@ -47,15 +33,15 @@
   color: var(--color-text-secondary);
   background: var(--color-bg-tertiary);
   padding: 2px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
 }
 
 .profiling-chat-anomaly-badge {
   font-size: 10px;
-  color: white;
+  color: var(--color-text-on-accent);
   background: var(--color-error);
   padding: 1px 5px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   font-weight: 600;
 }
 
@@ -96,6 +82,7 @@
 .profiling-chat-messages {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -105,7 +92,7 @@
 .profiling-chat-message {
   max-width: 85%;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   font-size: 13px;
   line-height: 1.4;
   white-space: pre-wrap;
@@ -115,7 +102,7 @@
 .profiling-chat-message.user {
   align-self: flex-end;
   background: var(--color-accent);
-  color: white;
+  color: var(--color-text-on-accent);
 }
 
 .profiling-chat-message.assistant {
@@ -141,7 +128,7 @@
   flex: 1;
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: var(--color-text-primary);
   padding: 8px 12px;
   font-size: 13px;
@@ -160,27 +147,6 @@
 .profiling-chat-input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.profiling-chat-send {
-  background: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: var(--transition-fast);
-}
-
-.profiling-chat-send:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.profiling-chat-send:hover:not(:disabled) {
-  background: var(--color-accent-hover);
 }
 
 /* Loading state */

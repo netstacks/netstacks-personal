@@ -1,3 +1,4 @@
+import AITabInput from '../AITabInput'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   listApiResources,
@@ -18,6 +19,9 @@ import { JsonEditor, PathInput } from './RequestEditors'
 import { notifyApiClientChanged, useApiClientChanged } from './apiClientEvents'
 import './ApiRequestTab.css'
 
+import DialogFooter from '../DialogFooter'
+import Tooltip from '../Tooltip'
+import ModalFrame from '../ModalFrame'
 interface ApiRequestTabProps {
   tabId: string
   init: ApiRequestTabInit
@@ -355,19 +359,18 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
       {/* ── Request pane ── */}
       <div className="api-request-pane">
         <div className="api-request-line">
-          <select
-            className="api-request-resource"
+          <Tooltip label="API resource (base URL + auth)"><select aria-label="API resource"
+            className="ns-select api-request-resource"
             value={resourceId}
             onChange={(e) => setResourceId(e.target.value)}
-            title="API resource (base URL + auth)"
           >
             {resources.length === 0 && <option value="">No API resources</option>}
             {resources.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
             ))}
-          </select>
-          <select
-            className="api-request-method"
+          </select></Tooltip>
+          <select aria-label="HTTP method"
+            className="ns-select api-request-method"
             data-method={draft.method}
             value={draft.method}
             onChange={(e) => update('method', e.target.value)}
@@ -380,26 +383,24 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
             placeholder="/api/v1/endpoint?limit={{limit}}"
             onEnter={() => { if (!sending) void handleSend() }}
           />
-          <button
-            className="api-request-send"
+          <Tooltip label="Send" shortcut="Cmd+Enter"><button
+            className="ns-btn ns-btn--primary api-request-send"
             onClick={() => void handleSend()}
             disabled={sending || !resourceId}
-            title="Send (⌘/Ctrl+Enter)"
           >
             {sending ? <span className="api-request-spinner" /> : 'Send'}
-          </button>
-          <button
-            className="api-request-btn"
+          </button></Tooltip>
+          <Tooltip label={savedAction ? 'Save changes' : 'Save as a request'} shortcut="Cmd+S"><button
+            className="ns-btn"
             onClick={handleSave}
             disabled={saving || !resourceId || (savedAction !== null && !dirty)}
-            title={savedAction ? 'Save changes (⌘/Ctrl+S)' : 'Save as a request (⌘/Ctrl+S)'}
           >
             {saving ? 'Saving…' : 'Save'}
-          </button>
+          </button></Tooltip>
           {savedAction && (
-            <button className="api-request-btn" onClick={handleSaveAs} disabled={saving} title="Save a copy under a new name">
+            <Tooltip label="Save a copy under a new name"><button className="ns-btn" onClick={handleSaveAs} disabled={saving}>
               Save as…
-            </button>
+            </button></Tooltip>
           )}
         </div>
         <div className="api-request-url" title={resolvedUrl}>{resolvedUrl}</div>
@@ -429,7 +430,7 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
               <div className="api-request-field-row">
                 <label>Headers (JSON object). Resource default headers and auth are added by the agent.</label>
                 <button
-                  className="api-request-mini"
+                  className="ns-btn ns-btn--small"
                   onClick={() => {
                     const h = parseHeaders(draft.headersJson)
                     if (h) update('headersJson', JSON.stringify(h, null, 2))
@@ -452,21 +453,19 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
           {reqTab === 'body' && showBody && (
             <div className="api-request-field">
               <div className="api-request-field-row">
-                <div className="api-request-body-modes">
+                <div className="ns-segmented">
                   {(['json', 'text', 'form'] as ApiRequestBodyMode[]).map((m) => (
-                    <button
-                      key={m}
-                      className={draft.bodyMode === m ? 'active' : ''}
+                    <Tooltip key={m} label={m === 'json' ? 'application/json' : CONTENT_TYPES[m] ?? ''}><button
+                      className={`ns-segment ${draft.bodyMode === m ? 'active' : ''}`}
                       onClick={() => update('bodyMode', m)}
-                      title={m === 'json' ? 'application/json' : CONTENT_TYPES[m] ?? ''}
                     >
                       {m === 'json' ? 'JSON' : m === 'text' ? 'Raw' : 'Form'}
-                    </button>
+                    </button></Tooltip>
                   ))}
                 </div>
                 {draft.bodyMode === 'json' && (
                   <button
-                    className="api-request-mini"
+                    className="ns-btn ns-btn--small"
                     onClick={() => {
                       try {
                         update('body', JSON.stringify(JSON.parse(draft.body || '{}'), null, 2))
@@ -500,8 +499,9 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
                   {varNames.map((v) => (
                     <div key={v} className="api-request-var-row">
                       <span className="api-request-var-name">{`{{${v}}}`}</span>
-                      <input
+                      <input data-ai-fill="off"
                         type="text"
+                        className="ns-input"
                         value={variables[v] ?? ''}
                         onChange={(e) => setVariables((prev) => ({ ...prev, [v]: e.target.value }))}
                         placeholder={v}
@@ -516,12 +516,16 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
           {reqTab === 'extract' && (
             <div className="api-request-field">
               <label>JSON extract path</label>
-              <input
-                type="text"
+              <AITabInput
+                aria-label="JSON extract path"
                 className="api-request-input"
                 value={draft.jsonExtractPath}
                 onChange={(e) => update('jsonExtractPath', e.target.value)}
                 placeholder="results[0].name"
+                aiField="JSON extract path"
+                aiPlaceholder="Dot/bracket path to the single most useful value in this request's JSON response"
+                aiContext={{ method: draft.method, path: draft.path, resource: resource?.name }}
+                onAIValue={(v) => update('jsonExtractPath', v)}
               />
               <span className="api-request-hint">
                 Dot/bracket path into the JSON response; it is evaluated live against the last response as you type, or click a key in the response body to use its path. The extracted value is what Quick Calls show in toasts and what the AI gets back.
@@ -555,7 +559,7 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
                 </button>
                 <button className={respTab === 'sent' ? 'active' : ''} onClick={() => setRespTab('sent')}>Sent</button>
               </div>
-              <button className="api-request-btn" onClick={handleCopyBody} disabled={!body?.text}>
+              <button className="ns-btn" onClick={handleCopyBody} disabled={!body?.text}>
                 {copied ? 'Copied!' : 'Copy body'}
               </button>
             </>
@@ -565,16 +569,14 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
         {history.length > 1 && (
           <div className="api-response-history">
             {history.map((h) => (
-              <button
-                key={h.id}
+              <Tooltip key={h.id} label={`${h.method} ${h.path}`}><button
                 className={`api-response-history-item ${statusClass(h.result.status_code)} ${h.id === activeHistoryId ? 'active' : ''}`}
                 onClick={() => showHistory(h)}
-                title={`${h.method} ${h.path}`}
               >
                 <span className="code">{h.result.status_code || 'ERR'}</span>
                 <span className="time">{h.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                 <span className="dur">{h.result.duration_ms}ms</span>
-              </button>
+              </button></Tooltip>
             ))}
           </div>
         )}
@@ -651,43 +653,51 @@ export default function ApiRequestTab({ tabId, init, onDirtyChange, onSaved }: A
 
       {/* ── Save-as prompt ── */}
       {savePrompt && (
-        <div className="api-request-save-overlay" onClick={() => setSavePrompt(null)}>
-          <div className="api-request-save-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="api-request-save-title">Save request</div>
-            <label>Name</label>
-            <input
-              type="text"
-              className="api-request-input"
-              autoFocus
-              value={savePrompt.name}
-              onChange={(e) => setSavePrompt({ ...savePrompt, name: e.target.value })}
-              onKeyDown={(e) => { if (e.key === 'Enter') void persist(savePrompt) }}
-              placeholder="e.g. Get device by name"
-            />
-            <label>Description</label>
-            <input
-              type="text"
-              className="api-request-input"
-              value={savePrompt.description}
-              onChange={(e) => setSavePrompt({ ...savePrompt, description: e.target.value })}
-              placeholder="Optional"
-            />
-            <label>Category</label>
-            <input
-              type="text"
-              className="api-request-input"
-              value={savePrompt.category}
-              onChange={(e) => setSavePrompt({ ...savePrompt, category: e.target.value })}
-              placeholder="Optional — groups requests in Quick Calls"
-            />
-            <div className="api-request-save-actions">
-              <button className="api-request-btn" onClick={() => setSavePrompt(null)}>Cancel</button>
-              <button className="api-request-send" onClick={() => void persist(savePrompt)} disabled={saving || !savePrompt.name.trim()}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="api-request-save" onDismiss={() => setSavePrompt(null)} resizable={false} className="api-request-save-dialog" label="Save request">
+          <div className="api-request-save-title">Save request</div>
+          <label>Name</label>
+          <AITabInput
+            aria-label="Name"
+            className="api-request-input"
+            autoFocus
+            value={savePrompt.name}
+            onChange={(e) => setSavePrompt({ ...savePrompt, name: e.target.value })}
+            placeholder="e.g. Get device by name"
+            aiField="saved request name"
+            aiPlaceholder="Short action-style name for this saved API request (it becomes a Quick Call)"
+            aiContext={{ method: draft.method, path: draft.path, resource: resource?.name }}
+            onAIValue={(v) => setSavePrompt({ ...savePrompt, name: v })}
+          />
+          <label>Description</label>
+          <AITabInput
+            aria-label="Description"
+            className="api-request-input"
+            value={savePrompt.description}
+            onChange={(e) => setSavePrompt({ ...savePrompt, description: e.target.value })}
+            placeholder="Optional"
+            aiField="saved request description"
+            aiPlaceholder="One sentence on what this API request returns"
+            aiContext={{ name: savePrompt.name, method: draft.method, path: draft.path }}
+            onAIValue={(v) => setSavePrompt({ ...savePrompt, description: v })}
+          />
+          <label>Category</label>
+          <AITabInput
+            aria-label="Category"
+            className="api-request-input"
+            value={savePrompt.category}
+            onChange={(e) => setSavePrompt({ ...savePrompt, category: e.target.value })}
+            placeholder="Optional — groups requests in Quick Calls"
+            aiField="Quick Call category"
+            aiPlaceholder="One-word group for this request in Quick Calls (e.g. Inventory, IPAM)"
+            aiContext={{ name: savePrompt.name, resource: resource?.name }}
+            onAIValue={(v) => setSavePrompt({ ...savePrompt, category: v })}
+          />
+          <DialogFooter
+            primary={{ label: saving ? 'Saving…' : 'Save', onClick: () => void persist(savePrompt), disabled: saving || !savePrompt.name.trim() }}
+            onCancel={() => setSavePrompt(null)}
+            inline
+          />
+        </ModalFrame>
       )}
     </div>
   )

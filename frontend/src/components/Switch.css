@@ -13,7 +13,6 @@
   align-items: center;
   min-height: 28px;
   flex-shrink: 0;
-  cursor: pointer;
   vertical-align: middle;
 }
 
@@ -55,6 +54,12 @@
   border-radius: 50%;
   background: var(--color-text-secondary);
   transition: transform var(--transition-fast), background var(--transition-fast);
+}
+
+/* macOS switches have a white knob with a soft shadow in both states. */
+:root[data-platform='macos'] .ns-switch-knob {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .ns-switch-input:checked + .ns-switch-track {

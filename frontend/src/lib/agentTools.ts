@@ -462,7 +462,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
   {
     name: 'onboard_devices',
-    description: 'Collect devices from a configured API Resource (e.g. a CMDB) and onboard them as ready-to-connect sessions, assigning a default credential profile. Fetches the endpoint, maps fields you specify to session name + host, shows the user a preview, and creates the sessions ONLY after the user confirms. Use call_api_resource first to inspect the response shape and pick the right field names.',
+    description: 'Collect devices from a configured API Resource (e.g. a CMDB) and onboard them as ready-to-connect sessions, assigning a default credential profile. Fetches the endpoint, maps fields you specify to session name + host, and creates the sessions. Tell the user how many devices you are about to onboard before calling it. Use call_api_resource first to inspect the response shape and pick the right field names.',
     parameters: {
       type: 'object',
       properties: {
@@ -1437,7 +1437,6 @@ export const UI_NAVIGATION_TOOLS: AgentTool[] = [
   openTerminalSessionToolDefinition,
   navigateToMopToolDefinition,
   navigateToTopologyToolDefinition,
-  navigateToSettingsToolDefinition,
 ]
 
 /**
@@ -1641,7 +1640,18 @@ export type ToolCategory =
   | 'integrations'
   | 'remote-files'
   | 'bash'
-  | 'console';
+  | 'console'
+  | 'api-resources'
+  | 'navigation';
+
+/**
+ * What a tool call does, for the permission resolver (lib/aiPermissions):
+ * - `read`: no state changes outside the conversation;
+ * - `write`: changes a device, host, file, app data, or an external system;
+ * - `command`: runs commands — read when every command is read-only, else write;
+ * - `http`: calls an API Resource — read for GET/HEAD/OPTIONS, else write.
+ */
+export type ToolEffect = 'read' | 'write' | 'command' | 'http';
 
 /**
  * Tool registry entry with metadata for UI
@@ -1651,6 +1661,7 @@ export interface ToolRegistryEntry {
   category: ToolCategory;
   description: string;
   shortDescription: string;
+  effect: ToolEffect;
   /** Disabled for every mode until the user turns it on (seeded once into
    *  `ai.disabledTools.*`; see useSettings). */
   defaultDisabled?: boolean;
@@ -1728,6 +1739,14 @@ export const TOOL_CATEGORIES: Record<ToolCategory, { label: string; description:
     label: 'OOB Console',
     description: 'Open a session\'s out-of-band console (terminal server serial line) and type read-only commands into it. Off by default: the AI types into the live device console exactly as you would, and only works through a console tab you can see. It never enters credentials and refuses to act unless the console sits at a CLI prompt.',
   },
+  'api-resources': {
+    label: 'API Resources',
+    description: 'List and call configured API Resources, propose new ones, and onboard devices from an inventory API',
+  },
+  'navigation': {
+    label: 'UI Navigation',
+    description: 'Open app views (device, MOP, topology, backups, settings) and terminal sessions',
+  },
 };
 
 /**
@@ -1735,90 +1754,108 @@ export const TOOL_CATEGORIES: Record<ToolCategory, { label: string; description:
  */
 export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   // Core Session Tools
-  { name: 'list_sessions', category: 'core', description: 'List all saved sessions with folder hierarchy', shortDescription: 'List sessions' },
-  { name: 'open_session', category: 'core', description: 'Open and connect to a saved session', shortDescription: 'Open session' },
-  { name: 'run_command', category: 'core', description: 'Execute read-only commands on open terminals', shortDescription: 'Run command' },
-  { name: 'get_terminal_context', category: 'core', description: 'Get recent terminal output and device info', shortDescription: 'Get context' },
-  { name: 'set_session_cli_flavor', category: 'core', description: 'Record detected CLI platform (Cisco/Juniper/Linux/etc.) so subsequent commands use the right paging strategy', shortDescription: 'Set CLI flavor' },
-  { name: 'recommend_config', category: 'core', description: 'Generate configuration recommendations', shortDescription: 'Recommend config' },
+  { name: 'list_sessions', category: 'core', description: 'List all saved sessions with folder hierarchy', shortDescription: 'List sessions', effect: 'read' },
+  { name: 'open_session', category: 'core', description: 'Open and connect to a saved session', shortDescription: 'Open session', effect: 'read' },
+  { name: 'run_command', category: 'core', description: 'Execute read-only commands on open terminals', shortDescription: 'Run command', effect: 'command' },
+  { name: 'get_terminal_context', category: 'core', description: 'Get recent terminal output and device info', shortDescription: 'Get context', effect: 'read' },
+  { name: 'set_session_cli_flavor', category: 'core', description: 'Record detected CLI platform (Cisco/Juniper/Linux/etc.) so subsequent commands use the right paging strategy', shortDescription: 'Set CLI flavor', effect: 'read' },
+  { name: 'recommend_config', category: 'core', description: 'Generate configuration recommendations', shortDescription: 'Recommend config', effect: 'read' },
 
   // Bash Tools
-  { name: 'run_bash', category: 'bash', description: 'Execute bash commands on the local system', shortDescription: 'Run bash' },
+  { name: 'run_bash', category: 'bash', description: 'Execute bash commands on the local system', shortDescription: 'Run bash', effect: 'command' },
 
   // OOB Console Tools — default off; see TOOL_CATEGORIES.console
-  { name: 'open_console', category: 'console', description: 'Open a session\'s out-of-band console tab via its terminal server', shortDescription: 'Open console', defaultDisabled: true },
-  { name: 'run_console_command', category: 'console', description: 'Execute read-only commands on an open console tab', shortDescription: 'Run console command', defaultDisabled: true },
+  { name: 'open_console', category: 'console', description: 'Open a session\'s out-of-band console tab via its terminal server', shortDescription: 'Open console', effect: 'write', defaultDisabled: true },
+  { name: 'run_console_command', category: 'console', description: 'Execute read-only commands on an open console tab', shortDescription: 'Run console command', effect: 'command', defaultDisabled: true },
 
   // Document Tools
-  { name: 'list_documents', category: 'documents', description: 'List documents by category', shortDescription: 'List docs' },
-  { name: 'read_document', category: 'documents', description: 'Read document content by ID', shortDescription: 'Read doc' },
-  { name: 'search_documents', category: 'documents', description: 'Search documents by name or content', shortDescription: 'Search docs' },
-  { name: 'save_document', category: 'documents', description: 'Save content to a document', shortDescription: 'Save doc' },
+  { name: 'list_documents', category: 'documents', description: 'List documents by category', shortDescription: 'List docs', effect: 'read' },
+  { name: 'read_document', category: 'documents', description: 'Read document content by ID', shortDescription: 'Read doc', effect: 'read' },
+  { name: 'search_documents', category: 'documents', description: 'Search documents by name or content', shortDescription: 'Search docs', effect: 'read' },
+  { name: 'save_document', category: 'documents', description: 'Save content to a document', shortDescription: 'Save doc', effect: 'write' },
+  { name: 'search_netstacks_docs', category: 'documents', description: 'Search the documentation bundled with NetStacks', shortDescription: 'Search NetStacks docs', effect: 'read' },
+  { name: 'read_netstacks_doc', category: 'documents', description: 'Read a bundled NetStacks documentation page', shortDescription: 'Read NetStacks doc', effect: 'read' },
 
   // Session Context Tools
-  { name: 'add_session_context', category: 'session-context', description: 'Save troubleshooting knowledge about a device', shortDescription: 'Add context' },
-  { name: 'list_session_context', category: 'session-context', description: 'Retrieve saved knowledge for a device', shortDescription: 'List context' },
+  { name: 'add_session_context', category: 'session-context', description: 'Save troubleshooting knowledge about a device', shortDescription: 'Add context', effect: 'write' },
+  { name: 'list_session_context', category: 'session-context', description: 'Retrieve saved knowledge for a device', shortDescription: 'List context', effect: 'read' },
 
   // Change Control Tools
-  { name: 'analyze_change_diff', category: 'change-control', description: 'Analyze before/after config snapshots', shortDescription: 'Analyze diff' },
-  { name: 'suggest_pre_checks', category: 'change-control', description: 'Suggest pre-check commands for a change', shortDescription: 'Suggest checks' },
-  { name: 'validate_change_result', category: 'change-control', description: 'Validate change against expected outcomes', shortDescription: 'Validate change' },
+  { name: 'analyze_change_diff', category: 'change-control', description: 'Analyze before/after config snapshots', shortDescription: 'Analyze diff', effect: 'read' },
+  { name: 'suggest_pre_checks', category: 'change-control', description: 'Suggest pre-check commands for a change', shortDescription: 'Suggest checks', effect: 'read' },
+  { name: 'validate_change_result', category: 'change-control', description: 'Validate change against expected outcomes', shortDescription: 'Validate change', effect: 'read' },
 
   // Network Lookup Tools
-  { name: 'lookup_oui', category: 'network-lookup', description: 'Look up MAC address vendor', shortDescription: 'OUI lookup' },
-  { name: 'lookup_dns', category: 'network-lookup', description: 'Forward/reverse DNS lookup', shortDescription: 'DNS lookup' },
-  { name: 'lookup_whois', category: 'network-lookup', description: 'WHOIS lookup for IP/domain', shortDescription: 'WHOIS lookup' },
-  { name: 'lookup_asn', category: 'network-lookup', description: 'ASN information lookup', shortDescription: 'ASN lookup' },
+  { name: 'lookup_oui', category: 'network-lookup', description: 'Look up MAC address vendor', shortDescription: 'OUI lookup', effect: 'read' },
+  { name: 'lookup_dns', category: 'network-lookup', description: 'Forward/reverse DNS lookup', shortDescription: 'DNS lookup', effect: 'read' },
+  { name: 'lookup_whois', category: 'network-lookup', description: 'WHOIS lookup for IP/domain', shortDescription: 'WHOIS lookup', effect: 'read' },
+  { name: 'lookup_asn', category: 'network-lookup', description: 'ASN information lookup', shortDescription: 'ASN lookup', effect: 'read' },
 
   // Neighbor Discovery Tools
-  { name: 'discover_neighbors', category: 'neighbor-discovery', description: 'Discover CDP/LLDP neighbors', shortDescription: 'Discover neighbors' },
-  { name: 'add_neighbor_to_topology', category: 'neighbor-discovery', description: 'Add discovered neighbor to topology', shortDescription: 'Add neighbor' },
+  { name: 'discover_neighbors', category: 'neighbor-discovery', description: 'Discover CDP/LLDP neighbors', shortDescription: 'Discover neighbors', effect: 'read' },
+  { name: 'add_neighbor_to_topology', category: 'neighbor-discovery', description: 'Add discovered neighbor to topology', shortDescription: 'Add neighbor', effect: 'write' },
 
   // Topology Enrichment Tools
-  { name: 'ai_ssh_execute', category: 'topology-enrichment', description: 'SSH to device and run command for background enrichment', shortDescription: 'Background SSH' },
-  { name: 'update_topology_device', category: 'topology-enrichment', description: 'Update device with enrichment data', shortDescription: 'Update device' },
+  { name: 'ai_ssh_execute', category: 'topology-enrichment', description: 'SSH to device and run command for background enrichment', shortDescription: 'Background SSH', effect: 'command' },
+  { name: 'get_ssh_output', category: 'topology-enrichment', description: 'Page through long Background SSH output', shortDescription: 'Background SSH output', effect: 'read' },
+  { name: 'update_topology_device', category: 'topology-enrichment', description: 'Update device with enrichment data', shortDescription: 'Update device', effect: 'write' },
 
   // NetBox Tools
-  { name: 'netbox_get_neighbors', category: 'netbox', description: 'Query NetBox for device neighbors', shortDescription: 'Get neighbors' },
-  { name: 'netbox_import_topology', category: 'netbox', description: 'Import topology from NetBox', shortDescription: 'Import topology' },
+  { name: 'netbox_get_neighbors', category: 'netbox', description: 'Query NetBox for device neighbors', shortDescription: 'Get neighbors', effect: 'read' },
+  { name: 'netbox_import_topology', category: 'netbox', description: 'Import topology from NetBox', shortDescription: 'Import topology', effect: 'write' },
 
   // LibreNMS Tools
-  { name: 'librenms_list_devices', category: 'librenms', description: 'List all LibreNMS devices', shortDescription: 'List devices' },
-  { name: 'librenms_get_device_links', category: 'librenms', description: 'Get L2 neighbor links for a LibreNMS device', shortDescription: 'Device links' },
-  { name: 'librenms_get_all_links', category: 'librenms', description: 'Get the full LibreNMS L2 topology', shortDescription: 'All links' },
-  { name: 'librenms_search_device_by_ip', category: 'librenms', description: 'Find a LibreNMS device by IP address', shortDescription: 'Search by IP' },
-  { name: 'librenms_get_device_link_stats', category: 'librenms', description: 'Get L2 links for a device WITH per-port utilization, errors, speed, oper status', shortDescription: 'Link port stats' },
-  { name: 'librenms_import_topology', category: 'librenms', description: 'Bulk-import devices + L2 links from LibreNMS into a topology', shortDescription: 'Import topology' },
+  { name: 'librenms_list_devices', category: 'librenms', description: 'List all LibreNMS devices', shortDescription: 'List devices', effect: 'read' },
+  { name: 'librenms_get_device_links', category: 'librenms', description: 'Get L2 neighbor links for a LibreNMS device', shortDescription: 'Device links', effect: 'read' },
+  { name: 'librenms_get_all_links', category: 'librenms', description: 'Get the full LibreNMS L2 topology', shortDescription: 'All links', effect: 'read' },
+  { name: 'librenms_search_device_by_ip', category: 'librenms', description: 'Find a LibreNMS device by IP address', shortDescription: 'Search by IP', effect: 'read' },
+  { name: 'librenms_get_device_link_stats', category: 'librenms', description: 'Get L2 links for a device WITH per-port utilization, errors, speed, oper status', shortDescription: 'Link port stats', effect: 'read' },
+  { name: 'librenms_import_topology', category: 'librenms', description: 'Bulk-import devices + L2 links from LibreNMS into a topology', shortDescription: 'Import topology', effect: 'write' },
 
   // NetStacks-Crawler Tools
-  { name: 'netstacks_crawler_list_devices', category: 'netstacks-crawler', description: 'List all NetStacks-Crawler devices', shortDescription: 'List devices' },
-  { name: 'netstacks_crawler_get_neighbors', category: 'netstacks-crawler', description: 'Get CDP/LLDP neighbors for a device IP', shortDescription: 'Get neighbors' },
-  { name: 'netstacks_crawler_get_device_links', category: 'netstacks-crawler', description: 'Get the global L2 link report', shortDescription: 'Device links' },
-  { name: 'netstacks_crawler_search', category: 'netstacks-crawler', description: 'Search NetStacks-Crawler devices', shortDescription: 'Search devices' },
-  { name: 'netstacks_crawler_import_topology', category: 'netstacks-crawler', description: 'Bulk-import devices + L2 links from NetStacks-Crawler into a topology', shortDescription: 'Import topology' },
+  { name: 'netstacks_crawler_list_devices', category: 'netstacks-crawler', description: 'List all NetStacks-Crawler devices', shortDescription: 'List devices', effect: 'read' },
+  { name: 'netstacks_crawler_get_neighbors', category: 'netstacks-crawler', description: 'Get CDP/LLDP neighbors for a device IP', shortDescription: 'Get neighbors', effect: 'read' },
+  { name: 'netstacks_crawler_get_device_links', category: 'netstacks-crawler', description: 'Get the global L2 link report', shortDescription: 'Device links', effect: 'read' },
+  { name: 'netstacks_crawler_search', category: 'netstacks-crawler', description: 'Search NetStacks-Crawler devices', shortDescription: 'Search devices', effect: 'read' },
+  { name: 'netstacks_crawler_import_topology', category: 'netstacks-crawler', description: 'Bulk-import devices + L2 links from NetStacks-Crawler into a topology', shortDescription: 'Import topology', effect: 'write' },
 
   // MOP Tools
-  { name: 'create_mop', category: 'mop', description: 'Create a Method of Procedure change plan', shortDescription: 'Create MOP' },
-  { name: 'list_mops', category: 'mop', description: 'List all MOPs with status and step counts', shortDescription: 'List MOPs' },
-  { name: 'get_mop', category: 'mop', description: 'Get full MOP details including all steps', shortDescription: 'Get MOP' },
-  { name: 'export_mop', category: 'mop', description: 'Export MOP as portable JSON package', shortDescription: 'Export MOP' },
-  { name: 'import_mop', category: 'mop', description: 'Import MOP from JSON package', shortDescription: 'Import MOP' },
+  { name: 'create_mop', category: 'mop', description: 'Create a Method of Procedure change plan', shortDescription: 'Create MOP', effect: 'write' },
+  { name: 'list_mops', category: 'mop', description: 'List all MOPs with status and step counts', shortDescription: 'List MOPs', effect: 'read' },
+  { name: 'get_mop', category: 'mop', description: 'Get full MOP details including all steps', shortDescription: 'Get MOP', effect: 'read' },
+  { name: 'export_mop', category: 'mop', description: 'Export MOP as portable JSON package', shortDescription: 'Export MOP', effect: 'read' },
+  { name: 'import_mop', category: 'mop', description: 'Import MOP from JSON package', shortDescription: 'Import MOP', effect: 'write' },
 
   // AI Memory Tools
-  { name: 'save_memory', category: 'memory', description: 'Save important facts to persistent memory', shortDescription: 'Save memory' },
-  { name: 'recall_memories', category: 'memory', description: 'Search persistent memories for context', shortDescription: 'Recall memories' },
+  { name: 'save_memory', category: 'memory', description: 'Save important facts to persistent memory', shortDescription: 'Save memory', effect: 'write' },
+  { name: 'recall_memories', category: 'memory', description: 'Search persistent memories for context', shortDescription: 'Recall memories', effect: 'read' },
 
   // Agent Task Tools
-  { name: 'list_agent_definitions', category: 'agent', description: 'List available specialized AI agents', shortDescription: 'List agents' },
-  { name: 'spawn_agent_task', category: 'agent', description: 'Spawn background agent for complex multi-device operations', shortDescription: 'Spawn agent' },
+  { name: 'list_agent_definitions', category: 'agent', description: 'List available specialized AI agents', shortDescription: 'List agents', effect: 'read' },
+  { name: 'spawn_agent_task', category: 'agent', description: 'Spawn background agent for complex multi-device operations', shortDescription: 'Spawn agent', effect: 'write' },
 
   // Integration Tools
-  { name: 'send_email', category: 'integrations', description: 'Send email notifications and reports via SMTP', shortDescription: 'Send email' },
+  { name: 'send_email', category: 'integrations', description: 'Send email notifications and reports via SMTP', shortDescription: 'Send email', effect: 'write' },
+  { name: 'list_integration_sources', category: 'integrations', description: 'List configured integration sources and connected MCP servers', shortDescription: 'List integrations', effect: 'read' },
+
+  // API Resource Tools
+  { name: 'list_api_resources', category: 'api-resources', description: 'List configured API Resources', shortDescription: 'List API Resources', effect: 'read' },
+  { name: 'call_api_resource', category: 'api-resources', description: 'Send a request to a configured API Resource (GET/HEAD/OPTIONS count as reads)', shortDescription: 'Call API Resource', effect: 'http' },
+  { name: 'propose_api_resource', category: 'api-resources', description: 'Open a pre-filled API Resource dialog for the user to complete and save', shortDescription: 'Propose API Resource', effect: 'read' },
+  { name: 'onboard_devices', category: 'api-resources', description: 'Create sessions from the device list an API Resource returns', shortDescription: 'Onboard devices', effect: 'write' },
+
+  // UI Navigation Tools
+  { name: 'navigate_to_device', category: 'navigation', description: 'Open a device detail tab', shortDescription: 'Open device', effect: 'read' },
+  { name: 'navigate_to_mop', category: 'navigation', description: 'Open a MOP', shortDescription: 'Open MOP', effect: 'read' },
+  { name: 'navigate_to_topology', category: 'navigation', description: 'Open a topology', shortDescription: 'Open topology', effect: 'read' },
+  { name: 'navigate_to_backup', category: 'navigation', description: 'Open a device\'s config backup history (enterprise)', shortDescription: 'Open backups', effect: 'read' },
+  { name: 'navigate_to_settings', category: 'navigation', description: 'Open a Settings tab', shortDescription: 'Open settings', effect: 'read' },
+  { name: 'open_terminal_session', category: 'navigation', description: 'Open a terminal tab to a device by name', shortDescription: 'Open terminal', effect: 'read' },
 
   // Remote File Tools (AI Terminal Mode)
-  { name: 'write_file', category: 'remote-files', description: 'Create or overwrite a file on a remote server', shortDescription: 'Write file' },
-  { name: 'edit_file', category: 'remote-files', description: 'Find and replace text in a remote file', shortDescription: 'Edit file' },
-  { name: 'patch_file', category: 'remote-files', description: 'Apply sed substitution to a remote file', shortDescription: 'Patch file' },
+  { name: 'write_file', category: 'remote-files', description: 'Create or overwrite a file on a remote server', shortDescription: 'Write file', effect: 'write' },
+  { name: 'edit_file', category: 'remote-files', description: 'Find and replace text in a remote file', shortDescription: 'Edit file', effect: 'write' },
+  { name: 'patch_file', category: 'remote-files', description: 'Apply sed substitution to a remote file', shortDescription: 'Patch file', effect: 'write' },
 ];
 
 /** Tools that start disabled in every mode until the user enables them. */
@@ -1883,8 +1920,8 @@ export interface ToolAvailability {
   /** Enterprise: backup tools come from the controller's server-tool schemas, not from here. */
   hasBackupAnalysis?: boolean;
   hasUINavigation?: boolean;
-  // Bash/shell tool — available in Auto Pilot mode
-  hasBash?: boolean;
+  /** navigate_to_settings — offered wherever the host can open a Settings tab. */
+  hasSettingsNavigation?: boolean;
   // Enterprise mode flag — disables tools that require the local sidecar
   isEnterprise?: boolean;
 }
@@ -1916,11 +1953,10 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
   const recommendTool = AGENT_TOOLS.find(t => t.name === 'recommend_config');
   if (recommendTool) tools.push(recommendTool);
 
-  // Bash tool — gated on hasBash flag (Auto Pilot: on, Co Pilot: off by default)
-  if (availability.hasBash) {
-    const bashTool = AGENT_TOOLS.find(t => t.name === 'run_bash');
-    if (bashTool) tools.push(bashTool);
-  }
+  // Bash tool — allocated per agent type through `ai.disabledTools.<agentType>`
+  // (off for Overlord by default), like every other tool
+  const bashTool = AGENT_TOOLS.find(t => t.name === 'run_bash');
+  if (bashTool) tools.push(bashTool);
 
   // Always include document tools (read and write)
   const docTools = ['list_documents', 'read_document', 'search_documents', 'save_document'];
@@ -2014,6 +2050,10 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
     if (availability.isEnterprise) {
       tools.push(navigateToBackupToolDefinition);
     }
+  }
+
+  if (availability.hasSettingsNavigation) {
+    tools.push(navigateToSettingsToolDefinition);
   }
 
   // Filter out disabled tools

@@ -30,9 +30,9 @@
   padding: var(--spacing-xs) 6px var(--spacing-xs) 4px;
   font-size: 10px;
   line-height: inherit;
-  color: rgba(255, 255, 255, 0.2);
+  color: var(--color-text-muted);
   background: rgba(0, 0, 0, 0.15);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  border-right: 1px solid var(--color-border);
   user-select: none;
   pointer-events: none;
   min-width: 28px;
@@ -54,7 +54,9 @@
 }
 
 .terminal-content .xterm-viewport {
+  background-color: transparent;
   overflow-y: auto !important;
+  overscroll-behavior: contain;
 }
 
 /* Terminal tabs styling */
@@ -75,7 +77,6 @@
   border-right: 1px solid var(--color-border);
   color: var(--color-text-secondary);
   font-size: var(--font-size-small);
-  cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
@@ -100,7 +101,6 @@
   border: none;
   border-radius: 3px;
   color: var(--color-text-secondary);
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--transition-fast), background var(--transition-fast);
 }
@@ -123,7 +123,6 @@
   background: transparent;
   border: none;
   color: var(--color-text-secondary);
-  cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
@@ -141,10 +140,10 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(var(--color-error-rgb), 0.2);
+  border: 1px solid rgba(var(--color-error-rgb), 0.4);
   border-radius: 12px;
-  color: #ef4444;
+  color: var(--color-error);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -170,10 +169,10 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(var(--color-error-rgb), 0.2);
+  border: 1px solid rgba(var(--color-error-rgb), 0.4);
   border-radius: 12px;
-  color: #ef4444;
+  color: var(--color-error);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -205,10 +204,10 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: var(--color-accent-tint-15);
+  border: 1px solid var(--color-accent-tint-45);
   border-radius: 16px;
-  color: #3b82f6;
+  color: var(--color-text-accent);
   font-size: 12px;
   font-weight: 500;
   z-index: 10;
@@ -219,7 +218,7 @@
   position: absolute;
   inset: -2px;
   border-radius: 18px;
-  border: 2px solid rgba(59, 130, 246, 0.5);
+  border: 2px solid var(--color-accent-tint-45);
   animation: capture-pulse 2s ease-in-out infinite;
   pointer-events: none;
 }
@@ -237,13 +236,13 @@
 
 .terminal-capture-indicator svg {
   flex-shrink: 0;
-  stroke: #3b82f6;
+  stroke: var(--color-accent);
 }
 
 .terminal-capture-path {
   font-family: var(--font-family-mono);
   font-size: 11px;
-  color: #93c5fd;
+  color: var(--color-text-accent);
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -253,10 +252,10 @@
 .terminal-capture-bytes {
   font-family: var(--font-family-mono);
   font-size: 10px;
-  color: #60a5fa;
+  color: var(--color-text-accent);
   padding: 2px 6px;
-  background: rgba(59, 130, 246, 0.2);
-  border-radius: 8px;
+  background: var(--color-accent-tint-20);
+  border-radius: var(--radius-panel);
 }
 
 .terminal-capture-complete,
@@ -269,27 +268,26 @@
   padding: 0;
   border: none;
   border-radius: 50%;
-  cursor: pointer;
   transition: background 0.15s, transform 0.15s;
 }
 
 .terminal-capture-complete {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
+  background: rgba(var(--color-success-rgb), 0.2);
+  color: var(--color-success);
 }
 
 .terminal-capture-complete:hover {
-  background: rgba(34, 197, 94, 0.4);
+  background: rgba(var(--color-success-rgb), 0.4);
   transform: scale(1.1);
 }
 
 .terminal-capture-cancel {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: rgba(var(--color-error-rgb), 0.2);
+  color: var(--color-error);
 }
 
 .terminal-capture-cancel:hover {
-  background: rgba(239, 68, 68, 0.4);
+  background: rgba(var(--color-error-rgb), 0.4);
   transform: scale(1.1);
 }
 
@@ -357,7 +355,6 @@
 /* Overlord-specific highlight: more prominent than standard AI highlights */
 .xterm .xterm-decoration-container .ai-overlord-highlight {
   border-bottom: 2px solid currentColor;
-  cursor: pointer;
   pointer-events: auto;
   transition: opacity 0.15s ease;
 }
@@ -377,14 +374,14 @@
 .terminal-hover-popup {
   position: fixed;
   transform: translateY(-100%);
-  background: var(--color-bg-elevated, #1e1e2e);
-  border: 1px solid var(--color-border, #444);
-  border-radius: 4px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   padding: 3px 8px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-family);
   font-size: 11px;
   line-height: 1.4;
-  color: var(--color-text, #cdd6f4);
+  color: var(--color-text);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   z-index: var(--z-popover);
   pointer-events: none;
@@ -397,14 +394,14 @@
   transform: translateY(-100%);
   min-width: 280px;
   max-width: 420px;
-  background: var(--color-bg-elevated, #1e1e2e);
-  border: 1px solid var(--color-border, #444);
-  border-radius: 6px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   padding: 10px 12px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-family);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--color-text, #cdd6f4);
+  color: var(--color-text);
   box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   z-index: var(--z-popover);
   pointer-events: none;
@@ -431,12 +428,12 @@
 
 .ai-overlord-popup-label {
   font-size: 10px;
-  color: var(--color-text-tertiary, #888);
+  color: var(--color-text-tertiary);
   font-weight: 500;
 }
 
 .ai-overlord-popup-body {
-  color: var(--color-text, #cdd6f4);
+  color: var(--color-text);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -444,187 +441,14 @@
 .ai-overlord-popup-footer {
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px solid var(--color-border, #444);
+  border-top: 1px solid var(--color-border);
   font-size: 10px;
-  color: var(--color-text-tertiary, #888);
+  color: var(--color-text-tertiary);
   font-style: italic;
 }
 
-/* Save to Docs dialog */
-.terminal-save-dialog-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
-  z-index: 100;
-}
-
-.terminal-save-dialog {
-  width: 400px;
-  max-width: 90%;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
-}
-
-.terminal-save-dialog-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--color-bg-tertiary);
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.terminal-save-dialog-header svg {
-  stroke: #3b82f6;
-  flex-shrink: 0;
-}
-
-.terminal-save-dialog-header span {
-  flex: 1;
-}
-
-.terminal-save-dialog-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.terminal-save-dialog-close:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.terminal-save-dialog-content {
-  padding: 16px;
-}
-
-.terminal-save-dialog-content label {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.terminal-save-dialog-input-wrapper {
-  display: flex;
-  align-items: center;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.terminal-save-dialog-prefix {
-  padding: 8px 4px 8px 12px;
-  color: var(--color-text-secondary);
+.terminal-save-dialog-path {
   font-family: var(--font-family-mono);
-  font-size: 13px;
-  background: rgba(59, 130, 246, 0.1);
-  border-right: 1px solid var(--color-border);
-}
-
-.terminal-save-dialog-input-wrapper input {
-  flex: 1;
-  padding: 8px 12px;
-  background: transparent;
-  border: none;
-  color: var(--color-text-primary);
-  font-family: var(--font-family-mono);
-  font-size: 13px;
-  outline: none;
-}
-
-.terminal-save-dialog-input-wrapper input::placeholder {
-  color: var(--color-text-tertiary);
-}
-
-.terminal-save-dialog-input-wrapper:focus-within {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.terminal-save-dialog-hint {
-  margin-top: 8px;
-  color: var(--color-text-tertiary);
-  font-size: 11px;
-}
-
-.terminal-save-dialog-preview {
-  display: flex;
-  gap: 16px;
-  margin-top: 12px;
-  padding: 8px 12px;
-  background: var(--color-bg-tertiary);
-  border-radius: 6px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-family: var(--font-family-mono);
-}
-
-.terminal-save-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--color-bg-tertiary);
-  border-top: 1px solid var(--color-border);
-}
-
-.terminal-save-dialog-cancel,
-.terminal-save-dialog-submit {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
-}
-
-.terminal-save-dialog-cancel {
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
-}
-
-.terminal-save-dialog-cancel:hover {
-  background: var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.terminal-save-dialog-submit {
-  background: #3b82f6;
-  color: white;
-}
-
-.terminal-save-dialog-submit:hover {
-  background: #2563eb;
-}
-
-.terminal-save-dialog-submit:active,
-.terminal-save-dialog-cancel:active {
-  transform: scale(0.98);
 }
 
 /* Enterprise SSH Badge (Phase 42) */
@@ -632,9 +456,9 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  color: #3b82f6;
+  background: var(--color-accent-tint-15);
+  border: 1px solid var(--color-accent-tint-45);
+  color: var(--color-text-accent);
   font-size: 11px;
   font-weight: 600;
   padding: 3px 10px;
@@ -653,7 +477,7 @@
   display: inline-block;
   width: 6px;
   height: 6px;
-  background: #3b82f6;
+  background: var(--color-accent);
   border-radius: 50%;
   animation: pulse 2s ease-in-out infinite;
 }
@@ -664,9 +488,9 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  color: #f59e0b;
+  background: rgba(var(--color-warning-rgb), 0.15);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.4);
+  color: var(--color-warning);
   font-size: 11px;
   font-weight: 600;
   padding: 3px 10px;
@@ -708,16 +532,6 @@
   border-radius: 50%;
   animation: pulse 2s ease-in-out infinite;
 }
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 /* Enterprise SSH Reconnecting Overlay (Phase 42) */
 .terminal-reconnecting-overlay {
   position: absolute;
@@ -732,15 +546,15 @@
   align-items: center;
   justify-content: center;
   z-index: 100;
-  color: var(--color-text-primary, #fff);
+  color: var(--color-text-primary);
 }
 
 .terminal-reconnecting-content {
   text-align: center;
   padding: 24px;
-  background: var(--color-bg-secondary, #1e1e1e);
-  border: 1px solid var(--color-border, #333);
-  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
   max-width: 400px;
 }
 
@@ -748,32 +562,31 @@
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 12px;
-  color: var(--color-text-primary, #fff);
+  color: var(--color-text-primary);
 }
 
 .terminal-reconnecting-message {
   font-size: 14px;
-  color: var(--color-text-secondary, #999);
+  color: var(--color-text-secondary);
   margin-bottom: 16px;
 }
 
 .terminal-reconnecting-attempts {
   font-size: 13px;
-  color: var(--color-text-tertiary, #666);
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
 }
 
 .terminal-reconnect-btn {
   margin-top: 16px;
   padding: 8px 20px;
-  background: var(--color-primary, #3b82f6);
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-text-on-accent);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   font-size: 14px;
   font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
 .terminal-reconnect-btn:hover {
@@ -801,8 +614,8 @@
   align-items: center;
   gap: 6px;
   padding: 3px 7px;
-  background: rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-fill-subtle);
+  border-bottom: 1px solid var(--color-border);
 }
 .ns-enrich-header-draggable {
   cursor: grab;
@@ -812,52 +625,50 @@
 .ns-enrich-close-btn {
   background: none;
   border: none;
-  color: var(--vscode-descriptionForeground, #888);
-  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
   font-size: 14px;
   line-height: 1;
   padding: 0 4px;
   border-radius: 2px;
 }
 .ns-enrich-close-btn:hover {
-  color: var(--vscode-foreground, #ccc);
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--vscode-foreground);
+  background: var(--color-fill);
 }
 .ns-enrich-title {
   flex: 1;
-  font-family: var(--vscode-editor-font-family, monospace);
+  font-family: var(--font-family-mono);
   font-weight: 600;
   font-size: 11px;
-  color: var(--vscode-foreground, #ddd);
+  color: var(--vscode-foreground);
   word-break: break-all;
 }
 .ns-enrich-type-badge {
   font-size: 9px;
   padding: 0 5px;
   border-radius: 2px;
-  background: rgba(78, 201, 176, 0.15);
-  color: #4ec9b0;
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
   text-transform: lowercase;
 }
 .ns-enrich-digest-btn {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: var(--vscode-charts-yellow, #e2b87a);
+  border: 1px solid var(--color-border);
+  color: var(--vscode-charts-yellow);
   border-radius: 2px;
   width: 16px;
   height: 16px;
   padding: 0;
-  cursor: pointer;
   font-size: 10px;
   line-height: 1;
 }
 .ns-enrich-digest-btn:hover {
-  background: rgba(226, 184, 122, 0.15);
+  background: rgba(var(--color-warning-rgb), 0.15);
 }
 
 /* sections — tag chip sits inline with first row, not on its own line */
 .ns-enrich-section {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-border);
   padding: 3px 7px 4px;
 }
 .ns-enrich-section:last-child { border-bottom: none; }
@@ -875,43 +686,41 @@
   font-weight: 600;
   line-height: 1.4;
 }
-.ns-enrich-tag-builtin { background: rgba(255, 255, 255, 0.08); color: #aaa; }
-.ns-enrich-tag-crawler { background: rgba(78, 201, 176, 0.18); color: #4ec9b0; }
-.ns-enrich-tag-netbox { background: rgba(86, 156, 214, 0.18); color: #569cd6; }
-.ns-enrich-tag-default { background: rgba(255, 255, 255, 0.08); color: #888; }
-.ns-enrich-tag-error { background: rgba(244, 71, 71, 0.18); color: #f48a8a; }
-.ns-enrich-error-text { color: #f48a8a; font-style: italic; }
+.ns-enrich-tag-builtin { background: var(--color-fill); color: var(--color-text-secondary); }
+.ns-enrich-tag-crawler { background: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
+.ns-enrich-tag-netbox { background: var(--color-accent-tint-20); color: var(--color-text-accent); }
+.ns-enrich-tag-default { background: var(--color-fill); color: var(--color-text-secondary); }
+.ns-enrich-tag-error { background: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
+.ns-enrich-error-text { color: var(--color-error); font-style: italic; }
 
 /* Per-section "view raw" toggle — small {} button on the section header */
 .ns-enrich-raw-toggle {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--vscode-descriptionForeground, #888);
-  cursor: pointer;
-  font-family: var(--vscode-editor-font-family, monospace);
+  border: 1px solid var(--color-border);
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--font-family-mono);
   font-size: 9px;
   padding: 1px 5px;
   border-radius: 2px;
   line-height: 1.2;
 }
 .ns-enrich-raw-toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--vscode-foreground, #ccc);
+  background: var(--color-fill);
+  color: var(--vscode-foreground);
 }
 .ns-enrich-raw-toggle.active {
-  background: rgba(78, 201, 176, 0.15);
-  color: #4ec9b0;
-  border-color: rgba(78, 201, 176, 0.3);
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+  border-color: rgba(var(--color-success-rgb), 0.3);
 }
 
 /* Raw-debug fallback: snippet that expands to the full JSON response. Used
    when a per-source renderer doesn't recognize the shape — gives us a way
    to see what the upstream actually sent and refine renderers from there. */
 .ns-enrich-raw-summary {
-  cursor: pointer;
-  font-family: var(--vscode-editor-font-family, monospace);
+  font-family: var(--font-family-mono);
   font-size: 10px;
-  color: var(--vscode-descriptionForeground, #aaa);
+  color: var(--vscode-descriptionForeground);
   padding: 2px 0;
   list-style: none;
   outline: none;
@@ -923,7 +732,7 @@
 }
 .ns-enrich-raw-summary::before {
   content: '▸ ';
-  color: var(--vscode-charts-yellow, #e2b87a);
+  color: var(--vscode-charts-yellow);
 }
 details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
 .ns-enrich-raw-summary::-webkit-details-marker { display: none; }
@@ -932,12 +741,13 @@ details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
   padding: 6px;
   background: rgba(0, 0, 0, 0.25);
   border-radius: 3px;
-  font-family: var(--vscode-editor-font-family, monospace);
+  font-family: var(--font-family-mono);
   font-size: 10px;
   line-height: 1.4;
-  color: var(--vscode-foreground, #ccc);
+  color: var(--vscode-foreground);
   max-height: 240px;
   overflow: auto;
+  overscroll-behavior: contain;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -953,13 +763,13 @@ details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
   font-size: 11px;
 }
 .ns-enrich-row-label {
-  color: var(--vscode-descriptionForeground, #888);
+  color: var(--vscode-descriptionForeground);
   min-width: 56px;
   flex-shrink: 0;
 }
 .ns-enrich-row-value {
   flex: 1;
-  color: var(--vscode-foreground, #ddd);
+  color: var(--vscode-foreground);
   word-break: break-word;
 }
 .ns-enrich-pill {
@@ -969,14 +779,14 @@ details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
   font-size: 9px;
   font-weight: 600;
 }
-.ns-enrich-pill-up { background: rgba(78, 201, 176, 0.18); color: #4ec9b0; }
-.ns-enrich-pill-down { background: rgba(244, 71, 71, 0.18); color: #f44747; }
-.ns-enrich-pill-warn { background: rgba(226, 184, 122, 0.18); color: #e2b87a; }
-.ns-enrich-pill-info { background: rgba(86, 156, 214, 0.18); color: #569cd6; }
+.ns-enrich-pill-up { background: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
+.ns-enrich-pill-down { background: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
+.ns-enrich-pill-warn { background: rgba(var(--color-warning-rgb), 0.18); color: var(--color-warning); }
+.ns-enrich-pill-info { background: var(--color-accent-tint-20); color: var(--color-text-accent); }
 
 .ns-enrich-empty {
   padding: 6px 8px;
-  color: var(--vscode-descriptionForeground, #888);
+  color: var(--vscode-descriptionForeground);
   font-style: italic;
   text-align: center;
   font-size: 11px;
@@ -991,7 +801,7 @@ details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--vscode-descriptionForeground, #888);
+  background: var(--vscode-descriptionForeground);
   animation: ns-enrich-pulse 1.2s ease-in-out infinite;
 }
 .ns-enrich-dot:nth-child(2) { animation-delay: 0.2s; }
@@ -1023,6 +833,6 @@ details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
 .ns-enrich-digest-footer {
   padding: 2px 8px 4px;
   font-size: 9px;
-  color: var(--vscode-descriptionForeground, #888);
+  color: var(--vscode-descriptionForeground);
   text-align: right;
 }

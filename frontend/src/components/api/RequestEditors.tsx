@@ -133,7 +133,7 @@ export function JsonEditor({
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: highlighted + '\n' }}
       />
-      <textarea
+      <textarea data-ai-fill="off"
         ref={textareaRef}
         className="req-json-textarea"
         value={value}
@@ -178,7 +178,7 @@ export function PathInput({
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: highlighted || '&nbsp;' }}
       />
-      <input
+      <input data-ai-fill="off"
         ref={inputRef}
         type="text"
         className="req-path-input"

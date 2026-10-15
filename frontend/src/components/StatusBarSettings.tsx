@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import './StatusBarSettings.css'
 import Switch from './Switch'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
 import {
   type StatusBarSettings,
   type StatusBarTheme,
@@ -84,103 +86,84 @@ export default function StatusBarSettingsPanel() {
   }
 
   const renderToggleRow = ({ key, label }: { key: FeatureKey; label: string }) => (
-    <div key={key} className="status-bar-settings-row compact">
-      <span>{label}</span>
+    <SettingRow key={key} label={label}>
       <Switch
         checked={settings[key]}
         onChange={(checked) => updateSettings({ [key]: checked })}
         disabled={!settings.enabled}
         label={label}
       />
-    </div>
+    </SettingRow>
   )
 
   return (
-    <div className="status-bar-settings">
-      {/* Enable/Disable */}
-      <div className="status-bar-settings-row">
-        <div className="status-bar-settings-label">
-          <span>Show Status Bar</span>
-          <span className="status-bar-settings-desc">Display the status bar at the bottom of the window</span>
-        </div>
-        <Switch
-          checked={settings.enabled}
-          onChange={(checked) => updateSettings({ enabled: checked })}
-          label="Show Status Bar"
-        />
-      </div>
-
-      {/* Theme Selection */}
-      <div className="status-bar-settings-section">
-        <div className="status-bar-settings-section-title">Theme</div>
-        <div className="status-bar-settings-themes">
-          {(Object.entries(STATUS_BAR_THEMES) as [StatusBarTheme, typeof STATUS_BAR_THEMES[StatusBarTheme]][]).map(([key, theme]) => (
-            <button
-              key={key}
-              className={`status-bar-theme-btn ${settings.theme === key ? 'active' : ''}`}
-              onClick={() => handleThemeChange(key)}
-              disabled={!settings.enabled}
-            >
-              <span
-                className="status-bar-theme-preview"
-                style={{
-                  background: key === 'minimal' ? 'var(--color-bg-secondary)' :
-                             key === 'accent' ? 'var(--color-accent)' : theme.colors.background,
-                  border: key === 'minimal' ? '1px solid var(--color-border)' : 'none',
-                }}
-              />
-              <span className="status-bar-theme-name">{theme.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Custom Colors (only when custom theme selected) */}
-      {settings.theme === 'custom' && (
-        <div className="status-bar-settings-section">
-          <div className="status-bar-settings-section-title">Custom Colors</div>
-          <div className="status-bar-settings-colors">
-            <div className="status-bar-color-row">
-              <label>Background</label>
-              <input
-                type="color"
-                value={settings.customColors.background}
-                onChange={e => updateCustomColor('background', e.target.value)}
-                disabled={!settings.enabled}
-              />
-            </div>
-            <div className="status-bar-color-row">
-              <label>Text</label>
-              <input
-                type="color"
-                value={settings.customColors.text}
-                onChange={e => updateCustomColor('text', e.target.value)}
-                disabled={!settings.enabled}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Feature Toggles */}
-      <div className="status-bar-settings-section">
-        <div className="status-bar-settings-section-title">Elements</div>
-        {ELEMENT_TOGGLES.map(renderToggleRow)}
-      </div>
-
-      {/* Style Options */}
-      <div className="status-bar-settings-section">
-        <div className="status-bar-settings-section-title">Style</div>
-        {STYLE_TOGGLES.map(renderToggleRow)}
-      </div>
-
-      {/* Reset */}
-      <button
-        className="status-bar-settings-reset"
-        onClick={resetToDefaults}
+    <>
+      <SettingsSection
+        title="Status Bar"
+        actions={<button className="ns-btn ns-btn--small" onClick={resetToDefaults}>Reset to Defaults</button>}
       >
-        Reset to Defaults
-      </button>
-    </div>
+        <div className="settings-group">
+          <SettingRow label="Show Status Bar" description="Display the status bar at the bottom of the window">
+            <Switch
+              checked={settings.enabled}
+              onChange={(checked) => updateSettings({ enabled: checked })}
+              label="Show Status Bar"
+            />
+          </SettingRow>
+          <SettingRow label="Theme" stacked>
+            <div className="status-bar-settings-themes">
+              {(Object.entries(STATUS_BAR_THEMES) as [StatusBarTheme, typeof STATUS_BAR_THEMES[StatusBarTheme]][]).map(([key, theme]) => (
+                <button
+                  key={key}
+                  className={`status-bar-theme-btn ${settings.theme === key ? 'active' : ''}`}
+                  onClick={() => handleThemeChange(key)}
+                  disabled={!settings.enabled}
+                  aria-pressed={settings.theme === key}
+                >
+                  <span
+                    className="status-bar-theme-preview"
+                    style={{
+                      background: key === 'minimal' ? 'var(--color-bg-secondary)' :
+                                 key === 'accent' ? 'var(--color-accent)' : theme.colors.background,
+                      border: key === 'minimal' ? '1px solid var(--color-border)' : 'none',
+                    }}
+                  />
+                  <span className="status-bar-theme-name">{theme.label}</span>
+                </button>
+              ))}
+            </div>
+          </SettingRow>
+          {settings.theme === 'custom' && (
+            <>
+              <SettingRow label="Background color">
+                <input aria-label="Background color"
+                  type="color"
+                  className="status-bar-color-input"
+                  value={settings.customColors.background}
+                  onChange={e => updateCustomColor('background', e.target.value)}
+                  disabled={!settings.enabled}
+                />
+              </SettingRow>
+              <SettingRow label="Text color">
+                <input aria-label="Text color"
+                  type="color"
+                  className="status-bar-color-input"
+                  value={settings.customColors.text}
+                  onChange={e => updateCustomColor('text', e.target.value)}
+                  disabled={!settings.enabled}
+                />
+              </SettingRow>
+            </>
+          )}
+          {STYLE_TOGGLES.map(renderToggleRow)}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Status Bar Items" description="Choose which items the status bar shows.">
+        <div className="settings-group">
+          {ELEMENT_TOGGLES.map(renderToggleRow)}
+        </div>
+      </SettingsSection>
+    </>
   )
 }

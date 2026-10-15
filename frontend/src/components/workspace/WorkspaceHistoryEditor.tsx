@@ -3,6 +3,9 @@ import type { GitOps, RebasePlanItem } from '../../types/workspace'
 import { showToast } from '../Toast'
 
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter'
+import Tooltip from '../Tooltip'
+import ModalFrame from '../ModalFrame'
 interface WorkspaceHistoryEditorProps {
   gitOps: GitOps
   onClose: () => void
@@ -135,133 +138,109 @@ export default function WorkspaceHistoryEditor({ gitOps, onClose, onRefresh }: W
 
   if (loading) {
     return (
-      <div className="workspace-git-dialog-overlay">
-        <div className="workspace-git-dialog" style={{ maxWidth: 560 }}>
-          <p>Loading commits...</p>
-        </div>
-      </div>
+      <ModalFrame id="git-history-editor" className="workspace-git-dialog" style={{ maxWidth: 560 }} label="Clean Up Your Commits">
+        <p>Loading commits...</p>
+      </ModalFrame>
     )
   }
 
   if (commits.length === 0) {
     return (
-      <div className="workspace-git-dialog-overlay" onClick={onClose}>
-        <div className="workspace-git-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
-          <h3>Clean Up Your Commits</h3>
-          <p>No unpushed commits to clean up.</p>
-          <div className="workspace-git-dialog-actions">
-            <button className="workspace-git-dialog-btn" onClick={onClose}>Close</button>
-          </div>
+      <ModalFrame id="git-history-editor" className="workspace-git-dialog" style={{ maxWidth: 560 }} label="Clean Up Your Commits">
+        <h3>Clean Up Your Commits</h3>
+        <p>No unpushed commits to clean up.</p>
+        <div className="workspace-git-dialog-actions">
+          <button className="ns-btn" onClick={onClose}>Close</button>
         </div>
-      </div>
+      </ModalFrame>
     )
   }
 
   return (
-    <div className="workspace-git-dialog-overlay">
-      <div className="workspace-git-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-        <h3>Clean Up Your Commits</h3>
-        <p>These commits exist only on your machine. You can reorganize them before pushing.</p>
+    <ModalFrame id="git-history-editor" className="workspace-git-dialog" style={{ maxWidth: 560 }} label="Clean Up Your Commits">
+      <h3>Clean Up Your Commits</h3>
+      <p>These commits exist only on your machine. You can reorganize them before pushing.</p>
 
-        <div style={{ flex: 1, overflow: 'auto', margin: '8px 0', border: '1px solid var(--color-border)', borderRadius: 4 }}>
-          {commits.map((commit, idx) => (
-            <div
-              key={commit.hash}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 8px',
-                borderBottom: '1px solid var(--color-border)',
-                opacity: commit.action === 'drop' ? 0.4 : 1,
-                textDecoration: commit.action === 'drop' ? 'line-through' : 'none',
-                background: commit.selected ? 'var(--color-bg-hover)' : 'transparent',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={commit.selected}
-                onChange={() => toggleSelect(idx)}
-                style={{ flexShrink: 0 }}
-              />
-              <span style={{ fontFamily: 'var(--font-family-mono)', fontSize: 11, color: 'var(--color-accent)', flexShrink: 0 }}>
-                {commit.shortHash}
-              </span>
-              {editingIdx === idx ? (
-                <input
-                  style={{
-                    flex: 1,
-                    background: 'var(--color-bg-primary)',
-                    border: '1px solid var(--color-accent)',
-                    borderRadius: 3,
-                    color: 'var(--color-text-primary)',
-                    fontSize: 12,
-                    padding: '2px 4px',
-                    fontFamily: 'var(--font-family)',
-                  }}
-                  value={editMessage}
-                  onChange={e => setEditMessage(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') finishEdit(); if (e.key === 'Escape') setEditingIdx(null) }}
-                  autoFocus
-                  onBlur={finishEdit}
-                />
-              ) : (
-                <span
-                  style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-                  onClick={() => startEdit(idx)}
-                  title="Click to edit message"
-                >
-                  {commit.message}
-                </span>
-              )}
-              <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                <button
-                  style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}
-                  onClick={() => moveUp(idx)}
-                  disabled={idx === 0}
-                  title="Move up"
-                >
-                  ▲
-                </button>
-                <button
-                  style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}
-                  onClick={() => moveDown(idx)}
-                  disabled={idx === commits.length - 1}
-                  title="Move down"
-                >
-                  ▼
-                </button>
-                <button
-                  style={{ background: 'none', border: 'none', color: commit.action === 'drop' ? 'var(--color-error)' : 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}
-                  onClick={() => toggleDrop(idx)}
-                  title={commit.action === 'drop' ? 'Restore' : 'Remove'}
-                >
-                  {commit.action === 'drop' ? '↩' : '✕'}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-          <button className="workspace-git-dialog-btn" onClick={handleCombineSelected}>
-            Combine Selected
-          </button>
-        </div>
-
-        <div className="workspace-git-dialog-actions">
-          <button className="workspace-git-dialog-btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="workspace-git-dialog-btn primary"
-            onClick={handleApply}
-            disabled={applying}
+      <div style={{ flex: 1, overflow: 'auto', margin: '8px 0', border: '1px solid var(--color-border)', borderRadius: 4 }}>
+        {commits.map((commit, idx) => (
+          <div
+            key={commit.hash}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px',
+              borderBottom: '1px solid var(--color-border)',
+              opacity: commit.action === 'drop' ? 0.4 : 1,
+              textDecoration: commit.action === 'drop' ? 'line-through' : 'none',
+              background: commit.selected ? 'var(--color-bg-hover)' : 'transparent',
+            }}
           >
-            {applying ? 'Applying...' : 'Apply Changes'}
-          </button>
-        </div>
+            <input aria-label={`Select commit ${commit.shortHash}`}
+              type="checkbox"
+              checked={commit.selected}
+              onChange={() => toggleSelect(idx)}
+              style={{ flexShrink: 0 }}
+            />
+            <span style={{ fontFamily: 'var(--font-family-mono)', fontSize: 11, color: 'var(--color-accent)', flexShrink: 0 }}>
+              {commit.shortHash}
+            </span>
+            {editingIdx === idx ? (
+              <input data-ai-fill="off" aria-label="Commit message"
+                className="ns-input"
+                style={{ flex: 1 }}
+                value={editMessage}
+                onChange={e => setEditMessage(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); finishEdit() } if (e.key === 'Escape') setEditingIdx(null) }}
+                autoFocus
+                onBlur={finishEdit}
+              />
+            ) : (
+              <Tooltip label="Click to edit message"><span
+                style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                onClick={() => startEdit(idx)}
+              >
+                {commit.message}
+              </span></Tooltip>
+            )}
+            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+              <Tooltip label="Move up"><button aria-label="Move up"
+                className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
+                onClick={() => moveUp(idx)}
+                disabled={idx === 0}
+              >
+                ▲
+              </button></Tooltip>
+              <Tooltip label="Move down"><button aria-label="Move down"
+                className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
+                onClick={() => moveDown(idx)}
+                disabled={idx === commits.length - 1}
+              >
+                ▼
+              </button></Tooltip>
+              <Tooltip label={commit.action === 'drop' ? 'Restore' : 'Remove'}><button
+                className={`ns-btn ns-btn--ghost ns-icon-btn ns-btn--small${commit.action === 'drop' ? ' ns-btn--danger' : ''}`}
+                onClick={() => toggleDrop(idx)}
+                aria-label={commit.action === 'drop' ? 'Restore' : 'Remove'}
+              >
+                {commit.action === 'drop' ? '↩' : '✕'}
+              </button></Tooltip>
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <button className="ns-btn" onClick={handleCombineSelected}>
+          Combine Selected
+        </button>
+      </div>
+
+      <DialogFooter
+        primary={{ label: applying ? 'Applying...' : 'Apply Changes', onClick: handleApply, disabled: applying }}
+        onCancel={onClose}
+        inline
+      />
+    </ModalFrame>
   )
 }

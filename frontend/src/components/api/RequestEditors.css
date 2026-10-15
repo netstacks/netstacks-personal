@@ -3,18 +3,18 @@
 .req-json-editor {
   position: relative;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: #1e1e1e;
   overflow: hidden;
 }
 
 .req-json-editor:focus-within {
-  border-color: var(--color-accent, #4fc3f7);
+  border-color: var(--color-accent);
 }
 
 .req-json-highlight,
 .req-json-textarea {
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
   line-height: 1.6;
   padding: 8px 10px;
@@ -60,9 +60,9 @@
 .jh-keyword { color: #569cd6; }
 .jh-punct { color: #808080; }
 .jh-var {
-  color: #dcdcaa;
+  color: var(--color-warning);
   font-weight: 600;
-  background: rgba(220, 220, 170, 0.1);
+  background: rgba(var(--color-warning-rgb), 0.1);
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -74,19 +74,19 @@
   min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: 3px;
-  background: #1e1e1e;
+  background: var(--color-bg-primary);
   overflow: hidden;
   height: 28px;
   box-sizing: border-box;
 }
 
 .req-path-editor:focus-within {
-  border-color: var(--color-accent, #4fc3f7);
+  border-color: var(--color-accent);
 }
 
 .req-path-highlight,
 .req-path-input {
-  font-family: 'SF Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 12px;
   line-height: 26px;
   padding: 0 8px;
@@ -98,7 +98,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  color: #d4d4d4;
+  color: var(--color-text-primary);
   overflow: hidden;
 }
 
@@ -109,7 +109,7 @@
   height: 26px;
   background: transparent;
   color: transparent;
-  caret-color: #d4d4d4;
+  caret-color: var(--color-text-primary);
   border: none;
   outline: none;
   box-sizing: border-box;

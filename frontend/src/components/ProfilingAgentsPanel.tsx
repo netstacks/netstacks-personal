@@ -4,6 +4,7 @@ import type { ProfilingAgent } from '../api/profilingAgents';
 import './ProfilingAgentsPanel.css';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface ProfilingAgentsPanelProps {
   onOpenChat: (agentId: string, agentName: string) => void;
   onOpenConfig: (agentId: string) => void;
@@ -135,18 +136,18 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
     <div className="profiling-agents-panel">
       <div className="profiling-agents-header">
         <div className="profiling-agents-title">Profiling Agents</div>
-        <button
-          className="profiling-agents-refresh-btn"
+        <Tooltip label="Refresh"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn profiling-agents-refresh-btn"
           onClick={handleRefresh}
           disabled={isLoading}
-          title="Refresh"
+          aria-label="Refresh"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="23 4 23 10 17 10" />
             <polyline points="1 20 1 14 7 14" />
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {isLoading && agents.length === 0 && (
@@ -159,7 +160,7 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
       {error && (
         <div className="profiling-agents-error">
           <div>Error: {error}</div>
-          <button onClick={handleRefresh}>Retry</button>
+          <button className="ns-btn ns-btn--small" onClick={handleRefresh}>Retry</button>
         </div>
       )}
 

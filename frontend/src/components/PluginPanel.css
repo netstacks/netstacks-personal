@@ -26,29 +26,10 @@
 
 .plugin-panel-refresh-btn {
   display: flex;
-  align-items: center;
-  padding: 4px;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-}
-
-.plugin-panel-refresh-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.plugin-panel-refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .plugin-panel-refresh-btn svg {
   width: 16px;
-  height: 16px;
 }
 
 /* Loading state */
@@ -101,22 +82,6 @@
   text-align: center;
 }
 
-.plugin-panel-error button {
-  padding: 6px 12px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.plugin-panel-error button:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-}
-
 /* Empty state */
 .plugin-panel-empty {
   display: flex;
@@ -133,6 +98,7 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
+  overscroll-behavior: contain;
 }
 
 /* Table */
@@ -192,55 +158,4 @@
   padding: 12px;
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
-}
-
-.plugin-panel-action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-}
-
-.plugin-panel-action-btn.default {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.plugin-panel-action-btn.default:hover:not(:disabled) {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-}
-
-.plugin-panel-action-btn.primary {
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: var(--color-text-on-accent);
-}
-
-.plugin-panel-action-btn.primary:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
-}
-
-.plugin-panel-action-btn.danger {
-  background: var(--color-error);
-  border: 1px solid var(--color-error);
-  color: white;
-}
-
-.plugin-panel-action-btn.danger:hover:not(:disabled) {
-  background: #c0392b;
-  border-color: #c0392b;
-}
-
-.plugin-panel-action-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }

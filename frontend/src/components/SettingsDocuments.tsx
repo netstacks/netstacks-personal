@@ -7,6 +7,7 @@
  * enterprise mode). The AI-agent default is also mirrored to the backend so the
  * standalone agent honors it.
  */
+import AITabInput from './AITabInput'
 import { useCallback, useMemo } from 'react'
 import { useSettings } from '../hooks/useSettings'
 import type { DocumentCategory } from '../api/docs'
@@ -17,6 +18,9 @@ import {
   syncAiAgentDefaultToBackend,
   type DocSaveSource,
 } from '../lib/docSaveTargets'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
+import './SettingsDocuments.css'
 
 const CATEGORIES: DocumentCategory[] = [
   'outputs', 'templates', 'notes', 'backups', 'history', 'troubleshooting', 'mops',
@@ -58,59 +62,43 @@ export default function SettingsDocuments() {
   }, [updateSetting])
 
   return (
-    <div className="settings-section">
-      <div className="settings-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2>Documents — auto-save locations</h2>
-          <p className="settings-section-description">
-            Choose which category and folder each part of the app saves generated
-            documents into (enrichment markdown, snapshots, troubleshooting summaries,
-            MOPs, AI outputs, and more). Leave a folder blank for none. Applies in
-            both personal and enterprise mode.
-          </p>
-        </div>
-        <button className="settings-button" onClick={resetAll}>Reset to defaults</button>
+    <SettingsSection
+      title="Auto-save Locations"
+      description="Choose which category and folder each part of the app saves generated documents into (enrichment markdown, snapshots, troubleshooting summaries, MOPs, AI outputs, and more). Leave a folder blank for none. Applies in both personal and enterprise mode."
+      actions={<button className="ns-btn ns-btn--small" onClick={resetAll}>Reset to defaults</button>}
+    >
+      <div className="settings-group">
+        {DOC_SAVE_SOURCES.map((source) => {
+          const val = effective(source)
+          const label = DOC_SAVE_SOURCE_LABELS[source]
+          return (
+            <SettingRow
+              key={source}
+              label={label}
+              description={val.category === 'notes' ? 'Notes are encrypted at rest and hidden from the AI when the vault is locked.' : undefined}
+            >
+              <span className="settings-documents-target">
+                <select aria-label={`Category for ${label}`} className="ns-select"
+                  value={val.category}
+                  onChange={(e) => writeTarget(source, { category: e.target.value as DocumentCategory })}
+                >
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <AITabInput
+                  aria-label={`Folder for ${label}`}
+                  value={val.folder}
+                  placeholder="Folder (optional)"
+                  onChange={(e) => writeTarget(source, { folder: e.target.value })}
+                  aiField="document folder"
+                  aiPlaceholder="Folder path where these auto-saved documents should go"
+                  aiContext={{ source: label, category: val.category }}
+                  onAIValue={(v) => writeTarget(source, { folder: v })}
+                />
+              </span>
+            </SettingRow>
+          )
+        })}
       </div>
-
-      <table className="settings-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ textAlign: 'left' }}>
-            <th style={{ padding: '6px 8px' }}>Source</th>
-            <th style={{ padding: '6px 8px' }}>Category</th>
-            <th style={{ padding: '6px 8px' }}>Folder (optional)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {DOC_SAVE_SOURCES.map((source) => {
-            const val = effective(source)
-            return (
-              <tr key={source} style={{ borderTop: '1px solid var(--border-color, #333)' }}>
-                <td style={{ padding: '6px 8px' }}>{DOC_SAVE_SOURCE_LABELS[source]}</td>
-                <td style={{ padding: '6px 8px' }}>
-                  <select
-                    value={val.category}
-                    onChange={(e) => writeTarget(source, { category: e.target.value as DocumentCategory })}
-                  >
-                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  {val.category === 'notes' && (
-                    <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }} title="Notes are encrypted at rest and hidden from the AI when the vault is locked">🔒 encrypted</span>
-                  )}
-                </td>
-                <td style={{ padding: '6px 8px' }}>
-                  <input
-                    type="text"
-                    value={val.folder}
-                    placeholder="(none)"
-                    onChange={(e) => writeTarget(source, { folder: e.target.value })}
-                    style={{ width: 180 }}
-                  />
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
+    </SettingsSection>
   )
 }

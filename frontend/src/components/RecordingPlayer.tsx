@@ -6,6 +6,7 @@ import './RecordingPlayer.css'
 import { getRecording, getRecordingData, type Recording } from '../api/recordings'
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip'
 interface RecordingEvent {
   time: number
   type: 'o' | 'i'  // output or input
@@ -326,7 +327,7 @@ export default function RecordingPlayer({ recordingId, onClose }: RecordingPlaye
         </svg>
         <span>{error}</span>
         {onClose && (
-          <button onClick={onClose} className="recording-player-error-close">
+          <button onClick={onClose} className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small recording-player-error-close">
             Close
           </button>
         )}
@@ -346,7 +347,7 @@ export default function RecordingPlayer({ recordingId, onClose }: RecordingPlaye
           <span>{recording?.name || 'Recording'}</span>
         </div>
         {onClose && (
-          <button onClick={onClose} className="recording-player-close">
+          <button onClick={onClose} className="ns-btn ns-btn--ghost ns-icon-btn recording-player-close" aria-label="Close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -362,25 +363,25 @@ export default function RecordingPlayer({ recordingId, onClose }: RecordingPlaye
       <div className="recording-player-controls">
         {/* Playback buttons */}
         <div className="recording-player-buttons">
-          <button onClick={stop} className="recording-player-btn" title="Stop">
+          <Tooltip label="Stop"><button onClick={stop} className="recording-player-btn" aria-label="Stop">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <rect x="6" y="6" width="12" height="12" />
             </svg>
-          </button>
+          </button></Tooltip>
 
           {isPlaying ? (
-            <button onClick={pause} className="recording-player-btn recording-player-btn-primary" title="Pause">
+            <Tooltip label="Pause"><button onClick={pause} className="recording-player-btn recording-player-btn-primary" aria-label="Pause">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="4" width="4" height="16" />
                 <rect x="14" y="4" width="4" height="16" />
               </svg>
-            </button>
+            </button></Tooltip>
           ) : (
-            <button onClick={play} className="recording-player-btn recording-player-btn-primary" title="Play">
+            <Tooltip label="Play"><button onClick={play} className="recording-player-btn recording-player-btn-primary" aria-label="Play">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <polygon points="5,3 19,12 5,21" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
         </div>
 
@@ -399,7 +400,7 @@ export default function RecordingPlayer({ recordingId, onClose }: RecordingPlaye
 
         {/* Speed control */}
         <div className="recording-player-speed">
-          <select
+          <select aria-label="Playback speed"
             value={playbackSpeed}
             onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
             className="recording-player-speed-select"

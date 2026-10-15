@@ -20,21 +20,10 @@ use super::tools::{
     MopAnalysisTool, MopExecutionTool, MopPlanTool, PatchFileTool, SaveDocumentTool, SendEmailTool,
     SharedTool, SshCommandTool, ToolRegistry, WriteFileTool,
 };
+use crate::ai::config_mode::ConfigModeHandle;
 use crate::ai::sanitizer::Sanitizer;
 use crate::integrations::{McpClientManager, McpToolWrapper};
 use crate::providers::DataProvider;
-
-/// Interpret the `ai.terminal_mode` setting. Accepts the seeded bare boolean
-/// (`true`), a bare string (`"true"`), and the frontend's settings envelope
-/// (`{"value": "true"}` / `{"value": true}`). Anything else is disabled.
-fn terminal_mode_enabled(value: &serde_json::Value) -> bool {
-    let inner = value.get("value").unwrap_or(value);
-    match inner {
-        serde_json::Value::Bool(b) => *b,
-        serde_json::Value::String(s) => s.trim().eq_ignore_ascii_case("true"),
-        _ => false,
-    }
-}
 
 /// Agent task executor - spawns background tasks with concurrency control
 pub struct AgentTaskExecutor {
@@ -49,6 +38,9 @@ pub struct AgentTaskExecutor {
     sanitizer: Arc<RwLock<Option<Sanitizer>>>,
     /// AUDIT FIX (EXEC-017): per-tool-call user approval prompts.
     pub approval_service: Arc<super::approvals::TaskApprovalService>,
+    /// Live AI config-mode state (shared with the API) — lifts the read-only
+    /// device-command rule for the SSH tool and the permission resolver.
+    config_mode: ConfigModeHandle,
 }
 
 impl AgentTaskExecutor {
@@ -60,6 +52,7 @@ impl AgentTaskExecutor {
         provider: Arc<dyn DataProvider>,
         mcp_manager: Arc<RwLock<McpClientManager>>,
         sanitizer: Arc<RwLock<Option<Sanitizer>>>,
+        config_mode: ConfigModeHandle,
     ) -> Self {
         Self {
             // Evaluate the clone before `store` is moved by the shorthand below.
@@ -71,6 +64,7 @@ impl AgentTaskExecutor {
             provider,
             mcp_manager,
             sanitizer,
+            config_mode,
         }
     }
 
@@ -114,6 +108,7 @@ impl AgentTaskExecutor {
         let mcp_manager = self.mcp_manager.clone();
         let sanitizer = self.sanitizer.clone();
         let approval_service = self.approval_service.clone();
+        let config_mode = self.config_mode.clone();
         // Self-handle so the delegate_to_agent tool can spawn child agents.
         let executor = self.clone();
 
@@ -188,7 +183,7 @@ impl AgentTaskExecutor {
 
             // Build tool registry with network tools
             let mut tool_registry = ToolRegistry::new();
-            tool_registry.register(Arc::new(SshCommandTool::new(pool.clone())));
+            tool_registry.register(Arc::new(SshCommandTool::new(pool.clone(), config_mode.clone())));
             tool_registry.register(Arc::new(DeviceQueryTool::new(pool.clone())));
             tool_registry.register(Arc::new(SendEmailTool::new(pool.clone())));
             tool_registry.register(Arc::new(MopPlanTool::new(pool.clone())));
@@ -196,10 +191,10 @@ impl AgentTaskExecutor {
             tool_registry.register(Arc::new(MopAnalysisTool::new(pool.clone())));
             // Feature B: ask_user lets the agent pause and ask a clarifying
             // question. Clone the approval service (it's moved into the react
-            // loop below). Non-mutating, so it does not gate on approval.
+            // loop below). It IS the user prompt, so it is never gated.
             tool_registry.register(Arc::new(AskUserTool::new(approval_service.clone())));
             // Save artifacts (reports/configs/notes) as app documents the user
-            // can open in a tab + split-view. Non-mutating (no device change).
+            // can open in a tab + split-view.
             tool_registry.register(Arc::new(SaveDocumentTool::new(pool.clone())));
             // Sub-agent orchestration: discover specialist agents + delegate a
             // sub-job to a specialist or an ephemeral child (correlated to this
@@ -211,16 +206,14 @@ impl AgentTaskExecutor {
                 provider.clone(),
             )));
 
-            // Register write tools if AI terminal mode is enabled (Professional+ only).
-            // Read through the same JSON-parsed path as `get_setting` so the
-            // seeded bare `true` and the frontend's `{"value": "true"}` agree.
-            let ai_terminal_mode_enabled = provider
-                .get_setting("ai.terminal_mode")
-                .await
-                .map(|v| terminal_mode_enabled(&v))
-                .unwrap_or(false);
+            // The task's permission settings at start: the write tools are
+            // registered only with AI terminal mode on, and tools disabled for
+            // Auto Pilot are not offered at all. The react loop re-resolves
+            // every call against the live settings.
+            let permissions =
+                super::permissions::PermissionContext::load(&provider, &config_mode).await;
 
-            if ai_terminal_mode_enabled {
+            if permissions.terminal_mode {
                 tool_registry.register(Arc::new(WriteFileTool::new(pool.clone())));
                 tool_registry.register(Arc::new(EditFileTool::new(pool.clone())));
                 tool_registry.register(Arc::new(PatchFileTool::new(pool.clone())));
@@ -232,6 +225,7 @@ impl AgentTaskExecutor {
             for tool in mcp_tools {
                 tool_registry.register(tool);
             }
+            tool_registry.retain(|name| !permissions.disables(name));
 
             let tool_registry = Arc::new(tool_registry);
 
@@ -247,6 +241,7 @@ impl AgentTaskExecutor {
                 agent_definition,
                 sanitizer,
                 approval_service,
+                config_mode,
                 &mut permit_guard,
             )
             .await;
@@ -370,6 +365,7 @@ async fn execute_task_with_react(
     agent_definition: Option<crate::models::AgentDefinition>,
     sanitizer: Arc<RwLock<Option<Sanitizer>>>,
     approval_service: Arc<super::approvals::TaskApprovalService>,
+    config_mode: ConfigModeHandle,
     permit_guard: &mut super::PermitGuard,
 ) -> Result<(), ExecutorError> {
     // Mark task as running
@@ -396,8 +392,8 @@ async fn execute_task_with_react(
     info!("Task {} started execution", task_id);
 
     // Execute ReAct loop (with agent definition config if available).
-    // AUDIT FIX (EXEC-017): pass the approval service so mutating tools
-    // pause for explicit user consent.
+    // AUDIT FIX (EXEC-017): pass the approval service + config-mode handle so
+    // every tool call is resolved against the user's permission settings.
     let result = execute_react_loop_with_agent(
         task_id,
         prompt,
@@ -409,6 +405,7 @@ async fn execute_task_with_react(
         agent_definition,
         sanitizer,
         approval_service,
+        config_mode,
         permit_guard,
     )
     .await;
@@ -627,30 +624,5 @@ mod slot_wait_tests {
                 .map(|_| ()),
             Err(SlotWaitError::SemaphoreClosed)
         );
-    }
-}
-
-#[cfg(test)]
-mod terminal_mode_tests {
-    use super::terminal_mode_enabled;
-    use serde_json::json;
-
-    #[test]
-    fn accepts_bare_and_enveloped_encodings() {
-        assert!(terminal_mode_enabled(&json!(true)));
-        assert!(terminal_mode_enabled(&json!("true")));
-        assert!(terminal_mode_enabled(&json!({ "value": "true" })));
-        assert!(terminal_mode_enabled(&json!({ "value": true })));
-    }
-
-    #[test]
-    fn everything_else_is_disabled() {
-        assert!(!terminal_mode_enabled(&json!(false)));
-        assert!(!terminal_mode_enabled(&json!("false")));
-        assert!(!terminal_mode_enabled(&json!({ "value": "false" })));
-        assert!(!terminal_mode_enabled(&json!({ "value": false })));
-        assert!(!terminal_mode_enabled(&json!(null)));
-        assert!(!terminal_mode_enabled(&json!({})));
-        assert!(!terminal_mode_enabled(&json!(1)));
     }
 }

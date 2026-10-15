@@ -674,11 +674,10 @@ pub struct Script {
     pub id: String,
     pub name: String,
     pub content: String,
-    pub is_template: bool,
     pub last_run_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// Provenance — `"user"` (default), `"ai"`, or `"template"`. Set by the
+    /// Provenance — `"user"` (default) or `"ai"`. Set by the
     /// API surface that created the row. Used by `run_script` to refuse to
     /// execute AI-authored scripts that the user hasn't explicitly approved.
     /// AUDIT FIX (EXEC-014).
@@ -686,7 +685,7 @@ pub struct Script {
     pub created_by: String,
     /// True once the user has explicitly approved an AI-authored script for
     /// execution via `POST /api/scripts/:id/approve`. Always true for
-    /// `created_by=user` and `created_by=template` rows.
+    /// `created_by=user` rows.
     #[serde(default = "default_script_approved")]
     pub approved: bool,
 }
@@ -703,13 +702,6 @@ fn default_script_approved() -> bool {
 pub struct NewScript {
     pub name: String,
     pub content: String,
-    #[serde(default)]
-    pub is_template: bool,
-    /// Optional caller-supplied provenance. Only `"user"` is honoured from
-    /// API callers (default if omitted); the `"ai"` value is set internally
-    /// when an AI tool authors the script via `/api/ai/generate-script`.
-    #[serde(default)]
-    pub created_by: Option<String>,
 }
 
 /// Request to update a script
@@ -717,7 +709,6 @@ pub struct NewScript {
 pub struct UpdateScript {
     pub name: Option<String>,
     pub content: Option<String>,
-    pub is_template: Option<bool>,
 }
 
 /// Script execution result

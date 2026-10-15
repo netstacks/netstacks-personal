@@ -24,7 +24,7 @@ export default function OpacitySlider({
     <div className="opacity-slider">
       {label && <label className="opacity-slider-label">{label}</label>}
       <div className="opacity-slider-controls">
-        <input
+        <input aria-label={label || 'Opacity'}
           type="range"
           className="opacity-slider-range"
           min="0"

@@ -4,6 +4,7 @@
 
 import type { FontFamily } from '../../../types/annotations';
 import NumberInput from './NumberInput';
+import Tooltip from '../../Tooltip';
 
 interface FontSelectorProps {
   fontFamily: FontFamily;
@@ -36,8 +37,8 @@ export default function FontSelector({
     <div className="font-selector">
       <div className="font-selector-row">
         <label className="font-selector-label">Font</label>
-        <select
-          className="font-selector-family"
+        <select aria-label="Font"
+          className="ns-select font-selector-family"
           value={fontFamily}
           onChange={(e) => onFontFamilyChange(e.target.value as FontFamily)}
         >
@@ -62,22 +63,20 @@ export default function FontSelector({
       </div>
 
       <div className="font-selector-row font-selector-toggles">
-        <button
+        <Tooltip label="Bold"><button aria-label="Bold"
           type="button"
           className={`font-toggle-btn ${fontWeight === 'bold' ? 'active' : ''}`}
           onClick={() => onFontWeightChange(fontWeight === 'bold' ? 'normal' : 'bold')}
-          title="Bold"
         >
           <strong>B</strong>
-        </button>
-        <button
+        </button></Tooltip>
+        <Tooltip label="Italic"><button aria-label="Italic"
           type="button"
           className={`font-toggle-btn ${fontStyle === 'italic' ? 'active' : ''}`}
           onClick={() => onFontStyleChange(fontStyle === 'italic' ? 'normal' : 'italic')}
-          title="Italic"
         >
           <em>I</em>
-        </button>
+        </button></Tooltip>
       </div>
     </div>
   );

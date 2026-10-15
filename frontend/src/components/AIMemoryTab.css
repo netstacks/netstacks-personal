@@ -1,0 +1,11 @@
+/* Settings → AI → AI Memory: the add row. */
+.ai-memory-add {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.ai-memory-add .ns-input {
+  flex: 1;
+  min-width: 0;
+}

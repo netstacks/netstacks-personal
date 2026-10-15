@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { SparkleIcon } from './icons/SparkleIcon';
 import './ScriptsPanel.css';
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
+import ContextMenu, { type MenuItem } from './ContextMenu';
 import { listScripts, getScript, deleteScript, type Script } from '../api/scripts';
 import { confirmDialog } from './ConfirmDialog';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface ScriptsPanelProps {
   onOpenScript: (script: Script) => void;
   onNewScript: () => void;
@@ -27,14 +29,6 @@ const Icons = {
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
-  ai: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M12 2a10 10 0 0110 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z" />
-      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-      <circle cx="9" cy="10" r="1" fill="currentColor" />
-      <circle cx="15" cy="10" r="1" fill="currentColor" />
-    </svg>
-  ),
   refresh: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <polyline points="23 4 23 10 17 10" />
@@ -47,13 +41,6 @@ const Icons = {
       <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
     </svg>
   ),
-  template: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M3 9h18" />
-      <path d="M9 21V9" />
-    </svg>
-  ),
 };
 
 function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelProps) {
@@ -61,7 +48,6 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; scriptId: string } | null>(null);
-  const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu);
 
   const fetchScripts = useCallback(async () => {
     setLoading(true);
@@ -79,15 +65,6 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
   useEffect(() => {
     fetchScripts();
   }, [fetchScripts]);
-
-  // Close context menu on click outside
-  useEffect(() => {
-    const handleClick = () => setContextMenu(null);
-    if (contextMenu) {
-      document.addEventListener('click', handleClick);
-      return () => document.removeEventListener('click', handleClick);
-    }
-  }, [contextMenu]);
 
   const handleContextMenu = (e: React.MouseEvent, scriptId: string) => {
     e.preventDefault();
@@ -108,6 +85,15 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
       onOpenScript(script);
     }
   };
+
+  const scriptMenuItems = (scriptId: string): MenuItem[] => [
+    { id: 'edit', label: 'Edit Script', icon: Icons.script, action: () => {
+      const script = scripts.find(s => s.id === scriptId);
+      if (script) void handleOpenScript(script);
+    } },
+    { id: 'delete-divider', label: '', divider: true, action: () => {} },
+    { id: 'delete', label: 'Delete Script', icon: Icons.trash, danger: true, action: () => { void handleDelete(scriptId); } },
+  ];
 
   const handleDelete = async (scriptId: string) => {
     setContextMenu(null);
@@ -131,10 +117,6 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
     }
   };
 
-  // Categorize scripts
-  const myScripts = scripts.filter(s => !s.is_template);
-  const templateScripts = scripts.filter(s => s.is_template);
-
   const renderScript = (script: Script) => (
     <div
       key={script.id}
@@ -143,9 +125,7 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
       onContextMenu={(e) => handleContextMenu(e, script.id)}
       title={script.name}
     >
-      <span className="scripts-item-icon">
-        {script.is_template ? Icons.template : Icons.script}
-      </span>
+      <span className="scripts-item-icon">{Icons.script}</span>
       <span className="scripts-item-name">{script.name}</span>
     </div>
   );
@@ -153,30 +133,28 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
   return (
     <div className="scripts-panel">
       <div className="scripts-panel-toolbar">
-        <button
-          className="scripts-panel-btn primary"
+        <Tooltip label="New Script"><button
+          className="ns-btn ns-btn--primary ns-btn--small"
           onClick={onNewScript} data-testid="btn-new-script"
-          title="New Script"
         >
           {Icons.plus}
           <span>New Script</span>
-        </button>
-        <button
-          className="scripts-panel-btn ai"
+        </button></Tooltip>
+        <Tooltip label="Generate a script with AI"><button
+          className="ns-btn ns-btn--primary ns-btn--small scripts-panel-ai"
           onClick={onAIGenerate} data-testid="btn-ai-generate"
-          title="AI Generate"
         >
-          {Icons.ai}
-          <span>AI Generate</span>
-        </button>
-        <button
-          className="scripts-panel-btn icon-only"
+          <SparkleIcon />
+          <span>Generate</span>
+        </button></Tooltip>
+        <Tooltip label="Refresh"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn scripts-panel-refresh"
           onClick={fetchScripts}
-          title="Refresh"
+          aria-label="Refresh"
           disabled={loading}
         >
           {Icons.refresh}
-        </button>
+        </button></Tooltip>
       </div>
 
       {loading && (
@@ -186,74 +164,27 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
       {error && (
         <div className="scripts-panel-error">
           {error}
-          <button onClick={fetchScripts}>Retry</button>
+          <button className="ns-btn" onClick={fetchScripts}>Retry</button>
         </div>
       )}
 
       {!loading && !error && (
         <div className="scripts-list">
-          {/* My Scripts Section */}
-          <div className="scripts-section">
-            <div className="scripts-section-header">
-              <span className="scripts-section-icon">{Icons.script}</span>
-              <span>My Scripts</span>
-              <span className="scripts-section-count">{myScripts.length}</span>
+          {scripts.length > 0 ? (
+            <div className="scripts-section-items">
+              {scripts.map(renderScript)}
             </div>
-            {myScripts.length > 0 ? (
-              <div className="scripts-section-items">
-                {myScripts.map(renderScript)}
-              </div>
-            ) : (
-              <div className="scripts-section-empty">No scripts yet</div>
-            )}
-          </div>
-
-          {/* Templates Section */}
-          <div className="scripts-section">
-            <div className="scripts-section-header">
-              <span className="scripts-section-icon">{Icons.template}</span>
-              <span>Templates</span>
-              <span className="scripts-section-count">{templateScripts.length}</span>
-            </div>
-            {templateScripts.length > 0 ? (
-              <div className="scripts-section-items">
-                {templateScripts.map(renderScript)}
-              </div>
-            ) : (
-              <div className="scripts-section-empty">No templates</div>
-            )}
-          </div>
+          ) : (
+            <div className="sidebar-empty"><p>No scripts yet</p></div>
+          )}
         </div>
       )}
 
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="scripts-context-menu"
-          style={contextMenuStyle}
-        >
-          <button
-            className="context-menu-item"
-            onClick={() => {
-              const script = scripts.find(s => s.id === contextMenu.scriptId);
-              if (script) handleOpenScript(script);
-              setContextMenu(null);
-            }}
-          >
-            {Icons.script}
-            <span>Edit Script</span>
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item danger"
-            onClick={() => handleDelete(contextMenu.scriptId)}
-          >
-            {Icons.trash}
-            <span>Delete Script</span>
-          </button>
-        </div>
-      )}
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? scriptMenuItems(contextMenu.scriptId) : []}
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   );
 }

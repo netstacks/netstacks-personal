@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { getClient, getCurrentMode } from '../api/client'
+import { getPlatform } from '../utils/platform'
 
 // Action identifiers for all keyboard shortcuts
 export type KeyboardAction =
@@ -195,9 +196,8 @@ export const RESERVED_SHORTCUTS: { binding: PlatformKeybinding; label: string }[
   { binding: { mac: 'Cmd+M', windows: 'Alt+F4' }, label: isMac() ? 'Minimize' : 'Quit' },
 ]
 
-// Detect platform
 export function isMac(): boolean {
-  return navigator.platform.toUpperCase().indexOf('MAC') >= 0
+  return getPlatform() === 'macos'
 }
 
 /**
@@ -578,9 +578,13 @@ export function useKeybindings(): Keybindings {
 }
 
 /** Display label for an action's current binding (re-renders on rebind). */
-export function useShortcut(actionId: KeyboardAction): string {
+export function useBinding(actionId: KeyboardAction): string {
   const bindings = useKeybindings()
-  return formatShortcut(getPlatformBinding(bindings[actionId]))
+  return getPlatformBinding(bindings[actionId])
+}
+
+export function useShortcut(actionId: KeyboardAction): string {
+  return formatShortcut(useBinding(actionId))
 }
 
 // Hook return type

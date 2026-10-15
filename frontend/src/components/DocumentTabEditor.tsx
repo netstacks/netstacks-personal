@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { useEditorFontSettings } from '../hooks/useEditorFontSettings';
 import './DocumentTabEditor.css';
-import { useShortcut } from '../hooks/useKeyboard'
+import { formatShortcut, useBinding } from '../hooks/useKeyboard'
 import CsvViewer from './CsvViewer';
 import JsonViewer from './JsonViewer';
 import JinjaViewer from './JinjaViewer';
@@ -16,6 +16,7 @@ import { useMonacoOverlord } from '../hooks/useMonacoOverlord';
 import MonacoOverlordWidget from './MonacoOverlordWidget';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface DocumentTabEditorProps {
   document: Document;
   tabId?: string; // Tab ID for matching save events
@@ -120,7 +121,7 @@ function countLines(content: string): number {
 }
 
 function DocumentTabEditor({ document, tabId, onSave, onModified }: DocumentTabEditorProps) {
-  const saveShortcut = useShortcut('saveDocument')
+  const saveBinding = useBinding('saveDocument')
   const overlord = useMonacoOverlord();
   const editorFont = useEditorFontSettings();
   const [isEditing, setIsEditing] = useState(false);
@@ -408,28 +409,26 @@ ${editContent}`;
         <div className="doc-tab-editor-actions">
           {/* Save button - only shown when modified */}
           {isModified && (
-            <button
-              className="doc-tab-editor-btn primary"
+            <Tooltip label="Save" shortcut={saveBinding}><button
+              className="ns-btn ns-btn--primary"
               onClick={handleSave}
               disabled={isSaving}
-              title={`Save (${saveShortcut})`}
             >
               {Icons.save}
               <span>{isSaving ? 'Saving...' : 'Save'}</span>
-            </button>
+            </button></Tooltip>
           )}
 
           {/* AI Enhance button - shown for markdown/text content when not editing.
               Hidden for Secure Notes so private content never leaves the vault for an AI provider. */}
           {isEditable && !isEditing && !isEnhancing && document.content_type !== 'csv' && document.content_type !== 'json' && document.category !== 'notes' && (
-            <button
-              className="doc-tab-editor-btn ai-enhance"
+            <Tooltip label="Use AI to analyze and enhance this document"><button
+              className="ns-btn"
               onClick={handleAIEnhance}
-              title="Use AI to analyze and enhance this document"
             >
               {Icons.aiEnhance}
               <span>AI Enhance</span>
-            </button>
+            </button></Tooltip>
           )}
           {isEnhancing && (
             <span className="doc-tab-editor-badge enhancing">AI Enhancing...</span>
@@ -437,39 +436,36 @@ ${editContent}`;
 
           {/* Render button - only shown for Jinja templates when not editing */}
           {isJinjaTemplate && !isEditing && (
-            <button
-              className="doc-tab-editor-btn render"
+            <Tooltip label="Render Template"><button
+              className="ns-btn"
               onClick={() => setShowRenderModal(true)}
-              title="Render Template"
             >
               {Icons.render}
               <span>Render</span>
-            </button>
+            </button></Tooltip>
           )}
 
           {/* Markdown/Raw toggle - only shown for markdown content when not editing */}
           {isMarkdownContent && !isEditing && (
-            <button
-              className={`doc-tab-editor-btn ${showRaw ? '' : 'active'}`}
+            <Tooltip label={showRaw ? 'Show Rendered Markdown' : 'Show Raw Text'}><button
+              className={`ns-btn ns-btn--ghost ${showRaw ? '' : 'active'}`}
               onClick={() => setShowRaw(!showRaw)}
-              title={showRaw ? 'Show Rendered Markdown' : 'Show Raw Text'}
             >
               {showRaw ? Icons.markdown : Icons.code}
               <span>{showRaw ? 'Rendered' : 'Raw'}</span>
-            </button>
+            </button></Tooltip>
           )}
 
           {/* Edit/View toggle */}
           {isEditable && (
-            <button
-              className={`doc-tab-editor-btn ${isEditing ? 'active' : ''}`}
+            <Tooltip label={isEditing ? 'Cancel Edit' : 'Edit Document'}><button
+              className={`ns-btn ns-btn--ghost ${isEditing ? 'active' : ''}`}
               onClick={handleEditToggle}
-              title={isEditing ? 'Cancel Edit' : 'Edit Document'}
               disabled={isSaving}
             >
               {isEditing ? Icons.view : Icons.edit}
               <span>{isEditing ? 'View' : 'Edit'}</span>
-            </button>
+            </button></Tooltip>
           )}
         </div>
       </div>
@@ -498,7 +494,7 @@ ${editContent}`;
         </span>
         {isModified && (
           <span className="doc-tab-editor-status modified">
-            Unsaved changes <kbd>{saveShortcut}</kbd>
+            Unsaved changes <kbd>{formatShortcut(saveBinding)}</kbd>
           </span>
         )}
       </div>

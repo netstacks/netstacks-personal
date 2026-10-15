@@ -3,14 +3,16 @@ import { getErrorMessage } from '../api/errors'
  * DeviceEditDialog - Modal dialog for editing device properties
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import AITabInput from './AITabInput'
 import type { Device, DeviceType, DeviceStatus } from '../types/topology'
 import { useSubmitting } from '../hooks/useSubmitting'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import { useDirtyGuard } from '../hooks/useDirtyGuard'
 import './DeviceEditDialog.css'
 
+import DialogFooter from './DialogFooter'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 interface DeviceEditDialogProps {
   device: Device | null
   /** Sync or async — the dialog tracks pending state if it returns a Promise. */
@@ -44,6 +46,7 @@ const DEVICE_STATUSES: { value: DeviceStatus; label: string }[] = [
 ]
 
 export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEditDialogProps) {
+  const formRef = useRef<HTMLFormElement>(null)
   const [name, setName] = useState('')
   const [type, setType] = useState<DeviceType>('unknown')
   const [status, setStatus] = useState<DeviceStatus>('unknown')
@@ -88,7 +91,6 @@ export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEdit
 
   // Hooks must run unconditionally (before any early return). Gate dismissal so
   // it's inactive when there's no device or while submitting.
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: guardedClose, clickOutside: false, enabled: !submitting && !!device })
 
   if (!device) return null
 
@@ -120,111 +122,107 @@ export default function DeviceEditDialog({ device, onSave, onClose }: DeviceEdit
 
 
   return (
-    <div className="device-edit-dialog-overlay" {...backdropProps}>
-      <div className="device-edit-dialog" {...contentProps}>
-        <div className="device-edit-dialog-header">
-          <h2>Edit Device</h2>
-          <button className="device-edit-dialog-close" onClick={guardedClose} title="Close" disabled={submitting}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+    <ModalFrame id="device-edit" onDismiss={guardedClose} clickOutside={false} dismissEnabled={!submitting} className="device-edit-dialog" label="Edit Device">
+      <div className="device-edit-dialog-header">
+        <h2>Edit Device</h2>
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={guardedClose} aria-label="Close" disabled={submitting}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button></Tooltip>
+      </div>
+
+      <form ref={formRef} onSubmit={handleSubmit} className="device-edit-dialog-content">
+        <div className="device-edit-field">
+          <label htmlFor="device-name">Name</label>
+          <input data-ai-fill="off" className="ns-input"
+            id="device-name"
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            required
+            autoFocus
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="device-edit-dialog-content">
-          <div className="device-edit-field">
-            <label htmlFor="device-name">Name</label>
-            <input
-              id="device-name"
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
+        <div className="device-edit-field">
+          <label htmlFor="device-type">Type</label>
+          <select className="ns-select"
+            id="device-type"
+            value={type}
+            onChange={e => setType(e.target.value as DeviceType)}
+          >
+            {DEVICE_TYPES.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
 
-          <div className="device-edit-field">
-            <label htmlFor="device-type">Type</label>
-            <select
-              id="device-type"
-              value={type}
-              onChange={e => setType(e.target.value as DeviceType)}
-            >
-              {DEVICE_TYPES.map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </div>
+        <div className="device-edit-field">
+          <label htmlFor="device-status">Status</label>
+          <select className="ns-select"
+            id="device-status"
+            value={status}
+            onChange={e => setStatus(e.target.value as DeviceStatus)}
+          >
+            {DEVICE_STATUSES.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
 
-          <div className="device-edit-field">
-            <label htmlFor="device-status">Status</label>
-            <select
-              id="device-status"
-              value={status}
-              onChange={e => setStatus(e.target.value as DeviceStatus)}
-            >
-              {DEVICE_STATUSES.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
-          </div>
+        <div className="device-edit-field">
+          <label htmlFor="device-site">Site</label>
+          <input data-ai-fill="off" className="ns-input"
+            id="device-site"
+            type="text"
+            value={site}
+            onChange={e => setSite(e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
 
-          <div className="device-edit-field">
-            <label htmlFor="device-site">Site</label>
-            <input
-              id="device-site"
-              type="text"
-              value={site}
-              onChange={e => setSite(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
+        <div className="device-edit-field">
+          <label htmlFor="device-role">Role</label>
+          <AITabInput
+            id="device-role"
+            type="text"
+            value={role}
+            onChange={e => setRole(e.target.value)}
+            placeholder="Optional"
+            aiField="role"
+            aiPlaceholder="Device role (e.g. core router, ToR switch)"
+            aiContext={{ name, type }}
+            onAIValue={v => setRole(v)}
+          />
+        </div>
 
-          <div className="device-edit-field">
-            <label htmlFor="device-role">Role</label>
-            <AITabInput
-              id="device-role"
-              type="text"
-              value={role}
-              onChange={e => setRole(e.target.value)}
-              placeholder="Optional"
-              aiField="role"
-              aiPlaceholder="Device role (e.g. core router, ToR switch)"
-              aiContext={{ name, type }}
-              onAIValue={v => setRole(v)}
-            />
+        {error && (
+          <div
+            className="device-edit-dialog-error"
+            role="alert"
+            style={{
+              padding: '8px 12px',
+              marginTop: 8,
+              background: 'rgba(244, 67, 54, 0.1)',
+              border: '1px solid var(--color-error)',
+              borderRadius: 4,
+              color: 'var(--color-error)',
+              fontSize: 12,
+            }}
+          >
+            {error}
           </div>
+        )}
 
-          {error && (
-            <div
-              className="device-edit-dialog-error"
-              role="alert"
-              style={{
-                padding: '8px 12px',
-                marginTop: 8,
-                background: 'rgba(244, 67, 54, 0.1)',
-                border: '1px solid var(--color-error)',
-                borderRadius: 4,
-                color: 'var(--color-error)',
-                fontSize: 12,
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          <div className="device-edit-dialog-actions">
-            <button type="button" className="device-edit-btn-cancel" onClick={guardedClose} disabled={submitting}>
-              Cancel
-            </button>
-            <button type="submit" className="device-edit-btn-save" disabled={submitting}>
-              {submitting ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <DialogFooter
+          primary={{ label: submitting ? 'Saving…' : 'Save Changes', onClick: () => formRef.current?.requestSubmit(), disabled: submitting }}
+          onCancel={guardedClose}
+          cancelDisabled={submitting}
+          inline
+        />
+      </form>
+    </ModalFrame>
   )
 }

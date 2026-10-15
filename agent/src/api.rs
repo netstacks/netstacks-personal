@@ -28,21 +28,6 @@ use crate::ssh::{
     self, build_ssh_config_from_session, BulkCommandRequest, BulkCommandResponse, SshConfig,
 };
 
-/// Server-side state for AI "config mode" (AUDIT FIX EXEC-002).
-///
-/// Previously the AI's `agent-chat` request body carried an
-/// `allow_config_changes: bool` that lifted the in-prompt safety rules. That
-/// is a self-asserted toggle from a (potentially XSS-compromised) frontend.
-/// We now require the user to call `POST /api/ai/config-mode/enable` with
-/// the current master password; that flips a short-lived server-side flag
-/// (default 5 min) that the chat handler consults instead of trusting the
-/// request body.
-#[derive(Debug, Clone, Copy)]
-pub struct ConfigModeState {
-    /// Wall-clock instant after which the state must be treated as off.
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-}
-
 /// Shared application state
 pub struct AppState {
     pub provider: Arc<dyn DataProvider>,
@@ -65,8 +50,9 @@ pub struct AppState {
     pub pool: sqlx::sqlite::SqlitePool,
     // SSH tunnel manager
     pub tunnel_manager: Arc<crate::tunnels::TunnelManager>,
-    /// AI config-mode override (AUDIT FIX EXEC-002).
-    pub config_mode: Arc<tokio::sync::RwLock<Option<ConfigModeState>>>,
+    /// AI config-mode override (AUDIT FIX EXEC-002). Shared with the task
+    /// executor so background tasks see the same live state.
+    pub config_mode: crate::ai::config_mode::ConfigModeHandle,
     /// AUDIT FIX (REMOTE-001): pending host-key fingerprint prompts. When
     /// the SSH handshake hits an unknown or changed host key, the russh
     /// `check_server_key` callback inserts a pending entry here and blocks
@@ -168,36 +154,6 @@ pub struct OutputPage {
     pub length: usize,
     pub total_bytes: usize,
     pub has_more: bool,
-}
-
-/// Default duration the config-mode override stays active after the user
-/// re-authenticates. Picked to be long enough for an interactive conversation
-/// but short enough that an unattended app does not stay in a destructive
-/// state for hours.
-pub const CONFIG_MODE_TTL_SECS: i64 = 300;
-
-/// Check whether AI config mode is currently active.
-///
-/// Read-locks the state, expires it lazily if the deadline has passed, and
-/// returns true only when both the flag is set AND `expires_at > now()`.
-pub async fn is_config_mode_active(state: &AppState) -> bool {
-    let now = chrono::Utc::now();
-    let snapshot = *state.config_mode.read().await;
-    match snapshot {
-        Some(s) if s.expires_at > now => true,
-        Some(_) => {
-            // Expired — clear lazily so the next caller sees the cleared
-            // state without paying the lazy-clear cost again.
-            let mut w = state.config_mode.write().await;
-            if let Some(s) = *w {
-                if s.expires_at <= chrono::Utc::now() {
-                    *w = None;
-                }
-            }
-            false
-        }
-        None => false,
-    }
 }
 
 /// Auth middleware that validates Bearer token on all API routes (except /api/health).
@@ -4135,7 +4091,7 @@ pub async fn check_ai_commands(
     Json(req): Json<AiCommandCheckRequest>,
 ) -> Result<Json<AiCommandCheckResponse>, ApiError> {
     // Config mode on → the user explicitly opted into changes; allow.
-    if is_config_mode_active(&state).await {
+    if crate::ai::config_mode::is_active(&state.config_mode).await {
         return Ok(Json(AiCommandCheckResponse {
             allowed: true,
             rejected_command: None,
@@ -4182,6 +4138,11 @@ pub async fn check_ai_commands(
 /// dispatched the command unfiltered, which made this endpoint a one-call
 /// device-takeover for any prompt-injected AI response. The same filter is
 /// used by the agent ReAct loop's `SshCommandTool`.
+///
+/// Like [`check_ai_commands`], the filter is lifted while server-side AI
+/// config mode is active — the master-password-gated, TTL'd opt-in that
+/// governs every other AI write path. Whether the user approves each call is
+/// decided by the frontend permission resolver before this endpoint is hit.
 pub async fn ai_ssh_execute(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AiSshExecuteRequest>,
@@ -4230,21 +4191,27 @@ pub async fn ai_ssh_execute(
     let is_batch = command_list.len() > 1;
     let stop_on_error = req.stop_on_error.unwrap_or(false);
 
-    // Read-only command filter — apply to EVERY command BEFORE any device contact.
-    // Mirrors what the backend ReAct SshCommandTool does.
-    let filter = CommandFilter::new();
-    for cmd in &command_list {
-        if let Err(e) = filter.is_allowed(cmd) {
-            tracing::warn!(
-                session_id = %req.session_id,
-                command = %cmd,
-                "ai_ssh_execute: blocked by CommandFilter ({})",
-                e
-            );
-            return Err(ApiError {
-                error: format!("Command rejected by read-only filter: {} — `{}`", e, cmd),
-                code: "VALIDATION".to_string(),
-            });
+    // Read-only command filter — apply to EVERY command BEFORE any device contact
+    // unless config mode is on. Mirrors what the backend ReAct SshCommandTool does.
+    if !crate::ai::config_mode::is_active(&state.config_mode).await {
+        let filter = CommandFilter::new();
+        for cmd in &command_list {
+            if let Err(e) = filter.is_allowed(cmd) {
+                tracing::warn!(
+                    session_id = %req.session_id,
+                    command = %cmd,
+                    "ai_ssh_execute: blocked by CommandFilter ({})",
+                    e
+                );
+                return Err(ApiError {
+                    error: format!(
+                        "Command rejected by read-only filter: {} — `{}`. \
+                         Enable AI Config Mode to allow configuration changes.",
+                        e, cmd
+                    ),
+                    code: "VALIDATION".to_string(),
+                });
+            }
         }
     }
 
@@ -4670,12 +4637,38 @@ pub struct AiPatchFileRequest {
     pub sed_expression: String,
 }
 
+/// Refuse the remote file-write endpoints unless AI Terminal Mode is on. The
+/// frontend withholds these tools while it is off, but the endpoints are the
+/// authority: a model that guesses the tool name must still be refused.
+async fn require_ai_terminal_mode(state: &AppState) -> Result<(), ApiError> {
+    use crate::tasks::permissions::{terminal_mode_enabled, TERMINAL_MODE_SETTING};
+
+    let enabled = state
+        .provider
+        .get_setting(TERMINAL_MODE_SETTING)
+        .await
+        .map(|v| terminal_mode_enabled(&v))
+        .unwrap_or(false);
+    if enabled {
+        Ok(())
+    } else {
+        Err(ApiError {
+            error: "AI Terminal Mode is off — enable it in Settings → AI to let the AI \
+                    write, edit or patch files."
+                .to_string(),
+            code: "PERMISSION_DENIED".to_string(),
+        })
+    }
+}
+
 /// Write a file on a remote server via SSH
 pub async fn ai_write_file(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AiWriteFileRequest>,
 ) -> Result<Json<AiSshExecuteResponse>, ApiError> {
     use crate::tasks::tools::write_helpers::{build_write_command, validate_filepath};
+
+    require_ai_terminal_mode(&state).await?;
 
     let filepath = validate_filepath(&req.filepath).map_err(|e| ApiError {
         error: e,
@@ -4728,6 +4721,8 @@ pub async fn ai_edit_file(
         apply_edit, build_read_file_command, build_write_command, validate_filepath,
         MAX_EDIT_FILE_SIZE,
     };
+
+    require_ai_terminal_mode(&state).await?;
 
     let filepath = validate_filepath(&req.filepath).map_err(|e| ApiError {
         error: e,
@@ -4819,6 +4814,8 @@ pub async fn ai_patch_file(
     Json(req): Json<AiPatchFileRequest>,
 ) -> Result<Json<AiSshExecuteResponse>, ApiError> {
     use crate::tasks::tools::write_helpers::{build_sed_command, validate_filepath};
+
+    require_ai_terminal_mode(&state).await?;
 
     let filepath = validate_filepath(&req.filepath).map_err(|e| ApiError {
         error: e,
@@ -14695,8 +14692,8 @@ pub async fn delete_ai_memory(
 
 // === Task Tool-Use Approval Endpoints (AUDIT FIX EXEC-017) ===
 //
-// Background ReAct tasks pause before any mutating tool dispatch
-// (`tasks::approvals::is_mutating_tool`). The frontend polls
+// Background ReAct tasks pause before any tool call the permission resolver
+// (`tasks::permissions::resolve`) sends to the user. The frontend polls
 // `GET /api/tasks/:id/pending-approvals` while showing a running task
 // and resolves via the approve/reject endpoints below.
 
@@ -14916,7 +14913,7 @@ pub async fn purge_host_keys() -> Result<Json<PurgeHostKeysResponse>, ApiError> 
 // These three endpoints replace the request-body `allow_config_changes`
 // boolean as the source of truth for whether the AI may emit configuration
 // commands. Enable requires the current master password; the state expires
-// automatically after CONFIG_MODE_TTL_SECS so an unattended laptop does not
+// automatically after `config_mode::CONFIG_MODE_TTL_SECS` so an unattended laptop does not
 // stay armed indefinitely.
 
 #[derive(Debug, Deserialize)]
@@ -14931,12 +14928,14 @@ pub struct ConfigModeStatusResponse {
     pub seconds_remaining: Option<i64>,
 }
 
-/// POST /api/ai/config-mode/enable — turn config mode on for CONFIG_MODE_TTL_SECS.
+/// POST /api/ai/config-mode/enable — turn config mode on for `CONFIG_MODE_TTL_SECS`.
 /// Requires the user to re-supply the master password (proof-of-presence).
 pub async fn enable_config_mode(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ConfigModeEnableRequest>,
 ) -> Result<Json<ConfigModeStatusResponse>, ApiError> {
+    use crate::ai::config_mode::{ConfigModeState, CONFIG_MODE_TTL_SECS};
+
     state
         .provider
         .unlock(&req.master_password)

@@ -5,8 +5,8 @@
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background: var(--bg-primary, #1e1e1e);
-  color: var(--text-primary, #cccccc);
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* === Header === */
@@ -16,8 +16,8 @@
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
-  background: var(--bg-secondary, #252526);
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
   min-height: 40px;
   flex-shrink: 0;
 }
@@ -33,7 +33,7 @@
 .tdt-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -43,9 +43,9 @@
 .tdt-create-name-input {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #cccccc);
-  background: var(--bg-tertiary, #2d2d2d);
-  border: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
   border-radius: 3px;
   padding: 4px 8px;
   outline: none;
@@ -53,22 +53,7 @@
 }
 
 .tdt-create-name-input:focus {
-  border-color: var(--accent-color, #0078d4);
-}
-
-.tdt-create-select {
-  background: var(--bg-tertiary, #2d2d2d);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 3px;
-  color: var(--text-primary, #cccccc);
-  font-size: 11px;
-  padding: 4px 6px;
-  cursor: pointer;
-}
-
-.tdt-create-select:focus {
-  outline: none;
-  border-color: var(--accent-color, #0078d4);
+  border-color: var(--accent-color);
 }
 
 .tdt-header-actions {
@@ -91,59 +76,12 @@
   letter-spacing: 0.5px;
 }
 
-.tdt-badge-platform { background: rgba(0, 120, 212, 0.2); color: var(--accent-color, #0078d4); }
-.tdt-badge-format { background: rgba(133, 133, 133, 0.2); color: var(--text-secondary, #858585); }
-.tdt-badge-version { background: rgba(75, 180, 75, 0.2); color: #4bb44b; }
-.tdt-badge-unsaved { background: rgba(255, 152, 0, 0.2); color: #ff9800; }
-.tdt-badge-type { background: rgba(133, 133, 133, 0.15); color: var(--text-secondary, #858585); font-size: 10px; }
-.tdt-badge-required { background: rgba(255, 152, 0, 0.15); color: #ff9800; font-size: 10px; }
-
-/* === Buttons === */
-
-.tdt-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 3px;
-  background: var(--bg-tertiary, #2d2d2d);
-  color: var(--text-primary, #cccccc);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.tdt-btn:hover:not(:disabled) {
-  background: var(--bg-hover, #3c3c3c);
-  border-color: var(--text-secondary, #858585);
-}
-
-.tdt-btn.primary {
-  background: var(--accent-color, #0078d4);
-  border-color: var(--accent-color, #0078d4);
-  color: #fff;
-}
-
-.tdt-btn.primary:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.tdt-btn.danger {
-  background: rgba(244, 71, 71, 0.2);
-  border-color: #f44747;
-  color: #f44747;
-}
-
-.tdt-btn.danger:hover:not(:disabled) {
-  background: rgba(244, 71, 71, 0.3);
-}
-
-.tdt-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.tdt-badge-platform { background: var(--color-accent-tint-20); color: var(--accent-color); }
+.tdt-badge-format { background: rgba(133, 133, 133, 0.2); color: var(--text-secondary); }
+.tdt-badge-version { background: rgba(var(--color-success-rgb), 0.2); color: var(--color-success); }
+.tdt-badge-unsaved { background: rgba(var(--color-warning-rgb), 0.2); color: var(--color-warning); }
+.tdt-badge-type { background: rgba(133, 133, 133, 0.15); color: var(--text-secondary); font-size: 10px; }
+.tdt-badge-required { background: rgba(var(--color-warning-rgb), 0.15); color: var(--color-warning); font-size: 10px; }
 
 /* === Toggle label === */
 
@@ -152,22 +90,21 @@
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-secondary, #858585);
-  cursor: pointer;
+  color: var(--text-secondary);
 }
 
 .tdt-toggle-label input[type="checkbox"] {
-  accent-color: var(--accent-color, #0078d4);
+  accent-color: var(--accent-color);
 }
 
 /* === Error bar === */
 
 .tdt-error-bar {
   padding: 6px 16px;
-  background: rgba(244, 71, 71, 0.15);
-  color: #f44747;
+  background: rgba(var(--color-error-rgb), 0.15);
+  color: var(--color-error);
   font-size: 12px;
-  border-bottom: 1px solid rgba(244, 71, 71, 0.3);
+  border-bottom: 1px solid rgba(var(--color-error-rgb), 0.3);
   flex-shrink: 0;
 }
 
@@ -192,14 +129,14 @@
 .tdt-panel-divider {
   width: 4px;
   cursor: col-resize;
-  background: var(--border-color, #3c3c3c);
+  background: var(--border-color);
   flex-shrink: 0;
   transition: background 0.15s;
 }
 
 .tdt-panel-divider:hover,
 .tdt-panel-divider.active {
-  background: var(--accent-color, #0078d4);
+  background: var(--accent-color);
 }
 
 .tdt-section-header {
@@ -207,22 +144,22 @@
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  background: var(--bg-tertiary, #2d2d2d);
+  background: var(--bg-tertiary);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  color: var(--text-secondary, #858585);
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
 .tdt-section-lang {
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   background: rgba(133, 133, 133, 0.15);
-  color: var(--text-secondary, #858585);
+  color: var(--text-secondary);
   font-weight: 400;
   text-transform: lowercase;
 }
@@ -247,11 +184,12 @@
   flex: 1;
   min-width: 300px;
   overflow-y: auto;
-  background: var(--bg-secondary, #252526);
+  overscroll-behavior: contain;
+  background: var(--bg-secondary);
 }
 
 .tdt-side-section {
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tdt-side-section-header {
@@ -263,17 +201,16 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  color: var(--text-secondary, #858585);
-  background: var(--bg-tertiary, #2d2d2d);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
 }
 
 .tdt-side-section-header.tdt-clickable {
-  cursor: pointer;
   user-select: none;
 }
 
 .tdt-side-section-header.tdt-clickable:hover {
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
 }
 
 .tdt-toggle-arrow {
@@ -295,13 +232,13 @@
 }
 
 .tdt-variable-item:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-fill-subtle);
 }
 
 .tdt-variable-name {
-  font-family: var(--font-family-mono, monospace);
+  font-family: var(--font-family-mono);
   font-size: 12px;
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
 }
 
 .tdt-variable-badges {
@@ -315,39 +252,6 @@
   padding: 10px 14px;
 }
 
-.tdt-render-inputs {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.tdt-render-input-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.tdt-render-input-row label {
-  font-size: 11px;
-  color: var(--text-secondary, #858585);
-}
-
-.tdt-render-input-row input {
-  padding: 4px 8px;
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 3px;
-  background: var(--bg-primary, #1e1e1e);
-  color: var(--text-primary, #cccccc);
-  font-size: 12px;
-  font-family: var(--font-family-mono, monospace);
-}
-
-.tdt-render-input-row input:focus {
-  outline: none;
-  border-color: var(--accent-color, #0078d4);
-}
-
 .tdt-render-btn {
   width: 100%;
   justify-content: center;
@@ -355,7 +259,7 @@
 }
 
 .tdt-render-output-wrapper {
-  border: 1px solid var(--border-color, #3c3c3c);
+  border: 1px solid var(--border-color);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -370,7 +274,7 @@
 .tdt-versions-empty {
   padding: 8px 14px;
   font-size: 11px;
-  color: var(--text-secondary, #858585);
+  color: var(--text-secondary);
 }
 
 .tdt-versions-list {
@@ -388,16 +292,16 @@
 }
 
 .tdt-version-item:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-fill-subtle);
 }
 
 .tdt-version-item.active {
-  background: rgba(0, 120, 212, 0.1);
-  border-left: 2px solid var(--accent-color, #0078d4);
+  background: var(--color-accent-tint-10);
+  border-left: 2px solid var(--accent-color);
 }
 
 .tdt-version-diff {
-  border: 1px solid var(--border-color, #3c3c3c);
+  border: 1px solid var(--border-color);
   border-radius: 3px;
   margin: 4px 14px 8px;
   overflow: hidden;
@@ -406,23 +310,23 @@
 .tdt-version-diff-actions {
   display: flex;
   padding: 4px 8px;
-  background: var(--bg-tertiary, #2d2d2d);
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tdt-version-num {
   font-weight: 600;
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
   min-width: 30px;
 }
 
 .tdt-version-date {
-  color: var(--text-secondary, #858585);
+  color: var(--text-secondary);
   flex: 1;
 }
 
 .tdt-version-by {
-  color: var(--text-secondary, #858585);
+  color: var(--text-secondary);
 }
 
 /* === Loading/Error === */
@@ -434,15 +338,15 @@
   justify-content: center;
   gap: 12px;
   padding: 48px;
-  color: var(--text-secondary, #858585);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
 .tdt-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid var(--bg-tertiary, #2d2d2d);
-  border-top-color: var(--accent-color, #0078d4);
+  border: 2px solid var(--bg-tertiary);
+  border-top-color: var(--accent-color);
   border-radius: 50%;
   animation: tdt-spin 0.8s linear infinite;
 }
@@ -458,7 +362,7 @@
   justify-content: center;
   gap: 12px;
   padding: 48px;
-  color: #f44747;
+  color: var(--color-error);
   font-size: 12px;
   text-align: center;
 }

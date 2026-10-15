@@ -42,6 +42,7 @@ import { listNetBoxSources, getNetBoxSourceConnection } from '../api/netboxSourc
 import { listNetStacksCrawlerSources } from '../api/netstacksCrawler';
 import { listLibreNmsSources } from '../api/librenms';
 import { listMcpServers } from '../api/mcp';
+import { confirmDialog } from './ConfirmDialog';
 import { save as showSaveDialog } from '@tauri-apps/plugin-dialog';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import AnnotationPropertiesPanel from './topology/AnnotationPropertiesPanel';
@@ -50,6 +51,7 @@ import './TopologyTabEditor.css';
 
 import { getErrorMessage } from '../api/errors'
 import { logger } from '../lib/logger'
+import Tooltip from './Tooltip';
 /**
  * Build LinkEnrichment from device interfaces when not pre-built in store.
  *
@@ -1893,7 +1895,11 @@ export default function TopologyTabEditor({
     );
 
     // Confirm deletion
-    if (!window.confirm(`Delete ${devices.length} device(s) and ${connections.length} connection(s)?`)) {
+    if (!(await confirmDialog({
+      title: `Delete ${devices.length} device(s) and ${connections.length} connection(s)?`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    }))) {
       return;
     }
 
@@ -2662,7 +2668,7 @@ export default function TopologyTabEditor({
               zIndex: 1000,
             }}
           >
-            <input
+            <input data-ai-fill="off" aria-label="Annotation text"
               type="text"
               className="annotation-text-edit-input"
               value={editingText}
@@ -2835,7 +2841,7 @@ export default function TopologyTabEditor({
             <span className="toast-description">{aiActionToast.description}</span>
           </div>
           <button
-            className="toast-undo-btn"
+            className="ns-btn ns-btn--small"
             onClick={() => {
               handleUndo();
               dismissToast();
@@ -2843,32 +2849,31 @@ export default function TopologyTabEditor({
           >
             Undo
           </button>
-          <button
-            className="toast-dismiss-btn"
+          <Tooltip label="Dismiss"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
             onClick={dismissToast}
-            title="Dismiss"
+            aria-label="Dismiss"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </button></Tooltip>
         </div>
       )}
 
       {/* Undo All AI Actions button - shown when there are recent AI actions */}
       {hasUndoableAIActions && !aiActionToast && (
-        <button
+        <Tooltip label={`Undo ${getRecentAIActions().length} AI changes`}><button
           className="undo-all-ai-btn"
           onClick={handleUndoAllAIActions}
-          title={`Undo ${getRecentAIActions().length} AI changes`}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
             <path d="M3 10h10a5 5 0 015 5v0a5 5 0 01-5 5H8" />
             <path d="M7 6l-4 4 4 4" />
           </svg>
           Undo AI Changes ({getRecentAIActions().length})
-        </button>
+        </button></Tooltip>
       )}
 
       {/* Annotation context menu for edit, delete, and layer ordering */}

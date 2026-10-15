@@ -23,22 +23,6 @@
   line-height: 1.4;
 }
 
-.add-context-btn {
-  background: var(--accent);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: background-color 0.2s;
-}
-
-.add-context-btn:hover {
-  background: var(--accent-hover, #007acc);
-}
-
 /* Loading and Error States */
 .context-loading {
   display: flex;
@@ -57,20 +41,15 @@
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .context-error {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: rgba(244, 67, 54, 0.1);
-  border: 1px solid rgba(244, 67, 54, 0.3);
-  border-radius: 6px;
-  color: #f44336;
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  border-radius: var(--radius-control);
+  color: var(--color-error);
   font-size: 13px;
 }
 
@@ -81,7 +60,7 @@
   width: 20px;
   height: 20px;
   background: #f44336;
-  color: white;
+  color: var(--color-text-on-accent);
   border-radius: 50%;
   font-size: 12px;
   font-weight: bold;
@@ -89,9 +68,9 @@
 
 /* Form */
 .context-form {
-  background: var(--bg-tertiary, #252526);
+  background: var(--bg-tertiary);
   padding: 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   margin-bottom: 16px;
   border: 1px solid var(--border);
 }
@@ -116,79 +95,6 @@
   letter-spacing: 0.5px;
 }
 
-.context-form .form-group input,
-.context-form .form-group textarea {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  transition: border-color 0.2s;
-}
-
-.context-form .form-group input:focus,
-.context-form .form-group textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.context-form .form-group input::placeholder,
-.context-form .form-group textarea::placeholder {
-  color: var(--text-tertiary, #6e6e6e);
-}
-
-.context-form .form-group textarea.mono {
-  font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace;
-  font-size: 12px;
-}
-
-.form-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.form-actions button {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.form-actions .btn-secondary {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.form-actions .btn-secondary:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.form-actions .btn-primary {
-  background: var(--accent);
-  border: none;
-  color: white;
-}
-
-.form-actions .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover, #007acc);
-}
-
-.form-actions .btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Context List */
 .context-list {
   display: flex;
@@ -196,6 +102,7 @@
   gap: 8px;
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .no-context {
@@ -209,7 +116,7 @@
 }
 
 .no-context-icon {
-  color: var(--text-tertiary, #4d4d4d);
+  color: var(--text-tertiary);
   margin-bottom: 12px;
 }
 
@@ -221,19 +128,19 @@
 .no-context-hint {
   margin-top: 4px !important;
   font-size: 12px !important;
-  color: var(--text-tertiary, #6e6e6e) !important;
+  color: var(--text-tertiary) !important;
 }
 
 /* Context Entry */
 .context-entry {
-  background: var(--bg-tertiary, #252526);
-  border-radius: 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   transition: border-color 0.2s;
 }
 
 .context-entry:hover {
-  border-color: var(--border-hover, #454545);
+  border-color: var(--border-hover);
 }
 
 .context-entry.expanded {
@@ -292,7 +199,7 @@
 
 .context-meta {
   font-size: 11px;
-  color: var(--text-tertiary, #6e6e6e);
+  color: var(--text-tertiary);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -327,10 +234,11 @@
 .context-field pre {
   background: var(--bg-primary);
   padding: 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   margin: 4px 0 0 0;
   overflow-x: auto;
-  font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace;
+  overscroll-behavior: contain;
+  font-family: var(--font-family-mono);
   font-size: 11px;
   color: var(--text-primary);
   line-height: 1.5;
@@ -345,31 +253,6 @@
   border-top: 1px solid var(--border);
 }
 
-.btn-small {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.btn-small:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.btn-small.btn-danger {
-  color: #f44336;
-}
-
-.btn-small.btn-danger:hover {
-  background: rgba(244, 67, 54, 0.1);
-  border-color: rgba(244, 67, 54, 0.3);
+.context-form textarea.mono {
+  font-family: var(--font-family-mono);
 }

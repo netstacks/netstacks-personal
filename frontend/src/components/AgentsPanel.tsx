@@ -18,6 +18,8 @@ import { confirmDialog } from './ConfirmDialog';
 import './AgentsPanel.css';
 
 import { logger } from '../lib/logger'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
 /** Parsed task result from result_json */
 interface ParsedTaskResult {
   answer: string;
@@ -221,12 +223,12 @@ function TaskLogViewer({ task, onClose, onCancel, onDelete, onRerun }: TaskLogVi
             Live
           </span>
         )}
-        <button className="task-log-close" onClick={onClose} title="Close">
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="task-log-content">
@@ -330,17 +332,16 @@ function TaskLogViewer({ task, onClose, onCancel, onDelete, onRerun }: TaskLogVi
       <div className="task-log-footer">
         {isRunning && (
           <button
-            className="task-log-action-btn cancel-action"
+            className="ns-btn ns-btn--small"
             onClick={() => onCancel(task.id)}
           >
             Cancel Task
           </button>
         )}
         {isTerminal && task.result_json && (
-          <button
-            className="task-log-action-btn export-action"
+          <Tooltip label="Export result as CSV"><button
+            className="ns-btn ns-btn--small"
             onClick={() => exportTaskResultAsCsv(task)}
-            title="Export result as CSV"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -348,24 +349,23 @@ function TaskLogViewer({ task, onClose, onCancel, onDelete, onRerun }: TaskLogVi
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
             Export CSV
-          </button>
+          </button></Tooltip>
         )}
         {isTerminal && isEnterprise && (
-          <button
-            className="task-log-action-btn rerun-action"
+          <Tooltip label="Re-run task with same prompt"><button
+            className="ns-btn ns-btn--small"
             onClick={() => onRerun(task.id)}
-            title="Re-run task with same prompt"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
             </svg>
             Re-run
-          </button>
+          </button></Tooltip>
         )}
         {isTerminal && (
           <button
-            className="task-log-action-btn delete-action"
+            className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger"
             onClick={() => {
               onDelete(task.id);
               onClose();
@@ -416,9 +416,9 @@ function TaskItem({ task, isSelected, onSelect, onCancel, onDelete, onRerun, onC
       tabIndex={0}
     >
       <div className="task-item-header">
-        <span className="task-status-icon" title={TaskStatusLabels[task.status]}>
+        <Tooltip label={TaskStatusLabels[task.status]}><span className="task-status-icon">
           {TaskStatusIcons[task.status]}
-        </span>
+        </span></Tooltip>
         <span className="task-prompt">{task.prompt}</span>
       </div>
 
@@ -439,39 +439,39 @@ function TaskItem({ task, isSelected, onSelect, onCancel, onDelete, onRerun, onC
 
       <div className="task-item-actions">
         {isRunning && (
-          <button
-            className="task-action-btn task-cancel-btn"
+          <Tooltip label="Cancel task"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={() => onCancel(task.id)}
-            title="Cancel task"
+            aria-label="Cancel task"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="18" height="18" rx="2" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
         {isTerminal && isEnterprise && (
-          <button
-            className="task-action-btn task-rerun-btn"
+          <Tooltip label="Re-run task"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={() => onRerun(task.id)}
-            title="Re-run task"
+            aria-label="Re-run task"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
         {isTerminal && (
-          <button
-            className="task-action-btn task-delete-btn"
+          <Tooltip label="Delete task"><button
+            className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
             onClick={() => onDelete(task.id)}
-            title="Delete task"
+            aria-label="Delete task"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="3 6 5 6 21 6" />
               <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
       </div>
     </div>
@@ -695,18 +695,20 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
       {/* Enterprise mode: show tab navigation */}
       {isEnterprise && (
         <div className="agents-panel-tabs">
-          <button
-            className={`agents-panel-tab ${activeView === 'tasks' ? 'active' : ''}`}
-            onClick={() => setActiveView('tasks')}
-          >
-            Tasks
-          </button>
-          <button
-            className={`agents-panel-tab ${activeView === 'schedules' ? 'active' : ''}`}
-            onClick={() => setActiveView('schedules')}
-          >
-            Schedules
-          </button>
+          <div className="ns-segmented">
+            <button
+              className={`ns-segment ${activeView === 'tasks' ? 'active' : ''}`}
+              onClick={() => setActiveView('tasks')}
+            >
+              Tasks
+            </button>
+            <button
+              className={`ns-segment ${activeView === 'schedules' ? 'active' : ''}`}
+              onClick={() => setActiveView('schedules')}
+            >
+              Schedules
+            </button>
+          </div>
         </div>
       )}
 
@@ -735,16 +737,16 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
             <div className="agent-defs-section">
               <div className="agent-defs-header">
                 <span className="agent-defs-title">Agents</span>
-                <button
-                  className="agent-def-add-btn"
+                <Tooltip label="Create new agent"><button
+                  className="ns-btn ns-btn--ghost ns-icon-btn"
                   onClick={() => setAgentFormMode({ type: 'create' })}
-                  title="Create new agent"
+                  aria-label="Create new agent"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="12" y1="5" x2="12" y2="19" />
                     <line x1="5" y1="12" x2="19" y2="12" />
                   </svg>
-                </button>
+                </button></Tooltip>
               </div>
               {agentDefs.length > 0 ? (
                 <>
@@ -758,6 +760,8 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                           className={`agent-icon-btn${isActive ? ' agent-icon--active' : ''}${!def.enabled ? ' agent-icon--disabled' : ''}`}
                           style={{ '--agent-color': color } as React.CSSProperties}
                           onClick={() => setRunPromptAgentId(isActive ? null : def.id)}
+                          aria-label={def.name}
+                          aria-pressed={isActive}
                           onContextMenu={(e) => handleAgentDefContextMenu(e, def)}
                           onMouseEnter={() => setHoveredAgentId(def.id)}
                           onMouseLeave={() => setHoveredAgentId(null)}
@@ -789,18 +793,18 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                           </div>
                         </div>
                         <div className="agent-detail-actions">
-                          <button onClick={() => setAgentFormMode({ type: 'edit', definition: detailDef })} title="Edit">
+                          <Tooltip label="Edit"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => setAgentFormMode({ type: 'edit', definition: detailDef })} aria-label="Edit">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                             </svg>
-                          </button>
-                          <button onClick={() => handleDeleteAgentDef(detailDef.id)} title="Delete" className="agent-detail-delete">
+                          </button></Tooltip>
+                          <Tooltip label="Delete"><button onClick={() => handleDeleteAgentDef(detailDef.id)} aria-label="Delete" className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <polyline points="3 6 5 6 21 6" />
                               <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                             </svg>
-                          </button>
+                          </button></Tooltip>
                         </div>
                       </div>
                     );
@@ -823,22 +827,12 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                           aiContext={{ agent: activeDef.name, description: activeDef.description }}
                           onAIValue={(v) => setRunPrompt(v)}
                         />
-                        <div className="agent-run-actions">
-                          <button
-                            onClick={() => { setRunPromptAgentId(null); setRunPrompt(''); }}
-                            disabled={isRunningAgent}
-                            className="cancel-btn"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => handleRunAgent(activeDef.id)}
-                            disabled={!runPrompt.trim() || isRunningAgent}
-                            className="submit-btn"
-                          >
-                            {isRunningAgent ? 'Running...' : 'Run'}
-                          </button>
-                        </div>
+                        <DialogFooter
+                          primary={{ label: isRunningAgent ? 'Running...' : 'Run', onClick: () => handleRunAgent(activeDef.id), disabled: !runPrompt.trim() || isRunningAgent }}
+                          onCancel={() => { setRunPromptAgentId(null); setRunPrompt(''); }}
+                          cancelDisabled={isRunningAgent}
+                          inline
+                        />
                       </div>
                     );
                   })()}
@@ -859,8 +853,8 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
               </span>
             </div>
             {tasks.some(t => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled') && (
-              <button
-                className="agents-clear-btn"
+              <Tooltip label="Clear completed, failed, and cancelled tasks"><button
+                className="ns-btn ns-btn--small"
                 onClick={async () => {
                   const finishedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled');
                   if (finishedTasks.length === 0) return;
@@ -873,10 +867,9 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                   if (!ok) return;
                   finishedTasks.forEach(t => deleteTask(t.id));
                 }}
-                title="Clear completed, failed, and cancelled tasks"
               >
                 Clear Completed
-              </button>
+              </button></Tooltip>
             )}
           </div>
 
@@ -909,16 +902,15 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                       onContextMenu={(e) => handleTaskContextMenu(e, task)}
                     />
                     {kids.length > 0 && (
-                      <button
+                      <Tooltip label={isExpanded ? 'Hide sub-agents' : 'Show sub-agents'}><button
                         className="task-group-toggle"
                         onClick={() => toggleRoot(task.id)}
-                        title={isExpanded ? 'Hide sub-agents' : 'Show sub-agents'}
                       >
                         <svg className={`tg-chev${isExpanded ? ' open' : ''}`} viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5">
                           <polyline points="9 6 15 12 9 18" />
                         </svg>
                         {kids.length} sub-agent{kids.length === 1 ? '' : 's'}
-                      </button>
+                      </button></Tooltip>
                     )}
                     {isExpanded && kids.length > 0 && (
                       <div className="task-group-children">

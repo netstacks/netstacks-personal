@@ -24,7 +24,7 @@
   width: 24px;
   height: 24px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .color-picker-input {
@@ -34,7 +34,6 @@
   width: calc(100% + 8px);
   height: calc(100% + 8px);
   opacity: 0;
-  cursor: pointer;
   /* Ensure native picker doesn't show through */
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -47,9 +46,8 @@
 .color-picker-swatch {
   width: 24px;
   height: 24px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-border);
-  cursor: pointer;
   transition: border-color var(--transition-fast);
   display: flex;
   align-items: center;
@@ -88,9 +86,8 @@
   padding: 4px;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-secondary);
-  cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
 }
 

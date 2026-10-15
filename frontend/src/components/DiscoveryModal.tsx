@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import './DiscoveryModal.css';
+import AskAiHelp from './AskAiHelp';
 import { runBatchDiscovery, getDiscoveryCapabilities } from '../api/discovery';
 import type { DiscoveredNeighbor, NmapResult, BatchDiscoveryRequest, DiscoveryCapabilities } from '../types/discovery';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import ModalFrame from './ModalFrame';
 export interface DiscoveryLogEntry {
   timestamp: Date;
   level: 'info' | 'success' | 'warning' | 'error';
@@ -248,113 +250,101 @@ export default function DiscoveryModal({
 
   // Always mounted by App — register on the Escape stack only while open,
   // otherwise this modal swallows every Escape in the app (NS-UI-15).
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose, enabled: isOpen });
 
   if (!isOpen) return null;
 
   return (
-    <div className="discovery-modal-overlay" {...backdropProps}>
-      <div className="discovery-modal" data-testid="discovery-modal" {...contentProps}>
-        <div className="discovery-modal-header">
-          <h2>Topology Discovery</h2>
-          <span className="discovery-modal-group">{groupName}</span>
-          {capabilities && (
-            <span
-              className="discovery-modal-capabilities"
-              style={{
-                fontSize: '11px',
-                marginLeft: '12px',
-                color: capabilities.nmapAvailable ? '#4caf50' : '#888',
-              }}
-            >
-              nmap: {capabilities.nmapAvailable
-                ? capabilities.nmapSudo
-                  ? 'available (with OS detection)'
-                  : 'available'
-                : 'not available'}
+    <ModalFrame id="discovery" onDismiss={onClose} className="discovery-modal" testId="discovery-modal" label="Topology Discovery">
+      <div className="discovery-modal-header">
+        <h2>Topology Discovery</h2>
+        <span className="discovery-modal-group">{groupName}</span>
+        {capabilities && (
+          <span
+            className="discovery-modal-capabilities"
+            style={{
+              fontSize: '11px',
+              marginLeft: '12px',
+              color: capabilities.nmapAvailable ? '#4caf50' : '#888',
+            }}
+          >
+            nmap: {capabilities.nmapAvailable
+              ? capabilities.nmapSudo
+                ? 'available (with OS detection)'
+                : 'available'
+              : 'not available'}
+          </span>
+        )}
+        <span className="discovery-modal-header-actions">
+          <AskAiHelp
+            topic="topology discovery"
+            prompt={`Explain how NetStacks topology discovery works and help me get a good result for group "${groupName}" (${devices.length} device(s): ${devices.map(d => d.name).join(', ')}). nmap is ${capabilities ? (capabilities.nmapAvailable ? (capabilities.nmapSudo ? 'available with OS detection' : 'available') : 'not available') : 'unknown'}. Cover what is collected (LLDP/CDP neighbors over SSH, SNMP, nmap), which credentials and SNMP profiles are used, and what to check when a device returns no neighbors.`}
+          />
+          <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">x</button>
+        </span>
+      </div>
+
+      <div className="discovery-modal-content">
+        {/* Progress bar */}
+        {phase !== 'idle' && (
+          <div className="discovery-progress">
+            <div className="discovery-progress-bar">
+              <div
+                className={`discovery-progress-fill ${phase === 'complete' ? 'complete' : ''}`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="discovery-progress-text">
+              {phase === 'discovering' && `Running batch discovery... ${progress}% (${elapsedSec}s elapsed${elapsedSec >= 30 ? ' — large groups can take several minutes' : ''})`}
+              {phase === 'analyzing' && `Analyzing connections... (${elapsedSec}s elapsed)`}
+              {phase === 'complete' && `Complete (${elapsedSec}s)`}
+              {phase === 'error' && `Error (${elapsedSec}s)`}
             </span>
-          )}
-          <button className="discovery-modal-close" onClick={onClose}>x</button>
-        </div>
-
-        <div className="discovery-modal-content">
-          {/* Progress bar */}
-          {phase !== 'idle' && (
-            <div className="discovery-progress">
-              <div className="discovery-progress-bar">
-                <div
-                  className={`discovery-progress-fill ${phase === 'complete' ? 'complete' : ''}`}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <span className="discovery-progress-text">
-                {phase === 'discovering' && `Running batch discovery... ${progress}% (${elapsedSec}s elapsed${elapsedSec >= 30 ? ' — large groups can take several minutes' : ''})`}
-                {phase === 'analyzing' && `Analyzing connections... (${elapsedSec}s elapsed)`}
-                {phase === 'complete' && `Complete (${elapsedSec}s)`}
-                {phase === 'error' && `Error (${elapsedSec}s)`}
-              </span>
-            </div>
-          )}
-
-          {/* Logs */}
-          <div className="discovery-logs">
-            {logs.map((log, i) => (
-              <div key={i} className={`discovery-log-entry ${log.level}`}>
-                <span className="discovery-log-time">{formatTime(log.timestamp)}</span>
-                <span className={`discovery-log-level ${log.level}`}>
-                  {log.level === 'info' && 'INFO'}
-                  {log.level === 'success' && 'OK'}
-                  {log.level === 'warning' && 'WARN'}
-                  {log.level === 'error' && 'ERR'}
-                </span>
-                {log.device && <span className="discovery-log-device">[{log.device}]</span>}
-                <span className="discovery-log-message">{log.message}</span>
-              </div>
-            ))}
-            <div ref={logsEndRef} />
           </div>
-        </div>
+        )}
 
-        <div className="discovery-modal-footer">
-          {phase === 'idle' && (
-            <>
-              <div className="discovery-device-list">
-                <strong>Devices to scan:</strong> {devices.map(d => d.name).join(', ')}
-              </div>
-              <div className="discovery-modal-actions">
-                <button className="discovery-btn secondary" onClick={onClose}>Cancel</button>
-                <button className="discovery-btn primary" onClick={startDiscovery}>
-                  Start Discovery
-                </button>
-              </div>
-            </>
-          )}
-
-          {(phase === 'discovering' || phase === 'analyzing') && (
-            <div className="discovery-modal-actions">
-              <button className="discovery-btn secondary" disabled>Running...</button>
+        {/* Logs */}
+        <div className="discovery-logs">
+          {logs.map((log, i) => (
+            <div key={i} className={`discovery-log-entry ${log.level}`}>
+              <span className="discovery-log-time">{formatTime(log.timestamp)}</span>
+              <span className={`discovery-log-level ${log.level}`}>
+                {log.level === 'info' && 'INFO'}
+                {log.level === 'success' && 'OK'}
+                {log.level === 'warning' && 'WARN'}
+                {log.level === 'error' && 'ERR'}
+              </span>
+              {log.device && <span className="discovery-log-device">[{log.device}]</span>}
+              <span className="discovery-log-message">{log.message}</span>
             </div>
-          )}
-
-          {phase === 'complete' && (
-            <div className="discovery-modal-actions">
-              <button className="discovery-btn secondary" onClick={onClose}>Close</button>
-              <button className="discovery-btn primary" onClick={onClose}>
-                View Topology
-              </button>
-            </div>
-          )}
-
-          {phase === 'error' && (
-            <div className="discovery-modal-actions">
-              <button className="discovery-btn secondary" onClick={onClose}>Close</button>
-              <button className="discovery-btn primary" onClick={startDiscovery}>
-                Retry
-              </button>
-            </div>
-          )}
+          ))}
+          <div ref={logsEndRef} />
         </div>
       </div>
-    </div>
+
+      <div className="discovery-modal-footer">
+        {phase === 'idle' && (
+          <>
+            <div className="discovery-device-list">
+              <strong>Devices to scan:</strong> {devices.map(d => d.name).join(', ')}
+            </div>
+            <DialogFooter primary={{ label: 'Start Discovery', onClick: startDiscovery }} onCancel={onClose} inline />
+          </>
+        )}
+
+        {(phase === 'discovering' || phase === 'analyzing') && (
+          <div className="discovery-modal-actions">
+            <button className="ns-btn" disabled>Running...</button>
+          </div>
+        )}
+
+        {phase === 'complete' && (
+          <DialogFooter primary={{ label: 'View Topology', onClick: onClose }} onCancel={onClose} cancelLabel="Close" inline />
+        )}
+
+        {phase === 'error' && (
+          <DialogFooter primary={{ label: 'Retry', onClick: startDiscovery }} onCancel={onClose} cancelLabel="Close" inline />
+        )}
+      </div>
+    </ModalFrame>
   );
 }

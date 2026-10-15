@@ -1,4 +1,5 @@
 import './ColorPicker.css';
+import Tooltip from './Tooltip'
 
 interface ColorPickerProps {
   /** Current color value (hex string like #RRGGBB) or null */
@@ -50,13 +51,13 @@ export default function ColorPicker({
       {label && <span className="color-picker-label">{label}</span>}
       <div className="color-picker-controls">
         <div className="color-picker-swatch-wrapper">
-          <input
+          <Tooltip label="Choose color"><input
             type="color"
             value={hexValue || '#000000'}
             onChange={handleColorChange}
             className="color-picker-input"
-            title="Choose color"
-          />
+            aria-label="Choose color"
+          /></Tooltip>
           <div
             className={`color-picker-swatch ${!hexValue ? 'none' : ''}`}
             style={{ backgroundColor: hexValue || 'transparent' }}
@@ -68,17 +69,17 @@ export default function ColorPicker({
           <span className="color-picker-value">{hexValue.toUpperCase()}</span>
         )}
         {allowNone && hexValue && (
-          <button
+          <Tooltip label="Clear color"><button
             type="button"
             className="color-picker-clear"
             onClick={handleClear}
-            title="Clear color"
+            aria-label="Clear color"
           >
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
               <line x1="12" y1="4" x2="4" y2="12" />
               <line x1="4" y1="4" x2="12" y2="12" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
       </div>
     </div>

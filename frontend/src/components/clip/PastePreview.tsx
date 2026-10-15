@@ -14,8 +14,10 @@ import { useOverlayDismiss } from '../../hooks/useOverlayDismiss'
 import { useMovableRect } from '../../hooks/useMovableRect'
 import { formatClipSize, byteLength, countLines } from '../../lib/clipText'
 import { addedLines, visualize } from './pastePreviewHelpers'
+import DialogFooter from '../DialogFooter'
 import './PastePreview.css'
 import './movablePopup.css'
+import Tooltip from '../Tooltip'
 
 interface PastePreviewProps {
   text: string
@@ -68,32 +70,32 @@ export default function PastePreview({ text, flavor, targetName, initialRaw = fa
   return (
     <div className="command-palette-overlay" {...backdropProps}>
       <div className="paste-preview movable-popup" role="dialog" aria-label="Paste preview" style={style} {...contentProps}>
-        <div className="paste-preview-head movable-popup-titlebar" onMouseDown={onHeaderMouseDown} title="Drag to move">
+        <Tooltip label="Drag to move"><div className="paste-preview-head movable-popup-titlebar" onMouseDown={onHeaderMouseDown}>
           <div>
             <strong>Paste into {targetName}</strong>
             <span className="paste-preview-sub"> · flavor {flavor} · {describeChain(chain)}</span>
           </div>
           <label className="paste-preview-preset">
             Preset
-            <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+            <select className="ns-select" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
               {presets.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}{auto?.id === p.id ? ' (auto)' : ''}</option>
               ))}
             </select>
           </label>
-        </div>
+        </div></Tooltip>
 
         <div className="paste-preview-panes">
           <div className="paste-preview-pane">
             <div className="paste-preview-pane-title">
               {edited ? 'Edited' : 'Clipboard'} · {draftStats} · editable
               {edited && (
-                <button type="button" className="paste-preview-revert" onClick={() => setDraft(text)} title="Discard edits and restore the clipboard text">
+                <Tooltip label="Discard edits and restore the clipboard text"><button type="button" className="ns-btn ns-btn--small paste-preview-revert" onClick={() => setDraft(text)}>
                   revert
-                </button>
+                </button></Tooltip>
               )}
             </div>
-            <textarea
+            <textarea data-ai-fill="off"
               ref={editorRef}
               className="paste-preview-editor"
               value={draft}
@@ -114,16 +116,12 @@ export default function PastePreview({ text, flavor, targetName, initialRaw = fa
           </div>
         </div>
 
-        <div className="paste-preview-foot">
-          <span className="paste-preview-legend">Edit on the left · right shows what is sent · ␍ carriage return · → tab · · trailing space · <span className="added">changed by preset</span> · <kbd>Ctrl+↵</kbd> paste</span>
-          <div className="paste-preview-buttons">
-            <button type="button" onClick={onClose}>Cancel</button>
-            <button type="button" className="primary" data-testid="paste-preview-confirm" onClick={() => onPaste(result)} disabled={!canPaste}>
-              Paste {resultLineCount} {resultLineCount === 1 ? 'line' : 'lines'}
-            </button>
-          </div>
-        </div>
-        <div className="movable-popup-resize" onMouseDown={onResizeMouseDown} title="Drag to resize" />
+        <DialogFooter
+          primary={{ label: `Paste ${resultLineCount} ${resultLineCount === 1 ? 'line' : 'lines'}`, onClick: () => onPaste(result), disabled: !canPaste }}
+          onCancel={onClose}
+          leading={<span className="paste-preview-legend">Edit on the left · right shows what is sent · ␍ carriage return · → tab · · trailing space · <span className="added">changed by preset</span> · <kbd>Ctrl+↵</kbd> paste</span>}
+        />
+        <Tooltip label="Drag to resize"><div className="movable-popup-resize" onMouseDown={onResizeMouseDown} /></Tooltip>
       </div>
     </div>
   )

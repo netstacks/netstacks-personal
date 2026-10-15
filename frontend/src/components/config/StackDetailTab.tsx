@@ -17,6 +17,7 @@ import type { ApiResource } from '../../types/quickAction'
 import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
+import Tooltip from '../Tooltip'
 interface StackDetailTabProps {
   stackId: string
   onOpenInstanceTab?: (instanceId: string, instanceName: string, stackId?: string) => void
@@ -319,7 +320,7 @@ export default function StackDetailTab({
       <div className="stack-detail-container">
         <div className="stack-detail-error">
           <span>{error}</span>
-          <button className="stack-detail-btn" onClick={fetchData}>Retry</button>
+          <button className="ns-btn" onClick={fetchData}>Retry</button>
         </div>
       </div>
     )
@@ -355,32 +356,30 @@ export default function StackDetailTab({
           ) : (
             <h2 className="stack-detail-title">{stack!.name}</h2>
           )}
-          <span
+          <Tooltip label="Click to toggle atomic mode"><span
             className={`stack-detail-badge ${editAtomic ? 'state-active' : 'state-created'}`}
-            style={{ cursor: 'pointer' }}
             onClick={() => setEditAtomic(prev => !prev)}
-            title="Click to toggle atomic mode"
           >
             {editAtomic ? 'atomic' : 'non-atomic'}
-          </span>
+          </span></Tooltip>
           <span className="stack-detail-badge state-created">
             {editServices.length} service{editServices.length !== 1 ? 's' : ''}
           </span>
         </div>
         <div className="stack-detail-header-actions">
-          <button className="stack-detail-btn primary" onClick={handleSave} disabled={saving || (isCreate && !editName.trim())}>
+          <button className="ns-btn ns-btn--primary" onClick={handleSave} disabled={saving || (isCreate && !editName.trim())}>
             {saving ? 'Saving...' : isCreate && !stack ? 'Create' : 'Save'}
           </button>
           {stack && (
             confirmDelete ? (
               <>
-                <button className="stack-detail-btn" style={{ background: 'rgba(244, 71, 71, 0.2)', borderColor: '#f44747', color: '#f44747' }} onClick={handleDelete}>
+                <button className="ns-btn ns-btn--danger" onClick={handleDelete}>
                   Confirm Delete
                 </button>
-                <button className="stack-detail-btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                <button className="ns-btn" onClick={() => setConfirmDelete(false)}>Cancel</button>
               </>
             ) : (
-              <button className="stack-detail-btn" onClick={() => setConfirmDelete(true)}>Delete</button>
+              <button className="ns-btn" onClick={() => setConfirmDelete(true)}>Delete</button>
             )
           )}
         </div>
@@ -402,7 +401,7 @@ export default function StackDetailTab({
           <span className="stack-detail-meta-label">Atomic</span>
           <span
             className="stack-detail-meta-value"
-            style={{ cursor: 'pointer', color: editAtomic ? '#4bb44b' : undefined }}
+            style={{ color: editAtomic ? 'var(--color-success)' : undefined }}
             onClick={() => setEditAtomic(prev => !prev)}
           >
             {editAtomic ? 'Yes' : 'No'}
@@ -443,8 +442,8 @@ export default function StackDetailTab({
           <div className="stack-detail-section-header">
             Services ({editServices.length})
             <button
-              className="stack-detail-btn"
-              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: 11 }}
+              className="ns-btn ns-btn--small"
+              style={{ marginLeft: 'auto' }}
               onClick={() => setAddTemplateOpen(!addTemplateOpen)}
             >
               + Add
@@ -481,9 +480,9 @@ export default function StackDetailTab({
                     <span className="stack-detail-service-name">{service.name || templateMap[service.template_id] || 'Unnamed'}</span>
                     <span className="stack-detail-service-var-count">{svcVars.length} var{svcVars.length !== 1 ? 's' : ''}</span>
                     <div className="stack-detail-service-actions">
-                      <button className="stack-detail-svc-btn" onClick={(e) => { e.stopPropagation(); moveService(index, 'up') }} disabled={index === 0} title="Move up">&#9650;</button>
-                      <button className="stack-detail-svc-btn" onClick={(e) => { e.stopPropagation(); moveService(index, 'down') }} disabled={index === editServices.length - 1} title="Move down">&#9660;</button>
-                      <button className="stack-detail-svc-btn stack-detail-svc-btn-remove" onClick={(e) => { e.stopPropagation(); removeService(index) }} title="Remove">&#10005;</button>
+                      <Tooltip label="Move up"><button aria-label="Move up" className="ns-btn ns-btn--ghost ns-icon-btn" onClick={(e) => { e.stopPropagation(); moveService(index, 'up') }} disabled={index === 0}>&#9650;</button></Tooltip>
+                      <Tooltip label="Move down"><button aria-label="Move down" className="ns-btn ns-btn--ghost ns-icon-btn" onClick={(e) => { e.stopPropagation(); moveService(index, 'down') }} disabled={index === editServices.length - 1}>&#9660;</button></Tooltip>
+                      <Tooltip label="Remove"><button aria-label="Remove" className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn" onClick={(e) => { e.stopPropagation(); removeService(index) }}>&#10005;</button></Tooltip>
                     </div>
                   </div>
                   {!isCollapsed && (
@@ -500,8 +499,8 @@ export default function StackDetailTab({
                               <div key={varName} className="stack-detail-var-item">
                                 <div className="stack-detail-var-row">
                                   <span className="stack-detail-var-name">{varName}</span>
-                                  <select
-                                    className="stack-detail-var-scope"
+                                  <select aria-label={`Scope for ${varName}`}
+                                    className="ns-select stack-detail-var-scope"
                                     value={scope}
                                     onChange={(e) => setVariableScopes(prev => ({ ...prev, [varName]: e.target.value as 'shared' | 'per_device' }))}
                                   >
@@ -509,8 +508,7 @@ export default function StackDetailTab({
                                     <option value="per_device">Per Device</option>
                                   </select>
                                   <button
-                                    className={`stack-detail-btn ${hasApi ? 'primary' : ''}`}
-                                    style={{ padding: '2px 8px', fontSize: 11 }}
+                                    className={`ns-btn ns-btn--small${hasApi ? ' ns-btn--primary' : ''}`}
                                     onClick={() => setApiConfigVar(apiConfigVar === varName ? null : varName)}
                                   >
                                     {hasApi ? 'API Configured' : 'Configure API'}
@@ -520,21 +518,21 @@ export default function StackDetailTab({
                                   <div className="stack-detail-api-config">
                                     <div className="stack-detail-api-field">
                                       <label>API Resource</label>
-                                      <select className="stack-detail-api-select" value={apiCfg?.resource_id || ''} onChange={(e) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { path: '', json_path: '' }, resource_id: e.target.value } }))}>
+                                      <select aria-label="API Resource" className="ns-select" value={apiCfg?.resource_id || ''} onChange={(e) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { path: '', json_path: '' }, resource_id: e.target.value } }))}>
                                         <option value="">Select API resource...</option>
                                         {apiResources.map(r => (<option key={r.id} value={r.id}>{r.name}</option>))}
                                       </select>
                                     </div>
                                     <div className="stack-detail-api-field">
                                       <label>API Path</label>
-                                      <input type="text" value={apiCfg?.path || ''} onChange={(e) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { resource_id: '', json_path: '' }, path: e.target.value } }))} placeholder="/api/dcim/devices/?name={{ device.name }}" />
+                                      <AITabInput aria-label="API path" value={apiCfg?.path || ''} onChange={(e) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { resource_id: '', json_path: '' }, path: e.target.value } }))} placeholder="/api/dcim/devices/?name={{ device.name }}" aiField="API lookup path" aiPlaceholder="Request path (Jinja allowed, e.g. {{ device.name }}) that returns the value for this stack variable" aiContext={{ variable: varName }} onAIValue={(v) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { resource_id: '', json_path: '' }, path: v } }))} />
                                     </div>
                                     <div className="stack-detail-api-field">
                                       <label>JSON Path</label>
-                                      <input type="text" value={apiCfg?.json_path || ''} onChange={(e) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { resource_id: '', path: '' }, json_path: e.target.value } }))} placeholder="$.results[0].primary_ip4.address" />
+                                      <AITabInput aria-label="JSON path" value={apiCfg?.json_path || ''} onChange={(e) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { resource_id: '', path: '' }, json_path: e.target.value } }))} placeholder="$.results[0].primary_ip4.address" aiField="JSON path" aiPlaceholder="JSONPath to the value for this stack variable in the API response" aiContext={{ variable: varName, path: apiCfg?.path }} onAIValue={(v) => setVariableApiConfig(prev => ({ ...prev, [varName]: { ...prev[varName] || { resource_id: '', path: '' }, json_path: v } }))} />
                                     </div>
                                     <button
-                                      className="stack-detail-btn"
+                                      className="ns-btn"
                                       style={{ alignSelf: 'flex-start', marginTop: 4 }}
                                       disabled={!apiCfg?.resource_id || !apiCfg?.path || (apiTestResult?.varName === varName && apiTestResult?.loading)}
                                       onClick={async () => {
@@ -627,8 +625,8 @@ export default function StackDetailTab({
           <div className="stack-detail-section-header">
             Instances ({instances.length})
             <button
-              className="stack-detail-btn"
-              style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: 11 }}
+              className="ns-btn ns-btn--small"
+              style={{ marginLeft: 'auto' }}
               onClick={() => onOpenInstanceTab?.('', `New Instance: ${stack?.name || editName}`, stackId)}
             >
               + New
@@ -644,7 +642,6 @@ export default function StackDetailTab({
                 <div
                   key={inst.id}
                   className="stack-detail-deployment-item"
-                  style={{ cursor: 'pointer' }}
                   onClick={() => onOpenInstanceTab?.(inst.id, inst.name, stackId)}
                 >
                   <div className="stack-detail-deployment-info">
@@ -674,7 +671,6 @@ export default function StackDetailTab({
                 <div
                   key={dep.id}
                   className="stack-detail-deployment-item"
-                  style={{ cursor: 'pointer' }}
                   onClick={() => onOpenDeploymentTab?.(dep.id, dep.name)}
                 >
                   <div className="stack-detail-deployment-info">

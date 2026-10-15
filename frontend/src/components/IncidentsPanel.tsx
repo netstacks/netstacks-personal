@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../lib/enrichmentHelpers';
 import './IncidentsPanel.css';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface IncidentsPanelProps {
   onOpenIncidentTab: (id?: string) => void;
 }
@@ -130,11 +131,10 @@ export const IncidentsPanel: React.FC<IncidentsPanelProps> = ({ onOpenIncidentTa
     <div className="incidents-panel">
       <div className="incidents-panel-header">
         <div className="incidents-panel-title">Incidents</div>
-        <span
-          className="incidents-panel-live-indicator"
-          title={lastFetchAt
+        <Tooltip label={lastFetchAt
             ? `Auto-refreshing every 15s · last update ${new Date(lastFetchAt).toLocaleTimeString()}`
-            : 'Auto-refreshing every 15s'}
+            : 'Auto-refreshing every 15s'}><span
+          className="incidents-panel-live-indicator"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -151,35 +151,35 @@ export const IncidentsPanel: React.FC<IncidentsPanelProps> = ({ onOpenIncidentTa
               height: 6,
               borderRadius: '50%',
               background: error ? '#f44336' : '#4caf50',
-              animation: error ? 'none' : 'alerts-panel-live-pulse 2s ease-in-out infinite',
+              animation: error ? 'none' : 'blink 2s ease-in-out infinite',
             }}
             aria-hidden="true"
           />
           Live
-        </span>
+        </span></Tooltip>
         <div className="incidents-panel-header-actions">
-          <button
-            className="incidents-panel-create-btn"
+          <Tooltip label="Create Incident"><button
+            className="ns-btn ns-btn--primary ns-icon-btn"
             onClick={handleCreateClick}
-            title="Create Incident"
+            aria-label="Create Incident"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-          </button>
-          <button
-            className="incidents-panel-refresh-btn"
+          </button></Tooltip>
+          <Tooltip label="Refresh"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={handleRefresh}
             disabled={isLoading}
-            title="Refresh"
+            aria-label="Refresh"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="23 4 23 10 17 10" />
               <polyline points="1 20 1 14 7 14" />
               <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
             </svg>
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
@@ -193,7 +193,7 @@ export const IncidentsPanel: React.FC<IncidentsPanelProps> = ({ onOpenIncidentTa
       {error && (
         <div className="incidents-panel-error">
           <div>Error: {error}</div>
-          <button onClick={handleRefresh}>Retry</button>
+          <button className="ns-btn ns-btn--small" onClick={handleRefresh}>Retry</button>
         </div>
       )}
 
@@ -240,7 +240,7 @@ export const IncidentsPanel: React.FC<IncidentsPanelProps> = ({ onOpenIncidentTa
 
           {incidents.length < total && (
             <button
-              className="incidents-panel-load-more"
+              className="ns-btn incidents-panel-load-more"
               onClick={loadMore}
               disabled={isLoadingMore}
             >

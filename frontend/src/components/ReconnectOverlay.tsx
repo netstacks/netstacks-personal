@@ -9,6 +9,9 @@ interface ReconnectOverlayProps {
   onDisableAutoReconnect: () => void
   autoReconnectDisabled: boolean
   maxAttempts?: number
+  /** Terminal restored from the last run and never connected: offer Connect
+   *  only (no countdown, cancel or auto-reconnect controls). */
+  restored?: boolean
 }
 
 export default function ReconnectOverlay({
@@ -20,12 +23,13 @@ export default function ReconnectOverlay({
   onDisableAutoReconnect,
   autoReconnectDisabled,
   maxAttempts = 0,
+  restored = false,
 }: ReconnectOverlayProps) {
   if (!visible) return null
 
   const hasMaxAttempts = maxAttempts > 0
   const isLastAttempt = hasMaxAttempts && attemptCount >= maxAttempts
-  const title = isLastAttempt ? 'Session Ended' : 'Connection Lost'
+  const title = restored ? 'Not Connected' : isLastAttempt ? 'Session Ended' : 'Connection Lost'
 
   return (
     <div className="reconnect-overlay">
@@ -39,7 +43,11 @@ export default function ReconnectOverlay({
 
         <h3 className="reconnect-overlay-title">{title}</h3>
 
-        {!autoReconnectDisabled && countdown > 0 && !isLastAttempt ? (
+        {restored ? (
+          <p className="reconnect-overlay-message">
+            Restored from your last session
+          </p>
+        ) : !autoReconnectDisabled && countdown > 0 && !isLastAttempt ? (
           <p className="reconnect-overlay-message">
             Reconnecting in <span className="reconnect-countdown">{countdown}</span> second{countdown !== 1 ? 's' : ''}...
             {attemptCount > 0 && hasMaxAttempts && (
@@ -64,17 +72,19 @@ export default function ReconnectOverlay({
 
         <div className="reconnect-overlay-actions">
           <button
-            className="reconnect-btn reconnect-btn-primary"
+            className="ns-btn ns-btn--primary"
             onClick={onReconnectNow}
           >
-            Reconnect Now
+            {restored ? 'Connect' : 'Reconnect Now'}
           </button>
-          <button
-            className="reconnect-btn reconnect-btn-secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
+          {!restored && (
+            <button
+              className="ns-btn"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+          )}
         </div>
 
         {/* Audit P2-6: this was a checkbox with no `checked` prop and an
@@ -84,7 +94,7 @@ export default function ReconnectOverlay({
           * button matches the actual semantics (the action is
           * irreversible from this UI — the user has to reopen Session
           * Settings to flip it back on). */}
-        {!autoReconnectDisabled && (
+        {!restored && !autoReconnectDisabled && (
           <button
             type="button"
             className="reconnect-overlay-disable-btn"

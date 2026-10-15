@@ -6,6 +6,7 @@
 pub mod approvals;
 mod executor;
 mod models;
+pub mod permissions;
 mod permit;
 mod progress;
 mod react;

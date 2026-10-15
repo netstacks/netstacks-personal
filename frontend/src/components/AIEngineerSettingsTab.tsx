@@ -9,6 +9,31 @@ import {
 import { useAssistantNameStore } from '../stores/assistantName'
 import { confirmDialog } from './ConfirmDialog'
 import AITabInput from './AITabInput'
+import Tooltip from './Tooltip'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
+import SettingsItem from './settings/SettingsItem'
+import './AIEngineerSettingsTab.css'
+
+const PACK_LABELS: Record<string, string> = {
+  cisco: 'Cisco IOS / IOS-XE / NX-OS',
+  juniper: 'Juniper Junos',
+  arista: 'Arista EOS',
+  palo_alto: 'Palo Alto PAN-OS',
+  fortinet: 'Fortinet FortiOS',
+  nokia: 'Nokia SR OS',
+  huawei: 'Huawei VRP',
+  mikrotik: 'MikroTik RouterOS',
+  routing: 'Routing & Protocols',
+  switching: 'Switching & VLANs',
+  datacenter: 'Datacenter & VXLAN',
+  security: 'Security & ACLs',
+  wireless: 'Wireless',
+  cloud: 'Cloud Networking',
+  mpls: 'MPLS & Segment Routing',
+  wan: 'WAN & SD-WAN',
+  voip: 'VoIP & UC',
+}
 
 const BEHAVIOR_MODES = [
   { value: 'assistant', label: 'Assistant — answers questions, follows instructions' },
@@ -147,342 +172,180 @@ export default function AIEngineerSettingsTab() {
   }
 
   if (loading) {
-    return <div className="settings-content"><div className="settings-empty">Loading AI engineer profile...</div></div>
+    return <p className="form-hint">Loading AI engineer profile…</p>
   }
 
   if (!profile) {
     return (
-      <div className="settings-content">
-        <div className="settings-category">
-          <h3 className="settings-category-title">AI Engineer Profile</h3>
-          <div className="settings-empty">
-            No profile configured yet. Open AI Assistant to start the onboarding conversation, or configure manually below.
-          </div>
-          <button className="settings-btn settings-btn-primary" style={{ marginTop: 12 }} onClick={() => {
+      <SettingsSection
+        title="AI Engineer Profile"
+        description="No profile configured yet. Open the AI assistant to start the onboarding conversation, or create one manually."
+        actions={
+          <button className="ns-btn ns-btn--small" onClick={() => {
             updateAiProfile({ name: 'NetBot', behavior_mode: 'assistant', autonomy_level: 'suggest', onboarding_completed: true }).then(p => setProfile(p)).catch(() => setError('Failed to create profile'))
           }}>
-            Create Profile Manually
+            + Create profile
           </button>
-        </div>
-      </div>
+        }
+      >
+        {error && <p className="settings-error">{error}</p>}
+      </SettingsSection>
     )
   }
 
-  return (
-    <div className="settings-content">
-      {error && <div className="settings-error">{error}</div>}
-      {success && <div className="settings-success">{success}</div>}
+  const selectRow = (
+    label: string,
+    value: string,
+    options: { value: string; label: string }[],
+    field: keyof UpdateAiEngineerProfile,
+    description?: string,
+  ) => (
+    <SettingRow label={label} description={description}>
+      <select aria-label={label}
+        className="ns-select setting-select-field"
+        value={value}
+        onChange={(e) => {
+          setProfile({ ...profile, [field]: e.target.value })
+          saveField({ [field]: e.target.value })
+        }}
+      >
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </SettingRow>
+  )
 
-      {/* Identity */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">Identity</h3>
-        <div className="setting-item">
-          <div className="setting-label">AI Name</div>
-          <div className="setting-description">What your AI engineer goes by</div>
-          <div className="setting-control-block">
-            <input
-              type="text"
-              className="setting-input"
+  return (
+    <>
+      {(error || success || saving) && (
+        <div>
+          {error && <p className="settings-error">{error}</p>}
+          {success && <p className="settings-success">{success}</p>}
+          {saving && <p className="form-hint">Saving…</p>}
+        </div>
+      )}
+
+      <SettingsSection title="Identity">
+        <div className="settings-group">
+          <SettingRow label="AI Name" description="What your AI engineer goes by" stacked>
+            <AITabInput
+              aria-label="AI Name"
               value={profile.name || ''}
               onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+              aiField="AI engineer name"
+              aiPlaceholder="A short, friendly name for the user's AI network engineer"
+              aiContext={{ workingStyle: profile.behavior_mode, autonomy: profile.autonomy_level }}
+              onAIValue={(v) => { setProfile({ ...profile, name: v }); saveField({ name: v }); useAssistantNameStore.getState().setName(v); }}
               onBlur={() => { saveField({ name: profile.name }); useAssistantNameStore.getState().setName(profile.name); }}
               placeholder="e.g. Atlas, NetBot"
             />
-          </div>
+          </SettingRow>
+          {selectRow('Working Style', profile.behavior_mode || 'assistant', BEHAVIOR_MODES, 'behavior_mode', 'How your AI engineer interacts with you')}
+          {selectRow('Autonomy Level', profile.autonomy_level || 'suggest', AUTONOMY_LEVELS, 'autonomy_level', 'What happens when the AI finds a problem')}
         </div>
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Working Style</span>
-            <div className="setting-control">
-              <select
-                className="setting-select"
-                value={profile.behavior_mode || 'assistant'}
-                onChange={(e) => {
-                  setProfile({ ...profile, behavior_mode: e.target.value })
-                  saveField({ behavior_mode: e.target.value })
-                }}
-              >
-                {BEHAVIOR_MODES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="setting-description">How your AI engineer interacts with you</div>
-        </div>
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Autonomy Level</span>
-            <div className="setting-control">
-              <select
-                className="setting-select"
-                value={profile.autonomy_level || 'suggest'}
-                onChange={(e) => {
-                  setProfile({ ...profile, autonomy_level: e.target.value })
-                  saveField({ autonomy_level: e.target.value })
-                }}
-              >
-                {AUTONOMY_LEVELS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="setting-description">What happens when the AI finds a problem</div>
-        </div>
-      </div>
+      </SettingsSection>
 
-      {/* Expertise */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">Expertise</h3>
-
-        {/* Unified Knowledge Pack Selector */}
-        <div className="setting-item">
-          <div className="setting-label">AI Knowledge Packs</div>
-          <div className="setting-description">
-            Select which knowledge areas to load into AI context. Each pack adds vendor or domain expertise.
-            Packs are loaded in the order shown until the budget is full.
-          </div>
-
-          {/* Budget bar */}
-          {packBudget && (() => {
-            const budget = packBudget.available_budget
-            // Calculate what's selected
-            const allPacks = packBudget.packs.filter(p => p.category !== 'core')
-            const selected = allPacks.filter(p =>
-              (profile.vendor_weights[p.name] ?? 0) > 0 || (profile.domain_focus[p.name] ?? 0) > 0
-            )
-            let used = 0
-            const loaded: string[] = []
-            for (const p of selected) {
-              if (used + p.size <= budget) {
-                used += p.size
-                loaded.push(p.name)
-              }
+      <SettingsSection
+        title="Knowledge Packs"
+        description="Knowledge areas loaded into the AI's context, each adding vendor or domain expertise. Packs load in the order shown until the budget is full."
+      >
+        {packBudget ? (() => {
+          const budget = packBudget.available_budget
+          const allPacks = packBudget.packs.filter(p => p.category !== 'core')
+          const selected = allPacks.filter(p =>
+            (profile.vendor_weights[p.name] ?? 0) > 0 || (profile.domain_focus[p.name] ?? 0) > 0
+          )
+          let used = 0
+          const loaded: string[] = []
+          for (const p of selected) {
+            if (used + p.size <= budget) {
+              used += p.size
+              loaded.push(p.name)
             }
-            const pct = Math.round((used / budget) * 100)
+          }
+          const pct = Math.round((used / budget) * 100)
+          const level = pct > 95 ? 'full' : pct > 75 ? 'high' : 'ok'
 
-            return (
-              <div style={{ margin: '12px 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+          return (
+            <>
+              <div className="ai-pack-budget">
+                <div className="ai-pack-budget-labels">
                   <span>{(used / 1000).toFixed(1)}k / {(budget / 1000).toFixed(1)}k used</span>
                   <span>{((budget - used) / 1000).toFixed(1)}k remaining</span>
                 </div>
-                <div style={{ height: 6, borderRadius: 3, background: 'var(--color-bg-tertiary, #45475a)', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 3, transition: 'width 0.2s',
-                    width: `${Math.min(pct, 100)}%`,
-                    background: pct > 95 ? '#f38ba8' : pct > 75 ? '#f9e2af' : '#a6e3a1',
-                  }} />
+                <div className="ai-pack-budget-track">
+                  <div className={`ai-pack-budget-fill ai-pack-budget-fill--${level}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                 </div>
+              </div>
+              <div className="settings-group">
+                {allPacks.map(pack => {
+                  const isVendor = pack.category === 'vendor'
+                  const isEnabled = isVendor
+                    ? (profile.vendor_weights[pack.name] ?? 0) > 0
+                    : (profile.domain_focus[pack.name] ?? 0) > 0
+                  const isLoaded = loaded.includes(pack.name)
+                  const wouldFit = !isEnabled ? (used + pack.size <= budget) : true
+                  const label = PACK_LABELS[pack.name] || pack.name
 
-                {/* Pack toggles */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 12 }}>
-                  {allPacks.map(pack => {
-                    const isVendor = pack.category === 'vendor'
-                    const isEnabled = isVendor
-                      ? (profile.vendor_weights[pack.name] ?? 0) > 0
-                      : (profile.domain_focus[pack.name] ?? 0) > 0
-                    const isLoaded = loaded.includes(pack.name)
-                    const wouldFit = !isEnabled ? (used + pack.size <= budget) : true
-
-                    const PACK_LABELS: Record<string, string> = {
-                      cisco: 'Cisco IOS / IOS-XE / NX-OS',
-                      juniper: 'Juniper Junos',
-                      arista: 'Arista EOS',
-                      palo_alto: 'Palo Alto PAN-OS',
-                      fortinet: 'Fortinet FortiOS',
-                      nokia: 'Nokia SR OS',
-                      huawei: 'Huawei VRP',
-                      mikrotik: 'MikroTik RouterOS',
-                      routing: 'Routing & Protocols',
-                      switching: 'Switching & VLANs',
-                      datacenter: 'Datacenter & VXLAN',
-                      security: 'Security & ACLs',
-                      wireless: 'Wireless',
-                      cloud: 'Cloud Networking',
-                      mpls: 'MPLS & Segment Routing',
-                      wan: 'WAN & SD-WAN',
-                      voip: 'VoIP & UC',
+                  const toggle = () => {
+                    const key = isVendor ? 'vendor_weights' : 'domain_focus'
+                    const next = { ...profile[key] }
+                    if (isEnabled) {
+                      delete next[pack.name]
+                    } else {
+                      next[pack.name] = 1.0
                     }
+                    setProfile({ ...profile, [key]: next })
+                    saveField({ [key]: next })
+                  }
 
-                    const toggle = () => {
-                      if (isVendor) {
-                        const newWeights = { ...profile.vendor_weights }
-                        if (isEnabled) {
-                          delete newWeights[pack.name]
-                        } else {
-                          newWeights[pack.name] = 1.0
-                        }
-                        setProfile({ ...profile, vendor_weights: newWeights })
-                        saveField({ vendor_weights: newWeights })
-                      } else {
-                        const newFocus = { ...profile.domain_focus }
-                        if (isEnabled) {
-                          delete newFocus[pack.name]
-                        } else {
-                          newFocus[pack.name] = 1.0
-                        }
-                        setProfile({ ...profile, domain_focus: newFocus })
-                        saveField({ domain_focus: newFocus })
+                  return (
+                    <SettingsItem
+                      key={pack.name}
+                      leading={
+                        <input
+                          type="checkbox"
+                          aria-label={label}
+                          checked={isEnabled}
+                          disabled={!isEnabled && !wouldFit}
+                          onChange={toggle}
+                        />
                       }
-                    }
-
-                    return (
-                      <div
-                        key={pack.name}
-                        onClick={wouldFit || isEnabled ? toggle : undefined}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 10,
-                          padding: '8px 12px', borderRadius: 6, cursor: wouldFit || isEnabled ? 'pointer' : 'default',
-                          background: isEnabled ? 'rgba(137, 180, 250, 0.1)' : 'transparent',
-                          border: isEnabled ? '1px solid rgba(137, 180, 250, 0.3)' : '1px solid transparent',
-                          opacity: !isEnabled && !wouldFit ? 0.4 : 1,
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        <div style={{
-                          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                          border: isEnabled ? '2px solid #89b4fa' : '2px solid var(--color-border, #45475a)',
-                          background: isEnabled ? '#89b4fa' : 'transparent',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 11, color: '#1e1e2e', fontWeight: 700,
-                        }}>
-                          {isEnabled ? '✓' : ''}
-                        </div>
-                        <span style={{ flex: 1, fontSize: 13 }}>
-                          {PACK_LABELS[pack.name] || pack.name}
-                        </span>
-                        <span style={{
-                          fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
-                          color: isEnabled && !isLoaded ? '#f38ba8' : 'var(--color-text-secondary)',
-                        }}>
-                          {(pack.size / 1000).toFixed(1)}k
-                          {isEnabled && !isLoaded && ' · over budget'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
+                      title={label}
+                      badges={isEnabled && !isLoaded && <span className="settings-badge settings-badge--danger">over budget</span>}
+                      actions={<span className="form-hint">{(pack.size / 1000).toFixed(1)}k</span>}
+                    />
+                  )
+                })}
               </div>
-            )
-          })()}
+            </>
+          )
+        })() : (
+          <p className="form-hint">Loading knowledge pack information…</p>
+        )}
+      </SettingsSection>
 
-          {!packBudget && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              {/* Fallback: original sliders when pack sizes unavailable */}
-              <div className="setting-description" style={{ fontStyle: 'italic' }}>
-                Loading knowledge pack information...
-              </div>
-            </div>
-          )}
+      <SettingsSection title="Expertise">
+        <div className="settings-group">
+          {selectRow('Certification Perspective', profile.cert_perspective || 'vendor-neutral', CERT_PERSPECTIVES, 'cert_perspective')}
+          {selectRow('Environment Type', profile.environment_type || 'production', ENVIRONMENT_TYPES, 'environment_type')}
         </div>
+      </SettingsSection>
 
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Certification Perspective</span>
-            <div className="setting-control">
-              <select
-                className="setting-select"
-                value={profile.cert_perspective || 'vendor-neutral'}
-                onChange={(e) => {
-                  setProfile({ ...profile, cert_perspective: e.target.value })
-                  saveField({ cert_perspective: e.target.value })
-                }}
-              >
-                {CERT_PERSPECTIVES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Environment Type</span>
-            <div className="setting-control">
-              <select
-                className="setting-select"
-                value={profile.environment_type || 'production'}
-                onChange={(e) => {
-                  setProfile({ ...profile, environment_type: e.target.value })
-                  saveField({ environment_type: e.target.value })
-                }}
-              >
-                {ENVIRONMENT_TYPES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Behavior */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">Behavior</h3>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Verbosity</span>
-            <div className="setting-control">
-              <select className="setting-select" value={profile.verbosity || 'balanced'}
-                onChange={(e) => { setProfile({ ...profile, verbosity: e.target.value }); saveField({ verbosity: e.target.value }) }}>
-                {VERBOSITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Risk Tolerance</span>
-            <div className="setting-control">
-              <select className="setting-select" value={profile.risk_tolerance || 'conservative'}
-                onChange={(e) => { setProfile({ ...profile, risk_tolerance: e.target.value }); saveField({ risk_tolerance: e.target.value }) }}>
-                {RISK_TOLERANCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Troubleshooting Method</span>
-            <div className="setting-control">
-              <select className="setting-select" value={profile.troubleshooting_method || 'top-down'}
-                onChange={(e) => { setProfile({ ...profile, troubleshooting_method: e.target.value }); saveField({ troubleshooting_method: e.target.value }) }}>
-                {TROUBLESHOOTING_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Experience Level</span>
-            <div className="setting-control">
-              <select className="setting-select" value={profile.user_experience_level || 'mid'}
-                onChange={(e) => { setProfile({ ...profile, user_experience_level: e.target.value }); saveField({ user_experience_level: e.target.value }) }}>
-                {EXPERIENCE_LEVELS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="setting-description">Calibrates explanation depth</div>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">Syntax Style</span>
-            <div className="setting-control">
-              <select className="setting-select" value={profile.syntax_style || 'full'}
-                onChange={(e) => { setProfile({ ...profile, syntax_style: e.target.value }); saveField({ syntax_style: e.target.value }) }}>
-                {SYNTAX_STYLES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="setting-item">
-          <div className="setting-label">Communication Style</div>
-          <div className="setting-description">Free-text personality notes (e.g. &quot;Be direct and technical, skip pleasantries&quot;)</div>
-          <div className="setting-control-block">
+      <SettingsSection title="Behavior">
+        <div className="settings-group">
+          {selectRow('Verbosity', profile.verbosity || 'balanced', VERBOSITY_OPTIONS, 'verbosity')}
+          {selectRow('Risk Tolerance', profile.risk_tolerance || 'conservative', RISK_TOLERANCE_OPTIONS, 'risk_tolerance')}
+          {selectRow('Troubleshooting Method', profile.troubleshooting_method || 'top-down', TROUBLESHOOTING_OPTIONS, 'troubleshooting_method')}
+          {selectRow('Experience Level', profile.user_experience_level || 'mid', EXPERIENCE_LEVELS, 'user_experience_level', 'Calibrates explanation depth')}
+          {selectRow('Syntax Style', profile.syntax_style || 'full', SYNTAX_STYLES, 'syntax_style')}
+          <SettingRow
+            label="Communication Style"
+            description="Free-text personality notes (e.g. &quot;Be direct and technical, skip pleasantries&quot;)"
+            stacked
+          >
             <AITabInput
               as="textarea"
-              className="setting-input"
+              aria-label="Communication Style"
               rows={3}
               value={profile.communication_style || ''}
               onChange={(e) => setProfile({ ...profile, communication_style: e.target.value })}
@@ -493,64 +356,72 @@ export default function AIEngineerSettingsTab() {
               aiContext={{ behavior_mode: profile.behavior_mode, verbosity: profile.verbosity, experience_level: profile.user_experience_level }}
               placeholder="e.g. Be direct and technical, skip pleasantries"
             />
+          </SettingRow>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Custom Safety Rules"
+        description="Additional safety rules on top of the non-negotiable built-in rules. The AI always follows them."
+        actions={
+          <button
+            className="ns-btn ns-btn--small"
+            onClick={() => setProfile({ ...profile, safety_rules: [...profile.safety_rules, ''] })}
+          >
+            + Add rule
+          </button>
+        }
+      >
+        {profile.safety_rules.length === 0 ? (
+          <p className="form-hint">No custom safety rules yet.</p>
+        ) : (
+          <div className="settings-group">
+            {profile.safety_rules.map((rule, idx) => (
+              <div key={idx} className="ai-safety-rule">
+                <AITabInput aria-label={`Safety rule ${idx + 1}`}
+                  value={rule}
+                  aiField="AI safety rule"
+                  aiPlaceholder="One rule the AI network engineer must always follow"
+                  aiContext={{ otherRules: profile.safety_rules.filter((_, i) => i !== idx).join('; ') }}
+                  onAIValue={(v) => {
+                    const newRules = [...profile.safety_rules]
+                    newRules[idx] = v
+                    setProfile({ ...profile, safety_rules: newRules })
+                    saveField({ safety_rules: newRules })
+                  }}
+                  onChange={(e) => {
+                    const newRules = [...profile.safety_rules]
+                    newRules[idx] = e.target.value
+                    setProfile({ ...profile, safety_rules: newRules })
+                  }}
+                  onBlur={() => saveField({ safety_rules: profile.safety_rules })}
+                />
+                <Tooltip label="Remove rule"><button
+                  aria-label="Remove rule"
+                  className="ns-btn ns-btn--ghost ns-btn--danger ns-btn--small ns-icon-btn"
+                  onClick={() => {
+                    const newRules = profile.safety_rules.filter((_, i) => i !== idx)
+                    setProfile({ ...profile, safety_rules: newRules })
+                    saveField({ safety_rules: newRules })
+                  }}
+                >
+                  &times;
+                </button></Tooltip>
+              </div>
+            ))}
           </div>
-        </div>
-      </div>
+        )}
+      </SettingsSection>
 
-      {/* Safety */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">Custom Safety Rules</h3>
-        <div className="setting-description" style={{ marginBottom: 8 }}>
-          Additional safety rules on top of the non-negotiable built-in rules. These are instructions the AI will always follow.
-        </div>
-        {profile.safety_rules.map((rule, idx) => (
-          <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            <input
-              type="text"
-              className="setting-input"
-              style={{ flex: 1 }}
-              value={rule}
-              onChange={(e) => {
-                const newRules = [...profile.safety_rules]
-                newRules[idx] = e.target.value
-                setProfile({ ...profile, safety_rules: newRules })
-              }}
-              onBlur={() => saveField({ safety_rules: profile.safety_rules })}
-            />
-            <button
-              className="settings-btn"
-              onClick={() => {
-                const newRules = profile.safety_rules.filter((_, i) => i !== idx)
-                setProfile({ ...profile, safety_rules: newRules })
-                saveField({ safety_rules: newRules })
-              }}
-              title="Remove rule"
-            >
-              &times;
-            </button>
-          </div>
-        ))}
-        <button
-          className="settings-btn"
-          style={{ marginTop: 4 }}
-          onClick={() => setProfile({ ...profile, safety_rules: [...profile.safety_rules, ''] })}
-        >
-          + Add Rule
-        </button>
-      </div>
-
-      {/* Actions */}
-      <div className="settings-category">
-        <h3 className="settings-category-title">Actions</h3>
-        <button className="settings-btn settings-btn-danger" onClick={handleReset}>
-          Reset Profile &amp; Re-onboard
-        </button>
-        <div className="setting-description" style={{ marginTop: 4 }}>
-          Clears all profile settings. The onboarding conversation will start next time you open AI chat.
-        </div>
-      </div>
-
-      {saving && <div className="settings-saving-indicator">Saving...</div>}
-    </div>
+      <SettingsSection
+        title="Reset Profile"
+        description="Clears all profile settings. The onboarding conversation starts the next time you open AI chat."
+        actions={
+          <button className="ns-btn ns-btn--small ns-btn--danger" onClick={handleReset}>
+            Reset &amp; Re-onboard
+          </button>
+        }
+      />
+    </>
   )
 }

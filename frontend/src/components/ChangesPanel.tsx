@@ -22,7 +22,10 @@ async function confirmDeleteChange(name: string): Promise<boolean> {
 import { listDocuments, createDocument, type Document } from '../api/docs';
 import { resolveDocSaveTarget } from '../lib/docSaveTargets';
 import { updateChange as apiUpdateChange } from '../api/changes';
+import SearchField from './SearchField';
 import './ChangesPanel.css';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 
 interface ChangesPanelProps {
   sessionId?: string;
@@ -327,34 +330,33 @@ export default function ChangesPanel({ sessionId, onSelectChange, onOpenMopTab }
     <div className="changes-panel" data-testid="changes-panel">
       <div className="changes-header">
         <div className="changes-actions">
-          <input
-            type="search"
+          <SearchField
+            className="changes-search"
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={setSearchText}
             placeholder="Search MOPs..."
-            className="mop-search-input"
           />
-          <button className="import-mop-btn" onClick={handleImportMop} title="Import MOP from .mop.json">
+          <Tooltip label="Import MOP from .mop.json"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleImportMop} aria-label="Import MOP from .mop.json">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-          </button>
-          <button className="new-change-btn" onClick={handleNewChange} title="Create new MOP Plan">
+          </button></Tooltip>
+          <Tooltip label="Create new MOP Plan"><button className="ns-btn ns-btn--primary" onClick={handleNewChange}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             New MOP Plan
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
       {error && (
         <div className="changes-panel-error">
           {error}
-          <button onClick={loadChanges}>Retry</button>
+          <button className="ns-btn ns-btn--small" onClick={loadChanges}>Retry</button>
         </div>
       )}
 
@@ -380,13 +382,12 @@ export default function ChangesPanel({ sessionId, onSelectChange, onOpenMopTab }
               }}
             >
               <div className="change-item-header">
-                <span
+                <Tooltip label={changeStatusLabels[change.status]}><span
                   className="change-status-icon"
                   style={{ color: changeStatusColors[change.status] }}
-                  title={changeStatusLabels[change.status]}
                 >
                   {StatusIcons[change.status]}
-                </span>
+                </span></Tooltip>
                 <span className="change-name">{change.name}</span>
                 <span className="change-status-badge" style={{ color: changeStatusColors[change.status] }}>
                   {changeStatusLabels[change.status]}
@@ -403,14 +404,14 @@ export default function ChangesPanel({ sessionId, onSelectChange, onOpenMopTab }
                     </span>
                     <span className="change-author">by {change.created_by}</span>
                     {change.document_id && (
-                      <span className="change-doc-badge" title="Has attached document">
+                      <Tooltip label="Has attached document"><span className="change-doc-badge" role="img" aria-label="Has attached document">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                           <polyline points="14 2 14 8 20 8" />
                           <line x1="16" y1="13" x2="8" y2="13" />
                           <line x1="16" y1="17" x2="8" y2="17" />
                         </svg>
-                      </span>
+                      </span></Tooltip>
                     )}
                   </div>
                   {change.description && (
@@ -419,24 +420,23 @@ export default function ChangesPanel({ sessionId, onSelectChange, onOpenMopTab }
                   <div className="change-item-actions">
                     {(change.status === 'draft' || change.status === 'approved' || change.status === 'rejected' || change.status === 'pending_review') && (
                       <>
-                        <button
-                          className="execute-btn"
+                        <Tooltip label="Execute this MOP Plan"><button
+                          className="ns-btn ns-btn--small ns-btn--primary"
                           onClick={(e) => { e.stopPropagation(); handleExecute(change); }}
-                          title="Execute this MOP Plan"
                         >
                           <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
                             <polygon points="5 3 19 12 5 21 5 3" />
                           </svg>
                           Execute
-                        </button>
+                        </button></Tooltip>
                         <button
-                          className="edit-btn"
+                          className="ns-btn ns-btn--small"
                           onClick={(e) => { e.stopPropagation(); handleEditChange(change); }}
                         >
                           Edit
                         </button>
                         <button
-                          className="delete-btn"
+                          className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger"
                           onClick={async (e) => {
                             e.stopPropagation();
                             if (await confirmDeleteChange(change.name)) deleteChange(change.id);
@@ -455,80 +455,76 @@ export default function ChangesPanel({ sessionId, onSelectChange, onOpenMopTab }
       </div>
 
       <div className="changes-panel-footer">
-        <button
-          className="changes-panel-refresh"
+        <Tooltip label="Refresh changes"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={loadChanges}
           disabled={loading}
-          title="Refresh changes"
+          aria-label="Refresh changes"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M23 4v6h-6" />
             <path d="M1 20v-6h6" />
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <ContextMenu position={contextMenu.position} items={contextMenu.items} onClose={contextMenu.close} />
 
       {/* Docs Picker Modal */}
       {showDocsPicker && (
-        <div className="modal-overlay" onClick={() => setShowDocsPicker(false)}>
-          <div className="docs-picker-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="docs-picker-header">
-              <span>Import MOP from Docs</span>
-              <button className="docs-picker-close" onClick={() => setShowDocsPicker(false)}>&times;</button>
-            </div>
-            <div className="docs-picker-list">
-              {mopDocs.length === 0 ? (
-                <div className="docs-picker-empty">No MOP documents available</div>
-              ) : (
-                mopDocs.map((doc) => (
-                  <button
-                    key={doc.id}
-                    className="docs-picker-item"
-                    onClick={() => handleSelectDocForImport(doc)}
-                  >
-                    <span className="docs-picker-item-name">{doc.name}</span>
-                    <span className="docs-picker-item-date">
-                      {new Date(doc.updated_at).toLocaleDateString()}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
+        <ModalFrame id="docs-picker" onDismiss={() => setShowDocsPicker(false)} className="docs-picker-modal" label="Pick a document">
+          <div className="docs-picker-header">
+            <span>Import MOP from Docs</span>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => setShowDocsPicker(false)}>&times;</button>
           </div>
-        </div>
+          <div className="docs-picker-list">
+            {mopDocs.length === 0 ? (
+              <div className="docs-picker-empty">No MOP documents available</div>
+            ) : (
+              mopDocs.map((doc) => (
+                <button
+                  key={doc.id}
+                  className="docs-picker-item"
+                  onClick={() => handleSelectDocForImport(doc)}
+                >
+                  <span className="docs-picker-item-name">{doc.name}</span>
+                  <span className="docs-picker-item-date">
+                    {new Date(doc.updated_at).toLocaleDateString()}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </ModalFrame>
       )}
 
       {/* Attach Document Picker Modal */}
       {showAttachPicker && (
-        <div className="modal-overlay" onClick={() => setShowAttachPicker(false)}>
-          <div className="docs-picker-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="docs-picker-header">
-              <span>Attach Document to "{attachDocTarget?.name}"</span>
-              <button className="docs-picker-close" onClick={() => setShowAttachPicker(false)}>&times;</button>
-            </div>
-            <div className="docs-picker-list">
-              {attachDocs.length === 0 ? (
-                <div className="docs-picker-empty">No documents available</div>
-              ) : (
-                attachDocs.map((doc) => (
-                  <button
-                    key={doc.id}
-                    className="docs-picker-item"
-                    onClick={() => handleSelectDocForAttach(doc)}
-                  >
-                    <span className="docs-picker-item-name">{doc.name}</span>
-                    <span className="docs-picker-item-date">
-                      {new Date(doc.updated_at).toLocaleDateString()}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
+        <ModalFrame id="attach-doc-picker" onDismiss={() => setShowAttachPicker(false)} className="docs-picker-modal" label="Attach document">
+          <div className="docs-picker-header">
+            <span>Attach Document to "{attachDocTarget?.name}"</span>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => setShowAttachPicker(false)}>&times;</button>
           </div>
-        </div>
+          <div className="docs-picker-list">
+            {attachDocs.length === 0 ? (
+              <div className="docs-picker-empty">No documents available</div>
+            ) : (
+              attachDocs.map((doc) => (
+                <button
+                  key={doc.id}
+                  className="docs-picker-item"
+                  onClick={() => handleSelectDocForAttach(doc)}
+                >
+                  <span className="docs-picker-item-name">{doc.name}</span>
+                  <span className="docs-picker-item-date">
+                    {new Date(doc.updated_at).toLocaleDateString()}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </ModalFrame>
       )}
 
       <input

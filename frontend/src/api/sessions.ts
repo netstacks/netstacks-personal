@@ -102,6 +102,28 @@ export function hasConsoleAccess(session: Pick<Session, 'console_host' | 'consol
   return !!session.console_host && !!session.console_port;
 }
 
+/** Terminal settings a session's tab runs with. */
+export interface SessionTerminalSettings {
+  fontSize: number | null;
+  fontFamily: string | null;
+  terminalTheme: string | null;
+  scrollbackLines: number | null;
+  autoReconnect: boolean;
+  reconnectDelay: number;
+}
+
+/** Session overrides, falling back to the session's credential profile defaults. */
+export function sessionTerminalSettings(session: Session, profile: CredentialProfile | undefined): SessionTerminalSettings {
+  return {
+    fontSize: session.font_size_override ?? profile?.default_font_size ?? null,
+    fontFamily: session.font_family ?? profile?.default_font_family ?? null,
+    terminalTheme: session.terminal_theme ?? profile?.terminal_theme ?? null,
+    scrollbackLines: session.scrollback_lines ?? null,
+    autoReconnect: session.auto_reconnect ?? true,
+    reconnectDelay: session.reconnect_delay ?? 5,
+  };
+}
+
 // === Jump Hosts (Global Proxy Configuration) ===
 
 export interface JumpHost {

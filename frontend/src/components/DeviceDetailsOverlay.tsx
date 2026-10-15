@@ -4,6 +4,7 @@
 import { useEffect, type ReactNode } from 'react';
 import type { Device, DeviceType, DeviceStatus } from '../types/topology';
 import './DeviceDetailsOverlay.css';
+import Tooltip from './Tooltip';
 
 interface DeviceDetailsOverlayProps {
   /** Device to display details for */
@@ -214,11 +215,11 @@ export default function DeviceDetailsOverlay({
           style={{ backgroundColor: STATUS_COLORS[device.status] }}
           title={device.status}
         />
-        <button className="device-details-close" onClick={onClose} title="Close">
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Quick Info */}
@@ -283,7 +284,7 @@ export default function DeviceDetailsOverlay({
       <div className="device-details-actions">
         {device.sessionId && onFocusTerminal && (
           <button
-            className="device-details-action"
+            className="ns-btn"
             onClick={() => onFocusTerminal(device)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -295,7 +296,7 @@ export default function DeviceDetailsOverlay({
         )}
         {!device.sessionId && device.primaryIp && onOpenSession && (
           <button
-            className="device-details-action device-details-action-primary"
+            className="ns-btn ns-btn--primary"
             onClick={() => onOpenSession(device)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -306,7 +307,7 @@ export default function DeviceDetailsOverlay({
         )}
         {onOpenAIChat && (
           <button
-            className="device-details-action"
+            className="ns-btn"
             onClick={() => onOpenAIChat(device)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -318,7 +319,7 @@ export default function DeviceDetailsOverlay({
         )}
         {onDiscoverNeighbors && (
           <button
-            className="device-details-action"
+            className="ns-btn"
             onClick={() => onDiscoverNeighbors(device)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -334,7 +335,7 @@ export default function DeviceDetailsOverlay({
         )}
         {onOpenInTab && (
           <button
-            className="device-details-action"
+            className="ns-btn"
             onClick={() => onOpenInTab(device)}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

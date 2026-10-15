@@ -6,10 +6,11 @@
  */
 
 import { useState } from 'react'
-import { useShortcut } from '../hooks/useKeyboard'
+import { useBinding } from '../hooks/useKeyboard'
 import ScratchpadEditor, { saveScratchpadContent, scratchpadTarget } from './ScratchpadEditor'
 import type { WorkspaceConfig } from '../types/workspace'
 import './Scratchpad.css'
+import Tooltip from './Tooltip'
 
 interface ScratchpadTabProps {
   initialContent: string
@@ -19,7 +20,7 @@ interface ScratchpadTabProps {
 }
 
 export default function ScratchpadTab({ initialContent, activeWorkspace, onClose }: ScratchpadTabProps) {
-  const saveShortcut = useShortcut('saveDocument')
+  const saveBinding = useBinding('saveDocument')
   const [content, setContent] = useState(initialContent)
   const [saving, setSaving] = useState(false)
   const target = scratchpadTarget(activeWorkspace)
@@ -39,17 +40,16 @@ export default function ScratchpadTab({ initialContent, activeWorkspace, onClose
       <div className="scratchpad-tab-header">
         <div className="scratchpad-title">
           <span>Scratchpad</span>
-          <span className="scratchpad-target" title="Save destination">→ {target}</span>
+          <Tooltip label="Save destination"><span className="scratchpad-target">→ {target}</span></Tooltip>
         </div>
         <div className="scratchpad-actions">
-          <button
-            className="scratchpad-btn scratchpad-btn-primary"
+          <Tooltip label="Save" shortcut={saveBinding}><button
+            className="ns-btn ns-btn--small ns-btn--primary"
             onClick={() => { void handleSave() }}
             disabled={saving}
-            title={`Save (${saveShortcut})`}
           >
             {saving ? 'Saving…' : 'Save'}
-          </button>
+          </button></Tooltip>
         </div>
       </div>
       <div className="scratchpad-body">

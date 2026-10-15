@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { listGlobalSnippets, type GlobalSnippet } from '../api/snippets';
 import './SnippetsMenu.css';
+import SearchField from './SearchField';
 
 interface SnippetsMenuProps {
   onClose: () => void;
@@ -71,13 +72,7 @@ export default function SnippetsMenu({
   return (
     <div className="snippets-menu" ref={menuRef}>
       <div className="snippets-menu-search">
-        <input
-          ref={searchRef}
-          type="search"
-          placeholder="Search snippets..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <SearchField inputRef={searchRef} value={search} onChange={setSearch} placeholder="Search snippets..." />
       </div>
 
       <div className="snippets-menu-list">

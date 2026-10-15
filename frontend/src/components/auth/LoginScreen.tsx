@@ -103,7 +103,8 @@ export function LoginScreen() {
 
           <div className="form-field">
             <label htmlFor="email">Username</label>
-            <input
+            <input data-ai-fill="off"
+              className="ns-input"
               id="email"
               type="text"
               value={email}
@@ -129,7 +130,7 @@ export function LoginScreen() {
 
           <button
             type="submit"
-            className="login-button"
+            className="ns-btn ns-btn--primary login-button"
             disabled={isLoading || !email || !password}
           >
             {isLoading ? (

@@ -5,9 +5,9 @@
   margin-bottom: 4px;
   width: 300px;
   max-height: 400px;
-  background: var(--bg-primary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
@@ -17,31 +17,13 @@
 
 .quick-prompts-search {
   padding: 8px;
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
-}
-
-.quick-prompts-search input {
-  width: 100%;
-  padding: 6px 10px;
-  background: var(--bg-secondary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 4px;
-  color: var(--text-primary, #cccccc);
-  font-size: 13px;
-}
-
-.quick-prompts-search input:focus {
-  outline: none;
-  border-color: var(--accent-color, #007acc);
-}
-
-.quick-prompts-search input::placeholder {
-  color: var(--text-secondary, #808080);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .quick-prompts-list {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px 0;
 }
 
@@ -50,7 +32,7 @@
 }
 
 .quick-prompts-section:not(:last-child) {
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .quick-prompts-item {
@@ -58,17 +40,16 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  cursor: pointer;
-  color: var(--text-primary, #cccccc);
+  color: var(--text-primary);
   font-size: 13px;
 }
 
 .quick-prompts-item:hover {
-  background: var(--bg-hover, #2a2d2e);
+  background: var(--bg-hover);
 }
 
 .quick-prompts-item .star {
-  color: #f5c518;
+  color: var(--color-warning);
   font-size: 12px;
 }
 
@@ -81,31 +62,17 @@
 
 .quick-prompts-footer {
   padding: 8px;
-  border-top: 1px solid var(--border-color, #3c3c3c);
+  border-top: 1px solid var(--border-color);
 }
 
 .quick-prompts-footer button {
   width: 100%;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary, #808080);
-  font-size: 12px;
-  cursor: pointer;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.quick-prompts-footer button:hover {
-  color: var(--text-primary, #cccccc);
-  background: var(--bg-hover, #2a2d2e);
 }
 
 .quick-prompts-empty {
   padding: 20px;
   text-align: center;
-  color: var(--text-secondary, #808080);
+  color: var(--text-secondary);
   font-size: 13px;
 }

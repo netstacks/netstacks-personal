@@ -46,90 +46,90 @@
 }
 
 .doc-tab-editor-badge.outputs {
-  background: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background: var(--color-accent-tint-10);
+  color: var(--color-text-accent);
 }
 
 .doc-tab-editor-badge.templates {
-  background: rgba(155, 89, 182, 0.2);
-  color: #9b59b6;
+  background: rgba(var(--color-category-purple-rgb), 0.12);
+  color: var(--color-category-purple);
 }
 
 .doc-tab-editor-badge.backups {
-  background: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
 }
 
 .doc-tab-editor-badge.history {
-  background: rgba(241, 196, 15, 0.2);
-  color: #f1c40f;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
 }
 
 .doc-tab-editor-badge.notes {
-  background: rgba(230, 126, 34, 0.2);
-  color: #e67e22;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
 }
 
 /* Content type badges */
 .doc-tab-editor-badge.content-type {
   font-size: 10px;
   padding: 2px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   font-weight: 600;
   letter-spacing: 0.5px;
 }
 
 .doc-tab-editor-badge.content-type-json {
-  background: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background: var(--color-accent-tint-10);
+  color: var(--color-text-accent);
 }
 
 .doc-tab-editor-badge.content-type-csv {
-  background: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
 }
 
 .doc-tab-editor-badge.content-type-jinja {
-  background: rgba(155, 89, 182, 0.2);
-  color: #9b59b6;
+  background: rgba(var(--color-category-purple-rgb), 0.12);
+  color: var(--color-category-purple);
 }
 
 .doc-tab-editor-badge.content-type-config {
-  background: rgba(230, 126, 34, 0.2);
-  color: #e67e22;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
 }
 
 .doc-tab-editor-badge.content-type-text {
   background: rgba(149, 165, 166, 0.2);
-  color: #95a5a6;
+  color: var(--color-text-secondary);
 }
 
 .doc-tab-editor-badge.content-type-markdown {
-  background: rgba(52, 152, 219, 0.2);
-  color: #5dade2;
+  background: var(--color-accent-tint-20);
+  color: var(--color-text-accent);
 }
 
 .doc-tab-editor-badge.content-type-recording {
-  background: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
 }
 
 /* Troubleshooting category badge */
 .doc-tab-editor-badge.troubleshooting {
-  background: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
 }
 
 /* Editing badge */
 .doc-tab-editor-badge.editing {
-  background: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
 }
 
 /* Modified badge */
 .doc-tab-editor-badge.modified {
-  background: rgba(241, 196, 15, 0.2);
-  color: #f1c40f;
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
 }
 
 /* Header action buttons */
@@ -140,96 +140,21 @@
   flex-shrink: 0;
 }
 
-.doc-tab-editor-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.doc-tab-editor-btn:hover:not(:disabled) {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-}
-
-.doc-tab-editor-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.doc-tab-editor-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.doc-tab-editor-btn.active {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.doc-tab-editor-btn.primary {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: white;
-}
-
-.doc-tab-editor-btn.primary:hover:not(:disabled) {
-  background: var(--color-accent-hover, #9b59b6);
-  border-color: var(--color-accent-hover, #9b59b6);
-}
-
-.doc-tab-editor-btn.render {
-  background: rgba(76, 175, 80, 0.15);
-  border-color: rgba(76, 175, 80, 0.4);
-  color: #4caf50;
-}
-
-.doc-tab-editor-btn.render:hover {
-  background: rgba(76, 175, 80, 0.25);
-  border-color: #4caf50;
-}
-
-.doc-tab-editor-btn.ai-enhance {
-  background: rgba(155, 89, 182, 0.15);
-  border-color: rgba(155, 89, 182, 0.4);
-  color: #9b59b6;
-}
-
-.doc-tab-editor-btn.ai-enhance:hover {
-  background: rgba(155, 89, 182, 0.25);
-  border-color: #9b59b6;
-}
-
 .doc-tab-editor-badge.enhancing {
   background: rgba(155, 89, 182, 0.2);
   color: #9b59b6;
   animation: pulse 1.5s ease-in-out infinite;
 }
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
 /* Error banner */
 .doc-tab-editor-error-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: rgba(231, 76, 60, 0.15);
-  border-bottom: 1px solid rgba(231, 76, 60, 0.3);
-  color: #e74c3c;
+  background: rgba(var(--color-error-rgb), 0.15);
+  border-bottom: 1px solid rgba(var(--color-error-rgb), 0.3);
+  color: var(--color-error);
   font-size: 13px;
-  cursor: pointer;
   flex-shrink: 0;
 }
 
@@ -242,6 +167,7 @@
 .doc-tab-editor-content {
   flex: 1;
   overflow: auto;
+  overscroll-behavior: contain;
   min-height: 0;
 }
 
@@ -257,11 +183,12 @@
   height: 100%;
   padding: 16px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .doc-tab-text-viewer pre {
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-family-mono);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -274,31 +201,6 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.doc-tab-edit-textarea {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  padding: 16px;
-  margin: 0;
-  background: var(--color-bg-primary);
-  border: none;
-  outline: none;
-  resize: none;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-text-primary);
-  tab-size: 2;
-}
-
-.doc-tab-edit-textarea:focus {
-  outline: none;
-}
-
-.doc-tab-edit-textarea::placeholder {
-  color: var(--color-text-muted);
 }
 
 /* Footer */
@@ -331,10 +233,7 @@
   height: 100%;
   padding: 16px 24px;
   overflow: auto;
-}
-
-.doc-tab-markdown-viewer .markdown-content {
-  max-width: 900px;
+  overscroll-behavior: contain;
 }
 
 /* Make markdown tables look nicer */

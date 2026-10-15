@@ -20,6 +20,7 @@ import { registerNetstacksLanguages } from './languages';
 import { registerIconifyCollections } from './lib/iconifyInit';
 import './index.css';
 import './components/dialog.css';
+import './components/primitives.css';
 import './components/popoverCard.css';
 import App from './App.tsx';
 import VaultUnlockGate from './components/VaultUnlockGate';
@@ -29,26 +30,39 @@ import { TokenUsageProvider } from './contexts/TokenUsageContext';
 import { initializeClient } from './api/client';
 import { setSidecarAuthToken, setSidecarPort } from './api/localClient';
 import { useCapabilitiesStore } from './stores/capabilitiesStore';
+import { startAiSettingsMirror } from './lib/aiSettingsMirror';
 import PopoutTerminal from './components/PopoutTerminal';
 import PopoutAIChat from './components/PopoutAIChat';
 import SharedTerminal from './components/SharedTerminal';
 
 // Use locally bundled Monaco instead of CDN (required for Tauri CSP)
 import { logger } from './lib/logger'
-import { applyAppTheme, getAppTheme, setAppTheme } from './lib/appTheme';
+import { applyAppTheme, getAppTheme, isAppTheme, setAppTheme } from './lib/appTheme';
+import { applyWindowMaterial, followNativeTheme, followWindowFocus, isTauri, revealMainWindow, syncNativeWindow } from './lib/nativeWindow';
+import { getPlatform } from './utils/platform';
+import RevealMainWindow from './components/RevealMainWindow';
 loader.config({ monaco });
 
-// ── App theme (dark default / "Anchored Deep" light) ───────────────────────
-// Applied before first paint so there is no dark flash, for every entry
-// path (full app, popout terminal/chat, shared view). A ?theme= URL param
+document.documentElement.dataset.platform = getPlatform();
+
+// ── App theme ──────────────────────────────────────────────────────────────
+// Applied before first paint so there is no flash, for every entry path
+// (full app, popout terminal/chat, shared view). A ?theme= URL param
 // overrides (and persists) for popouts and quick switching.
 {
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
-  if (urlTheme === 'light' || urlTheme === 'dark') {
+  if (isAppTheme(urlTheme)) {
     setAppTheme(urlTheme);
   } else {
     applyAppTheme(getAppTheme());
   }
+}
+
+if (isTauri()) {
+  void followNativeTheme();
+  void followWindowFocus();
+  void applyWindowMaterial();
+  syncNativeWindow();
 }
 
 // Configure Monaco web workers for Vite
@@ -213,11 +227,16 @@ async function bootstrap() {
   // in enterprise mode it fetches from the Controller after login instead.
   if (result.mode !== 'enterprise') {
     await useCapabilitiesStore.getState().fetchCapabilities();
+    // The sidecar enforces some AI permission settings itself (background
+    // tasks, bash deny list); keep its copy in step with localStorage.
+    startAiSettingsMirror();
   }
 
   // See note in bootstrapPopout: StrictMode removed to stop dev double-fire
   // of network-bearing effects (SSH/SNMP/WebSockets).
   createRoot(document.getElementById('root')!).render(
+    <>
+    <RevealMainWindow />
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <TokenUsageProvider>
@@ -233,6 +252,7 @@ async function bootstrap() {
         </TokenUsageProvider>
       </QueryClientProvider>
     </ErrorBoundary>
+    </>
   );
 }
 
@@ -264,7 +284,13 @@ const startFn = shareToken
       ? () => bootstrapPopoutChat()
       : bootstrap;
 
-startFn().catch((error) => {
+async function startMockWorker() {
+  if (import.meta.env.VITE_UI_MOCK !== '1') return;
+  const { startMockBackend } = await import('./mocks/browser');
+  await startMockBackend();
+}
+
+startMockWorker().then(startFn).catch((error) => {
   console.error('[main] Failed to initialize app:', error);
   // Build the failure screen with safe DOM APIs instead of innerHTML —
   // error.message can be anything (Tauri, the agent, third-party libs) and
@@ -285,4 +311,5 @@ startFn().catch((error) => {
   hint.textContent = 'Please restart the application.';
   container.append(title, errorLine, hint);
   root.appendChild(container);
+  if (isTauri()) void revealMainWindow();
 });

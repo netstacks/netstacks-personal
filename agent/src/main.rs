@@ -476,11 +476,6 @@ async fn async_main() {
         .expect("Failed to initialize database");
     tracing::info!("Database initialized");
 
-    // Seed template scripts
-    if let Err(e) = scripts::seed_templates(&pool).await {
-        tracing::warn!("Failed to seed template scripts: {}", e);
-    }
-
     // Note: uv is downloaded on-demand when scripts are first run (no startup cost)
 
     // Create the data provider
@@ -514,6 +509,9 @@ async fn async_main() {
     }
     let task_registry = Arc::new(tasks::TaskRegistry::new(3)); // Max 3 concurrent tasks
     let progress_broadcaster = tasks::ProgressBroadcaster::new(100); // Buffer 100 events
+    // AUDIT FIX (EXEC-002): config mode starts disabled. One handle, shared by
+    // the API (AppState) and background tasks so both see the same live state.
+    let config_mode: ai::config_mode::ConfigModeHandle = Arc::new(tokio::sync::RwLock::new(None));
     let task_executor = Arc::new(tasks::AgentTaskExecutor::new(
         task_store.clone(),
         task_registry.clone(),
@@ -522,6 +520,7 @@ async fn async_main() {
         provider.clone(),
         mcp_client_manager.clone(),
         sanitizer.clone(),
+        config_mode.clone(),
     ));
 
     // Initialize cert manager for SSH certificate auth
@@ -574,8 +573,7 @@ async fn async_main() {
         cert_manager: Some(cert_manager),
         pool: pool.clone(),
         tunnel_manager,
-        // AUDIT FIX (EXEC-002): start with config mode disabled.
-        config_mode: Arc::new(tokio::sync::RwLock::new(None)),
+        config_mode,
         // AUDIT FIX (REMOTE-001): per-process host-key approval registry.
         host_key_approvals: ssh::approvals::HostKeyApprovalService::new(),
         // Multi-step API resource auth cache (resource_id → extracted vars +

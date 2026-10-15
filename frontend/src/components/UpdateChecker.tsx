@@ -163,14 +163,14 @@ export default function UpdateChecker() {
         <div className="update-actions">
           <button
             onClick={installUpdate}
-            className="update-button primary"
+            className="ns-btn ns-btn--primary"
             disabled={downloading}
           >
             Install Now
           </button>
           <button
             onClick={dismissUpdate}
-            className="update-button secondary"
+            className="ns-btn"
           >
             Later
           </button>

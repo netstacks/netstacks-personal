@@ -13,8 +13,16 @@ afterEach(() => {
 describe('AskAiHelp', () => {
   it('renders nothing when contextual help is disabled', () => {
     setGlobalSettings({ ...base, 'ai.contextualHelp.enabled': false })
-    const { container } = render(<AskAiHelp prompt="explain X" />)
+    const { container } = render(<AskAiHelp topic="matchers" prompt="explain X" />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('names its topic for assistive tech and keeps the visible "Ask AI" label', () => {
+    setGlobalSettings({ ...base, 'ai.contextualHelp.enabled': true })
+    render(<AskAiHelp topic="token matchers" prompt="explain" />)
+    const button = screen.getByRole('button', { name: 'Ask AI about token matchers' })
+    expect(button).toHaveTextContent('Ask AI')
+    expect(button).toHaveClass('ns-btn', 'ns-btn--ghost', 'ns-btn--small')
   })
 
   it('dispatches ASK_AI_HELP_EVENT with the prompt on click', () => {
@@ -23,7 +31,7 @@ describe('AskAiHelp', () => {
     const handler = (e: Event) => { received = (e as CustomEvent<AskAiHelpDetail>).detail }
     window.addEventListener(ASK_AI_HELP_EVENT, handler as EventListener)
 
-    render(<AskAiHelp prompt="explain token matchers" label="Ask AI" />)
+    render(<AskAiHelp topic="token matchers" prompt="explain token matchers" />)
     fireEvent.click(screen.getByRole('button', { name: /Ask AI/i }))
 
     window.removeEventListener(ASK_AI_HELP_EVENT, handler as EventListener)

@@ -1039,7 +1039,7 @@ pub(crate) async fn prepare_agent_chat(
     // We log when the request asks for config mode but the server-side flag
     // is off so a confused user can be told why their commands aren't going
     // through.
-    let allow_config_changes = crate::api::is_config_mode_active(state).await;
+    let allow_config_changes = crate::ai::config_mode::is_active(&state.config_mode).await;
     if req.allow_config_changes && !allow_config_changes {
         tracing::warn!(
             target: "audit",
@@ -1160,12 +1160,11 @@ pub(crate) async fn prepare_agent_chat(
         system_prompt.push_str(r#"
 
 CONFIGURATION MODE OVERRIDE:
-The user has enabled AI Configuration Changes. The previous read-only safety rules are OVERRIDDEN.
+The user has enabled AI Config Mode. The previous read-only safety rules are OVERRIDDEN.
 - You ARE allowed to make configuration changes on devices when the user asks you to.
-- You can run configure, set, commit, write, delete, and other config commands via run_command and ai_ssh_execute.
-- ALWAYS confirm with the user before making changes — describe what you will do and wait for approval.
-- After making changes, verify the configuration was applied correctly with show commands.
-- The run_command and ai_ssh_execute tools will accept configuration commands in this mode."#);
+- run_command, run_console_command and ai_ssh_execute accept configuration commands (configure, set, commit, write, delete, ...) while config mode is on.
+- Each call still goes through the user's permission mode from Settings → AI: Ask and Auto prompt the user to approve a change, Go Nuts runs it without asking. So describe the change before you make it.
+- After making changes, verify the configuration was applied correctly with show commands."#);
     }
 
     Ok(AgentChatContext {

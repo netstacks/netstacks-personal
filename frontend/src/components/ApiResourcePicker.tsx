@@ -3,6 +3,7 @@ import { listApiResources } from '../api/quickActions'
 import type { ApiResource } from '../types/quickAction'
 import ApiResourceDialog from './ApiResourceDialog'
 import './ApiResourcePicker.css'
+import Tooltip from './Tooltip'
 
 export interface ApiResourcePickerProps {
   value: string | null
@@ -57,7 +58,8 @@ export default function ApiResourcePicker({ value, onChange, label = 'API Resour
       <div className="form-group">
         <label>{label} {required && <span className="required">*</span>}</label>
         <div className="picker-control">
-          <select
+          <select aria-label={label}
+            className="ns-select"
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
             required={required}
@@ -72,14 +74,13 @@ export default function ApiResourcePicker({ value, onChange, label = 'API Resour
               </option>
             ))}
           </select>
-          <button
+          <Tooltip label="Create new API resource"><button
             type="button"
-            className="btn-secondary btn-small"
+            className="ns-btn ns-btn--small"
             onClick={() => setDialogOpen(true)}
-            title="Create new API resource"
           >
             + Create new
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 

@@ -6,9 +6,9 @@
   right: 0;
   width: 360px;
   max-width: calc(100vw - 40px);
-  background: var(--vscode-editor-background, #1e1e1e);
-  border: 1px solid var(--vscode-widget-border, #454545);
-  border-radius: 6px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: var(--radius-control);
   margin-bottom: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: 100;
@@ -20,35 +20,20 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: var(--vscode-sideBarSectionHeader-background, #252526);
-  border-bottom: 1px solid var(--vscode-widget-border, #454545);
+  background: var(--vscode-sideBarSectionHeader-background);
+  border-bottom: 1px solid var(--vscode-widget-border);
 }
 
 .next-step-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--vscode-foreground, #cccccc);
-}
-
-.next-step-dismiss {
-  background: none;
-  border: none;
-  color: var(--vscode-foreground, #cccccc);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0 4px;
-  opacity: 0.7;
-  line-height: 1;
-}
-
-.next-step-dismiss:hover {
-  opacity: 1;
+  color: var(--vscode-foreground);
 }
 
 .next-step-loading {
   padding: 16px;
   text-align: center;
-  color: var(--vscode-descriptionForeground, #9d9d9d);
+  color: var(--vscode-descriptionForeground);
   font-size: 12px;
 }
 
@@ -66,6 +51,7 @@
 .next-step-list {
   max-height: 200px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .next-step-item {
@@ -76,8 +62,7 @@
   padding: 10px 12px;
   background: none;
   border: none;
-  border-bottom: 1px solid var(--vscode-widget-border, #454545);
-  cursor: pointer;
+  border-bottom: 1px solid var(--vscode-widget-border);
   text-align: left;
   transition: background-color 0.15s;
 }
@@ -87,7 +72,7 @@
 }
 
 .next-step-item:hover {
-  background: var(--vscode-list-hoverBackground, #2a2d2e);
+  background: var(--vscode-list-hoverBackground);
 }
 
 .next-step-icon {
@@ -104,9 +89,9 @@
 
 .next-step-command {
   display: block;
-  font-family: var(--vscode-editor-font-family, monospace);
+  font-family: var(--font-family-mono);
   font-size: 12px;
-  color: var(--vscode-textLink-foreground, #3794ff);
+  color: var(--vscode-textLink-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -115,7 +100,7 @@
 .next-step-description {
   display: block;
   font-size: 11px;
-  color: var(--vscode-descriptionForeground, #9d9d9d);
+  color: var(--vscode-descriptionForeground);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;

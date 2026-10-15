@@ -11,6 +11,18 @@
   min-height: 0;
 }
 
+/* Native window material (data-material set in main.tsx only for the Tauri
+ * main window that really has one: macOS sidebar vibrancy, Windows 11 Mica).
+ * The chrome turns transparent so the material shows; content stays opaque
+ * (including the overlay sidebar, which floats over content). */
+:root[data-material] body,
+:root[data-material] .app,
+:root[data-material] .topbar,
+:root[data-material] .activity-bar,
+:root[data-material] .sidebar:not(.overlay) {
+  background: transparent;
+}
+
 /* Main content area (below header if present) */
 .app-body {
   display: flex;
@@ -38,7 +50,6 @@
 .hot-edge-right {
   right: 0;
 }
-
 
 /* Activity Bar - Left icon strip */
 .activity-bar {
@@ -70,7 +81,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   color: var(--color-text-secondary);
   border-left: 2px solid transparent;
   transition: color var(--transition-fast);
@@ -102,7 +112,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width var(--transition-normal);
 }
 
 .sidebar.collapsed {
@@ -118,6 +128,28 @@
   bottom: 0;
   z-index: 50;
   box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+/* macOS navigator: panel header controls (e.g. enterprise devices) get a row only when present. */
+.sidebar-extras-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm) var(--spacing-xs);
+}
+
+.sidebar-extras-row:empty {
+  display: none;
+}
+
+/* macOS navigator: content starts right under the navigator row. */
+.sidebar.with-source-list .sidebar-content {
+  padding-top: 0;
+}
+
+/* macOS source list: no activity bar to clear. */
+.sidebar.overlay.with-source-list {
+  left: 0;
 }
 
 .sidebar-resize-handle {
@@ -179,7 +211,6 @@
   border: none;
   border-radius: 3px;
   color: var(--color-text-secondary);
-  cursor: pointer;
   opacity: 0.6;
   transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
 }
@@ -202,11 +233,42 @@
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   overflow-x: hidden;
   padding: var(--spacing-sm);
   /* Firefox: allow flex item to shrink below content size */
   min-width: 0;
   min-height: 0;
+}
+
+/* Each panel is an inset card on the sidebar; its controls sit inside it,
+ * not on its edges. */
+.sidebar-content > * {
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-panel);
+}
+
+/* Empty state inside a sidebar section: a line, an optional hint, an optional small action. */
+.sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.sidebar-empty p {
+  margin: 0;
+}
+
+.sidebar-empty .sidebar-empty-hint {
+  color: var(--color-text-tertiary);
+}
+
+.sidebar-empty .ns-btn {
+  margin-top: var(--spacing-xs);
 }
 
 /* Main Area */
@@ -227,8 +289,10 @@
   background: var(--glass-bg);
   border-bottom: 1px solid var(--glass-border);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
-  min-height: 35px;
+  flex-shrink: 0;
+  height: var(--size-tab-bar);
   overflow-x: auto;
+  overscroll-behavior: contain;
   scrollbar-width: none; /* Firefox */
 }
 
@@ -247,7 +311,6 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-small);
   font-family: var(--font-family);
-  cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast),
               transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
   white-space: nowrap;
@@ -290,7 +353,6 @@
   border-radius: 3px;
   color: var(--color-text-secondary);
   font-size: 14px;
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--transition-fast), background var(--transition-fast);
   flex-shrink: 0;
@@ -315,7 +377,6 @@
   border: none;
   color: var(--color-text-secondary);
   font-size: 18px;
-  cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
@@ -415,7 +476,6 @@
   background: none;
   border: none;
   color: var(--color-text-secondary);
-  cursor: pointer;
   padding: 2px 6px;
   font-size: 14px;
   line-height: 1;
@@ -431,7 +491,6 @@
   background: none;
   border: none;
   color: var(--color-text-secondary);
-  cursor: pointer;
   padding: 2px 6px;
   font-size: 10px;
   line-height: 1;
@@ -459,11 +518,11 @@
 }
 
 .split-pane-tab.drop-target {
-  box-shadow: inset 0 0 0 3px var(--color-accent), 0 0 20px rgba(var(--color-accent-rgb), 0.3);
+  box-shadow: inset 0 0 0 3px var(--color-accent), 0 0 20px var(--color-accent-tint-30);
 }
 
 .split-pane-tab.drop-target .split-pane-header {
-  background: rgba(var(--color-accent-rgb), 0.2);
+  background: var(--color-accent-tint-20);
 }
 
 /* Global cursor during split pane drag */
@@ -510,11 +569,11 @@ body[data-split-dragging="true"] * {
   position: absolute;
   background: linear-gradient(
     to var(--drop-direction, right),
-    rgba(var(--color-accent-rgb), 0.25) 0%,
-    rgba(var(--color-accent-rgb), 0.08) 100%
+    var(--color-accent-tint-25) 0%,
+    var(--color-accent-tint-8) 100%
   );
   border: 2px solid var(--color-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   pointer-events: none;
   z-index: 100;
   animation: dropZonePulse 1s ease-in-out infinite;
@@ -609,43 +668,6 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   font-size: var(--font-size-small);
 }
 
-/* Sessions List */
-.sessions-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.new-session-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-small);
-  font-family: var(--font-family);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.new-session-btn:hover {
-  background: var(--color-bg-hover);
-}
-
-.new-session-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.sessions-hint {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  font-style: italic;
-}
-
 /* Status Bar — the .status-bar surface itself is owned entirely by
    components/StatusBar.css (tokenized via --status-bar-*); only the
    section layout helpers below live here. */
@@ -658,68 +680,6 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
 .status-bar-right {
   display: flex;
   align-items: center;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 0 var(--spacing-sm);
-  height: var(--size-statusbar);
-  cursor: default;
-  white-space: nowrap;
-  transition: background var(--transition-fast);
-}
-
-.status-item svg {
-  flex-shrink: 0;
-}
-
-.status-item:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.status-item-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 0 var(--spacing-sm);
-  height: var(--size-statusbar);
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.status-item-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.status-item-btn:active {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.status-item kbd {
-  font-family: var(--font-family-mono);
-  font-size: 10px;
-  background: rgba(255, 255, 255, 0.15);
-  padding: 1px var(--spacing-xs);
-  border-radius: 3px;
-  margin-left: var(--spacing-xs);
-}
-
-.status-item-ai {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.status-item-ai:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.status-item-terminals {
-  font-weight: 500;
 }
 
 /* Tab Status Indicators */
@@ -891,26 +851,25 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
 
 /* Shared session tab styling */
 .tab-sharing {
-  border-left: 2px solid #3b82f6;
+  border-left: 2px solid var(--color-accent);
 }
 
 .tab-share-indicator {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #3b82f6;
+  color: var(--color-text-accent);
   flex-shrink: 0;
   margin-right: 2px;
 }
 
 .tab-share-indicator-active {
-  cursor: pointer;
   border-radius: 3px;
   padding: 1px 2px;
 }
 
 .tab-share-indicator-active:hover {
-  background: rgba(59, 130, 246, 0.2);
+  background: var(--color-accent-tint-20);
 }
 
 .tab-share-viewers {
@@ -920,9 +879,9 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
-  background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
+  border-radius: var(--radius-panel);
+  background: var(--color-accent-tint-20);
+  color: var(--color-text-accent);
   font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
@@ -996,93 +955,12 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   font-size: var(--font-size-base);
 }
 
-.document-tab-placeholder-hint {
-  font-size: var(--font-size-small);
-  color: var(--color-text-tertiary);
-  opacity: 0.8;
-}
-
-/* Topology View */
-.topology-view {
-  position: relative;
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  background-color: var(--color-bg-primary);
-}
-
-/* 2D/3D View Toggle */
-.topology-view-toggle {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 0;
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  overflow: hidden;
-  z-index: 100;
-}
-
-.topology-view-toggle-btn {
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.topology-view-toggle-btn:hover {
-  color: var(--color-text-primary);
-  background-color: rgba(255, 255, 255, 0.05);
-}
-
-.topology-view-toggle-btn.active {
-  color: var(--color-text-primary);
-  background-color: var(--color-accent);
-}
-
-.topology-view-toggle-btn:first-child {
-  border-right: 1px solid var(--color-border);
-}
-
 /* Topology Tab Editor */
 .topology-tab-editor {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--color-bg-primary);
-}
-
-.topology-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-}
-
-.toolbar-spacer {
-  flex: 1;
-}
-
-.toolbar-button {
-  padding: 4px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  cursor: pointer;
-}
-
-.toolbar-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .topology-canvas-container {
@@ -1116,12 +994,7 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
 
 /* Tab multi-selection (Phase 25) */
 .tab.tab-selected {
-  box-shadow: inset 0 0 0 2px var(--accent-color, #007acc);
-}
-
-.tab.tab-selected.tab-active {
-  /* Active + selected: accent ring outside the active indicator */
-  box-shadow: inset 0 0 0 2px var(--accent-color, #007acc);
+  box-shadow: inset 0 0 0 2px var(--accent-color);
 }
 
 /* Tab dragging state (for drag-to-split) */
@@ -1129,57 +1002,16 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   opacity: 1 !important;
   cursor: grabbing;
   background: var(--color-accent) !important;
-  color: #fff !important;
+  color: var(--color-text-on-accent) !important;
   transform: scale(1.02);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 100;
   position: relative;
 }
 
-/* Selection count badge in tab bar */
-.tab-selection-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  margin-left: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-inverse, #fff);
-  background: var(--accent-color, #007acc);
-  border-radius: 10px;
-}
-
-.tab-selection-badge:empty {
-  display: none;
-}
-
 /* Save Layout Dialog (Phase 25) */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal);
-  animation: ns-overlay-in 0.16s ease both;
-}
-/* The dialog inside any .modal-overlay pops in (macOS-style). */
-.modal-overlay > * {
-  animation: ns-pop-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
 
 /* Reusable open animations (also used by bubbles/popovers app-wide). */
-@keyframes ns-overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
 @keyframes ns-pop-in {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1188,17 +1020,11 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   from { opacity: 0; transform: translateY(-6px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .modal-overlay,
-  .modal-overlay > * {
-    animation: none;
-  }
-}
 
 .save-layout-dialog {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   padding: 20px;
   min-width: 320px;
   max-width: 400px;
@@ -1220,19 +1046,7 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
 
 .save-layout-dialog-input {
   width: 100%;
-  padding: 8px 12px;
-  font-size: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  outline: none;
   box-sizing: border-box;
-}
-
-.save-layout-dialog-input:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
 }
 
 .save-layout-dialog-actions {
@@ -1240,37 +1054,4 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
-}
-
-.save-layout-dialog-btn {
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 4px;
-  cursor: pointer;
-  border: none;
-  transition: background-color var(--transition-fast);
-}
-
-.save-layout-dialog-btn-cancel {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-}
-
-.save-layout-dialog-btn-cancel:hover {
-  background: var(--color-bg-hover);
-}
-
-.save-layout-dialog-btn-save {
-  background: var(--color-accent);
-  color: white;
-}
-
-.save-layout-dialog-btn-save:hover:not(:disabled) {
-  background: var(--color-accent-hover, #0062a3);
-}
-
-.save-layout-dialog-btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }

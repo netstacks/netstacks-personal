@@ -36,6 +36,9 @@ import { useDirtyGuard } from '../hooks/useDirtyGuard';
 import ApiResourcePicker from './ApiResourcePicker';
 import './NetBoxSourceDialog.css';
 
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface NetBoxSourceDialogProps {
   isOpen: boolean;
   source: NetBoxSource | null; // null = create mode
@@ -152,9 +155,9 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder }: Multi
       >
         <span className="multi-select-text">{displayText}</span>
         {selected.length > 0 && (
-          <button className="multi-select-clear" onClick={clearAll} title="Clear">
+          <Tooltip label="Clear"><button aria-label="Clear" className="multi-select-clear" onClick={clearAll}>
             ×
-          </button>
+          </button></Tooltip>
         )}
         <svg className="multi-select-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="6 9 12 15 18 9" />
@@ -735,593 +738,583 @@ export default function NetBoxSourceDialog({
   const dialogTitle = isEditing ? `Edit NetBox Source: ${source?.name}` : 'Add NetBox Source';
 
   return (
-    <div className="netbox-dialog-overlay">
-      <div className="netbox-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="netbox-dialog-header">
-          <h2>{dialogTitle}</h2>
-          <AskAiHelp prompt="Walk me through setting up a NetBox source in NetStacks: creating the API Resource (base URL = NetBox URL, auth = bearer token = my NetBox API token, test path /api/status/), then the source's profile mappings, CLI-flavor mappings, and device filters." />
-          <button className="netbox-dialog-close" onClick={handleCloseGuarded} title="Close">
-            {Icons.close}
-          </button>
+    <ModalFrame id="netbox-source" className="netbox-dialog" label="NetBox Source">
+      <div className="netbox-dialog-header">
+        <h2>{dialogTitle}</h2>
+        <AskAiHelp
+          topic="NetBox sources"
+          prompt={`Help me finish this NetBox source${name ? ` "${name}"` : ''}. ${apiResourceId ? 'An API Resource is selected.' : 'No API Resource is selected yet — check list_api_resources, or open a pre-filled one with propose_api_resource (base URL = my NetBox URL, bearer token, test path /api/status/).'} `
+            + 'Then explain the default credential profile, profile mappings by site/role, CLI-flavor mappings by platform, and device filters, and what the import will create.'}
+        />
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn netbox-dialog-close" onClick={handleCloseGuarded} aria-label="Close">
+          {Icons.close}
+        </button></Tooltip>
+      </div>
+
+      <div className="netbox-dialog-content">
+        {error && <div className="netbox-dialog-error">{error}</div>}
+
+        {/* Connection Settings */}
+        <div className="form-section">
+          <h3>Connection</h3>
+
+          <div className="form-group">
+            <label htmlFor="source-name">Name</label>
+            <AITabInput
+              ref={nameInputRef}
+              id="source-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onAIValue={(v) => setName(v)}
+              aiField="netbox_source_name"
+              aiPlaceholder="Name for this NetBox source"
+              aiContext={{ apiResource: selectedResource?.name }}
+              placeholder="e.g., Production NetBox"
+            />
+          </div>
+
+          <ApiResourcePicker
+            value={apiResourceId}
+            onChange={setApiResourceId}
+            label="NetBox API Resource"
+            required
+          />
+
+          <div className="test-connection-row">
+            <button
+              className={`ns-btn btn-test-connection ${testSuccess === true ? 'success' : testSuccess === false ? 'error' : ''}`}
+              onClick={handleTestConnection}
+              disabled={testing}
+            >
+              {testing ? 'Testing...' : testSuccess === true ? (
+                <>
+                  {Icons.check}
+                  <span>Connected</span>
+                </>
+              ) : (
+                'Test Connection'
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="netbox-dialog-content">
-          {error && <div className="netbox-dialog-error">{error}</div>}
-
-          {/* Connection Settings */}
-          <div className="form-section">
-            <h3>Connection</h3>
-
-            <div className="form-group">
-              <label htmlFor="source-name">Name</label>
-              <AITabInput
-                ref={nameInputRef}
-                id="source-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onAIValue={(v) => setName(v)}
-                aiField="netbox_source_name"
-                aiPlaceholder="Name for this NetBox source"
-                aiContext={{ apiResource: selectedResource?.name }}
-                placeholder="e.g., Production NetBox"
-              />
-            </div>
-
-            <ApiResourcePicker
-              value={apiResourceId}
-              onChange={setApiResourceId}
-              label="NetBox API Resource"
-              required
-            />
-
-            <div className="test-connection-row">
-              <button
-                className={`btn-test-connection ${testSuccess === true ? 'success' : testSuccess === false ? 'error' : ''}`}
-                onClick={handleTestConnection}
-                disabled={testing}
-              >
-                {testing ? 'Testing...' : testSuccess === true ? (
-                  <>
-                    {Icons.check}
-                    <span>Connected</span>
-                  </>
-                ) : (
-                  'Test Connection'
-                )}
-              </button>
-            </div>
+        {/* Profile Settings */}
+        <div className="form-section">
+          <h3>Default Profile</h3>
+          <div className="form-hint">
+            Imported devices will use this profile unless a site or role mapping applies.
           </div>
 
-          {/* Profile Settings */}
-          <div className="form-section">
-            <h3>Default Profile</h3>
-            <div className="form-hint-block">
-              Imported devices will use this profile unless a site or role mapping applies.
-            </div>
+          <div className="form-group">
+            <label htmlFor="default-profile">Default Profile</label>
+            <select className="ns-select"
+              id="default-profile"
+              value={defaultProfileId}
+              onChange={(e) => setDefaultProfileId(e.target.value)}
+            >
+              <option value="">No default profile</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-            <div className="form-group">
-              <label htmlFor="default-profile">Default Profile</label>
-              <select
-                id="default-profile"
-                value={defaultProfileId}
-                onChange={(e) => setDefaultProfileId(e.target.value)}
-              >
-                <option value="">No default profile</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+        {/* Profile Mappings */}
+        <div className="form-section">
+          <h3>Profile Mappings</h3>
+          <div className="form-hint">
+            Map sites or device roles to specific credential profiles. More specific mappings take priority.
           </div>
 
-          {/* Profile Mappings */}
-          <div className="form-section">
-            <h3>Profile Mappings</h3>
-            <div className="form-hint-block">
-              Map sites or device roles to specific credential profiles. More specific mappings take priority.
+          {/* Site Mappings */}
+          <div className="mapping-group">
+            <div className="mapping-header">
+              <span>By Site</span>
+              <Tooltip label="Add site mapping"><button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={handleAddSiteMapping} aria-label="Add site mapping">
+                {Icons.plus}
+              </button></Tooltip>
             </div>
 
-            {/* Site Mappings */}
-            <div className="mapping-group">
-              <div className="mapping-header">
-                <span>By Site</span>
-                <button className="btn-icon-small" onClick={handleAddSiteMapping} title="Add site mapping">
-                  {Icons.plus}
-                </button>
-              </div>
-
-              {siteMappings.length === 0 ? (
-                <div className="mapping-empty">No site mappings configured.</div>
-              ) : (
-                <div className="mapping-list">
-                  {siteMappings.map((row, index) => (
-                    <div key={row.rid} className="mapping-row">
-                      {sitesLoaded && sites.length > 0 ? (
-                        <select
-                          value={row.key}
-                          onChange={(e) => handleUpdateSiteMapping(index, 'key', e.target.value)}
-                          className="mapping-key-select"
-                        >
-                          <option value="">Select site...</option>
-                          {sites.map((s) => (
-                            <option key={s.slug} value={s.slug}>
-                              {s.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) => handleUpdateSiteMapping(index, 'key', e.target.value)}
-                          placeholder="Site slug"
-                          className="mapping-key-input"
-                        />
-                      )}
-                      <span className="mapping-arrow">→</span>
-                      <select
-                        value={row.profileId}
-                        onChange={(e) => handleUpdateSiteMapping(index, 'profileId', e.target.value)}
-                        className="mapping-profile-select"
-                      >
-                        <option value="">Select profile...</option>
-                        {profiles.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="mapping-delete"
-                        onClick={() => handleRemoveSiteMapping(index)}
-                        title="Remove"
-                      >
-                        {Icons.trash}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Role Mappings */}
-            <div className="mapping-group">
-              <div className="mapping-header">
-                <span>By Role</span>
-                <button className="btn-icon-small" onClick={handleAddRoleMapping} title="Add role mapping">
-                  {Icons.plus}
-                </button>
-              </div>
-
-              {roleMappings.length === 0 ? (
-                <div className="mapping-empty">No role mappings configured.</div>
-              ) : (
-                <div className="mapping-list">
-                  {roleMappings.map((row, index) => (
-                    <div key={row.rid} className="mapping-row">
-                      {sitesLoaded && roles.length > 0 ? (
-                        <select
-                          value={row.key}
-                          onChange={(e) => handleUpdateRoleMapping(index, 'key', e.target.value)}
-                          className="mapping-key-select"
-                        >
-                          <option value="">Select role...</option>
-                          {roles.map((r) => (
-                            <option key={r.slug} value={r.slug}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) => handleUpdateRoleMapping(index, 'key', e.target.value)}
-                          placeholder="Role slug"
-                          className="mapping-key-input"
-                        />
-                      )}
-                      <span className="mapping-arrow">→</span>
-                      <select
-                        value={row.profileId}
-                        onChange={(e) => handleUpdateRoleMapping(index, 'profileId', e.target.value)}
-                        className="mapping-profile-select"
-                      >
-                        <option value="">Select profile...</option>
-                        {profiles.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="mapping-delete"
-                        onClick={() => handleRemoveRoleMapping(index)}
-                        title="Remove"
-                      >
-                        {Icons.trash}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* CLI Flavor Mappings */}
-          <div className="form-section">
-            <h3>CLI Flavor Mappings</h3>
-            <div className="form-hint-block">
-              Map NetBox manufacturer or platform slugs to a CLI flavor. Platform mappings take priority over manufacturer mappings. Devices with no match are imported as <code>auto</code> and detected at connect time.
-            </div>
-
-            {/* By Manufacturer */}
-            <div className="mapping-group">
-              <div className="mapping-header">
-                <span>By Manufacturer</span>
-                <button
-                  className="btn-icon-small"
-                  onClick={handleAddManufacturerFlavorMapping}
-                  title="Add manufacturer mapping"
-                >
-                  {Icons.plus}
-                </button>
-              </div>
-
-              {manufacturerFlavorMappings.length === 0 ? (
-                <div className="mapping-empty">No manufacturer mappings configured.</div>
-              ) : (
-                <div className="mapping-list">
-                  {manufacturerFlavorMappings.map((row, index) => (
-                    <div key={row.rid} className="mapping-row">
-                      {sitesLoaded && manufacturers.length > 0 ? (
-                        <select
-                          value={row.key}
-                          onChange={(e) =>
-                            handleUpdateManufacturerFlavorMapping(index, 'key', e.target.value)
-                          }
-                          className="mapping-key-select"
-                        >
-                          <option value="">Select manufacturer...</option>
-                          {manufacturers.map((m) => (
-                            <option key={m.slug} value={m.slug}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) =>
-                            handleUpdateManufacturerFlavorMapping(index, 'key', e.target.value)
-                          }
-                          placeholder="Manufacturer slug"
-                          className="mapping-key-input"
-                        />
-                      )}
-                      <span className="mapping-arrow">→</span>
-                      <select
-                        value={row.flavor}
-                        onChange={(e) =>
-                          handleUpdateManufacturerFlavorMapping(index, 'flavor', e.target.value)
-                        }
-                        className="mapping-profile-select"
-                      >
-                        {CLI_FLAVOR_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="mapping-delete"
-                        onClick={() => handleRemoveManufacturerFlavorMapping(index)}
-                        title="Remove"
-                      >
-                        {Icons.trash}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* By Platform */}
-            <div className="mapping-group">
-              <div className="mapping-header">
-                <span>By Platform</span>
-                <button
-                  className="btn-icon-small"
-                  onClick={handleAddPlatformFlavorMapping}
-                  title="Add platform mapping"
-                >
-                  {Icons.plus}
-                </button>
-              </div>
-
-              {platformFlavorMappings.length === 0 ? (
-                <div className="mapping-empty">No platform mappings configured.</div>
-              ) : (
-                <div className="mapping-list">
-                  {platformFlavorMappings.map((row, index) => (
-                    <div key={row.rid} className="mapping-row">
-                      {sitesLoaded && platforms.length > 0 ? (
-                        <select
-                          value={row.key}
-                          onChange={(e) =>
-                            handleUpdatePlatformFlavorMapping(index, 'key', e.target.value)
-                          }
-                          className="mapping-key-select"
-                        >
-                          <option value="">Select platform...</option>
-                          {platforms.map((p) => (
-                            <option key={p.slug} value={p.slug}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) =>
-                            handleUpdatePlatformFlavorMapping(index, 'key', e.target.value)
-                          }
-                          placeholder="Platform slug"
-                          className="mapping-key-input"
-                        />
-                      )}
-                      <span className="mapping-arrow">→</span>
-                      <select
-                        value={row.flavor}
-                        onChange={(e) =>
-                          handleUpdatePlatformFlavorMapping(index, 'flavor', e.target.value)
-                        }
-                        className="mapping-profile-select"
-                      >
-                        {CLI_FLAVOR_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="mapping-delete"
-                        onClick={() => handleRemovePlatformFlavorMapping(index)}
-                        title="Remove"
-                      >
-                        {Icons.trash}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Console Access (OOB) */}
-          <div className="form-section">
-            <h3>Console Access</h3>
-            <div className="form-hint-block">
-              When a device&apos;s console port is cabled to a console server in NetBox and the console port
-              carries the <code>device_console</code> custom field (TCP port), the importer sets console
-              access on the session. NetBox has no field for the protocol, so it is chosen here by the
-              console server&apos;s manufacturer.
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="console-profile">Terminal Server Profile</label>
-              <select
-                id="console-profile"
-                value={consoleProfileId}
-                onChange={(e) => setConsoleProfileId(e.target.value)}
-              >
-                <option value="">No terminal-server login (telnet lines without a password)</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <span className="form-hint">Login for the console server itself (Opengear admin, etc.), not the device.</span>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="console-default-protocol">Default Console Protocol</label>
-              <select
-                id="console-default-protocol"
-                value={consoleDefaultProtocol}
-                onChange={(e) => setConsoleDefaultProtocol(e.target.value as Protocol)}
-              >
-                {PROTOCOL_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mapping-group">
-              <div className="mapping-header">
-                <span>By Console Server Manufacturer</span>
-                <button
-                  className="btn-icon-small"
-                  onClick={handleAddConsoleProtocolRow}
-                  title="Add console server manufacturer rule"
-                >
-                  {Icons.plus}
-                </button>
-              </div>
-
-              {consoleProtocolRows.length === 0 ? (
-                <div className="mapping-empty">No manufacturer rules — the default protocol applies to every console server.</div>
-              ) : (
-                <div className="mapping-list">
-                  {consoleProtocolRows.map((row, index) => (
-                    <div key={row.rid} className="mapping-row">
-                      {sitesLoaded && manufacturers.length > 0 ? (
-                        <select
-                          value={row.key}
-                          onChange={(e) => handleUpdateConsoleProtocolRow(index, 'key', e.target.value)}
-                          className="mapping-key-select"
-                        >
-                          <option value="">Select manufacturer...</option>
-                          {!manufacturers.some((m) => m.slug === row.key) && row.key && (
-                            <option value={row.key}>{row.key}</option>
-                          )}
-                          {manufacturers.map((m) => (
-                            <option key={m.slug} value={m.slug}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) => handleUpdateConsoleProtocolRow(index, 'key', e.target.value)}
-                          placeholder="Manufacturer slug (e.g. opengear)"
-                          className="mapping-key-input"
-                        />
-                      )}
-                      <span className="mapping-arrow">→</span>
-                      <select
-                        value={row.protocol}
-                        onChange={(e) => handleUpdateConsoleProtocolRow(index, 'protocol', e.target.value)}
-                        className="mapping-profile-select"
-                      >
-                        {PROTOCOL_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className="mapping-delete"
-                        onClick={() => handleRemoveConsoleProtocolRow(index)}
-                        title="Remove"
-                      >
-                        {Icons.trash}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Device Filters */}
-          <div className="form-section">
-            <h3>Device Filters</h3>
-            <div className="form-hint-block">
-              Filter which devices are imported from NetBox. Filters use AND between categories, OR within each category.
-              {sitesLoaded && deviceCount !== null && totalDeviceCount !== null && (
-                <span className="device-count-badge">
-                  {countLoading ? 'Counting...' : `${deviceCount} of ${totalDeviceCount} devices match`}
-                </span>
-              )}
-            </div>
-
-            {!sitesLoaded ? (
-              <div className="filter-hint">
-                Test connection to load available filter options.
-              </div>
+            {siteMappings.length === 0 ? (
+              <div className="form-hint">No site mappings configured.</div>
             ) : (
-              <div className="filter-grid">
-                {/* Site Filter */}
-                <div className="filter-group">
-                  <label>Sites</label>
-                  <MultiSelectDropdown
-                    options={sites.map(s => ({ value: s.slug, label: s.name }))}
-                    selected={filterSites}
-                    onChange={setFilterSites}
-                    placeholder="All sites"
-                  />
-                </div>
+              <div className="mapping-list">
+                {siteMappings.map((row, index) => (
+                  <div key={row.rid} className="mapping-row">
+                    {sitesLoaded && sites.length > 0 ? (
+                      <select aria-label="NetBox site"
+                        value={row.key}
+                        onChange={(e) => handleUpdateSiteMapping(index, 'key', e.target.value)}
+                        className="ns-select mapping-key-select"
+                      >
+                        <option value="">Select site...</option>
+                        {sites.map((s) => (
+                          <option key={s.slug} value={s.slug}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input data-ai-fill="off"
+                        type="text"
+                        value={row.key}
+                        onChange={(e) => handleUpdateSiteMapping(index, 'key', e.target.value)}
+                        placeholder="Site slug"
+                        className="ns-input mapping-key-input"
+                      />
+                    )}
+                    <span className="mapping-arrow">→</span>
+                    <select aria-label="Credential profile"
+                      value={row.profileId}
+                      onChange={(e) => handleUpdateSiteMapping(index, 'profileId', e.target.value)}
+                      className="ns-select mapping-profile-select"
+                    >
+                      <option value="">Select profile...</option>
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Tooltip label="Remove"><button
+                      className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mapping-delete"
+                      onClick={() => handleRemoveSiteMapping(index)}
+                      aria-label="Remove"
+                    >
+                      {Icons.trash}
+                    </button></Tooltip>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-                {/* Role Filter */}
-                <div className="filter-group">
-                  <label>Roles</label>
-                  <MultiSelectDropdown
-                    options={roles.map(r => ({ value: r.slug, label: r.name }))}
-                    selected={filterRoles}
-                    onChange={setFilterRoles}
-                    placeholder="All roles"
-                  />
-                </div>
+          {/* Role Mappings */}
+          <div className="mapping-group">
+            <div className="mapping-header">
+              <span>By Role</span>
+              <Tooltip label="Add role mapping"><button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={handleAddRoleMapping} aria-label="Add role mapping">
+                {Icons.plus}
+              </button></Tooltip>
+            </div>
 
-                {/* Manufacturer/Vendor Filter */}
-                <div className="filter-group">
-                  <label>Vendors</label>
-                  <MultiSelectDropdown
-                    options={manufacturers.map(m => ({ value: m.slug, label: m.name }))}
-                    selected={filterManufacturers}
-                    onChange={setFilterManufacturers}
-                    placeholder="All vendors"
-                  />
-                </div>
-
-                {/* Platform Filter */}
-                <div className="filter-group">
-                  <label>Platforms</label>
-                  <MultiSelectDropdown
-                    options={platforms.map(p => ({ value: p.slug, label: p.name }))}
-                    selected={filterPlatforms}
-                    onChange={setFilterPlatforms}
-                    placeholder="All platforms"
-                  />
-                </div>
-
-                {/* Status Filter */}
-                <div className="filter-group">
-                  <label>Statuses</label>
-                  <MultiSelectDropdown
-                    options={NETBOX_DEVICE_STATUSES.map(s => ({ value: s.value, label: s.label }))}
-                    selected={filterStatuses}
-                    onChange={setFilterStatuses}
-                    placeholder="All statuses"
-                  />
-                </div>
-
-                {/* Tag Filter */}
-                <div className="filter-group">
-                  <label>Tags</label>
-                  <MultiSelectDropdown
-                    options={tags.map(t => ({ value: t.slug, label: t.name }))}
-                    selected={filterTags}
-                    onChange={setFilterTags}
-                    placeholder="All tags"
-                  />
-                </div>
+            {roleMappings.length === 0 ? (
+              <div className="form-hint">No role mappings configured.</div>
+            ) : (
+              <div className="mapping-list">
+                {roleMappings.map((row, index) => (
+                  <div key={row.rid} className="mapping-row">
+                    {sitesLoaded && roles.length > 0 ? (
+                      <select aria-label="NetBox role"
+                        value={row.key}
+                        onChange={(e) => handleUpdateRoleMapping(index, 'key', e.target.value)}
+                        className="ns-select mapping-key-select"
+                      >
+                        <option value="">Select role...</option>
+                        {roles.map((r) => (
+                          <option key={r.slug} value={r.slug}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input data-ai-fill="off"
+                        type="text"
+                        value={row.key}
+                        onChange={(e) => handleUpdateRoleMapping(index, 'key', e.target.value)}
+                        placeholder="Role slug"
+                        className="ns-input mapping-key-input"
+                      />
+                    )}
+                    <span className="mapping-arrow">→</span>
+                    <select aria-label="Credential profile"
+                      value={row.profileId}
+                      onChange={(e) => handleUpdateRoleMapping(index, 'profileId', e.target.value)}
+                      className="ns-select mapping-profile-select"
+                    >
+                      <option value="">Select profile...</option>
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Tooltip label="Remove"><button
+                      className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mapping-delete"
+                      onClick={() => handleRemoveRoleMapping(index)}
+                      aria-label="Remove"
+                    >
+                      {Icons.trash}
+                    </button></Tooltip>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
 
-        <div className="netbox-dialog-actions">
-          <button className="btn-secondary" onClick={handleCloseGuarded}>
-            Cancel
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleSave}
-            disabled={
-              saving ||
-              !name.trim() ||
-              !apiResourceId
-            }
-            title={
-              !name.trim() ? 'Name is required'
-              : !apiResourceId ? 'API Resource is required'
-              : undefined
-            }
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+        {/* CLI Flavor Mappings */}
+        <div className="form-section">
+          <h3>CLI Flavor Mappings</h3>
+          <div className="form-hint">
+            Map NetBox manufacturer or platform slugs to a CLI flavor. Platform mappings take priority over manufacturer mappings. Devices with no match are imported as <code>auto</code> and detected at connect time.
+          </div>
+
+          {/* By Manufacturer */}
+          <div className="mapping-group">
+            <div className="mapping-header">
+              <span>By Manufacturer</span>
+              <Tooltip label="Add manufacturer mapping"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
+                onClick={handleAddManufacturerFlavorMapping}
+                aria-label="Add manufacturer mapping"
+              >
+                {Icons.plus}
+              </button></Tooltip>
+            </div>
+
+            {manufacturerFlavorMappings.length === 0 ? (
+              <div className="form-hint">No manufacturer mappings configured.</div>
+            ) : (
+              <div className="mapping-list">
+                {manufacturerFlavorMappings.map((row, index) => (
+                  <div key={row.rid} className="mapping-row">
+                    {sitesLoaded && manufacturers.length > 0 ? (
+                      <select aria-label="Manufacturer"
+                        value={row.key}
+                        onChange={(e) =>
+                          handleUpdateManufacturerFlavorMapping(index, 'key', e.target.value)
+                        }
+                        className="ns-select mapping-key-select"
+                      >
+                        <option value="">Select manufacturer...</option>
+                        {manufacturers.map((m) => (
+                          <option key={m.slug} value={m.slug}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input data-ai-fill="off"
+                        type="text"
+                        value={row.key}
+                        onChange={(e) =>
+                          handleUpdateManufacturerFlavorMapping(index, 'key', e.target.value)
+                        }
+                        placeholder="Manufacturer slug"
+                        className="ns-input mapping-key-input"
+                      />
+                    )}
+                    <span className="mapping-arrow">→</span>
+                    <select aria-label="CLI flavor"
+                      value={row.flavor}
+                      onChange={(e) =>
+                        handleUpdateManufacturerFlavorMapping(index, 'flavor', e.target.value)
+                      }
+                      className="ns-select mapping-profile-select"
+                    >
+                      {CLI_FLAVOR_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Tooltip label="Remove"><button
+                      className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mapping-delete"
+                      onClick={() => handleRemoveManufacturerFlavorMapping(index)}
+                      aria-label="Remove"
+                    >
+                      {Icons.trash}
+                    </button></Tooltip>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* By Platform */}
+          <div className="mapping-group">
+            <div className="mapping-header">
+              <span>By Platform</span>
+              <Tooltip label="Add platform mapping"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
+                onClick={handleAddPlatformFlavorMapping}
+                aria-label="Add platform mapping"
+              >
+                {Icons.plus}
+              </button></Tooltip>
+            </div>
+
+            {platformFlavorMappings.length === 0 ? (
+              <div className="form-hint">No platform mappings configured.</div>
+            ) : (
+              <div className="mapping-list">
+                {platformFlavorMappings.map((row, index) => (
+                  <div key={row.rid} className="mapping-row">
+                    {sitesLoaded && platforms.length > 0 ? (
+                      <select aria-label="Platform"
+                        value={row.key}
+                        onChange={(e) =>
+                          handleUpdatePlatformFlavorMapping(index, 'key', e.target.value)
+                        }
+                        className="ns-select mapping-key-select"
+                      >
+                        <option value="">Select platform...</option>
+                        {platforms.map((p) => (
+                          <option key={p.slug} value={p.slug}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input data-ai-fill="off"
+                        type="text"
+                        value={row.key}
+                        onChange={(e) =>
+                          handleUpdatePlatformFlavorMapping(index, 'key', e.target.value)
+                        }
+                        placeholder="Platform slug"
+                        className="ns-input mapping-key-input"
+                      />
+                    )}
+                    <span className="mapping-arrow">→</span>
+                    <select aria-label="CLI flavor"
+                      value={row.flavor}
+                      onChange={(e) =>
+                        handleUpdatePlatformFlavorMapping(index, 'flavor', e.target.value)
+                      }
+                      className="ns-select mapping-profile-select"
+                    >
+                      {CLI_FLAVOR_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Tooltip label="Remove"><button
+                      className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mapping-delete"
+                      onClick={() => handleRemovePlatformFlavorMapping(index)}
+                      aria-label="Remove"
+                    >
+                      {Icons.trash}
+                    </button></Tooltip>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Console Access (OOB) */}
+        <div className="form-section">
+          <h3>Console Access</h3>
+          <div className="form-hint">
+            When a device&apos;s console port is cabled to a console server in NetBox and the console port
+            carries the <code>device_console</code> custom field (TCP port), the importer sets console
+            access on the session. NetBox has no field for the protocol, so it is chosen here by the
+            console server&apos;s manufacturer.
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="console-profile">Terminal Server Profile</label>
+            <select className="ns-select"
+              id="console-profile"
+              value={consoleProfileId}
+              onChange={(e) => setConsoleProfileId(e.target.value)}
+            >
+              <option value="">No terminal-server login (telnet lines without a password)</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="form-hint">Login for the console server itself (Opengear admin, etc.), not the device.</span>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="console-default-protocol">Default Console Protocol</label>
+            <select className="ns-select"
+              id="console-default-protocol"
+              value={consoleDefaultProtocol}
+              onChange={(e) => setConsoleDefaultProtocol(e.target.value as Protocol)}
+            >
+              {PROTOCOL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mapping-group">
+            <div className="mapping-header">
+              <span>By Console Server Manufacturer</span>
+              <Tooltip label="Add console server manufacturer rule"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
+                onClick={handleAddConsoleProtocolRow}
+                aria-label="Add console server manufacturer rule"
+              >
+                {Icons.plus}
+              </button></Tooltip>
+            </div>
+
+            {consoleProtocolRows.length === 0 ? (
+              <div className="form-hint">No manufacturer rules — the default protocol applies to every console server.</div>
+            ) : (
+              <div className="mapping-list">
+                {consoleProtocolRows.map((row, index) => (
+                  <div key={row.rid} className="mapping-row">
+                    {sitesLoaded && manufacturers.length > 0 ? (
+                      <select aria-label="Manufacturer"
+                        value={row.key}
+                        onChange={(e) => handleUpdateConsoleProtocolRow(index, 'key', e.target.value)}
+                        className="ns-select mapping-key-select"
+                      >
+                        <option value="">Select manufacturer...</option>
+                        {!manufacturers.some((m) => m.slug === row.key) && row.key && (
+                          <option value={row.key}>{row.key}</option>
+                        )}
+                        {manufacturers.map((m) => (
+                          <option key={m.slug} value={m.slug}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input data-ai-fill="off"
+                        type="text"
+                        value={row.key}
+                        onChange={(e) => handleUpdateConsoleProtocolRow(index, 'key', e.target.value)}
+                        placeholder="Manufacturer slug (e.g. opengear)"
+                        className="ns-input mapping-key-input"
+                      />
+                    )}
+                    <span className="mapping-arrow">→</span>
+                    <select aria-label="Console protocol"
+                      value={row.protocol}
+                      onChange={(e) => handleUpdateConsoleProtocolRow(index, 'protocol', e.target.value)}
+                      className="ns-select mapping-profile-select"
+                    >
+                      {PROTOCOL_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Tooltip label="Remove"><button
+                      className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mapping-delete"
+                      onClick={() => handleRemoveConsoleProtocolRow(index)}
+                      aria-label="Remove"
+                    >
+                      {Icons.trash}
+                    </button></Tooltip>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Device Filters */}
+        <div className="form-section">
+          <h3>Device Filters</h3>
+          <div className="form-hint">
+            Filter which devices are imported from NetBox. Filters use AND between categories, OR within each category.
+            {sitesLoaded && deviceCount !== null && totalDeviceCount !== null && (
+              <span className="device-count-badge">
+                {countLoading ? 'Counting...' : `${deviceCount} of ${totalDeviceCount} devices match`}
+              </span>
+            )}
+          </div>
+
+          {!sitesLoaded ? (
+            <div className="filter-hint">
+              Test connection to load available filter options.
+            </div>
+          ) : (
+            <div className="filter-grid">
+              {/* Site Filter */}
+              <div className="filter-group">
+                <label>Sites</label>
+                <MultiSelectDropdown
+                  options={sites.map(s => ({ value: s.slug, label: s.name }))}
+                  selected={filterSites}
+                  onChange={setFilterSites}
+                  placeholder="All sites"
+                />
+              </div>
+
+              {/* Role Filter */}
+              <div className="filter-group">
+                <label>Roles</label>
+                <MultiSelectDropdown
+                  options={roles.map(r => ({ value: r.slug, label: r.name }))}
+                  selected={filterRoles}
+                  onChange={setFilterRoles}
+                  placeholder="All roles"
+                />
+              </div>
+
+              {/* Manufacturer/Vendor Filter */}
+              <div className="filter-group">
+                <label>Vendors</label>
+                <MultiSelectDropdown
+                  options={manufacturers.map(m => ({ value: m.slug, label: m.name }))}
+                  selected={filterManufacturers}
+                  onChange={setFilterManufacturers}
+                  placeholder="All vendors"
+                />
+              </div>
+
+              {/* Platform Filter */}
+              <div className="filter-group">
+                <label>Platforms</label>
+                <MultiSelectDropdown
+                  options={platforms.map(p => ({ value: p.slug, label: p.name }))}
+                  selected={filterPlatforms}
+                  onChange={setFilterPlatforms}
+                  placeholder="All platforms"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <div className="filter-group">
+                <label>Statuses</label>
+                <MultiSelectDropdown
+                  options={NETBOX_DEVICE_STATUSES.map(s => ({ value: s.value, label: s.label }))}
+                  selected={filterStatuses}
+                  onChange={setFilterStatuses}
+                  placeholder="All statuses"
+                />
+              </div>
+
+              {/* Tag Filter */}
+              <div className="filter-group">
+                <label>Tags</label>
+                <MultiSelectDropdown
+                  options={tags.map(t => ({ value: t.slug, label: t.name }))}
+                  selected={filterTags}
+                  onChange={setFilterTags}
+                  placeholder="All tags"
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+
+      <DialogFooter
+        primary={{
+          label: saving ? 'Saving...' : 'Save',
+          onClick: handleSave,
+          disabled: saving || !name.trim() || !apiResourceId,
+          title: !name.trim() ? 'Name is required' : !apiResourceId ? 'API Resource is required' : undefined,
+        }}
+        onCancel={handleCloseGuarded}
+      />
+    </ModalFrame>
   );
 }

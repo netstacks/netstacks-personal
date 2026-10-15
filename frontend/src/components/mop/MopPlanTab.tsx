@@ -7,6 +7,7 @@ import type { Session } from '../../api/sessions';
 import type { DeviceSummary } from '../../api/enterpriseDevices';
 import { extractActionVariables } from '../../lib/quickActionVariables';
 import ScriptParamsForm from '../ScriptParamsForm';
+import SearchField from '../SearchField';
 import AITabInput from '../AITabInput';
 
 import { STEP_SECTIONS, ASSERTION_COLORS } from './constants';
@@ -14,6 +15,8 @@ import { hasStructuredAssertions, parseAssertions } from './mopHelpers';
 import MopVariablesCard from './MopVariablesCard';
 import type { UseMopPlanReturn } from './useMopPlan';
 
+import DialogFooter from '../DialogFooter';
+import Tooltip from '../Tooltip'
 // Keyboard activation for clickable <div>s: Enter/Space fire the click
 // handler, but only when the element itself has focus — key events bubbling
 // out of nested inputs/buttons must not trigger the row.
@@ -220,14 +223,13 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
           </div>
           <div className="mop-approval-actions">
             {approvalStatus === 'draft' && controllerMopId && (
-              <button
-                className="mop-approval-submit-btn"
+              <Tooltip label={dirty ? 'Save changes before submitting' : 'Submit for admin review'}><button
+                className="ns-btn ns-btn--primary ns-btn--small"
                 onClick={handleSubmitForReview}
                 disabled={submittingForReview || dirty}
-                title={dirty ? 'Save changes before submitting' : 'Submit for admin review'}
               >
                 {submittingForReview ? 'Submitting...' : 'Submit for Review'}
-              </button>
+              </button></Tooltip>
             )}
             {approvalStatus === 'rejected' && reviewComment && (
               <span className="mop-review-comment" title={reviewComment}>
@@ -244,11 +246,10 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
           <label>
             Description
             {!descriptionValue.trim() && (
-              <button
+              <Tooltip label="AI auto-generate description"><button aria-label="AI auto-generate description"
                 className="mop-ai-field-btn"
                 onClick={handleAiAutoDescription}
                 disabled={aiFillingDescription}
-                title="AI auto-generate description"
               >
                 {aiFillingDescription ? (
                   <span className="mop-ai-loading small" />
@@ -257,7 +258,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                     <path d="M8 1l1.5 3.5L13 6l-3 2.5L11 12 8 10l-3 2 1-3.5L3 6l3.5-1.5z" />
                   </svg>
                 )}
-              </button>
+              </button></Tooltip>
             )}
           </label>
           <AITabInput
@@ -279,16 +280,16 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
 
       {/* Enterprise: Source Selector (only show template tabs when stacks plugin is installed) */}
       {isEnterprise && hasStacks && (
-        <div className="mop-source-selector">
+        <div className="ns-segmented mop-source-selector">
           <div className="mop-source-tabs">
             <button
-              className={`mop-source-tab ${sourceType === 'manual' ? 'active' : ''}`}
+              className={`ns-segment mop-source-tab ${sourceType === 'manual' ? 'active' : ''}`}
               onClick={() => setSourceType('manual')}
             >
               Manual
             </button>
             <button
-              className={`mop-source-tab ${sourceType === 'config_template' ? 'active' : ''}`}
+              className={`ns-segment mop-source-tab ${sourceType === 'config_template' ? 'active' : ''}`}
               onClick={() => setSourceType('config_template')}
             >
               Config Template
@@ -307,19 +308,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                 <div className="mop-template-empty">No config templates available</div>
               ) : !selectedConfigTemplate ? (
                 <>
-                  <div className="mop-template-search">
-                    <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" opacity="0.4">
-                      <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 110-10 5 5 0 010 10z" />
-                    </svg>
-                    <input
-                      value={configTemplateSearch}
-                      onChange={(e) => setConfigTemplateSearch(e.target.value)}
-                      placeholder="Search templates..."
-                    />
-                    {configTemplateSearch && (
-                      <button className="mop-template-search-clear" onClick={() => setConfigTemplateSearch('')}>&times;</button>
-                    )}
-                  </div>
+                  <SearchField className="mop-template-search" value={configTemplateSearch} onChange={setConfigTemplateSearch} placeholder="Search templates..." />
                   <div className="mop-template-list">
                     {configTemplatesList
                       .filter(t => {
@@ -378,7 +367,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                       {selectedConfigTemplate.variables.map(v => (
                         <div key={v.name} className="mop-template-var-row">
                           <label>{v.name}{v.required ? ' *' : ''}</label>
-                          <input
+                          <input data-ai-fill="off" className="ns-input"
                             value={configVariables[v.name] || ''}
                             onChange={e => setConfigVariables(prev => ({ ...prev, [v.name]: e.target.value }))}
                             placeholder={v.description || `Enter ${v.name}...`}
@@ -390,14 +379,14 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
 
                   <div className="mop-template-actions">
                     <button
-                      className="mop-template-action-btn"
+                      className="ns-btn ns-btn--small"
                       onClick={handleRenderConfigTemplate}
                       disabled={renderingConfig}
                     >
                       {renderingConfig ? 'Rendering...' : 'Preview'}
                     </button>
                     <button
-                      className="mop-template-action-btn primary"
+                      className="ns-btn ns-btn--small ns-btn--primary"
                       onClick={handleUseConfigAsMop}
                       disabled={!selectedConfigTemplate}
                     >
@@ -447,11 +436,10 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
 
       {/* AI Toolbar */}
       <div className="mop-ai-toolbar">
-        <button
-          className="mop-ai-toolbar-btn"
+        <Tooltip label="AI reviews your MOP for completeness and potential issues"><button
+          className="ns-btn ns-btn--ghost ns-btn--small mop-ai-toolbar-btn"
           onClick={handleAiReview}
           disabled={aiReviewing || steps.length === 0}
-          title="AI reviews your MOP for completeness and potential issues"
         >
           {aiReviewing ? (
             <span className="mop-ai-loading" />
@@ -461,12 +449,11 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
             </svg>
           )}
           AI Review
-        </button>
-        <button
-          className="mop-ai-toolbar-btn"
+        </button></Tooltip>
+        <Tooltip label="AI generates pre-checks, post-checks, and rollback from your change steps"><button
+          className="ns-btn ns-btn--ghost ns-btn--small mop-ai-toolbar-btn"
           onClick={handleAiCompleteMop}
           disabled={aiCompletingMop || steps.filter(s => s.step_type === 'change').length === 0}
-          title="AI generates pre-checks, post-checks, and rollback from your change steps"
         >
           {aiCompletingMop ? (
             <span className="mop-ai-loading" />
@@ -476,27 +463,26 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
             </svg>
           )}
           AI Complete MOP
-        </button>
-        <button
-          className={`mop-ai-toolbar-btn ${testTerminalOpen ? 'active' : ''}`}
+        </button></Tooltip>
+        <Tooltip label={selectedDeviceIds.size === 0
+            ? 'Select at least one device on the Devices tab to open the test terminal'
+            : 'Open command test terminal'}><button
+          className={`ns-btn ns-btn--ghost ns-btn--small mop-ai-toolbar-btn ${testTerminalOpen ? 'active' : ''}`}
           onClick={() => setTestTerminalOpen(!testTerminalOpen)}
           disabled={selectedDeviceIds.size === 0}
-          title={selectedDeviceIds.size === 0
-            ? 'Select at least one device on the Devices tab to open the test terminal'
-            : 'Open command test terminal'}
         >
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
             <path d="M2 3v10h12V3H2zm11 9H3V5h10v7zM4 6l3 2-3 2V6z" />
           </svg>
           Test Terminal
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* AI Error Banner */}
       {aiError && (
         <div className="mop-ai-error">
           <span>{aiError}</span>
-          <button className="mop-ai-error-dismiss" onClick={() => setAiError(null)}>&times;</button>
+          <button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => setAiError(null)}>&times;</button>
         </div>
       )}
 
@@ -508,7 +494,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
               <path d="M8 1C4.1 1 1 4.1 1 8s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm0 12c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm-.5-3h1v1h-1v-1zm0-6h1v5h-1V4z" />
             </svg>
             AI Review
-            <button className="mop-ai-review-dismiss" onClick={() => setAiReviewResult(null)}>&times;</button>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-ai-review-dismiss" onClick={() => setAiReviewResult(null)}>&times;</button>
           </div>
           <div className="mop-ai-review-content">{aiReviewResult}</div>
         </div>
@@ -543,11 +529,10 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                   <span className="mop-plan-section-count">
                     {sectionSteps.length} step{sectionSteps.length !== 1 ? 's' : ''}
                   </span>
-                  <button
+                  <Tooltip label="AI suggest steps for this section"><button aria-label="AI suggest steps for this section"
                     className="mop-ai-suggest-btn"
                     onClick={(e) => { e.stopPropagation(); handleAiSuggest(type); }}
                     disabled={aiSuggesting}
-                    title="AI suggest steps for this section"
                   >
                     {aiSuggesting && aiSuggestingSection === type ? (
                       <span className="mop-ai-loading" />
@@ -556,16 +541,16 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                         <path d="M8 1l1.5 3.5L13 6l-3 2.5L11 12 8 10l-3 2 1-3.5L3 6l3.5-1.5z" />
                       </svg>
                     )}
-                  </button>
-                  <button
-                    className="mop-plan-section-action"
+                  </button></Tooltip>
+                  <Tooltip label="Paste config lines as steps"><button
+                    className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-section-action"
                     onClick={(e) => { e.stopPropagation(); setPasteMode(type); }}
-                    title="Paste config lines as steps"
+                    aria-label="Paste config lines as steps"
                   >
                     <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                       <path d="M10 2H6v2h4V2zM5 3H3v11h10V3h-2v1H5V3zm1 4h4v1H6V7zm0 2h4v1H6V9z" />
                     </svg>
-                  </button>
+                  </button></Tooltip>
                 </div>
               </div>
 
@@ -574,49 +559,42 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                   {/* Paste mode */}
                   {pasteMode === type && (
                     <div className="mop-plan-paste-panel">
-                      <textarea
-                        className="mop-plan-paste-textarea"
+                      <textarea data-ai-fill="off"
+                        className="ns-textarea mop-plan-paste-textarea"
                         value={pasteText}
                         onChange={(e) => setPasteText(e.target.value)}
                         placeholder={`Paste ${label.toLowerCase()} commands, one per line...\n\nshow ip bgp summary\nshow ip route\nshow interfaces status`}
                         rows={6}
                         autoFocus
                       />
-                      <div className="mop-plan-paste-actions">
-                        <span className="mop-plan-paste-hint">
-                          {pasteText.split('\n').filter(l => l.trim()).length} lines
-                        </span>
-                        <button
-                          className="mop-workspace-header-btn"
-                          onClick={() => { setPasteMode(null); setPasteText(''); }}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          className="mop-ai-parse-btn"
-                          onClick={() => handleAiParse(pasteText, type)}
-                          disabled={!pasteText.trim() || aiParsing}
-                          title="AI parses commands and generates descriptions"
-                        >
-                          {aiParsing ? (
-                            <><span className="mop-ai-loading" /> Parsing...</>
-                          ) : (
-                            <>
-                              <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-                                <path d="M8 1l1.5 3.5L13 6l-3 2.5L11 12 8 10l-3 2 1-3.5L3 6l3.5-1.5z" />
-                              </svg>
-                              Parse with AI
-                            </>
-                          )}
-                        </button>
-                        <button
-                          className="mop-workspace-header-btn primary"
-                          onClick={handlePasteSubmit}
-                          disabled={!pasteText.trim()}
-                        >
-                          Add as Steps
-                        </button>
-                      </div>
+                      <DialogFooter
+                        primary={{ label: 'Add as Steps', onClick: handlePasteSubmit, disabled: !pasteText.trim() }}
+                        onCancel={() => { setPasteMode(null); setPasteText(''); }}
+                        leading={
+                          <>
+                            <span className="mop-plan-paste-hint">
+                              {pasteText.split('\n').filter(l => l.trim()).length} lines
+                            </span>
+                            <Tooltip label="AI parses commands and generates descriptions"><button
+                              className="ns-btn ns-btn--small mop-ai-parse-btn"
+                              onClick={() => handleAiParse(pasteText, type)}
+                              disabled={!pasteText.trim() || aiParsing}
+                            >
+                              {aiParsing ? (
+                                <><span className="mop-ai-loading" /> Parsing...</>
+                              ) : (
+                                <>
+                                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                                    <path d="M8 1l1.5 3.5L13 6l-3 2.5L11 12 8 10l-3 2 1-3.5L3 6l3.5-1.5z" />
+                                  </svg>
+                                  Parse with AI
+                                </>
+                              )}
+                            </button></Tooltip>
+                          </>
+                        }
+                        inline
+                      />
                     </div>
                   )}
 
@@ -646,6 +624,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                               {step.execution_source === 'deploy_template' && <span className="mop-step-source-badge template">Template</span>}
                               {step.execution_source === 'deployment_link' && <span className="mop-step-source-badge deployment">Deploy</span>}
                               <input
+                                data-ai-fill="off"
                                 value={step.description || ''}
                                 onChange={(e) => updateStepField(step.id, { description: e.target.value })}
                                 placeholder="Step description..."
@@ -662,10 +641,10 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             )}
                           </div>
                           <div className="mop-plan-step-actions">
-                            <button
+                            <Tooltip label={isExpanded ? 'Collapse' : 'Expand details'}><button
                               onClick={() => toggleStepExpanded(step.id)}
-                              title={isExpanded ? 'Collapse' : 'Expand details'}
-                              className="mop-plan-step-action-btn"
+                              aria-label={isExpanded ? 'Collapse' : 'Expand details'}
+                              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn"
                             >
                               <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 {isExpanded
@@ -673,67 +652,67 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                   : <polyline points="6,4 10,8 6,12" />
                                 }
                               </svg>
-                            </button>
-                            <button
+                            </button></Tooltip>
+                            <Tooltip label="Move up"><button
                               onClick={() => moveStep(step.id, 'up')}
-                              title="Move up"
-                              className="mop-plan-step-action-btn"
+                              aria-label="Move up"
+                              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn"
                               disabled={idx === 0}
                             >
                               <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M8 12V4M4 7l4-4 4 4" />
                               </svg>
-                            </button>
-                            <button
+                            </button></Tooltip>
+                            <Tooltip label="Move down"><button
                               onClick={() => moveStep(step.id, 'down')}
-                              title="Move down"
-                              className="mop-plan-step-action-btn"
+                              aria-label="Move down"
+                              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn"
                               disabled={idx === sectionSteps.length - 1}
                             >
                               <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M8 4v8M4 9l4 4 4-4" />
                               </svg>
-                            </button>
-                            <button
+                            </button></Tooltip>
+                            <Tooltip label="Duplicate"><button
                               onClick={() => duplicateStep(step.id)}
-                              title="Duplicate"
-                              className="mop-plan-step-action-btn"
+                              aria-label="Duplicate"
+                              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn"
                             >
                               <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                 <path d="M4 4v9h7V4H4zm6 8H5V5h5v7zM7 1h7v9h-1V2H7V1z" />
                               </svg>
-                            </button>
-                            <button
+                            </button></Tooltip>
+                            <Tooltip label="Explain this command"><button
                               onClick={() => handleExplainCommand(step.id, step.command)}
-                              title="Explain this command"
-                              className="mop-plan-step-action-btn mop-ai-explain-btn"
+                              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn mop-ai-explain-btn"
+                              aria-label="Explain this command"
                             >
                               {aiExplaining && aiExplainStep === step.id ? (
                                 <span className="mop-ai-loading small" />
                               ) : (
                                 <span style={{ fontSize: '11px', fontWeight: 600 }}>?</span>
                               )}
-                            </button>
+                            </button></Tooltip>
                             {step.command.trim() && (
-                              <button
+                              <Tooltip label="Run in test terminal"><button
                                 onClick={(e) => { e.stopPropagation(); handleRunStepCommand(step.id, step.command); }}
-                                title="Run in test terminal"
-                                className="mop-plan-step-action-btn run-step"
+                                aria-label="Run in test terminal"
+                                className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn run-step"
                               >
                                 <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                   <path d="M4 2l10 6-10 6V2z" />
                                 </svg>
-                              </button>
+                              </button></Tooltip>
                             )}
-                            <button
+                            <Tooltip label="Remove step"><button
                               onClick={() => removeStep(step.id)}
-                              title="Remove step"
-                              className="mop-plan-step-action-btn danger"
+                              aria-label="Remove step"
+                              className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mop-plan-step-action-btn"
                             >
                               <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                 <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3 8H5V7h6v2z" />
                               </svg>
-                            </button>
+                            </button></Tooltip>
                           </div>
                         </div>
 
@@ -753,11 +732,11 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             {/* Source picker */}
                             <div className="mop-plan-step-detail-field">
                               <label>Source</label>
-                              <div className="mop-step-source-picker">
+                              <div className="ns-segmented mop-step-source-picker">
                                 {(['cli', 'quick_action', 'script'] as const).map(src => (
                                   <button
                                     key={src}
-                                    className={`mop-step-source-btn ${(step.execution_source || 'cli') === src ? 'active' : ''}`}
+                                    className={`ns-segment ${(step.execution_source || 'cli') === src ? 'active' : ''}`}
                                     onClick={() => updateStepField(step.id, {
                                       execution_source: src,
                                       ...(src === 'cli' ? { quick_action_id: undefined, quick_action_variables: undefined, script_id: undefined, script_args: undefined, deploy_metadata: undefined } : {}),
@@ -771,7 +750,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                 {isEnterprise && (
                                   <>
                                     <button
-                                      className={`mop-step-source-btn ${step.execution_source === 'deploy_template' ? 'active' : ''}`}
+                                      className={`ns-segment ${step.execution_source === 'deploy_template' ? 'active' : ''}`}
                                       onClick={() => updateStepField(step.id, {
                                         execution_source: 'deploy_template',
                                         quick_action_id: undefined, quick_action_variables: undefined,
@@ -790,11 +769,16 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             {(!step.execution_source || step.execution_source === 'cli') && (
                               <div className="mop-plan-step-detail-field">
                                 <label>Command</label>
-                                <input
+                                <AITabInput
+                                  aria-label="Command"
                                   value={step.command}
                                   onChange={(e) => updateStepField(step.id, { command: e.target.value })}
                                   placeholder="Enter command to send..."
                                   className="mop-plan-step-command-field"
+                                  aiField="MOP step command"
+                                  aiPlaceholder="The CLI command this change step sends to the device"
+                                  aiContext={{ stepDescription: step.description, stepType: step.step_type }}
+                                  onAIValue={(v) => updateStepField(step.id, { command: v })}
                                 />
                               </div>
                             )}
@@ -803,7 +787,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             {step.execution_source === 'quick_action' && (
                               <div className="mop-plan-step-detail-field">
                                 <label>Quick Action</label>
-                                <select
+                                <select aria-label="Quick Action"
                                   value={step.quick_action_id || ''}
                                   onChange={(e) => {
                                     const qa = quickActions.find(q => q.id === e.target.value);
@@ -819,7 +803,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                       });
                                     }
                                   }}
-                                  className="mop-step-select"
+                                  className="ns-select mop-step-select"
                                 >
                                   <option value="">Select a Quick Action...</option>
                                   {quickActions.map(qa => (
@@ -832,13 +816,13 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                     {Object.entries(step.quick_action_variables).map(([varName, varValue]) => (
                                       <div key={varName} className="mop-step-variable-row">
                                         <span className="mop-step-variable-name">{varName}</span>
-                                        <input
+                                        <input data-ai-fill="off"
                                           value={String(varValue || '')}
                                           onChange={(e) => updateStepField(step.id, {
                                             quick_action_variables: { ...step.quick_action_variables, [varName]: e.target.value }
                                           })}
                                           placeholder="value or {{device.host}}"
-                                          className="mop-step-variable-input"
+                                          className="ns-input mop-step-variable-input"
                                         />
                                       </div>
                                     ))}
@@ -854,7 +838,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             {step.execution_source === 'script' && (
                               <div className="mop-plan-step-detail-field">
                                 <label>Script</label>
-                                <select
+                                <select aria-label="Script"
                                   value={step.script_id || ''}
                                   onChange={(e) => {
                                     const script = scripts.find(s => s.id === e.target.value);
@@ -868,7 +852,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                       loadScriptParams(script.id);
                                     }
                                   }}
-                                  className="mop-step-select"
+                                  className="ns-select mop-step-select"
                                 >
                                   <option value="">Select a Script...</option>
                                   {scripts.map(s => (
@@ -895,7 +879,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             {step.execution_source === 'deploy_template' && (
                               <div className="mop-plan-step-detail-field">
                                 <label>Config Template</label>
-                                <select
+                                <select aria-label="Config Template"
                                   value={step.deploy_metadata?.template_id || ''}
                                   onChange={(e) => {
                                     const tmpl = configTemplatesList.find(t => t.id === e.target.value);
@@ -913,7 +897,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                       });
                                     }
                                   }}
-                                  className="mop-step-select"
+                                  className="ns-select mop-step-select"
                                 >
                                   <option value="">Select a Config Template...</option>
                                   {configTemplatesList.map(t => (
@@ -926,7 +910,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                     {Object.entries(step.deploy_metadata.variables).map(([varName, varValue]) => (
                                       <div key={varName} className="mop-step-variable-row">
                                         <span className="mop-step-variable-name">{varName}</span>
-                                        <input
+                                        <input data-ai-fill="off"
                                           value={String(varValue || '')}
                                           onChange={(e) => updateStepField(step.id, {
                                             deploy_metadata: {
@@ -935,7 +919,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                             },
                                           })}
                                           placeholder="value"
-                                          className="mop-step-variable-input"
+                                          className="ns-input mop-step-variable-input"
                                         />
                                       </div>
                                     ))}
@@ -957,11 +941,11 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                               <label>
                                 Expected Output
                                 {!step.expected_output?.trim() && step.command.trim() && (
-                                  <button
+                                  <Tooltip label="AI auto-generate expected output"><button
                                     className="mop-ai-field-btn"
                                     onClick={() => handleAiAutoExpectedOutput(step.id, step.command)}
+                                    aria-label="AI auto-generate expected output"
                                     disabled={aiFillingStepField === `expected:${step.id}`}
-                                    title="AI auto-generate expected output"
                                   >
                                     {aiFillingStepField === `expected:${step.id}` ? (
                                       <span className="mop-ai-loading small" />
@@ -970,7 +954,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                         <path d="M8 1l1.5 3.5L13 6l-3 2.5L11 12 8 10l-3 2 1-3.5L3 6l3.5-1.5z" />
                                       </svg>
                                     )}
-                                  </button>
+                                  </button></Tooltip>
                                 )}
                               </label>
                               {hasStructuredAssertions(step.expected_output) && (
@@ -979,20 +963,25 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                     <div key={a.line} className="mop-assertion-pill" style={{ borderLeftColor: ASSERTION_COLORS[a.type] }}>
                                       <span className="mop-assertion-type" style={{ color: ASSERTION_COLORS[a.type] }}>{a.type === 'NOT_CONTAINS' ? 'NOT' : a.type}</span>
                                       <span className="mop-assertion-value">{a.value}</span>
-                                      <button
+                                      <Tooltip label="Remove assertion"><button
                                         className="mop-assertion-remove"
                                         onClick={(e) => { e.stopPropagation(); handleRemoveAssertion(step.id, a.line); }}
-                                        title="Remove assertion"
-                                      >&times;</button>
+                                      >&times;</button></Tooltip>
                                     </div>
                                   ))}
                                 </div>
                               )}
-                              <textarea
+                              <AITabInput
+                                as="textarea"
+                                aria-label="Expected output"
                                 value={step.expected_output || ''}
                                 onChange={(e) => updateStepField(step.id, { expected_output: e.target.value })}
                                 placeholder="Pattern or text expected in output for pass/fail validation..."
                                 rows={2}
+                                aiField="expected output"
+                                aiPlaceholder="Text or pattern the step's command output must contain for the step to pass"
+                                aiContext={{ command: step.command, stepDescription: step.description }}
+                                onAIValue={(v) => updateStepField(step.id, { expected_output: v })}
                               />
                             </div>
 
@@ -1066,11 +1055,10 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                       Add Step
                     </div>
                     {sectionSteps.filter(s => s.command.trim() && !s.description?.trim()).length > 0 && (
-                      <button
-                        className="mop-ai-fill-all-btn"
+                      <Tooltip label="AI auto-generate descriptions for all steps missing them"><button
+                        className="ns-btn ns-btn--ghost ns-btn--small mop-ai-fill-all-btn"
                         onClick={() => handleAiAutoFillAllDescriptions(type)}
                         disabled={aiFillingStepField === `all:${type}`}
-                        title="AI auto-generate descriptions for all steps missing them"
                       >
                         {aiFillingStepField === `all:${type}` ? (
                           <><span className="mop-ai-loading small" /> Filling...</>
@@ -1082,7 +1070,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             Fill All Descriptions
                           </>
                         )}
-                      </button>
+                      </button></Tooltip>
                     )}
                   </div>
                 </div>
@@ -1098,12 +1086,12 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
         <div className="mop-test-terminal">
           <div className="mop-test-terminal-header">
             <span>Test Terminal</span>
-            <button className="mop-test-terminal-close" onClick={() => setTestTerminalOpen(false)}>&times;</button>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => setTestTerminalOpen(false)}>&times;</button>
           </div>
 
           <div className="mop-test-terminal-device">
             <label>Device</label>
-            <select
+            <select aria-label="Device" className="ns-select"
               value={testDevice}
               onChange={(e) => setTestDevice(e.target.value)}
             >
@@ -1117,7 +1105,8 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
           </div>
 
           <div className="mop-test-terminal-input">
-            <textarea
+            <textarea className="ns-textarea"
+              data-ai-fill="off"
               value={testCommand}
               onChange={(e) => setTestCommand(e.target.value)}
               onKeyDown={(e) => {
@@ -1131,7 +1120,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
               disabled={!testDevice || testRunning}
             />
             <button
-              className="mop-test-terminal-run-btn"
+              className="ns-btn ns-btn--primary ns-btn--small mop-test-terminal-run-btn"
               onClick={handleTestRun}
               disabled={!testDevice || !testCommand.trim() || testRunning}
             >
@@ -1143,14 +1132,12 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
           {quickCommandChips.length > 0 && (
             <div className="mop-test-command-chips">
               {quickCommandChips.map(chip => (
-                <button
-                  key={chip.id}
+                <Tooltip key={chip.id} label={chip.command}><button
                   className={`mop-test-command-chip ${chip.isCurrent ? 'current' : ''}`}
                   onClick={() => handleRunStepCommand(chip.id, chip.command)}
-                  title={chip.command}
                 >
                   {chip.command.length > 30 ? chip.command.slice(0, 30) + '...' : chip.command}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           )}
@@ -1167,14 +1154,13 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                   {testResult.success ? testResult.output : (testResult.error || 'Command failed')}
                 </pre>
                 <div className="mop-test-terminal-output-footer">
-                  <button
-                    className="mop-test-terminal-use-btn"
+                  <Tooltip label={!selectedStepId ? 'Click a step first to target it' : 'Copy output to selected step\'s expected output'}><button
+                    className="ns-btn ns-btn--small"
                     onClick={handleUseAsExpectedOutput}
                     disabled={!testResult.success || !selectedStepId}
-                    title={!selectedStepId ? 'Click a step first to target it' : 'Copy output to selected step\'s expected output'}
                   >
                     Use as Expected Output
-                  </button>
+                  </button></Tooltip>
                   <span className="mop-test-terminal-time">{testResult.execution_time_ms}ms</span>
                 </div>
               </>
@@ -1194,10 +1180,10 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
             >
               {selectedStepId ? (
                 <>
-                  <button onClick={() => handleAddAssertion('CONTAINS', selectionPopover.text)} title="Output must contain this text">Contains</button>
-                  <button onClick={() => handleAddAssertion('NOT_CONTAINS', selectionPopover.text)} title="Output must NOT contain this text">Not Contains</button>
-                  <button onClick={() => handleAddAssertion('EXACT_LINE', selectionPopover.text)} title="Match full lines containing selection">Exact Line</button>
-                  <button onClick={() => handleAddAssertion('REGEX', selectionPopover.text)} title="Match as regex pattern">Regex</button>
+                  <Tooltip label="Output must contain this text"><button className="ns-btn ns-btn--small" onClick={() => handleAddAssertion('CONTAINS', selectionPopover.text)}>Contains</button></Tooltip>
+                  <Tooltip label="Output must NOT contain this text"><button className="ns-btn ns-btn--small" onClick={() => handleAddAssertion('NOT_CONTAINS', selectionPopover.text)}>Not Contains</button></Tooltip>
+                  <Tooltip label="Match full lines containing selection"><button className="ns-btn ns-btn--small" onClick={() => handleAddAssertion('EXACT_LINE', selectionPopover.text)}>Exact Line</button></Tooltip>
+                  <Tooltip label="Match as regex pattern"><button className="ns-btn ns-btn--small" onClick={() => handleAddAssertion('REGEX', selectionPopover.text)}>Regex</button></Tooltip>
                 </>
               ) : (
                 <span style={{ fontStyle: 'italic', fontSize: '11px', color: 'var(--text-secondary)' }}>Select a step first</span>

@@ -8,6 +8,7 @@ import { getCurrentMode } from '../api/client'
 import './InterfaceSnmpQuickLook.css'
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip'
 interface InterfaceSnmpQuickLookProps {
   interfaceName: string
   deviceHost: string
@@ -318,13 +319,13 @@ export default function InterfaceSnmpQuickLook({
             </span>
           </div>
         </div>
-        <button
-          className="snmp-quicklook-close"
+        <Tooltip label="Close (Escape)"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn snmp-quicklook-close"
           onClick={onClose}
-          title="Close (Escape)"
+          aria-label="Close (Escape)"
         >
           {Icons.close}
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Description / alias */}
@@ -378,7 +379,7 @@ export default function InterfaceSnmpQuickLook({
         {pollState === 'error' && (
           <div className="snmp-quicklook-error">
             <span className="snmp-quicklook-error-text">{error}</span>
-            <button className="snmp-quicklook-retry-btn" onClick={handleRefresh}>
+            <button className="ns-btn ns-btn--small" onClick={handleRefresh}>
               {Icons.refresh}
               <span>Retry</span>
             </button>
@@ -439,7 +440,7 @@ export default function InterfaceSnmpQuickLook({
       <div className="snmp-quicklook-footer">
         {pollState === 'complete' ? (
           <>
-            <button className="snmp-quicklook-refresh-btn" onClick={handleRefresh}>
+            <button className="ns-btn ns-btn--small" onClick={handleRefresh}>
               {Icons.refresh}
               <span>Refresh</span>
             </button>

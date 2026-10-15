@@ -1,6 +1,7 @@
+import AITabInput from './AITabInput';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './DocsPanel.css';
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
+import ContextMenu, { type MenuItem } from './ContextMenu';
 import {
   listDocuments,
   deleteDocument,
@@ -19,6 +20,9 @@ import { Icon } from '@iconify/react';
 import { getIconForFile } from 'vscode-icons-js';
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface DocsPanelProps {
   onOpenDocument: (doc: Document) => void;
   onNewDocument: (category: DocumentCategory) => void;
@@ -174,6 +178,7 @@ const CONTENT_TYPE_OPTIONS: { value: ContentType; label: string }[] = [
 ];
 
 function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanelProps) {
+  const newDocFormRef = useRef<HTMLFormElement>(null);
   const hasFeature = useCapabilitiesStore((s) => s.hasFeature);
   const visibleCategories = CATEGORY_ORDER.filter((cat) => {
     if (cat === 'mops') return hasFeature('mops');
@@ -195,7 +200,6 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
     y: number;
     doc: Document;
   } | null>(null);
-  const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu);
 
   // New document form state
   const [showNewForm, setShowNewForm] = useState(false);
@@ -238,11 +242,9 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
     } catch (err) {
       showToast(`Download failed: ${getErrorMessage(err, String(err))}`, 'error');
     }
-    setContextMenu(null);
   }, []);
 
   const handleImportMopToChanges = useCallback(async (doc: Document) => {
-    setContextMenu(null);
     try {
       const { package: pkg } = parseMopPackageJson(doc.content);
       const result = await importMopPackage(pkg);
@@ -293,15 +295,6 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
     fetchDocuments();
   }, [fetchDocuments]);
 
-  // Close context menu on click outside
-  useEffect(() => {
-    const handleClick = () => setContextMenu(null);
-    if (contextMenu) {
-      document.addEventListener('click', handleClick);
-      return () => document.removeEventListener('click', handleClick);
-    }
-  }, [contextMenu]);
-
   // Expand a category and bring its header into view (Quick Look shortcuts).
   const focusCategory = useCallback((category: DocumentCategory) => {
     setExpandedCategories((prev) => {
@@ -348,7 +341,6 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
 
   const handleDelete = (doc: Document) => {
     setConfirmDelete({ id: doc.id, name: doc.name });
-    setContextMenu(null);
   };
 
   const handleConfirmDelete = async () => {
@@ -370,8 +362,25 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
     } catch {
       showToast('Failed to move document', 'error');
     }
-    setContextMenu(null);
   };
+
+  const docMenuItems = (doc: Document): MenuItem[] => [
+    { id: 'open', label: 'Open', icon: Icons.document, action: () => onOpenDocument(doc) },
+    ...(doc.category === 'mops' ? [
+      { id: 'mop-divider', label: '', divider: true, action: () => {} },
+      { id: 'download-mop', label: 'Download .mop.json', icon: Icons.download, action: () => { void handleDownloadMop(doc); } },
+      { id: 'import-mop', label: 'Import to MOPs', icon: Icons.importArrow, action: () => { void handleImportMopToChanges(doc); } },
+    ] : []),
+    { id: 'move-divider', label: '', divider: true, action: () => {} },
+    {
+      id: 'move-to', label: 'Move to', icon: Icons.folder, action: () => {},
+      submenu: visibleCategories.filter(c => c !== doc.category).map((cat): MenuItem => ({
+        id: `move-${cat}`, label: cat.charAt(0).toUpperCase() + cat.slice(1), action: () => { void handleMoveCategory(doc, cat); },
+      })),
+    },
+    { id: 'delete-divider', label: '', divider: true, action: () => {} },
+    { id: 'delete', label: 'Delete', icon: Icons.trash, danger: true, action: () => handleDelete(doc) },
+  ];
 
   // --- Multi-select + bulk operations ---
   const toggleSelect = (id: string) =>
@@ -560,13 +569,12 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
         onContextMenu={(e) => handleContextMenu(e, doc)}
         title={doc.name}
       >
-        <span
+        <Tooltip label="Select"><span
           className="docs-item-check"
           onClick={(e) => { e.stopPropagation(); toggleSelect(doc.id); }}
-          title="Select"
         >
-          <input type="checkbox" checked={isSel} readOnly tabIndex={-1} />
-        </span>
+          <input aria-label={`Select ${doc.name}`} type="checkbox" checked={isSel} readOnly tabIndex={-1} />
+        </span></Tooltip>
         <span className="docs-item-icon">{getDocIcon(doc)}</span>
         <span className="docs-item-name">{doc.name}</span>
       </div>
@@ -603,39 +611,38 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
           <span className="docs-section-icon">{meta.icon}</span>
           <span className="docs-section-name">{meta.name}</span>
           {secure && (
-            <span
+            <Tooltip label="Encrypted at rest with your vault password"><span
               className="docs-section-lock"
-              title="Encrypted at rest with your vault password"
               aria-label="Encrypted at rest"
             >
               {Icons.lock}
-            </span>
+            </span></Tooltip>
           )}
           <span className="docs-section-count">{docs.length}</span>
           <span className="docs-section-actions">
             {meta.allowAdd && (
-              <button
-                className="docs-section-add"
+              <Tooltip label={`New ${meta.name.slice(0, -1)}`}><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleOpenNewForm(category);
                 }}
-                title={`New ${meta.name.slice(0, -1)}`}
+                aria-label={`New ${meta.name.slice(0, -1)}`}
               >
                 {Icons.plus}
-              </button>
+              </button></Tooltip>
             )}
             {category === 'mops' && (
-              <button
-                className="docs-section-add"
+              <Tooltip label="Import .mop.json file"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleUploadMopFile();
                 }}
-                title="Import .mop.json file"
+                aria-label="Import .mop.json file"
               >
                 {Icons.upload}
-              </button>
+              </button></Tooltip>
             )}
           </span>
         </div>
@@ -667,22 +674,26 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
 
       {/* New Document Form */}
       {showNewForm && CATEGORIES[newFormCategory] && (
-        <form className="docs-new-form" data-testid="docs-new-form" onSubmit={handleCreateDocument}>
+        <form ref={newDocFormRef} className="docs-new-form" data-testid="docs-new-form" onSubmit={handleCreateDocument}>
           <div className="docs-new-form-header">
             <span>New Document in {CATEGORIES[newFormCategory]!.name}</span>
           </div>
           <div className="docs-new-form-field">
-            <input
-              type="text"
+            <AITabInput
+              aria-label="Document name"
               placeholder="Document name..."
               value={newDocName}
               onChange={(e) => setNewDocName(e.target.value)}
               autoFocus
               disabled={isCreating}
+              aiField="document name"
+              aiPlaceholder="Short descriptive file name for a new NetStacks document"
+              aiContext={{ contentType: newDocContentType, category: newFormCategory }}
+              onAIValue={setNewDocName}
             />
           </div>
           <div className="docs-new-form-field">
-            <select
+            <select aria-label="Content type" className="ns-select"
               value={newDocContentType}
               onChange={(e) => setNewDocContentType(e.target.value as ContentType)}
               disabled={isCreating}
@@ -694,14 +705,13 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
               ))}
             </select>
           </div>
-          <div className="docs-new-form-actions">
-            <button type="submit" className="docs-new-form-btn primary" disabled={isCreating || !newDocName.trim()}>
-              {isCreating ? 'Creating...' : 'Create'}
-            </button>
-            <button type="button" className="docs-new-form-btn" onClick={handleCancelNewForm} disabled={isCreating}>
-              Cancel
-            </button>
-          </div>
+          <DialogFooter
+            primary={{ label: isCreating ? 'Creating...' : 'Create', onClick: () => newDocFormRef.current?.requestSubmit(), disabled: isCreating || !newDocName.trim() }}
+            onCancel={handleCancelNewForm}
+            cancelDisabled={isCreating}
+            inline
+            small
+          />
         </form>
       )}
 
@@ -715,108 +725,45 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
         <div className="docs-bulk-bar">
           <span className="docs-bulk-count">{selected.size} selected</span>
           <div className="docs-bulk-actions">
-            <select
-              className="docs-bulk-move"
+            <Tooltip label="Move selected to a folder"><select aria-label="Move selected to a folder"
+              className="docs-bulk-move ns-select"
               value=""
               onChange={(e) => {
                 if (e.target.value) void moveDocsToCategory(Array.from(selected), e.target.value as DocumentCategory).then(clearSelection);
               }}
-              title="Move selected to a folder"
             >
               <option value="">Move to…</option>
               {visibleCategories.map((c) => (
                 <option key={c} value={c}>{CATEGORIES[c]?.name ?? c}</option>
               ))}
-            </select>
-            <button className="docs-bulk-delete" onClick={() => setConfirmBulkDelete(true)} title="Delete selected">
+            </select></Tooltip>
+            <Tooltip label="Delete selected"><button className="ns-btn ns-btn--danger ns-btn--small" onClick={() => setConfirmBulkDelete(true)}>
               Delete
-            </button>
-            <button className="docs-bulk-clear" onClick={clearSelection} title="Clear selection">
+            </button></Tooltip>
+            <Tooltip label="Clear selection"><button className="ns-btn ns-btn--small" onClick={clearSelection}>
               Clear
-            </button>
+            </button></Tooltip>
           </div>
         </div>
       )}
 
 
       <div className="docs-panel-footer">
-        <button
-          className="docs-panel-refresh"
+        <Tooltip label="Refresh"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={fetchDocuments}
-          title="Refresh"
+          aria-label="Refresh"
           disabled={loading}
         >
           {Icons.refresh}
-        </button>
+        </button></Tooltip>
       </div>
 
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="docs-context-menu"
-          style={contextMenuStyle}
-        >
-          <button
-            className="context-menu-item"
-            onClick={() => {
-              onOpenDocument(contextMenu.doc);
-              setContextMenu(null);
-            }}
-          >
-            {Icons.document}
-            <span>Open</span>
-          </button>
-          {contextMenu.doc.category === 'mops' && (
-            <>
-              <div className="context-menu-divider" />
-              <button
-                className="context-menu-item"
-                onClick={() => handleDownloadMop(contextMenu.doc)}
-              >
-                {Icons.download}
-                <span>Download .mop.json</span>
-              </button>
-              <button
-                className="context-menu-item"
-                onClick={() => handleImportMopToChanges(contextMenu.doc)}
-              >
-                {Icons.importArrow}
-                <span>Import to MOPs</span>
-              </button>
-            </>
-          )}
-          <div className="context-menu-divider" />
-          <div className="context-menu-submenu">
-            <button className="context-menu-item">
-              {Icons.folder}
-              <span>Move to</span>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" style={{ marginLeft: 'auto' }}>
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </button>
-            <div className="context-submenu-dropdown">
-              {visibleCategories.filter(c => c !== contextMenu.doc.category).map(cat => (
-                <button
-                  key={cat}
-                  className="context-menu-item"
-                  onClick={() => handleMoveCategory(contextMenu.doc, cat)}
-                >
-                  <span style={{ textTransform: 'capitalize' }}>{cat}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="context-menu-divider" />
-          <button
-            className="context-menu-item danger"
-            onClick={() => handleDelete(contextMenu.doc)}
-          >
-            {Icons.trash}
-            <span>Delete</span>
-          </button>
-        </div>
-      )}
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? docMenuItems(contextMenu.doc) : []}
+        onClose={() => setContextMenu(null)}
+      />
 
       {/* Hidden file input for MOP upload */}
       <input
@@ -829,64 +776,28 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
 
       {/* Delete Confirmation Dialog */}
       {confirmDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
-          <div
-            className="docs-delete-dialog"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ marginTop: 0, marginBottom: '12px', color: 'var(--color-text-primary)' }}>
-              Delete Document
-            </h3>
-            <p style={{ marginBottom: '20px', color: 'var(--color-text-secondary)' }}>
-              Are you sure you want to delete "{confirmDelete.name}"? This action cannot be undone.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="docs-new-form-btn"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                className="docs-new-form-btn"
-                style={{
-                  background: 'var(--color-error)',
-                  borderColor: 'var(--color-error)',
-                  color: 'white'
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="docs-delete" onDismiss={() => setConfirmDelete(null)} resizable={false} className="docs-delete-dialog" label="Delete document">
+          <h3 style={{ marginTop: 0, marginBottom: '12px', color: 'var(--color-text-primary)' }}>
+            Delete Document
+          </h3>
+          <p style={{ marginBottom: '20px', color: 'var(--color-text-secondary)' }}>
+            Are you sure you want to delete "{confirmDelete.name}"? This action cannot be undone.
+          </p>
+          <DialogFooter primary={{ label: 'Delete', onClick: handleConfirmDelete, danger: true }} onCancel={() => setConfirmDelete(null)} inline />
+        </ModalFrame>
       )}
 
       {/* Bulk Delete Confirmation Dialog */}
       {confirmBulkDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDelete(false)}>
-          <div className="docs-delete-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0, marginBottom: '12px', color: 'var(--color-text-primary)' }}>
-              Delete {selected.size} document{selected.size === 1 ? '' : 's'}
-            </h3>
-            <p style={{ marginBottom: '20px', color: 'var(--color-text-secondary)' }}>
-              Are you sure you want to delete {selected.size} selected document{selected.size === 1 ? '' : 's'}? This action cannot be undone.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={() => setConfirmBulkDelete(false)} className="docs-new-form-btn">
-                Cancel
-              </button>
-              <button
-                onClick={handleBulkDelete}
-                className="docs-new-form-btn"
-                style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)', color: 'white' }}
-              >
-                Delete {selected.size}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="docs-bulk-delete" onDismiss={() => setConfirmBulkDelete(false)} resizable={false} className="docs-delete-dialog" label="Delete documents">
+          <h3 style={{ marginTop: 0, marginBottom: '12px', color: 'var(--color-text-primary)' }}>
+            Delete {selected.size} document{selected.size === 1 ? '' : 's'}
+          </h3>
+          <p style={{ marginBottom: '20px', color: 'var(--color-text-secondary)' }}>
+            Are you sure you want to delete {selected.size} selected document{selected.size === 1 ? '' : 's'}? This action cannot be undone.
+          </p>
+          <DialogFooter primary={{ label: `Delete ${selected.size}`, onClick: handleBulkDelete, danger: true }} onCancel={() => setConfirmBulkDelete(false)} inline />
+        </ModalFrame>
       )}
     </div>
   );

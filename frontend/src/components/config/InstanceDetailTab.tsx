@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './InstanceDetailTab.css'
+import SearchField from '../SearchField'
 import {
   getStackInstance,
   getConfigStack,
@@ -27,6 +28,7 @@ import { listEnterpriseDevices } from '../../api/enterpriseDevices'
 import AITabInput from '../AITabInput'
 
 import { getErrorMessage } from '../../api/errors'
+import ModalFrame from '../ModalFrame'
 interface InstanceDetailTabProps {
   instanceId?: string
   stackId?: string
@@ -667,7 +669,7 @@ export default function InstanceDetailTab({
       <div className="instance-detail-container">
         <div className="instance-detail-error">
           <span>{error}</span>
-          <button className="instance-detail-btn" onClick={fetchData}>Retry</button>
+          <button className="ns-btn" onClick={fetchData}>Retry</button>
         </div>
       </div>
     )
@@ -716,26 +718,26 @@ export default function InstanceDetailTab({
         </div>
         <div className="instance-detail-header-actions">
           <button
-            className="instance-detail-btn primary"
+            className="ns-btn ns-btn--primary"
             onClick={handleSave}
             disabled={saving || !name.trim() || (!isCreate && !dirty)}
           >
             {saving ? 'Saving...' : isCreate ? 'Create' : 'Save'}
           </button>
           {instance && !confirmDelete && (
-            <button className="instance-detail-btn danger" onClick={() => setConfirmDelete(true)}>
+            <button className="ns-btn ns-btn--danger" onClick={() => setConfirmDelete(true)}>
               Delete
             </button>
           )}
           {instance && confirmDelete && (
             <>
               <button
-                className="instance-detail-btn danger-confirm"
+                className="ns-btn ns-btn--danger"
                 onClick={handleDelete}
               >
                 Confirm
               </button>
-              <button className="instance-detail-btn" onClick={() => setConfirmDelete(false)}>
+              <button className="ns-btn" onClick={() => setConfirmDelete(false)}>
                 Cancel
               </button>
             </>
@@ -775,7 +777,7 @@ export default function InstanceDetailTab({
         {/* Resolve from API button */}
         {hasApiVariables && (
           <button
-            className="instance-detail-btn"
+            className="ns-btn"
             onClick={handleResolve}
             disabled={resolving}
             style={{ alignSelf: 'flex-start' }}
@@ -834,7 +836,7 @@ export default function InstanceDetailTab({
                       ))}
                       <div className="instance-device-picker-wrapper">
                         <button
-                          className="instance-device-add-btn"
+                          className="ns-btn ns-btn--small"
                           onClick={() => {
                             setDevicePickerOpen(devicePickerOpen === key ? null : key)
                             setDeviceSearch('')
@@ -844,10 +846,10 @@ export default function InstanceDetailTab({
                         </button>
                         {devicePickerOpen === key && (
                           <div className="instance-device-picker">
-                            <input
+                            <SearchField
                               className="instance-device-picker-search"
                               value={deviceSearch}
-                              onChange={e => setDeviceSearch(e.target.value)}
+                              onChange={setDeviceSearch}
                               placeholder="Search devices..."
                               autoFocus
                             />
@@ -884,8 +886,8 @@ export default function InstanceDetailTab({
                         {sharedVarNames.map(varName => (
                           <div key={varName} className="instance-var-row">
                             <label className="instance-var-label">{varName}</label>
-                            <input
-                              className="instance-var-input"
+                            <input data-ai-fill="off"
+                              className="instance-var-input ns-input"
                               value={svcConfig.sharedVars[varName] || ''}
                               onChange={e => updateSharedVar(key, varName, e.target.value)}
                               placeholder={`Enter ${varName}...`}
@@ -909,8 +911,8 @@ export default function InstanceDetailTab({
                             {perDeviceVarNames.map(varName => (
                               <div key={varName} className="instance-var-row">
                                 <label className="instance-var-label">{varName}</label>
-                                <input
-                                  className="instance-var-input"
+                                <input data-ai-fill="off"
+                                  className="instance-var-input ns-input"
                                   value={svcConfig.deviceVars[deviceId]?.[varName] || ''}
                                   onChange={e => updateDeviceVar(key, deviceId, varName, e.target.value)}
                                   placeholder={`Enter ${varName}...`}
@@ -946,7 +948,7 @@ export default function InstanceDetailTab({
           {previewOpen && (
             <div className="instance-detail-section-body">
               <button
-                className="instance-detail-btn"
+                className="ns-btn"
                 onClick={handleRender}
                 disabled={previewLoading}
                 style={{ marginBottom: 10 }}
@@ -983,7 +985,7 @@ export default function InstanceDetailTab({
             <div className="instance-detail-section-header" style={{ justifyContent: 'space-between' }}>
               <span>Deployments</span>
               <button
-                className="instance-detail-btn primary"
+                className="ns-btn ns-btn--primary ns-btn--small"
                 onClick={() => {
                   if (hasProcedure) {
                     setDeployDialogOpen(true)
@@ -992,7 +994,6 @@ export default function InstanceDetailTab({
                   }
                 }}
                 disabled={deploying}
-                style={{ padding: '2px 10px', fontSize: 11 }}
               >
                 {deploying ? 'Deploying...' : 'Deploy Now'}
               </button>
@@ -1034,7 +1035,7 @@ export default function InstanceDetailTab({
                           <div className="instance-deployment-actions">
                             {(dep.status === 'completed' || dep.status === 'failed') && (
                               <button
-                                className="instance-detail-btn"
+                                className="ns-btn"
                                 onClick={() => handleRollback(dep.id)}
                                 disabled={rollingBack === dep.id}
                               >
@@ -1042,7 +1043,7 @@ export default function InstanceDetailTab({
                               </button>
                             )}
                             <button
-                              className="instance-detail-btn"
+                              className="ns-btn"
                               onClick={(e) => { e.stopPropagation(); onOpenDeploymentTab?.(dep.id, dep.name) }}
                             >
                               Open Full Details ↗
@@ -1080,11 +1081,11 @@ export default function InstanceDetailTab({
                             <div className="instance-deployment-logs-section">
                               <div className="instance-deployment-logs-header">
                                 <span className="instance-deployment-progress-label">Deployment Logs</span>
-                                <div className="instance-deployment-log-filters">
+                                <div className="ns-segmented">
                                   {(['all', 'info', 'debug', 'warning', 'error'] as const).map(level => (
                                     <button
                                       key={level}
-                                      className={`instance-log-filter-btn ${logFilter === level ? 'active' : ''}`}
+                                      className={`ns-segment ${logFilter === level ? 'active' : ''}`}
                                       onClick={() => setLogFilter(level)}
                                     >
                                       {level.charAt(0).toUpperCase() + level.slice(1)}
@@ -1122,48 +1123,46 @@ export default function InstanceDetailTab({
 
       {/* Deploy Dialog */}
       {deployDialogOpen && stack && (
-        <div className="instance-deploy-overlay">
-          <div className="instance-deploy-dialog" onClick={e => e.stopPropagation()}>
-            <div className="instance-deploy-dialog-header">
-              <h3>Deploy Instance: {instance?.name}</h3>
-              <button className="instance-detail-btn" onClick={() => setDeployDialogOpen(false)}>{'\u2715'}</button>
-            </div>
-            <div className="instance-deploy-dialog-body">
-              <p className="instance-deploy-dialog-summary">
-                This stack has a deployment procedure with{' '}
-                {stack.deployment_procedure?.pre_checks?.length || 0} pre-checks,{' '}
-                {stack.deployment_procedure?.post_checks?.length || 0} post-checks.
-                On failure: {stack.deployment_procedure?.on_post_check_failure || 'pause'}.
-              </p>
-              <div className="instance-deploy-dialog-field">
-                <label>Control Mode</label>
-                <select value={deployControlMode} onChange={e => setDeployControlMode(e.target.value)}>
-                  <option value="manual">Manual</option>
-                  <option value="auto_run">Auto-run</option>
-                  <option value="ai_pilot">AI Pilot</option>
-                </select>
-              </div>
-            </div>
-            <div className="instance-deploy-dialog-actions">
-              <button
-                className="instance-detail-btn primary"
-                onClick={handleDeployWithMop}
-                disabled={deploying}
-              >
-                {deploying ? 'Creating...' : 'Deploy with Procedure'}
-              </button>
-              {!procedureRequiresMop && (
-                <button
-                  className="instance-detail-btn"
-                  onClick={() => { setDeployDialogOpen(false); handleDeploy() }}
-                  disabled={deploying}
-                >
-                  Quick Deploy
-                </button>
-              )}
+        <ModalFrame id="instance-deploy" className="instance-deploy-dialog" label="Deploy">
+          <div className="instance-deploy-dialog-header">
+            <h3>Deploy Instance: {instance?.name}</h3>
+            <button className="ns-btn" onClick={() => setDeployDialogOpen(false)} aria-label="Close">{'\u2715'}</button>
+          </div>
+          <div className="instance-deploy-dialog-body">
+            <p className="instance-deploy-dialog-summary">
+              This stack has a deployment procedure with{' '}
+              {stack.deployment_procedure?.pre_checks?.length || 0} pre-checks,{' '}
+              {stack.deployment_procedure?.post_checks?.length || 0} post-checks.
+              On failure: {stack.deployment_procedure?.on_post_check_failure || 'pause'}.
+            </p>
+            <div className="instance-deploy-dialog-field">
+              <label>Control Mode</label>
+              <select aria-label="Control Mode" className="ns-select" value={deployControlMode} onChange={e => setDeployControlMode(e.target.value)}>
+                <option value="manual">Manual</option>
+                <option value="auto_run">Auto-run</option>
+                <option value="ai_pilot">AI Pilot</option>
+              </select>
             </div>
           </div>
-        </div>
+          <div className="instance-deploy-dialog-actions">
+            <button
+              className="ns-btn ns-btn--primary"
+              onClick={handleDeployWithMop}
+              disabled={deploying}
+            >
+              {deploying ? 'Creating...' : 'Deploy with Procedure'}
+            </button>
+            {!procedureRequiresMop && (
+              <button
+                className="ns-btn"
+                onClick={() => { setDeployDialogOpen(false); handleDeploy() }}
+                disabled={deploying}
+              >
+                Quick Deploy
+              </button>
+            )}
+          </div>
+        </ModalFrame>
       )}
     </div>
   )

@@ -5,6 +5,8 @@ import { useModeNames } from '../hooks/useModeNames';
 import type { DeviceMemoryEntry } from '../types/deviceMemory';
 import './DeviceMemoryEditor.css';
 
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
 interface DeviceMemoryEditorProps {
   /** Standalone / session-keyed target. */
   sessionId?: string;
@@ -86,7 +88,7 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
         <div className="metadata-grid">
           <label>
             Role
-            <select
+            <select className="ns-select"
               value={memory.role || ''}
               onChange={e => handleMetadataChange('role', e.target.value)}
             >
@@ -98,7 +100,7 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
 
           <label>
             Criticality
-            <select
+            <select className="ns-select"
               value={memory.criticality || ''}
               onChange={e => handleMetadataChange('criticality', e.target.value)}
             >
@@ -144,7 +146,7 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
         <div className="section-header">
           <h4>Memories ({memory.entries.length})</h4>
           {!showAddForm && (
-            <button className="btn-add" onClick={() => setShowAddForm(true)}>
+            <button className="ns-btn" onClick={() => setShowAddForm(true)}>
               + Add Memory
             </button>
           )}
@@ -164,14 +166,11 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
               aiContext={{ role: memory.role, criticality: memory.criticality }}
               onAIValue={v => setEntryContent(v)}
             />
-            <div className="form-actions">
-              <button className="btn-save" onClick={handleAddEntry} disabled={!entryContent.trim()}>
-                Save
-              </button>
-              <button className="btn-cancel" onClick={() => { setShowAddForm(false); setEntryContent(''); }}>
-                Cancel
-              </button>
-            </div>
+            <DialogFooter
+              primary={{ label: 'Save', onClick: handleAddEntry, disabled: !entryContent.trim() }}
+              onCancel={() => { setShowAddForm(false); setEntryContent(''); }}
+              inline
+            />
           </div>
         )}
 
@@ -192,27 +191,28 @@ export default function DeviceMemoryEditor({ sessionId, deviceId, currentUser }:
                   <span className="entry-date">{entry.date}</span>
                   <span className="entry-author">{entry.author}</span>
                   <div className="entry-actions">
-                    <button className="btn-icon" title="Edit" onClick={() => startEditing(entry)}>&#9998;</button>
-                    <button className="btn-icon btn-danger" title="Delete" onClick={() => removeEntry(entry.id)}>&#10005;</button>
+                    <Tooltip label="Edit"><button aria-label="Edit" className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => startEditing(entry)}>&#9998;</button></Tooltip>
+                    <Tooltip label="Delete"><button aria-label="Delete" className="ns-btn ns-btn--danger ns-btn--ghost ns-icon-btn" onClick={() => removeEntry(entry.id)}>&#10005;</button></Tooltip>
                   </div>
                 </div>
 
                 {isEditing ? (
                   <div className="entry-form">
-                    <textarea
+                    <AITabInput as="textarea" aria-label="Memory entry"
                       value={editContent}
                       onChange={e => setEditContent(e.target.value)}
                       rows={3}
                       autoFocus
+                      aiField="memory"
+                      aiPlaceholder="A fact the AI should remember about this device"
+                      aiContext={{ role: memory.role, criticality: memory.criticality }}
+                      onAIValue={setEditContent}
                     />
-                    <div className="form-actions">
-                      <button className="btn-save" onClick={() => handleEditEntry(entry)} disabled={!editContent.trim()}>
-                        Save
-                      </button>
-                      <button className="btn-cancel" onClick={() => setEditingEntryId(null)}>
-                        Cancel
-                      </button>
-                    </div>
+                    <DialogFooter
+                      primary={{ label: 'Save', onClick: () => handleEditEntry(entry), disabled: !editContent.trim() }}
+                      onCancel={() => setEditingEntryId(null)}
+                      inline
+                    />
                   </div>
                 ) : (
                   <p className="entry-content">{entry.content}</p>

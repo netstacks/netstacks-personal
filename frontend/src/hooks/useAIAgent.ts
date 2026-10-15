@@ -19,15 +19,15 @@ import { shareInFlight } from '../lib/inflight';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { getAvailableTools, type AgentTool, NAVIGABLE_SETTINGS_TABS } from '../lib/agentTools';
-import { getSettings } from './useSettings';
-import { validateReadOnlyCommands, type ValidationResult } from '../lib/readOnlyFilter';
+import { getSettings, useSettings } from './useSettings';
+import { resolveCommandList, resolveToolPermission, permissionContext, DEVICE_COMMAND_TOOLS } from '../lib/aiPermissions';
 import { parseAiCommandArray } from '../lib/aiJson';
 import type { MopVariable } from '../types/change';
 import { validateVariableName } from '../lib/mopVariables';
 import { getClient } from '../api/client';
 import { lookupOui, lookupDns, lookupWhois, lookupAsn } from '../api/lookup';
 import { friendlyAiError } from '../api/aiErrors';
-import { getTopologyTools, executeTopologyTool, isTopologyTool, type TopologyAICallbacks } from '../lib/topologyAITools';
+import { getTopologyTools, executeTopologyTool, isTopologyTool, STRUCTURAL_TOPOLOGY_TOOLS, type TopologyAICallbacks } from '../lib/topologyAITools';
 import type { SessionContextEntry } from '../api/ai';
 import type { NetBoxNeighbor } from '../api/netbox';
 import { buildLiveContext, stripLiveContext, computeStateSummary, shouldGuardCommand, type LiveContextDeps, type WorkspaceStateSummary } from '../lib/aiLiveContext';
@@ -54,7 +54,6 @@ import {
   type AgentState,
   type AgentMessage,
   type PendingCommand,
-  type PermissionMode,
   createUserMessage,
   createThinkingMessage,
   createCommandResultMessage,
@@ -64,14 +63,13 @@ import {
 } from '../api/agent';
 import { listSessions as apiListSessions, listFolders as apiListFolders, updateSession as apiUpdateSession, createSession, createFolder, type CliFlavor, type Session, type Folder, hasConsoleAccess, type TabProtocol } from '../api/sessions';
 import { listProfiles } from '../api/profiles';
-import { confirmDialog } from '../components/ConfirmDialog';
 import { listEnterpriseSessionDefinitions, listUserFolders as apiListUserFolders } from '../api/enterpriseSessions';
 import { getCurrentMode } from '../api/client';
 import { parseApiError, getErrorMessage } from '../api/errors';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { useAuthStore } from '../stores/authStore';
 import { getSystemPrompt as getSystemPromptFn, type AgentType } from '../lib/aiModes';
-import { getTopologyPrompt, DEFAULT_TOPOLOGY_PROMPT, getAllModePrompts, checkAiCommands, getServerToolSchemas, execServerTool } from '../api/ai';
+import { getTopologyPrompt, DEFAULT_TOPOLOGY_PROMPT, getAllModePrompts, checkAiCommands, getServerToolSchemas, execServerTool, getAiConfigModeStatus } from '../api/ai';
 import type { Document, DocumentCategory } from '../api/docs';
 import { listMcpServers, executeMcpTool, type McpServer } from '../api/mcp';
 import { createTask, getTask } from '../api/tasks';
@@ -84,7 +82,7 @@ import { searchDocsKb, readDocsKb } from '../api/docsKb';
 import { listApiResources, executeInlineQuickAction } from '../api/quickActions';
 
 // Re-export types for consumers
-export type { AgentState, AgentMessage, PendingCommand, PermissionMode };
+export type { AgentState, AgentMessage, PendingCommand };
 export type { TopologyAICallbacks } from '../lib/topologyAITools';
 export { TOPOLOGY_SYSTEM_PROMPT } from '../lib/topologyAITools';  // Re-export for consumers
 
@@ -355,9 +353,6 @@ export interface UseAIAgentOptions {
   onOpenConsole?: (sessionId: string) => Promise<void>;
   liveContextDeps?: LiveContextDeps;
 
-  // Permission mode (ask/auto/yolo) - defaults to 'auto'
-  permissionMode?: PermissionMode;
-
   // AI Provider selection (optional - uses saved settings if not provided)
   provider?: AiProviderType;
   model?: string;
@@ -402,12 +397,9 @@ export interface UseAIAgentOptions {
   onTopologyDeviceUpdated?: (topologyId: string) => void;
 
   // Topology AI tools callbacks (Phase 27-07)
-  // When provided, enables AI to query/modify/analyze the active topology
+  // When provided, enables AI to query/modify/analyze the active topology.
+  // Structural tools are withheld unless ai.topology.allowStructuralEdits is on.
   topologyCallbacks?: TopologyAICallbacks;
-  // When false (default), structural topology tools (add/remove/move devices &
-  // connections, structural updates) are withheld — the AI can still query,
-  // analyze, highlight, and annotate. Gated by ai.topology.allowStructuralEdits.
-  allowStructuralTopologyEdits?: boolean;
 
   // Active session context — the currently focused terminal tab
   activeSessionId?: string;
@@ -430,7 +422,9 @@ export interface UseAIAgentOptions {
   // Initial messages (for continuing a conversation from popup/floating chat)
   initialMessages?: AgentMessage[];
 
-  // Agent type for system prompt and tool filtering
+  // Agent type for system prompt, tool filtering and permissions: its
+  // `ai.disabledTools.<agentType>` and `ai.permissionMode.<agentType>` settings
+  // decide which tool calls run, need approval, or are refused.
   agentType?: AgentType;
 
   // Streaming mode — use SSE streaming instead of batch API
@@ -512,27 +506,6 @@ export function unsanitizeToolName(name: string, map: ToolNameMap): string {
   return map.get(name) ?? name;
 }
 
-// Tools that mutate a device/host/file and therefore require explicit user
-// approval when the agent runs in 'ask' mode. `run_command` was the only
-// gated tool historically; the others bypassed the approval gate entirely.
-export const NEEDS_APPROVAL: ReadonlySet<string> = new Set([
-  'run_command', 'ai_ssh_execute', 'run_bash', 'write_file', 'edit_file', 'patch_file',
-  'open_console', 'run_console_command',
-]);
-
-/**
- * Resolve a `command` / `commands[]` tool input into a command list.
- * Returns [] when neither is present (the tool itself reports the error).
- */
-export function resolveCommandList(input: Record<string, unknown>): string[] {
-  const list = input.commands;
-  if (Array.isArray(list) && list.length > 0) {
-    return list.filter((c): c is string => typeof c === 'string');
-  }
-  const single = input.command;
-  return typeof single === 'string' && single.length > 0 ? [single] : [];
-}
-
 /** Human-readable label for a tool call — used for approval rows and result messages. */
 export function describeToolCall(toolName: string, input: Record<string, unknown>): string {
   const str = (k: string): string => (typeof input[k] === 'string' ? (input[k] as string) : '');
@@ -612,46 +585,23 @@ export interface ApprovalRequest {
   command: string;
   sessionId: string;
   sessionName?: string;
-  validation: ValidationResult;
+  /** Why the call needs approval (from the permission resolver) */
+  reason: string;
 }
 
 /**
- * Build the approval row for a gated tool call. Handles both `command` and
- * `commands[]` inputs (the batch form used to crash here with `undefined.trim()`).
+ * Build the approval row for a tool call the permission resolver put to the
+ * user. Any tool can land here (Ask mode gates them all); the row shows the
+ * call (`command`/`commands[]` batches included) and the resolver's reason.
  */
-export function buildApprovalRequest(
-  toolUse: ToolUseResponse,
-  resolveFlavor: (sessionId: string) => CliFlavor | undefined,
-): ApprovalRequest {
+export function buildApprovalRequest(toolUse: ToolUseResponse, reason: string): ApprovalRequest {
   const { id, name, input } = toolUse;
   const sessionId = typeof input.session_id === 'string' ? input.session_id : '';
-  const command = describeToolCall(name, input);
-  switch (name) {
-    case 'run_command':
-    case 'run_console_command':
-    case 'ai_ssh_execute':
-      return {
-        id, name, command, sessionId,
-        validation: validateReadOnlyCommands(resolveCommandList(input), resolveFlavor(sessionId)),
-      };
-    case 'open_console':
-      return {
-        id, name, command, sessionId,
-        validation: { allowed: true, command },
-      };
-    case 'run_bash':
-      return {
-        id, name, command, sessionId,
-        sessionName: 'local host',
-        validation: validateReadOnlyCommands(resolveCommandList(input), 'linux'),
-      };
-    default:
-      // File-mutating tools: never "read-only"; surface as needing review.
-      return {
-        id, name, command, sessionId,
-        validation: { allowed: false, reason: 'Modifies a file on the remote host', command },
-      };
-  }
+  return {
+    id, name, sessionId, reason,
+    command: describeToolCall(name, input),
+    ...(name === 'run_bash' ? { sessionName: 'local host' } : {}),
+  };
 }
 
 // Cap on the number of tool-result characters shown in the UI for non-command
@@ -776,7 +726,6 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onOpenSession,
     onOpenConsole,
     liveContextDeps,
-    permissionMode = 'auto' as PermissionMode,
     provider,
     model,
     onboardingMode = false,
@@ -806,7 +755,6 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onTopologyDeviceUpdated,
     // Topology AI tools callbacks (Phase 27-07)
     topologyCallbacks,
-    allowStructuralTopologyEdits = false,
     // Active session context
     activeSessionId,
     activeSessionName,
@@ -1006,12 +954,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   const [libreNmsSources, setLibreNmsSources] = useState<LibreNmsSource[]>([]);
   const [netstacksCrawlerSources, setNetstacksCrawlerSources] = useState<NetStacksCrawlerSource[]>([]);
 
-  // Get disabled tools from settings — per-agent-type key
-  const allSettings = getSettings();
-  const agentTypeKey = `ai.disabledTools.${agentType}` as keyof typeof allSettings;
-  const disabledToolsKey = JSON.stringify(
-    (allSettings[agentTypeKey] as string[]) || []
-  );
+  // Settings drive the tool list and every permission decision (lib/aiPermissions)
+  const { settings } = useSettings();
+  const disabledToolsKey = JSON.stringify(settings[`ai.disabledTools.${agentType}`]);
+  const allowStructuralTopologyEdits = settings['ai.topology.allowStructuralEdits'];
 
   // Build available tools based on what callbacks are provided
   const isEnterprise = getCurrentMode() === 'enterprise';
@@ -1032,8 +978,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       hasMcpServers: mcpServers.length > 0,
       hasRemoteFiles: aiTerminalMode,
       hasBackupAnalysis: isEnterprise,
-      hasBash: agentType === 'autopilot',
       hasUINavigation: !!(onNavigateToBackup || onNavigateToDevice || onNavigateToMop || onNavigateToTopology),
+      hasSettingsNavigation: !!onNavigateToSettings,
       isEnterprise,
     }, disabledTools);
   }, [
@@ -1043,8 +989,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onAnalyzeChangeDiff, onSuggestPreChecks, onValidateChangeResult,
     onDiscoverNeighbors, onAddNeighborToTopology,
     onNetBoxGetNeighbors, onNetBoxImportTopology,
-    onCreateMop, mcpServers.length, aiTerminalMode, isEnterprise, disabledToolsKey, agentType,
-    onNavigateToBackup, onNavigateToDevice, onNavigateToMop, onNavigateToTopology,
+    onCreateMop, mcpServers.length, aiTerminalMode, isEnterprise, disabledToolsKey,
+    onNavigateToBackup, onNavigateToDevice, onNavigateToMop, onNavigateToTopology, onNavigateToSettings,
     libreNmsSources.length, netstacksCrawlerSources.length,
   ]);
 
@@ -1136,11 +1082,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       topoTools = getTopologyTools(topologyCallbacks) as unknown as AgentTool[];
       if (!allowStructuralTopologyEdits) {
         // Withhold structural tools; keep query/analyze/highlight/annotate/export/path.
-        const STRUCTURAL = new Set([
-          'topology_add_device', 'topology_remove', 'topology_move',
-          'topology_add_connection', 'topology_update',
-        ]);
-        topoTools = topoTools.filter(t => !STRUCTURAL.has(t.name));
+        topoTools = topoTools.filter(t => !STRUCTURAL_TOPOLOGY_TOOLS.has(t.name));
       }
     }
     return [
@@ -2013,17 +1955,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
           if (devices.length === 0) {
             return { content: `No devices with both "${nameField}" and "${hostField}" found in the response.`, is_error: true };
           }
-          // Preview + explicit confirm before creating anything.
           const folderName = input.folder ? String(input.folder).trim() : '';
-          const sample = devices.slice(0, 8).map(d => `• ${d.name} (${d.host})`).join('\n');
-          const ok = await confirmDialog({
-            title: 'Onboard devices?',
-            body: `Create ${devices.length} session${devices.length === 1 ? '' : 's'} using profile "${profile.name}"${folderName ? ` in folder "${folderName}"` : ''}?\n\n${sample}${devices.length > 8 ? `\n…and ${devices.length - 8} more` : ''}`,
-            confirmLabel: `Onboard ${devices.length}`,
-          });
-          if (!ok) {
-            return { content: 'User cancelled onboarding — no sessions created.', is_error: false };
-          }
           // Optional folder.
           let folderId: string | undefined;
           if (folderName) {
@@ -3237,13 +3169,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     commands: ApprovalRequest[]
   ): Promise<boolean> => {
     const pending: PendingCommand[] = commands.map(c => {
-      const session = sessions.find(s => s.id === c.sessionId);
+      const session = sessions.find(s => sessionMatches(s, c.sessionId));
       return {
         id: c.id,
         command: c.command,
         sessionId: c.sessionId,
         sessionName: c.sessionName || session?.name || c.sessionId,
-        validation: c.validation,
+        toolName: c.name,
+        reason: c.reason,
       };
     });
 
@@ -3258,7 +3191,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
   // Execute one turn's tool calls. Shared by the streaming and non-streaming
   // loops. Invariants:
-  //   - 'ask' mode gates every tool in NEEDS_APPROVAL (not just run_command);
+  //   - every call goes through resolveToolPermission (settings are the only
+  //     source of truth): denied calls never run, calls that need approval are
+  //     batched into one approval card, the rest run;
   //   - Reject / Stop executes NOTHING else in the turn;
   //   - every tool_use gets a tool_result (synthesized when skipped), so an
   //     early break can never leave an orphaned tool_use that 400s the next call.
@@ -3266,50 +3201,62 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     toolUses: ToolUseResponse[]
   ): Promise<ContentBlock[]> => {
     const toolResults: ContentBlock[] = [];
-    const resolveFlavor = (sessionId: string): CliFlavor | undefined =>
-      sessionFlavorOverridesRef.current.get(sessionId)
-      ?? sessions.find(s => s.id === sessionId)?.cliFlavor;
+    const showResult = (toolUse: ToolUseResponse, result: ToolResult) => {
+      // run_command keeps its full output (the terminal transcript); other
+      // tools get a compact row. exitCode carries the error state so the panel
+      // shows failed calls as failures, not a uniform green check (NS-AI-37).
+      const sessionId = typeof toolUse.input.session_id === 'string' ? toolUse.input.session_id : '';
+      const session = sessions.find(s => sessionMatches(s, sessionId));
+      const isTerminal = toolUse.name === 'run_command' || toolUse.name === 'run_console_command';
+      addMessage(createCommandResultMessage(
+        describeToolCall(toolUse.name, toolUse.input),
+        isTerminal ? result.content : displayToolResult(result.content, result.is_error),
+        sessionId,
+        session?.name || (isTerminal ? sessionId : ''),
+        result.is_error ? 1 : 0
+      ));
+    };
 
-    const gated = permissionMode === 'ask'
-      ? toolUses.filter(t => NEEDS_APPROVAL.has(t.name))
-      : [];
+    // Config Mode is sidecar state and only matters to device command tools;
+    // in enterprise the Controller enforces read-only device commands itself.
+    const enterprise = useCapabilitiesStore.getState().isEnterprise?.() ?? false;
+    const configMode = !enterprise && toolUses.some(t => DEVICE_COMMAND_TOOLS.has(t.name))
+      ? await getAiConfigModeStatus().then(status => status.enabled, () => false)
+      : false;
+    const ctx = permissionContext(settings, agentType, {
+      terminalMode: aiTerminalMode,
+      configMode,
+      enterprise,
+      enabledMcpTools: new Set(mcpServersRef.current.flatMap(server =>
+        server.tools.filter(tool => tool.enabled).map(tool => `mcp:${server.id}:${tool.name}`))),
+    });
+
+    const runnable: ToolUseResponse[] = [];
+    const approvals: ApprovalRequest[] = [];
+    for (const toolUse of toolUses) {
+      const verdict = resolveToolPermission(toolUse.name, toolUse.input, ctx);
+      if (verdict.decision === 'deny') {
+        const result = { content: `Not permitted: ${verdict.reason}`, is_error: true };
+        showResult(toolUse, result);
+        toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, ...result });
+        continue;
+      }
+      if (verdict.decision === 'ask') approvals.push(buildApprovalRequest(toolUse, verdict.reason));
+      runnable.push(toolUse);
+    }
+
     let rejected = false;
-    if (gated.length > 0) {
-      const approved = await waitForApproval(gated.map(t => buildApprovalRequest(t, resolveFlavor)));
+    if (approvals.length > 0) {
+      const approved = await waitForApproval(approvals);
       rejected = !approved || stopRequestedRef.current;
     }
 
     if (!rejected) {
       setAgentState('executing');
-      for (const toolUse of toolUses) {
+      for (const toolUse of runnable) {
         if (stopRequestedRef.current) break;
-
         const result = await executeTool(toolUse.name, toolUse.input);
-
-        // Surface every tool result in the UI. run_command keeps its full
-        // output (the terminal transcript); other tools get a compact row.
-        const sessionId = typeof toolUse.input.session_id === 'string' ? toolUse.input.session_id : '';
-        const session = sessions.find(s => s.id === sessionId);
-        // exitCode carries the error state so the panel can show failed tool
-        // calls as failures instead of a uniform green check (NS-AI-37).
-        if (toolUse.name === 'run_command' || toolUse.name === 'run_console_command') {
-          addMessage(createCommandResultMessage(
-            describeToolCall(toolUse.name, toolUse.input),
-            result.content,
-            sessionId,
-            session?.name || sessionId,
-            result.is_error ? 1 : 0
-          ));
-        } else {
-          addMessage(createCommandResultMessage(
-            describeToolCall(toolUse.name, toolUse.input),
-            displayToolResult(result.content, result.is_error),
-            sessionId,
-            session?.name || '',
-            result.is_error ? 1 : 0
-          ));
-        }
-
+        showResult(toolUse, result);
         toolResults.push({
           type: 'tool_result',
           tool_use_id: toolUse.id,
@@ -3319,14 +3266,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       }
     }
 
-    const gatedIds = new Set(gated.map(t => t.id));
+    const gatedIds = new Set(approvals.map(a => a.id));
     return completeToolResults(toolUses, toolResults, (tu) => {
       if (stopRequestedRef.current) return 'Cancelled by user';
       return gatedIds.has(tu.id)
-        ? 'User rejected this command execution.'
+        ? 'User rejected this tool call.'
         : 'Skipped: the user rejected this turn\'s pending actions.';
     });
-  }, [permissionMode, sessions, waitForApproval, executeTool, addMessage]);
+  }, [settings, agentType, aiTerminalMode, sessions, waitForApproval, executeTool, addMessage]);
 
   // Call the agent-chat API
   const callAgentApi = useCallback(async (

@@ -58,19 +58,6 @@
   line-height: 1.4;
 }
 
-/* Loading state */
-.topology-canvas3d-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: rgba(30, 30, 30, 0.9);
-  color: var(--color-text-secondary, #858585);
-  font-size: var(--font-size-small, 12px);
-  z-index: 10;
-}
-
 /* Container focus state */
 .topology-canvas3d-container:focus-within {
   outline: 1px solid var(--color-accent, #007acc);
@@ -84,7 +71,7 @@
   padding: 8px 12px;
   background-color: rgba(37, 37, 38, 0.9);
   border: 1px solid #454545;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-secondary, #858585);
   font-size: 11px;
   z-index: 10;
@@ -97,7 +84,7 @@
   background-color: #333;
   border: 1px solid #555;
   border-radius: 3px;
-  font-family: monospace;
+  font-family: var(--font-family-mono);
   font-size: 10px;
   margin: 0 2px;
 }
@@ -107,40 +94,14 @@
   position: absolute;
   top: 16px;
   right: 16px;
-  display: flex;
-  gap: 4px;
   z-index: 10;
+  background: var(--color-bg-secondary);
 }
 
-.topology-canvas3d-mode-btn {
-  display: flex;
+.topology-canvas3d-mode-toggle .ns-segment {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background-color: rgba(37, 37, 38, 0.9);
-  border: 1px solid #454545;
-  border-radius: 4px;
-  color: var(--color-text-secondary, #858585);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.topology-canvas3d-mode-btn:hover {
-  background-color: rgba(60, 60, 60, 0.9);
-  color: var(--color-text-primary, #cccccc);
-}
-
-.topology-canvas3d-mode-btn.active {
-  background-color: var(--color-accent, #007acc);
-  border-color: var(--color-accent, #007acc);
-  color: white;
-}
-
-.topology-canvas3d-mode-btn svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* Fly mode instruction overlay */
@@ -152,7 +113,7 @@
   padding: 16px 24px;
   background-color: rgba(0, 0, 0, 0.8);
   border: 1px solid #454545;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   color: white;
   text-align: center;
   z-index: 20;
@@ -177,7 +138,7 @@
   background-color: #333;
   border: 1px solid #555;
   border-radius: 3px;
-  font-family: monospace;
+  font-family: var(--font-family-mono);
   font-size: 11px;
   margin: 0 2px;
 }
@@ -190,7 +151,7 @@
   transform: translateX(-50%);
   padding: 6px 12px;
   background-color: rgba(0, 0, 0, 0.7);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--color-text-secondary, #858585);
   font-size: 11px;
   z-index: 15;
@@ -203,7 +164,7 @@
   background-color: #333;
   border: 1px solid #555;
   border-radius: 2px;
-  font-family: monospace;
+  font-family: var(--font-family-mono);
   font-size: 10px;
   margin: 0 2px;
 }
@@ -246,11 +207,3 @@
 }
 
 /* Fade-in animation */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}

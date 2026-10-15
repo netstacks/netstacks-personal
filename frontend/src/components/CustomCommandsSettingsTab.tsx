@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   listCustomCommands,
   createCustomCommand,
@@ -12,12 +12,15 @@ import { extractActionVariables } from '../lib/quickActionVariables';
 import type { QuickAction } from '../types/quickAction';
 import type { DetectionType } from '../types/detection';
 import './CustomCommandsSettingsTab.css';
+import SettingsSection from './settings/SettingsSection';
+import SettingsItem from './settings/SettingsItem';
 import AITabInput from './AITabInput';
 import { confirmDialog } from './ConfirmDialog';
 import { showToast } from './Toast';
 import { getErrorMessage } from '../api/errors';
 import { isMac } from '../hooks/useKeyboard';
 
+import DialogFooter from './DialogFooter';
 const DETECTION_TYPE_OPTIONS: { value: DetectionType; label: string }[] = [
   { value: 'ipv4', label: 'IPv4' },
   { value: 'ipv6', label: 'IPv6' },
@@ -274,8 +277,8 @@ export default function CustomCommandsSettingsTab() {
       : formScriptId);
 
   const renderForm = () => (
-    <div className="custom-command-form">
-      <div className="custom-command-form-field">
+    <div className="settings-form">
+      <div className="form-group">
         <label>Name</label>
         <AITabInput
           value={formName}
@@ -288,23 +291,23 @@ export default function CustomCommandsSettingsTab() {
           onAIValue={(v) => setFormName(v)}
         />
       </div>
-      <div className="custom-command-form-field">
+      <div className="form-group">
         <label>Action Type</label>
-        <div className="custom-command-type-toggle">
+        <div className="ns-segmented">
           <button
-            className={formActionType === 'terminal' ? 'active' : ''}
+            className={`ns-segment ${formActionType === 'terminal' ? 'active' : ''}`}
             onClick={() => setFormActionType('terminal')}
           >
             Terminal Command
           </button>
           <button
-            className={formActionType === 'quick_action' ? 'active' : ''}
+            className={`ns-segment ${formActionType === 'quick_action' ? 'active' : ''}`}
             onClick={() => setFormActionType('quick_action')}
           >
             API Quick Action
           </button>
           <button
-            className={formActionType === 'script' ? 'active' : ''}
+            className={`ns-segment ${formActionType === 'script' ? 'active' : ''}`}
             onClick={() => setFormActionType('script')}
           >
             Script
@@ -312,7 +315,7 @@ export default function CustomCommandsSettingsTab() {
         </div>
       </div>
       {formActionType === 'terminal' ? (
-        <div className="custom-command-form-field">
+        <div className="form-group">
           <label>Command</label>
           <AITabInput
             value={formCommand}
@@ -324,23 +327,24 @@ export default function CustomCommandsSettingsTab() {
             onAIValue={(v) => setFormCommand(v)}
           />
           {formMode === 'dynamic' && (
-            <span className="custom-command-form-hint">
+            <p className="form-hint">
               Use &#123;value&#125; as placeholder for the detected value (e.g., IP address, MAC)
-            </span>
+            </p>
           )}
         </div>
       ) : formActionType === 'script' ? (
         <>
           {eligibleScripts.length === 0 ? (
-            <div className="custom-command-form-field">
-              <span className="custom-command-form-hint">
+            <div className="form-group">
+              <p className="form-hint">
                 No eligible scripts found. Scripts must have 0 or 1 parameter in their main() function.
-              </span>
+              </p>
             </div>
           ) : (
-            <div className="custom-command-form-field">
+            <div className="form-group">
               <label>Script</label>
-              <select
+              <select aria-label="Script"
+                className="ns-select"
                 value={formScriptId}
                 onChange={e => setFormScriptId(e.target.value)}
               >
@@ -358,9 +362,9 @@ export default function CustomCommandsSettingsTab() {
                 const analysis = scriptAnalyses[formScriptId];
                 const hasParam = analysis?.has_main && analysis.params.length === 1;
                 return hasParam ? (
-                  <span className="custom-command-form-hint">
+                  <p className="form-hint">
                     The detected value will be passed as the &ldquo;{analysis!.params[0].name}&rdquo; parameter
-                  </span>
+                  </p>
                 ) : null;
               })()}
             </div>
@@ -369,16 +373,17 @@ export default function CustomCommandsSettingsTab() {
       ) : (
         <>
           {eligibleQuickActions.length === 0 ? (
-            <div className="custom-command-form-field">
-              <span className="custom-command-form-hint">
+            <div className="form-group">
+              <p className="form-hint">
                 No eligible quick actions found. Actions must have exactly 1 variable.
                 Create one in Settings &rarr; API Resources first.
-              </span>
+              </p>
             </div>
           ) : (
-            <div className="custom-command-form-field">
+            <div className="form-group">
               <label>Quick Action</label>
-              <select
+              <select aria-label="Quick Action"
+                className="ns-select"
                 value={formQuickActionId}
                 onChange={e => {
                   const qaId = e.target.value;
@@ -401,25 +406,25 @@ export default function CustomCommandsSettingsTab() {
                 })}
               </select>
               {formQuickActionId && formMode === 'dynamic' && formQuickActionVariable && (
-                <span className="custom-command-form-hint">
+                <p className="form-hint">
                   The detected value will be passed as the &ldquo;{formQuickActionVariable}&rdquo; variable
-                </span>
+                </p>
               )}
             </div>
           )}
         </>
       )}
-      <div className="custom-command-form-field">
+      <div className="form-group">
         <label>When to Show</label>
-        <div className="custom-command-type-toggle">
+        <div className="ns-segmented">
           <button
-            className={formMode === 'static' ? 'active' : ''}
+            className={`ns-segment ${formMode === 'static' ? 'active' : ''}`}
             onClick={() => setFormMode('static')}
           >
             Always Show
           </button>
           <button
-            className={formMode === 'dynamic' ? 'active' : ''}
+            className={`ns-segment ${formMode === 'dynamic' ? 'active' : ''}`}
             onClick={() => setFormMode('dynamic')}
           >
             On Detection
@@ -428,9 +433,9 @@ export default function CustomCommandsSettingsTab() {
       </div>
       {formMode === 'dynamic' && (
         <>
-          <div className="custom-command-form-field">
+          <div className="form-group">
             <label>Detection Types</label>
-            <div className="custom-command-detection-types">
+            <div className="settings-form-checks">
               {DETECTION_TYPE_OPTIONS.map(opt => (
                 <label key={opt.value}>
                   <input
@@ -444,49 +449,52 @@ export default function CustomCommandsSettingsTab() {
             </div>
           </div>
           {formDetectionTypes.includes('regex') && (
-            <div className="custom-command-form-field">
+            <div className="form-group">
               <label>Regex Pattern</label>
-              <input
-                type="text"
+              <AITabInput
+                aria-label="Regex pattern"
                 value={formCustomRegex}
                 onChange={e => setFormCustomRegex(e.target.value)}
                 placeholder="e.g., [a-zA-Z][a-zA-Z0-9-]*(?:\.[a-zA-Z0-9-]+){2,}"
-                className="custom-command-regex-input"
+                className="settings-code"
                 spellCheck={false}
+                aiField="detection regex"
+                aiPlaceholder="Regex matching the terminal text this custom action applies to (the match becomes the detected value)"
+                aiContext={{ actionName: formName, command: formCommand }}
+                onAIValue={setFormCustomRegex}
               />
-              <span className="custom-command-form-hint">
+              <p className="form-hint">
                 Regex to match text in terminal output. Matched text becomes the detected value.
-              </span>
+              </p>
             </div>
           )}
         </>
       )}
-      <div className="custom-command-enabled-toggle">
-        <input
-          type="checkbox"
-          checked={formEnabled}
-          onChange={e => setFormEnabled(e.target.checked)}
-          id="custom-cmd-enabled"
-        />
-        <label htmlFor="custom-cmd-enabled">Enabled</label>
-      </div>
-      {isMac() && (
-        <div className="custom-command-enabled-toggle">
+      <div className="settings-form-checks">
+        <label>
           <input
             type="checkbox"
-            checked={formShowInForceClick}
-            onChange={e => setFormShowInForceClick(e.target.checked)}
-            id="custom-cmd-force-click"
+            checked={formEnabled}
+            onChange={e => setFormEnabled(e.target.checked)}
           />
-          <label htmlFor="custom-cmd-force-click">Enable in Force Touch Menu</label>
-        </div>
-      )}
-      <div className="custom-command-form-actions">
-        <button className="btn-cancel" onClick={handleCancel}>Cancel</button>
-        <button className="btn-save" onClick={handleSave} disabled={!isFormValid}>
-          {editingId ? 'Update' : 'Save'}
-        </button>
+          Enabled
+        </label>
+        {isMac() && (
+          <label>
+            <input
+              type="checkbox"
+              checked={formShowInForceClick}
+              onChange={e => setFormShowInForceClick(e.target.checked)}
+            />
+            Enable in Force Touch Menu
+          </label>
+        )}
       </div>
+      <DialogFooter
+        primary={{ label: editingId ? 'Update' : 'Save', onClick: handleSave, disabled: !isFormValid }}
+        onCancel={handleCancel}
+        inline
+      />
     </div>
   );
 
@@ -503,75 +511,73 @@ export default function CustomCommandsSettingsTab() {
   };
 
   return (
-    <div className="custom-commands-settings">
-      <div className="custom-commands-section">
-        <div className="custom-commands-section-header">
-          <span className="custom-commands-section-title">Custom Actions</span>
-          {!isCreating && !editingId && (
-            <button className="btn-new-custom-command" onClick={handleCreateNew}>
-              + New Action
-            </button>
-          )}
-        </div>
-        <p className="custom-commands-section-description">
-          Add custom actions to the terminal right-click context menu. Static commands always appear;
-          dynamic commands appear when right-clicking a detected value (IP, MAC, etc.).
-        </p>
+    <SettingsSection
+        title="Custom Actions"
+        description="Actions in the terminal right-click menu. Static ones always appear; dynamic ones appear on a detected value (IP, MAC, …)."
+        help={{
+          topic: 'custom actions',
+          prompt: `Help me create custom actions for the NetStacks terminal right-click menu. I have ${commands.length} action(s)`
+            + (commands.length ? ` (${commands.map(c => c.name).join(', ')})` : '')
+            + '. Explain static vs dynamic actions, which detected value types a dynamic action can bind to, the placeholders available in the command, and running a local command vs sending text to the session. Suggest a few useful ones (ping/traceroute an IP, look up a MAC vendor, show interface for an interface name).',
+        }}
+        actions={!isCreating && !editingId && (
+          <button className="ns-btn ns-btn--small" onClick={handleCreateNew}>+ New action</button>
+        )}
+      >
+
+        {isCreating && renderForm()}
 
         {loading ? (
-          <p className="custom-commands-loading">Loading...</p>
+          <p className="form-hint">Loading…</p>
         ) : loadError && !isCreating ? (
-          <div className="custom-commands-empty">
-            {loadError}
-            <br /><br />
-            <button className="btn-secondary" onClick={() => loadCommands()}>Retry</button>
-          </div>
-        ) : commands.length === 0 && !isCreating ? (
-          <div className="custom-commands-empty">
-            No custom actions configured yet.<br /><br />
-            <strong>Static commands</strong> (e.g., "ping 8.8.8.8") always appear in the right-click menu.<br />
-            <strong>Dynamic commands</strong> (e.g., "show ip route &#123;value&#125;") appear when you right-click
-            a detected identifier like an IP address or MAC.
-          </div>
+          <p className="settings-error">
+            {loadError}{' '}
+            <button className="ns-btn ns-btn--small" onClick={() => loadCommands()}>Retry</button>
+          </p>
+        ) : commands.length === 0 ? (
+          !isCreating && (
+            <p className="form-hint">
+              No custom actions yet. <strong>Static</strong> actions (e.g. "ping 8.8.8.8") always appear in the right-click
+              menu; <strong>dynamic</strong> actions (e.g. "show ip route &#123;value&#125;") appear when you right-click a
+              detected value like an IP address or MAC.
+            </p>
+          )
         ) : (
-          <div className="custom-commands-list">
-            {commands.map(cmd => (
-              <div key={cmd.id} className={`custom-command-item${cmd.enabled ? '' : ' disabled'}`}>
-                {editingId === cmd.id ? (
-                  renderForm()
-                ) : (
+          <div className="settings-group">
+            {commands.map(cmd => editingId === cmd.id ? (
+              <Fragment key={cmd.id}>{renderForm()}</Fragment>
+            ) : (
+              <SettingsItem
+                key={cmd.id}
+                className={cmd.enabled ? undefined : 'custom-commands-disabled'}
+                title={cmd.name}
+                badges={
                   <>
-                    <div className="custom-command-item-header">
-                      <span className="custom-command-item-name">{cmd.name}</span>
-                      {cmd.action_type === 'quick_action' && (
-                        <span className="custom-command-item-badge api">API</span>
-                      )}
-                      {cmd.action_type === 'script' && (
-                        <span className="custom-command-item-badge script">SCRIPT</span>
-                      )}
-                      <span className={`custom-command-item-badge ${cmd.detection_types ? 'dynamic' : 'static'}`}>
-                        {formatDetectionTypes(cmd.detection_types)}
-                      </span>
-                      <div className="custom-command-item-actions">
-                        <button onClick={() => handleToggleEnabled(cmd)} title={cmd.enabled ? 'Disable' : 'Enable'}>
-                          {cmd.enabled ? 'ON' : 'OFF'}
-                        </button>
-                        <button onClick={() => handleEdit(cmd)} title="Edit">Edit</button>
-                        <button onClick={() => handleDelete(cmd.id)} title="Delete">Del</button>
-                      </div>
-                    </div>
-                    <div className="custom-command-item-command">
-                      {getCommandSummary(cmd)}
-                    </div>
+                    {cmd.action_type === 'quick_action' && <span className="settings-badge settings-badge--accent">API</span>}
+                    {cmd.action_type === 'script' && <span className="settings-badge settings-badge--warning">Script</span>}
+                    <span className={cmd.detection_types ? 'settings-badge settings-badge--success' : 'settings-badge'}>
+                      {formatDetectionTypes(cmd.detection_types)}
+                    </span>
                   </>
-                )}
-              </div>
+                }
+                meta={<code>{getCommandSummary(cmd)}</code>}
+                actions={
+                  <>
+                    <button
+                      className="ns-btn ns-btn--small ns-btn--ghost"
+                      aria-pressed={cmd.enabled}
+                      onClick={() => handleToggleEnabled(cmd)}
+                    >
+                      {cmd.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleEdit(cmd)}>Edit</button>
+                    <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(cmd.id)}>Delete</button>
+                  </>
+                }
+              />
             ))}
           </div>
         )}
-
-        {isCreating && renderForm()}
-      </div>
-    </div>
+      </SettingsSection>
   );
 }

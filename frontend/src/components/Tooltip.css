@@ -1,0 +1,35 @@
+.ns-tooltip-anchor {
+  display: contents;
+}
+
+.ns-tooltip {
+  position: fixed;
+  z-index: var(--menu-z);
+  padding: 3px 7px;
+  border: 1px solid var(--menu-border);
+  border-radius: var(--radius-control);
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ns-tooltip[hidden] {
+  display: none;
+}
+
+/* Laid out but not yet placed (measured in a layout effect before paint). */
+.ns-tooltip:not([data-placed]) {
+  visibility: hidden;
+}
+
+:root[data-platform='windows'] .ns-tooltip {
+  font-size: 12px;
+}
+
+.ns-tooltip-shortcut {
+  margin-left: var(--spacing-sm);
+  color: var(--color-text-secondary);
+}

@@ -9,16 +9,15 @@ export interface Script {
   id: string;
   name: string;
   content: string;
-  is_template: boolean;
   last_run_at: string | null;
   shared?: boolean;
   owner_name?: string | null;
   is_own?: boolean;
   created_at: string;
   updated_at: string;
-  /** Provenance — `'user'` (default), `'ai'`, or `'template'`.
+  /** Provenance — `'user'` (default) or `'ai'`.
    *  AUDIT FIX (EXEC-014). Standalone-mode only; controller may omit. */
-  created_by?: 'user' | 'ai' | 'template';
+  created_by?: 'user' | 'ai';
   /** Approval flag for AI-authored scripts. False means the user must call
    *  approveScript() before runScript() will be accepted by the backend. */
   approved?: boolean;
@@ -27,18 +26,12 @@ export interface Script {
 export interface NewScript {
   name: string;
   content: string;
-  is_template?: boolean;
   shared?: boolean;
-  /** Optional provenance hint. The backend ignores anything other than
-   *  `'user'` from API callers — true AI provenance is set via the
-   *  `X-NetStacks-AI-Origin` header (see `createScriptAsAi` below). */
-  created_by?: 'user' | 'template';
 }
 
 export interface UpdateScript {
   name?: string;
   content?: string;
-  is_template?: boolean;
   shared?: boolean;
 }
 
@@ -142,7 +135,6 @@ export async function createScript(script: NewScript): Promise<Script> {
       const { data } = await getClient().http.post('/scripts', {
         name: script.name,
         content: script.content,
-        is_template: script.is_template || false,
         shared: script.shared || false,
       });
       return data;

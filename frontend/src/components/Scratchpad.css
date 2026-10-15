@@ -5,7 +5,7 @@
   z-index: var(--z-popover);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
@@ -62,36 +62,6 @@
   display: flex;
   gap: 4px;
   flex-shrink: 0;
-}
-
-.scratchpad-btn {
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  cursor: pointer;
-  line-height: 16px;
-}
-
-.scratchpad-btn:hover {
-  background: var(--color-bg-hover);
-}
-
-.scratchpad-btn-primary {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #fff;
-}
-
-.scratchpad-btn-primary:hover {
-  filter: brightness(1.08);
-}
-
-.scratchpad-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .scratchpad-body {
@@ -171,6 +141,6 @@
 }
 
 .scratchpad-footer-pos {
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-family-mono);
   font-size: 11px;
 }

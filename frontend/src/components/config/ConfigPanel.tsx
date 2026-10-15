@@ -8,7 +8,7 @@ import {
   renderConfigTemplate,
   createConfigStack,
 } from '../../api/configManagement';
-import { useClampedMenuPosition } from '../../hooks/useClampedMenuPosition';
+import ContextMenu from '../ContextMenu';
 import type {
   ConfigTemplate,
   ConfigStack,
@@ -18,8 +18,10 @@ import type {
 import VariableInputs from './VariableInputs';
 import './VariableInputs.css';
 import './ConfigPanel.css';
+import SearchField from '../SearchField';
 
 import { getErrorMessage } from '../../api/errors'
+import Tooltip from '../Tooltip';
 type ConfigPanelTab = 'templates' | 'stacks';
 
 // ============================================================================
@@ -246,20 +248,6 @@ export default function ConfigPanel({ onOpenTemplateTab, onOpenStackTab, onOpenI
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; stack: ConfigStack } | null>(null);
-  const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu);
-
-  // Close context menu on click/right-click anywhere
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const preventDefault = (e: MouseEvent) => { e.preventDefault(); close(); };
-    document.addEventListener('click', close);
-    document.addEventListener('contextmenu', preventDefault);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('contextmenu', preventDefault);
-    };
-  }, [contextMenu]);
 
   // Duplicate a stack
   const handleDuplicateStack = useCallback(async (stack: ConfigStack) => {
@@ -399,14 +387,9 @@ export default function ConfigPanel({ onOpenTemplateTab, onOpenStackTab, onOpenI
   ) => (
     <div className="stacks-sidebar">
       <div className="stacks-sidebar-header">
-        <input
-          className="stacks-search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={placeholder}
-        />
+        <SearchField className="stacks-search" value={searchQuery} onChange={setSearchQuery} placeholder={placeholder} />
         {onAdd && (
-          <button className="stacks-add-btn" onClick={onAdd} title="Create new">+</button>
+          <Tooltip label="Create new"><button aria-label="Create new" className="ns-btn ns-btn--primary ns-icon-btn" onClick={onAdd}>+</button></Tooltip>
         )}
       </div>
       <div className="stacks-list">
@@ -515,17 +498,10 @@ export default function ConfigPanel({ onOpenTemplateTab, onOpenStackTab, onOpenI
     return (
       <div className="stacks-panel" ref={panelRef}>
         <div className="stacks-sidebar" style={{ width: '100%' }}>
-          <div className="stacks-search" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-              type="text"
-              className="stacks-search-input"
-              placeholder="Search stacks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ flex: 1 }}
-            />
+          <div className="stacks-sidebar-header">
+            <SearchField className="stacks-search" placeholder="Search stacks..." value={searchQuery} onChange={setSearchQuery} />
             {onCreateStack && (
-              <button className="stacks-add-btn" onClick={onCreateStack} title="Create new stack">+</button>
+              <Tooltip label="Create new stack"><button aria-label="Create new stack" className="ns-btn ns-btn--primary ns-icon-btn" onClick={onCreateStack}>+</button></Tooltip>
             )}
           </div>
           <div className="stacks-list">
@@ -620,11 +596,11 @@ export default function ConfigPanel({ onOpenTemplateTab, onOpenStackTab, onOpenI
 
   return (
     <div className="stacks-panel-container">
-      <div className="stacks-panel-tabs">
+      <div className="stacks-panel-tabs ns-segmented">
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            className={`stacks-panel-tab ${activeTab === tab.id ? 'active' : ''}`}
+            className={`ns-segment ${activeTab === tab.id ? 'active' : ''}`}
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.label}
@@ -633,29 +609,15 @@ export default function ConfigPanel({ onOpenTemplateTab, onOpenStackTab, onOpenI
       </div>
       {renderTab()}
 
-      {/* Stack context menu */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="stacks-context-menu"
-          style={contextMenuStyle}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div
-            className="stacks-context-menu-item"
-            onClick={() => { handleDuplicateStack(contextMenu.stack); setContextMenu(null); }}
-          >
-            Duplicate Stack
-          </div>
-          <div className="stacks-context-menu-divider" />
-          <div
-            className="stacks-context-menu-item"
-            onClick={() => { onCreateStack?.(); setContextMenu(null); }}
-          >
-            New Stack
-          </div>
-        </div>
-      )}
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? [
+          { id: 'duplicate', label: 'Duplicate Stack', action: () => { void handleDuplicateStack(contextMenu.stack); } },
+          { id: 'new-divider', label: '', divider: true, action: () => {} },
+          { id: 'new-stack', label: 'New Stack', action: () => onCreateStack?.() },
+        ] : []}
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   );
 }

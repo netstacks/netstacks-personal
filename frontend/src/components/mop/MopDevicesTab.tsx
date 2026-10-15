@@ -10,6 +10,8 @@ import type { DeviceSummary } from '../../api/enterpriseDevices';
 import type { AccessibleProfile } from '../../types/enterpriseProfile';
 import { STEP_TYPE_COLORS, STEP_TYPE_LETTERS } from './constants';
 import { sortPlanSteps, stepAppliesToDevice } from './mopHelpers';
+import SearchField from '../SearchField';
+import Tooltip from '../Tooltip';
 
 // Shared checkbox SVG components (duplicated from MopWorkspace since they are module-private)
 function CheckboxChecked() {
@@ -102,11 +104,12 @@ function DeviceVariablesPanel({ deviceId, deviceName, variables, overrides, setD
           <Fragment key={v.name}>
               <label className="mop-device-vars-name" htmlFor={`mop-dv-${deviceId}-${v.name}`}>
                 {`{{${v.name}}}`}
-                {v.required && <span className="required" title="Required">*</span>}
+                {v.required && <Tooltip label="Required"><span className="required">*</span></Tooltip>}
               </label>
-              <input
+              <input data-ai-fill="off"
                 id={`mop-dv-${deviceId}-${v.name}`}
-                className={`mop-variables-input mono ${v.required && !effective ? 'invalid' : ''}`}
+                className="ns-input mop-variables-input mono"
+                aria-invalid={v.required && !effective}
                 value={override}
                 onChange={(e) => setDeviceVariable(deviceId, v.name, e.target.value)}
                 placeholder={v.value ? `${v.value} (plan default)` : v.required ? '(required — no default)' : '(empty)'}
@@ -131,16 +134,15 @@ interface DeviceVariablesToggleProps {
 function DeviceVariablesToggle({ deviceId, overrides, expanded, onToggle }: DeviceVariablesToggleProps) {
   const n = Object.values(overrides).filter(v => v !== '').length;
   return (
-    <button
+    <Tooltip label="Per-device variable values"><button
       type="button"
-      className={`mop-device-vars-toggle ${expanded ? 'active' : ''} ${n > 0 ? 'overridden' : ''}`}
+      className={`ns-btn ns-btn--ghost ns-btn--small mop-device-vars-toggle ${expanded ? 'active' : ''} ${n > 0 ? 'overridden' : ''}`}
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
       aria-expanded={expanded}
       aria-controls={`mop-device-vars-${deviceId}`}
-      title="Per-device variable values"
     >
       Variables{n > 0 ? ` (${n} overridden)` : ''}
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -203,29 +205,24 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
     <div className="mop-devices-tab">
       {/* Toolbar */}
       <div className="mop-devices-toolbar">
-        <div className="mop-devices-search">
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" opacity="0.5">
-            <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 110-10 5 5 0 010 10z" />
-          </svg>
-          <input
-            value={deviceSearch}
-            onChange={(e) => setDeviceSearch(e.target.value)}
-            placeholder={isEnterprise ? 'Search devices by name, host, site...' : 'Search sessions by name or host...'}
-          />
-        </div>
+        <SearchField
+          className="mop-devices-search"
+          value={deviceSearch}
+          onChange={setDeviceSearch}
+          placeholder={isEnterprise ? 'Search devices by name, host, site...' : 'Search sessions by name or host...'}
+        />
         <div className="mop-devices-toolbar-actions">
           <span className="mop-devices-count">
             {isFiltered
               ? `${visibleSelected} of ${totalCount} shown selected (${selectedDeviceIds.size} total)`
               : `${selectedDeviceIds.size} of ${totalCount} selected`}
           </span>
-          <button
-            className="mop-workspace-header-btn"
+          <Tooltip label={isFiltered ? 'Applies to the rows matching the search' : undefined}><button
+            className="ns-btn mop-workspace-header-btn"
             onClick={allSelected ? deselectAllDevices : selectAllDevices}
-            title={isFiltered ? 'Applies to the rows matching the search' : undefined}
           >
             {allSelected ? (isFiltered ? 'Deselect Shown' : 'Deselect All') : (isFiltered ? 'Select Shown' : 'Select All')}
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
@@ -271,8 +268,8 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                 </div>
                 {/* Credential override selector (only for selected devices) */}
                 {selectedDeviceIds.has(device.id) && accessibleCredentials.length > 0 && (
-                  <select
-                    className="mop-device-credential-select"
+                  <Tooltip label="Credential override for this device"><select aria-label="Credential override"
+                    className="ns-select mop-device-credential-select"
                     value={credentialOverrides.get(device.id) || ''}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => {
@@ -287,7 +284,6 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                         return next;
                       });
                     }}
-                    title="Credential override for this device"
                   >
                     <option value="">Default Profile</option>
                     {accessibleCredentials.map(profile => (
@@ -295,7 +291,7 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                         {profile.name} ({profile.auth_mode === 'ssh_key' ? 'Key' : profile.auth_mode === 'certificate' ? 'Cert' : profile.auth_mode === 'password' ? 'Password' : 'No auth'})
                       </option>
                     ))}
-                  </select>
+                  </select></Tooltip>
                 )}
                 {selectedDeviceIds.has(device.id) && hasVariables && (
                   <DeviceVariablesToggle
@@ -406,8 +402,7 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                           const isAllScope = !step.device_scope || step.device_scope === 'all';
 
                           return (
-                            <td
-                              key={step.id}
+                            <Tooltip key={step.id} label={isAllScope ? 'All devices (click to exclude this device)' : isActive ? 'Click to exclude' : 'Click to include'}><td
                               className={`mop-matrix-cell ${isActive ? 'active' : ''} ${isAllScope ? 'all-scope' : ''}`}
                               onClick={() => {
                                 if (isAllScope) {
@@ -438,7 +433,6 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                                 }
                                 markDirty();
                               }}
-                              title={isAllScope ? 'All devices (click to exclude this device)' : isActive ? 'Click to exclude' : 'Click to include'}
                             >
                               {isActive ? (
                                 <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
@@ -447,7 +441,7 @@ export default function MopDevicesTab(props: MopDevicesTabProps) {
                               ) : (
                                 <span className="mop-matrix-empty" />
                               )}
-                            </td>
+                            </td></Tooltip>
                           );
                         })
                       }

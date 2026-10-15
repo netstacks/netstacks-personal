@@ -4,6 +4,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { Device } from '../types/topology';
 import './SessionQuickLook.css';
+import Tooltip from './Tooltip';
 
 interface SessionQuickLookProps {
   /** Device to show session preview for */
@@ -144,13 +145,13 @@ export default function SessionQuickLook({
             )}
           </div>
         </div>
-        <button
-          className="session-quicklook-close"
+        <Tooltip label="Close (Escape)"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={onClose}
-          title="Close (Escape)"
+          aria-label="Close (Escape)"
         >
           {Icons.close}
-        </button>
+        </button></Tooltip>
       </div>
 
       {/* Terminal Preview Area */}
@@ -206,7 +207,7 @@ export default function SessionQuickLook({
       {/* Actions */}
       <div className="session-quicklook-actions">
         <button
-          className="session-quicklook-action primary"
+          className="ns-btn ns-btn--primary session-quicklook-action"
           onClick={handleOpenInTerminal}
         >
           {Icons.expand}
@@ -214,7 +215,7 @@ export default function SessionQuickLook({
         </button>
         {onOpenAIChat && (
           <button
-            className="session-quicklook-action"
+            className="ns-btn session-quicklook-action"
             onClick={handleOpenAIChat}
           >
             {Icons.ai}

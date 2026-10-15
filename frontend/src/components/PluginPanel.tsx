@@ -6,6 +6,7 @@ import type { PluginColumnDef, PluginActionDef } from '../types/capabilities';
 import './PluginPanel.css';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface PluginPanelProps {
   pluginName: string;       // Plugin identifier for API routes
   panelId: string;          // Panel ID from manifest
@@ -22,6 +23,12 @@ type RowData = Record<string, unknown>;
 /** Plugin data response format */
 interface PluginDataResponse {
   data?: RowData[];
+}
+
+const PLUGIN_ACTION_VARIANT: Record<NonNullable<PluginActionDef['style']>, string> = {
+  default: '',
+  primary: 'ns-btn--primary',
+  danger: 'ns-btn--danger',
 }
 
 export const PluginPanel: React.FC<PluginPanelProps> = ({
@@ -196,18 +203,18 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
     <div className="plugin-panel">
       <div className="plugin-panel-header">
         <div className="plugin-panel-title">{label}</div>
-        <button
-          className="plugin-panel-refresh-btn"
+        <Tooltip label="Refresh"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn plugin-panel-refresh-btn"
           onClick={handleRefresh}
           disabled={isLoading}
-          title="Refresh"
+          aria-label="Refresh"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="23 4 23 10 17 10" />
             <polyline points="1 20 1 14 7 14" />
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       {isLoading && rows.length === 0 && (
@@ -220,7 +227,7 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
       {error && (
         <div className="plugin-panel-error">
           <div>Error: {error}</div>
-          <button onClick={handleRefresh}>Retry</button>
+          <button className="ns-btn ns-btn--small" onClick={handleRefresh}>Retry</button>
         </div>
       )}
 
@@ -254,19 +261,17 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
                           const actionKey = `${action.id}-${row.id}`;
                           const isActionLoading = actionLoading === actionKey;
                           return (
-                            <button
-                              key={action.id}
-                              className={`plugin-panel-action-btn ${action.style || 'default'}`}
+                            <Tooltip key={action.id} label={action.label}><button aria-label={action.label}
+                              className={`ns-btn ${PLUGIN_ACTION_VARIANT[action.style ?? 'default']}`}
                               onClick={() => executeAction(action, row)}
                               disabled={isActionLoading}
-                              title={action.label}
                             >
                               {isActionLoading ? (
                                 <span className="plugin-panel-spinner-small" />
                               ) : (
                                 action.label
                               )}
-                            </button>
+                            </button></Tooltip>
                           );
                         })}
                       </td>
@@ -284,7 +289,7 @@ export const PluginPanel: React.FC<PluginPanelProps> = ({
                 return (
                   <button
                     key={action.id}
-                    className={`plugin-panel-action-btn ${action.style || 'default'}`}
+                    className={`ns-btn ${PLUGIN_ACTION_VARIANT[action.style ?? 'default']}`}
                     onClick={() => executeAction(action)}
                     disabled={isActionLoading}
                   >

@@ -1,43 +1,15 @@
-.clipboard-settings kbd {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 0 4px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-}
-
-.clipboard-settings-btn {
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.clipboard-settings-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.clipboard-settings-btn.danger:not(:disabled) {
-  color: var(--color-error, #f14c4c);
-  border-color: rgba(241, 76, 76, 0.5);
-}
-
-.clipboard-presets {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-sm);
+.clipboard-int-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
 }
 
 .clipboard-preset {
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
 }
 
 .clipboard-preset-head {
@@ -56,13 +28,12 @@
   display: flex;
   gap: var(--spacing-md);
   align-items: flex-start;
-  margin-top: 8px;
 }
 
 .clipboard-preset-row-label {
   flex: none;
   width: 190px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-small);
   color: var(--color-text-secondary);
   padding-top: 3px;
 }
@@ -80,13 +51,12 @@
   background: transparent;
   color: var(--color-text-secondary);
   font-size: 11px;
-  cursor: pointer;
 }
 
 .clipboard-chip.active {
   color: var(--color-accent);
   border-color: var(--color-accent);
-  background: rgba(0, 122, 204, 0.12);
+  background: var(--color-accent-tint-10);
 }
 
 .clipboard-transforms {
@@ -99,13 +69,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-small);
   color: var(--color-text-primary);
-  cursor: pointer;
-}
-
-.clipboard-preset-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-sm);
 }

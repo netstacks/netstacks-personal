@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getErrorMessage } from '../api/errors';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import { useMode } from '../hooks/useMode';
 import './SessionSettingsDialog.css';
 import {
@@ -28,11 +27,15 @@ import { listProfiles, type CredentialProfile } from '../api/profiles';
 import { TERMINAL_THEMES } from '../lib/terminalThemes';
 import AITabInput from './AITabInput';
 import SessionContextEditor from './SessionContextEditor';
+import AskAiHelp from './AskAiHelp';
 import DeviceMemoryEditor from './DeviceMemoryEditor';
 import ProfileEditorDialog from './ProfileEditorDialog';
 import Switch from './Switch';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface SessionSettingsDialogProps {
   isOpen: boolean;
   session: Session | null;  // null = create mode, session = edit mode
@@ -43,6 +46,8 @@ interface SessionSettingsDialogProps {
   onPreviewFont?: (fontSize: number | null, fontFamily: string | null) => void;
   /** Tab to show when the dialog opens (default: General). */
   initialTab?: SessionSettingsTab;
+  /** Context entry to show expanded when the dialog opens on the Context tab. */
+  initialContextId?: string;
   /** When set, the dialog was opened from "Open Console" on a session without
    *  console access: it offers a "Save & Open Console" action that saves and
    *  then hands the saved session back so the caller can open the console. */
@@ -120,7 +125,7 @@ function ClampedNumberInput({ id, value, min, max, onCommit, style }: ClampedNum
   }
 
   return (
-    <input
+    <input className="ns-input"
       id={id}
       type="number"
       value={text}
@@ -150,6 +155,7 @@ function SessionSettingsDialog({
   defaultFolderId,
   onPreviewFont,
   initialTab,
+  initialContextId,
   onSaveAndOpenConsole,
 }: SessionSettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SessionSettingsTab>('general');
@@ -167,12 +173,6 @@ function SessionSettingsDialog({
   const nameInputRef = useRef<HTMLInputElement>(null);
   const hasAITools = useCapabilitiesStore((s) => s.hasFeature('local_ai_tools'));
 
-  // Drag state
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
-  const dialogRef = useRef<HTMLDivElement>(null);
-
   const isEditing = !!session;
   const selectedProfile = profiles.find((p) => p.id === selectedProfileId) ?? null;
 
@@ -184,7 +184,7 @@ function SessionSettingsDialog({
 
   const [protocol, setProtocol] = useState<Protocol>('ssh');
 
-  // SSH tab state — jump is encoded as a single string so a single <select>
+  // SSH tab state — jump is encoded as a single string so a single <select className="ns-select">
   // can offer both kinds in optgroups (mutually exclusive at the data layer):
   //   ''             — inherit from profile
   //   'host:<id>'    — use a JumpHost record
@@ -556,64 +556,6 @@ function SessionSettingsDialog({
     onClose();
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({
-    onDismiss: handleClose,
-    clickOutside: false,
-    enabled: isOpen && !saving,
-  });
-
-  // Drag handlers
-  const handleDragStart = (e: React.MouseEvent) => {
-    // Only start drag from header, not from close button
-    if ((e.target as HTMLElement).closest('.settings-dialog-close')) return;
-
-    setIsDragging(true);
-    const dialog = dialogRef.current;
-    if (dialog) {
-      const rect = dialog.getBoundingClientRect();
-      dragOffset.current = {
-        x: e.clientX - rect.left - rect.width / 2,
-        y: e.clientY - rect.top - rect.height / 2,
-      };
-    }
-  };
-
-  const handleDragMove = (e: MouseEvent) => {
-    if (!isDragging) return;
-
-    // Calculate new position (offset from the centered origin)
-    let newX = e.clientX - window.innerWidth / 2 - dragOffset.current.x;
-    let newY = e.clientY - window.innerHeight / 2 - dragOffset.current.y;
-
-    // Clamp so the dialog can never be dragged off-screen (otherwise the header
-    // — the only drag handle — becomes unreachable and the dialog is stuck).
-    const dialog = dialogRef.current;
-    if (dialog) {
-      const margin = 8;
-      const maxX = Math.max(0, (window.innerWidth - dialog.offsetWidth) / 2 - margin);
-      const maxY = Math.max(0, (window.innerHeight - dialog.offsetHeight) / 2 - margin);
-      newX = Math.max(-maxX, Math.min(maxX, newX));
-      newY = Math.max(-maxY, Math.min(maxY, newY));
-    }
-
-    setPosition({ x: newX, y: newY });
-  };
-
-  const handleDragEnd = () => {
-    setIsDragging(false);
-  };
-
-  // Add/remove global mouse listeners for drag
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleDragMove);
-      window.addEventListener('mouseup', handleDragEnd);
-      return () => {
-        window.removeEventListener('mousemove', handleDragMove);
-        window.removeEventListener('mouseup', handleDragEnd);
-      };
-    }
-  }, [isDragging]);
 
   // Auto-switch default port when protocol changes (only in create mode)
   useEffect(() => {
@@ -640,13 +582,6 @@ function SessionSettingsDialog({
     }
   }, [selectedProfileId, isEditing, profiles]);
 
-  // Reset position when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      setPosition({ x: 0, y: 0 });
-    }
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   // In create mode, only show General and SSH tabs (others require saved session)
@@ -662,255 +597,262 @@ function SessionSettingsDialog({
   const availableTabs = tabs.filter(tab => !tab.requiresSession || isEditing);
 
   return (
-    <div className="settings-dialog-overlay" {...backdropProps}>
-      <div
-        ref={dialogRef}
-        className="settings-dialog"
-        style={{
-          transform: `translate(${position.x}px, ${position.y}px)`,
-        }}
-        {...contentProps}
-      >
-        <div
-          className="settings-dialog-header"
-          onMouseDown={handleDragStart}
-        >
-          <h2>{isEditing ? `Edit Session: ${session.name}` : 'New Session'}</h2>
-          <button className="settings-dialog-close" onClick={handleClose} title="Close">
+    <ModalFrame id="session-settings" modal={false} onDismiss={handleClose} dismissEnabled={!saving} className="settings-dialog" label={isEditing ? `Edit Session: ${session.name}` : 'New Session'}>
+      <div className="settings-dialog-header">
+        <h2>{isEditing ? `Edit Session: ${session.name}` : 'New Session'}</h2>
+        <div className="settings-dialog-header-actions">
+          {activeTab === 'ssh' && (
+            <AskAiHelp
+              topic="SSH connection settings"
+              prompt={`Help me with this session's SSH settings: host ${host || '(not set)'}:${port}, credential profile ${selectedProfile ? `"${selectedProfile.name}" (${selectedProfile.auth_type})` : 'not selected'}, jump ${jumpSelection ? 'set' : 'inherited from the profile'}. `
+                + 'Explain credential profiles vs per-session settings, how the jump/bastion choice works (a Jump Host record or another session), local/dynamic port forwards, and the legacy SSH algorithms option for old devices — and what to check when the connection fails.'}
+            />
+          )}
+          {activeTab === 'console' && (
+            <AskAiHelp
+              topic="console access"
+              prompt={`Help me set up out-of-band console access for this session. Terminal server: ${consoleHost ? `${consoleHost}:${consolePort || '(no port)'} over ${consoleProtocol}` : 'not set'}, login profile ${consoleProfileId ? 'selected' : 'not selected'}. `
+                + 'Explain how the terminal-server port maps to the serial line (e.g. Opengear SSH 3000+N, Cisco async Telnet 2000+N), which credentials log into the terminal server, reaching it through a jump host, and the legacy SSH option for old terminal servers.'}
+            />
+          )}
+          <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleClose} aria-label="Close">
             {Icons.close}
+          </button></Tooltip>
+        </div>
+      </div>
+
+      <div className="settings-dialog-tabs">
+        {availableTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`settings-dialog-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
           </button>
-        </div>
+        ))}
+      </div>
 
-        <div className="settings-dialog-tabs">
-          {availableTabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={`settings-dialog-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="settings-dialog-content">
+        {error && <div className="settings-dialog-error">{error}</div>}
 
-        <div className="settings-dialog-content">
-          {error && <div className="settings-dialog-error">{error}</div>}
+        {/* General Tab */}
+        {activeTab === 'general' && (
+          <div className="settings-tab-content">
+            <div className="form-group">
+              <label htmlFor="session-name">Session Name</label>
+              <AITabInput
+                ref={nameInputRef}
+                id="session-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My Server"
+                aiField="session_name"
+                aiPlaceholder="Display name for this saved SSH/telnet session"
+                aiContext={{ host, protocol }}
+                onAIValue={(v) => setName(v)}
+              />
+            </div>
 
-          {/* General Tab */}
-          {activeTab === 'general' && (
-            <div className="settings-tab-content">
-              <div className="form-group">
-                <label htmlFor="session-name">Session Name</label>
-                <AITabInput
-                  ref={nameInputRef}
-                  id="session-name"
+            <div className="form-group">
+              <label htmlFor="session-protocol">Protocol</label>
+              <select className="ns-select"
+                id="session-protocol"
+                value={protocol}
+                onChange={(e) => setProtocol(e.target.value as Protocol)}
+              >
+                {PROTOCOL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group flex-grow">
+                <label htmlFor="session-host">Host</label>
+                <input data-ai-fill="off" className="ns-input"
+                  id="session-host"
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="My Server"
-                  aiField="session_name"
-                  aiPlaceholder="Display name for this saved SSH/telnet session"
-                  aiContext={{ host, protocol }}
-                  onAIValue={(v) => setName(v)}
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  placeholder="192.168.1.1 or hostname"
                 />
               </div>
+              <div className="form-group" style={{ width: '120px' }}>
+                <label htmlFor="session-port">Port</label>
+                <ClampedNumberInput
+                  id="session-port"
+                  value={port}
+                  onCommit={setPort}
+                  min={1}
+                  max={65535}
+                />
+              </div>
+            </div>
 
+            {folders.length > 0 && (
               <div className="form-group">
-                <label htmlFor="session-protocol">Protocol</label>
-                <select
-                  id="session-protocol"
-                  value={protocol}
-                  onChange={(e) => setProtocol(e.target.value as Protocol)}
+                <label htmlFor="session-folder">Folder</label>
+                <select className="ns-select"
+                  id="session-folder"
+                  value={folderId || ''}
+                  onChange={(e) => setFolderId(e.target.value || null)}
                 >
-                  {PROTOCOL_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
+                  <option value="">No folder</option>
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.name}
                     </option>
                   ))}
                 </select>
               </div>
+            )}
+          </div>
+        )}
 
-              <div className="form-row">
-                <div className="form-group flex-grow">
-                  <label htmlFor="session-host">Host</label>
-                  <input
-                    id="session-host"
-                    type="text"
-                    value={host}
-                    onChange={(e) => setHost(e.target.value)}
-                    placeholder="192.168.1.1 or hostname"
-                  />
-                </div>
-                <div className="form-group" style={{ width: '120px' }}>
-                  <label htmlFor="session-port">Port</label>
-                  <ClampedNumberInput
-                    id="session-port"
-                    value={port}
-                    onCommit={setPort}
-                    min={1}
-                    max={65535}
-                  />
-                </div>
-              </div>
-
-              {folders.length > 0 && (
-                <div className="form-group">
-                  <label htmlFor="session-folder">Folder</label>
-                  <select
-                    id="session-folder"
-                    value={folderId || ''}
-                    onChange={(e) => setFolderId(e.target.value || null)}
-                  >
-                    <option value="">No folder</option>
-                    {folders.map((folder) => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* SSH Tab */}
-          {activeTab === 'ssh' && (
-            <div className="settings-tab-content">
-              {/* Profile Selector (Required) */}
-              <div className="form-section profile-section">
-                <h3>Credential Profile <span className="required-marker">*</span></h3>
-                <div className="form-group">
-                  {profiles.length === 0 ? (
-                    <div className="profile-warning">
-                      <span>No credential profiles configured.</span>
+        {/* SSH Tab */}
+        {activeTab === 'ssh' && (
+          <div className="settings-tab-content">
+            {/* Profile Selector (Required) */}
+            <div className="form-section profile-section">
+              <h3>Credential Profile <span className="required-marker">*</span></h3>
+              <div className="form-group">
+                {profiles.length === 0 ? (
+                  <div className="profile-warning">
+                    <span>No credential profiles configured.</span>
+                    <button
+                      type="button"
+                      className="ns-btn"
+                      onClick={() => setProfileEditorOpen(true)}
+                    >
+                      + Create Profile
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <select aria-label="Credential profile"
+                      id="credential-profile"
+                      value={selectedProfileId}
+                      onChange={(e) => setSelectedProfileId(e.target.value)}
+                      className="ns-select"
+                      aria-invalid={!selectedProfileId}
+                    >
+                      <option value="">Select a profile...</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="form-hint">
+                      {selectedProfile
+                        ? `Uses: ${selectedProfile.username}@:${selectedProfile.port} (${selectedProfile.auth_type})`
+                        : 'All authentication settings come from the selected profile'}
+                      {' · '}
                       <button
                         type="button"
-                        className="btn-secondary profile-create-btn"
+                        className="link-button"
                         onClick={() => setProfileEditorOpen(true)}
                       >
-                        + Create Profile
+                        New profile
                       </button>
-                    </div>
-                  ) : (
-                    <>
-                      <select
-                        id="credential-profile"
-                        value={selectedProfileId}
-                        onChange={(e) => setSelectedProfileId(e.target.value)}
-                        className={!selectedProfileId ? 'error' : ''}
-                      >
-                        <option value="">Select a profile...</option>
-                        {profiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {profile.name}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Jump (Bastion) Section — SSH only. Either a JumpHost record
+                or another Session can be selected as the jump endpoint. */}
+            {!isEnterprise && protocol === 'ssh' && <div className="form-section">
+              <h3>Jump (Bastion)</h3>
+              <p className="form-hint">
+                Connect through an intermediary SSH server. You can pick another Session
+                as the jump (one source of truth per machine) or a dedicated Jump Host record.
+              </p>
+
+              <div className="form-group">
+                <label htmlFor="jump-host">Jump</label>
+                <select className="ns-select"
+                  id="jump-host"
+                  value={jumpSelection}
+                  onChange={(e) => setJumpSelection(e.target.value)}
+                >
+                  {(() => {
+                    // The "inherit" option label reflects what the profile would
+                    // give us — could be a JumpHost OR a Session OR direct.
+                    const profile = selectedProfile;
+                    let inheritedName = 'direct';
+                    if (profile?.jump_host_id) {
+                      inheritedName = jumpHosts.find(j => j.id === profile.jump_host_id)?.name ?? '(deleted jump host)';
+                    } else if (profile?.jump_session_id) {
+                      const sess = jumpSessions.find(s => s.id === profile.jump_session_id);
+                      inheritedName = sess ? `session: ${sess.name}` : '(deleted session)';
+                    }
+                    return (
+                      <option value="">{`Inherit from profile (${inheritedName})`}</option>
+                    );
+                  })()}
+                  {jumpSessions.length > 0 && (
+                    <optgroup label="Sessions">
+                      {jumpSessions
+                        // Don't let the user pick THIS session as its own jump.
+                        .filter((s) => !session || s.id !== session.id)
+                        .map((s) => (
+                          <option key={`session:${s.id}`} value={`session:${s.id}`}>
+                            {s.name} ({s.host})
                           </option>
                         ))}
-                      </select>
-                      <span className="form-hint">
-                        {selectedProfile
-                          ? `Uses: ${selectedProfile.username}@:${selectedProfile.port} (${selectedProfile.auth_type})`
-                          : 'All authentication settings come from the selected profile'}
-                        {' · '}
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => setProfileEditorOpen(true)}
-                        >
-                          New profile
-                        </button>
-                      </span>
-                    </>
+                    </optgroup>
                   )}
-                </div>
+                  {jumpHosts.length > 0 && (
+                    <optgroup label="Jump Hosts">
+                      {jumpHosts.map((jh) => {
+                        const jumpProfile = profiles.find(p => p.id === jh.profile_id);
+                        return (
+                          <option key={`host:${jh.id}`} value={`host:${jh.id}`}>
+                            {jh.name} ({jumpProfile?.username || '?'}@{jh.host}:{jh.port})
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+                </select>
+                <span className="form-hint">
+                  By default the session inherits the jump configured on its profile.
+                  Pick a different one here to override. Manage Jump Host records in
+                  Settings &gt; Jump Hosts.
+                </span>
               </div>
 
-              {/* Jump (Bastion) Section — SSH only. Either a JumpHost record
-                  or another Session can be selected as the jump endpoint. */}
-              {!isEnterprise && protocol === 'ssh' && <div className="form-section">
-                <h3>Jump (Bastion)</h3>
-                <p className="form-hint">
-                  Connect through an intermediary SSH server. You can pick another Session
-                  as the jump (one source of truth per machine) or a dedicated Jump Host record.
-                </p>
-
-                <div className="form-group">
-                  <label htmlFor="jump-host">Jump</label>
-                  <select
-                    id="jump-host"
-                    value={jumpSelection}
-                    onChange={(e) => setJumpSelection(e.target.value)}
-                  >
-                    {(() => {
-                      // The "inherit" option label reflects what the profile would
-                      // give us — could be a JumpHost OR a Session OR direct.
-                      const profile = selectedProfile;
-                      let inheritedName = 'direct';
-                      if (profile?.jump_host_id) {
-                        inheritedName = jumpHosts.find(j => j.id === profile.jump_host_id)?.name ?? '(deleted jump host)';
-                      } else if (profile?.jump_session_id) {
-                        const sess = jumpSessions.find(s => s.id === profile.jump_session_id);
-                        inheritedName = sess ? `session: ${sess.name}` : '(deleted session)';
-                      }
-                      return (
-                        <option value="">{`Inherit from profile (${inheritedName})`}</option>
-                      );
-                    })()}
-                    {jumpSessions.length > 0 && (
-                      <optgroup label="Sessions">
-                        {jumpSessions
-                          // Don't let the user pick THIS session as its own jump.
-                          .filter((s) => !session || s.id !== session.id)
-                          .map((s) => (
-                            <option key={`session:${s.id}`} value={`session:${s.id}`}>
-                              {s.name} ({s.host})
-                            </option>
-                          ))}
-                      </optgroup>
-                    )}
-                    {jumpHosts.length > 0 && (
-                      <optgroup label="Jump Hosts">
-                        {jumpHosts.map((jh) => {
-                          const jumpProfile = profiles.find(p => p.id === jh.profile_id);
-                          return (
-                            <option key={`host:${jh.id}`} value={`host:${jh.id}`}>
-                              {jh.name} ({jumpProfile?.username || '?'}@{jh.host}:{jh.port})
-                            </option>
-                          );
-                        })}
-                      </optgroup>
-                    )}
-                  </select>
-                  <span className="form-hint">
-                    By default the session inherits the jump configured on its profile.
-                    Pick a different one here to override. Manage Jump Host records in
-                    Settings &gt; Jump Hosts.
-                  </span>
+              {/* "Used as jump by N" hint — visible when editing an existing
+                  session that other artifacts depend on. */}
+              {jumpDependents && (jumpDependents.sessions.length > 0
+                  || jumpDependents.tunnels.length > 0
+                  || jumpDependents.profiles.length > 0) && (
+                <div className="form-hint">
+                  <strong>Used as jump by:</strong>{' '}
+                  {[
+                    jumpDependents.sessions.length > 0 && `${jumpDependents.sessions.length} session(s)`,
+                    jumpDependents.tunnels.length > 0 && `${jumpDependents.tunnels.length} tunnel(s)`,
+                    jumpDependents.profiles.length > 0 && `${jumpDependents.profiles.length} profile(s)`,
+                  ].filter(Boolean).join(', ')}.
+                  {' '}This session must remain a leaf — adding a jump here will be rejected by the agent.
                 </div>
+              )}
+            </div>}
 
-                {/* "Used as jump by N" hint — visible when editing an existing
-                    session that other artifacts depend on. */}
-                {jumpDependents && (jumpDependents.sessions.length > 0
-                    || jumpDependents.tunnels.length > 0
-                    || jumpDependents.profiles.length > 0) && (
-                  <div className="form-hint" style={{ marginTop: '0.5rem' }}>
-                    <strong>Used as jump by:</strong>{' '}
-                    {[
-                      jumpDependents.sessions.length > 0 && `${jumpDependents.sessions.length} session(s)`,
-                      jumpDependents.tunnels.length > 0 && `${jumpDependents.tunnels.length} tunnel(s)`,
-                      jumpDependents.profiles.length > 0 && `${jumpDependents.profiles.length} profile(s)`,
-                    ].filter(Boolean).join(', ')}.
-                    {' '}This session must remain a leaf — adding a jump here will be rejected by the agent.
-                  </div>
-                )}
-              </div>}
+            {/* Port Forwarding Section (Phase 06.3) - SSH only */}
+            {protocol === 'ssh' && <div className="form-section">
+              <h3>Port Forwarding</h3>
+              <p className="form-hint">
+                Create SSH tunnels to access remote services locally or expose local services to the remote host.
+              </p>
 
-              {/* Port Forwarding Section (Phase 06.3) - SSH only */}
-              {protocol === 'ssh' && <div className="form-section">
-                <h3>Port Forwarding</h3>
-                <p className="form-hint">
-                  Create SSH tunnels to access remote services locally or expose local services to the remote host.
-                </p>
-
+              {portForwards.length > 0 && (
                 <div className="port-forwards-list">
                   {portForwards.map((fwd) => (
                     <div key={fwd.id} className={`port-forward-item ${!fwd.enabled ? 'disabled' : ''}`}>
@@ -924,148 +866,149 @@ function SessionSettingsDialog({
                         {PORT_FORWARD_TYPE_OPTIONS.find(o => o.value === fwd.forward_type)?.label || fwd.forward_type}
                       </span>
                       <span className="port-forward-spec">{formatPortForward(fwd)}</span>
-                      <button
-                        className="port-forward-delete"
+                      <Tooltip label="Delete"><button
+                        className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
                         onClick={() => handleDeletePortForward(fwd.id)}
-                        title="Delete"
+                        aria-label="Delete"
                       >
                         {Icons.trash}
-                      </button>
+                      </button></Tooltip>
                     </div>
                   ))}
                 </div>
+              )}
 
-                <div className="port-forward-add">
-                  <select
-                    value={newForwardType}
-                    onChange={(e) => setNewForwardType(e.target.value as PortForwardType)}
-                    className="port-forward-type-select"
-                    title="Forward type"
-                  >
-                    {PORT_FORWARD_TYPE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value} title={opt.description}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    placeholder="Local port"
-                    value={newLocalPort}
-                    onChange={(e) => setNewLocalPort(e.target.value ? parseInt(e.target.value) : '')}
-                    className="port-forward-input port-forward-local"
-                    min={1}
-                    max={65535}
-                  />
-                  {newForwardType !== 'dynamic' && (
-                    <>
-                      <span className="port-forward-arrow">
-                        {newForwardType === 'local' ? '->' : '<-'}
-                      </span>
-                      <input
-                        type="text"
-                        placeholder="Remote host"
-                        value={newRemoteHost}
-                        onChange={(e) => setNewRemoteHost(e.target.value)}
-                        className="port-forward-input port-forward-host"
-                      />
-                      <input
-                        type="number"
-                        placeholder="Port"
-                        value={newRemotePort}
-                        onChange={(e) => setNewRemotePort(e.target.value ? parseInt(e.target.value) : '')}
-                        className="port-forward-input port-forward-remote"
-                        min={1}
-                        max={65535}
-                      />
-                    </>
-                  )}
-                  <button
-                    className="btn-icon"
-                    onClick={handleAddPortForward}
-                    disabled={
-                      newLocalPort === '' ||
-                      (newForwardType !== 'dynamic' && (!newRemoteHost.trim() || newRemotePort === ''))
-                    }
-                    title="Add port forward"
-                  >
-                    {Icons.plus}
-                  </button>
-                </div>
-              </div>}
-
-              {/* Legacy SSH Section - SSH only */}
-              {protocol === 'ssh' && <div className="form-section">
-                <h3>Compatibility</h3>
-                <p className="form-hint">
-                  Options for connecting to older or specialized network devices.
-                </p>
-
-                <div className="form-group">
-                  <div className="setting-row">
-                    <div>
-                      <label>Legacy SSH Algorithms</label>
-                      <span className="form-hint">
-                        Enable older, less secure algorithms for compatibility with legacy devices (e.g., older Cisco switches, HP ProCurve, etc.).
-                      </span>
-                    </div>
-                    <Switch checked={legacySsh} onChange={setLegacySsh} label="Legacy SSH Algorithms" />
-                  </div>
-                </div>
-              </div>}
-
-              {/* SFTP Starting Directory - SSH only */}
-              {protocol === 'ssh' && <div className="form-group">
-                <label htmlFor="sftp-start-path">SFTP Starting Directory</label>
+              <div className="port-forward-add">
+                <Tooltip label="Forward type"><select aria-label="Forward type"
+                  value={newForwardType}
+                  onChange={(e) => setNewForwardType(e.target.value as PortForwardType)}
+                  className="ns-select port-forward-type-select"
+                >
+                  {PORT_FORWARD_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value} title={opt.description}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select></Tooltip>
                 <input
-                  id="sftp-start-path"
-                  type="text"
-                  value={sftpStartPath}
-                  onChange={(e) => setSftpStartPath(e.target.value)}
-                  placeholder="e.g. /var/log or disk0:/ (optional)"
-                  className="form-input"
+                  type="number"
+                  placeholder="Local port"
+                  value={newLocalPort}
+                  onChange={(e) => setNewLocalPort(e.target.value ? parseInt(e.target.value) : '')}
+                  className="ns-input port-forward-local"
+                  min={1}
+                  max={65535}
                 />
-                <span className="form-hint">
-                  Directory to open when starting SFTP. Leave empty for auto-detect based on device type.
-                </span>
-              </div>}
-            </div>
-          )}
+                {newForwardType !== 'dynamic' && (
+                  <>
+                    <span className="port-forward-arrow">
+                      {newForwardType === 'local' ? '->' : '<-'}
+                    </span>
+                    <input data-ai-fill="off"
+                      type="text"
+                      placeholder="Remote host"
+                      value={newRemoteHost}
+                      onChange={(e) => setNewRemoteHost(e.target.value)}
+                      className="ns-input port-forward-host"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Port"
+                      value={newRemotePort}
+                      onChange={(e) => setNewRemotePort(e.target.value ? parseInt(e.target.value) : '')}
+                      className="ns-input port-forward-remote"
+                      min={1}
+                      max={65535}
+                    />
+                  </>
+                )}
+                <Tooltip label="Add port forward"><button
+                  className="ns-btn ns-btn--primary ns-icon-btn"
+                  onClick={handleAddPortForward}
+                  disabled={
+                    newLocalPort === '' ||
+                    (newForwardType !== 'dynamic' && (!newRemoteHost.trim() || newRemotePort === ''))
+                  }
+                  aria-label="Add port forward"
+                >
+                  {Icons.plus}
+                </button></Tooltip>
+              </div>
+            </div>}
 
-          {/* Console Tab — OOB console access via a terminal server */}
-          {activeTab === 'console' && (
-            <div className="settings-tab-content">
-              <div className="form-section">
-                <h3>Console Access</h3>
-                <p className="form-hint">
-                  Out-of-band console via a terminal server (Opengear, Cisco async, Avocent, Lantronix, …).
-                  NetStacks connects to the terminal server on the port mapped to this device&apos;s serial
-                  line; the resulting shell is the device console. Leave empty to disable.
-                </p>
+            {/* Legacy SSH Section - SSH only */}
+            {protocol === 'ssh' && <div className="form-section">
+              <h3>Compatibility</h3>
+              <p className="form-hint">
+                Options for connecting to older or specialized network devices.
+              </p>
 
-                <div className="form-group">
-                  <label htmlFor="console-protocol">Protocol</label>
-                  <select
-                    id="console-protocol"
-                    value={consoleProtocol}
-                    onChange={(e) => setConsoleProtocol(e.target.value as Protocol)}
-                  >
-                    {PROTOCOL_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+              <div className="form-group">
+                <div className="setting-row">
+                  <div>
+                    <label>Legacy SSH Algorithms</label>
+                    <span className="form-hint">
+                      Enable older, less secure algorithms for compatibility with legacy devices (e.g., older Cisco switches, HP ProCurve, etc.).
+                    </span>
+                  </div>
+                  <Switch checked={legacySsh} onChange={setLegacySsh} label="Legacy SSH Algorithms" />
                 </div>
+              </div>
+            </div>}
 
+            {/* SFTP Starting Directory - SSH only */}
+            {protocol === 'ssh' && <div className="form-group">
+              <label htmlFor="sftp-start-path">SFTP Starting Directory</label>
+              <input data-ai-fill="off"
+                id="sftp-start-path"
+                type="text"
+                value={sftpStartPath}
+                onChange={(e) => setSftpStartPath(e.target.value)}
+                placeholder="e.g. /var/log or disk0:/ (optional)"
+                className="ns-input"
+              />
+              <span className="form-hint">
+                Directory to open when starting SFTP. Leave empty for auto-detect based on device type.
+              </span>
+            </div>}
+          </div>
+        )}
+
+        {/* Console Tab — OOB console access via a terminal server */}
+        {activeTab === 'console' && (
+          <div className="settings-tab-content">
+            <div className="form-section">
+              <h3>Console Access</h3>
+              <p className="form-hint">
+                Out-of-band console via a terminal server (Opengear, Cisco async, Avocent, Lantronix, …).
+                NetStacks connects to the terminal server on the port mapped to this device&apos;s serial
+                line; the resulting shell is the device console. Leave empty to disable.
+              </p>
+
+              <div className="form-group">
+                <label htmlFor="console-protocol">Protocol</label>
+                <select className="ns-select"
+                  id="console-protocol"
+                  value={consoleProtocol}
+                  onChange={(e) => setConsoleProtocol(e.target.value as Protocol)}
+                >
+                  {PROTOCOL_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
                 <div className="form-row">
                   <div className="form-group" style={{ flex: 3 }}>
                     <label htmlFor="console-host">Terminal Server</label>
-                    <input
+                    <input data-ai-fill="off"
                       id="console-host"
                       type="text"
                       value={consoleHost}
                       onChange={(e) => setConsoleHost(e.target.value)}
                       placeholder="oob-site1.example.net or 10.0.0.5"
-                      className="form-input"
+                      className="ns-input"
                     />
                   </div>
                   <div className="form-group" style={{ flex: 1 }}>
@@ -1078,328 +1021,333 @@ function SessionSettingsDialog({
                       value={consolePort}
                       onChange={(e) => setConsolePort(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                       placeholder={consoleProtocol === 'telnet' ? '2001' : '3001'}
-                      className="form-input"
+                      className="ns-input"
                     />
                   </div>
                 </div>
                 <span className="form-hint">
                   Opengear: serial port N → SSH 3000+N (Telnet 2000+N). Cisco async line N → Telnet 2000+N.
                 </span>
+              </div>
 
-                <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                  <label htmlFor="console-profile">
-                    Terminal Server Credential Profile
-                    {consoleProtocol === 'telnet' && <span className="form-hint"> (optional)</span>}
-                  </label>
-                  <select
-                    id="console-profile"
-                    value={consoleProfileId}
-                    onChange={(e) => setConsoleProfileId(e.target.value)}
-                    className={consoleProtocol === 'ssh' && consoleHost.trim() && !consoleProfileId ? 'error' : ''}
-                  >
-                    <option value="">{consoleProtocol === 'telnet' ? 'None (no login prompt)' : 'Select a profile...'}</option>
-                    {profiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} ({profile.username})
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Login for the terminal server itself, not the device. A jump configured on this
-                    profile is honoured (for OOB networks behind a bastion).
-                    {' · '}
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => setProfileEditorOpen(true)}
-                    >
-                      New profile
-                    </button>
-                  </span>
-                </div>
-
-                {consoleProtocol === 'ssh' && (
-                  <div className="form-group">
-                    <div className="setting-row">
-                      <div>
-                        <label>Legacy SSH Algorithms</label>
-                        <span className="form-hint">
-                          Older terminal-server firmware often needs legacy key exchange and ciphers.
-                        </span>
-                      </div>
-                      <Switch checked={consoleLegacySsh} onChange={setConsoleLegacySsh} label="Legacy SSH Algorithms (console)" />
-                    </div>
-                  </div>
-                )}
-
-                {(consoleHost.trim() || consolePort !== '') && (
+              <div className="form-group">
+                <label htmlFor="console-profile">
+                  Terminal Server Credential Profile
+                  {consoleProtocol === 'telnet' && <span className="form-hint"> (optional)</span>}
+                </label>
+                <select
+                  id="console-profile"
+                  value={consoleProfileId}
+                  onChange={(e) => setConsoleProfileId(e.target.value)}
+                  className="ns-select"
+                  aria-invalid={consoleProtocol === 'ssh' && !!consoleHost.trim() && !consoleProfileId}
+                >
+                  <option value="">{consoleProtocol === 'telnet' ? 'None (no login prompt)' : 'Select a profile...'}</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} ({profile.username})
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Login for the terminal server itself, not the device. A jump configured on this
+                  profile is honoured (for OOB networks behind a bastion).
+                  {' · '}
                   <button
                     type="button"
-                    className="btn-secondary"
-                    onClick={() => {
-                      setConsoleHost('');
-                      setConsolePort('');
-                      setConsoleProfileId('');
-                      setConsoleLegacySsh(false);
-                    }}
+                    className="link-button"
+                    onClick={() => setProfileEditorOpen(true)}
                   >
-                    Clear console access
+                    New profile
                   </button>
-                )}
+                </span>
+              </div>
+
+              {consoleProtocol === 'ssh' && (
+                <div className="form-group">
+                  <div className="setting-row">
+                    <div>
+                      <label>Legacy SSH Algorithms</label>
+                      <span className="form-hint">
+                        Older terminal-server firmware often needs legacy key exchange and ciphers.
+                      </span>
+                    </div>
+                    <Switch checked={consoleLegacySsh} onChange={setConsoleLegacySsh} label="Legacy SSH Algorithms (console)" />
+                  </div>
+                </div>
+              )}
+
+              {(consoleHost.trim() || consolePort !== '') && (
+                <button
+                  type="button"
+                  className="ns-btn"
+                  onClick={() => {
+                    setConsoleHost('');
+                    setConsolePort('');
+                    setConsoleProfileId('');
+                    setConsoleLegacySsh(false);
+                  }}
+                >
+                  Clear console access
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Terminal Tab */}
+        {activeTab === 'terminal' && (
+          <div className="settings-tab-content">
+            <div className="form-group">
+              <div className="setting-row">
+                <div>
+                  <label>Auto-Reconnect</label>
+                  <span className="form-hint">Automatically reconnect when disconnected</span>
+                </div>
+                <Switch checked={autoReconnect} onChange={setAutoReconnect} label="Auto-Reconnect" />
               </div>
             </div>
-          )}
 
-          {/* Terminal Tab */}
-          {activeTab === 'terminal' && (
-            <div className="settings-tab-content">
+            {autoReconnect && (
               <div className="form-group">
-                <div className="setting-row">
-                  <div>
-                    <label>Auto-Reconnect</label>
-                    <span className="form-hint">Automatically reconnect when disconnected</span>
-                  </div>
-                  <Switch checked={autoReconnect} onChange={setAutoReconnect} label="Auto-Reconnect" />
-                </div>
+                <label htmlFor="reconnect-delay">Reconnect Delay (seconds)</label>
+                <ClampedNumberInput
+                  id="reconnect-delay"
+                  value={reconnectDelay}
+                  onCommit={setReconnectDelay}
+                  min={1}
+                  max={60}
+                  style={{ width: '100px' }}
+                />
               </div>
+            )}
 
-              {autoReconnect && (
-                <div className="form-group">
-                  <label htmlFor="reconnect-delay">Reconnect Delay (seconds)</label>
-                  <ClampedNumberInput
-                    id="reconnect-delay"
-                    value={reconnectDelay}
-                    onCommit={setReconnectDelay}
-                    min={1}
-                    max={60}
-                    style={{ width: '100px' }}
-                  />
+            <div className="form-group">
+              <label htmlFor="scrollback-lines">Scrollback Lines</label>
+              <ClampedNumberInput
+                id="scrollback-lines"
+                value={scrollbackLines}
+                onCommit={setScrollbackLines}
+                min={100}
+                max={100000}
+                style={{ width: '120px' }}
+              />
+              <span className="form-hint">Number of lines to keep in terminal history</span>
+            </div>
+
+            <div className="form-group">
+              <div className="setting-row">
+                <div>
+                  <label>Local Echo</label>
+                  <span className="form-hint">Echo typed characters locally</span>
+                </div>
+                <Switch checked={localEcho} onChange={setLocalEcho} label="Local Echo" />
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h3>Auto Commands on Connect</h3>
+              <p className="form-hint">
+                Commands that run automatically after SSH connection establishes. Useful for "enable", "terminal length 0", etc.
+              </p>
+
+              {autoCommands.length > 0 && (
+                <div className="auto-commands-list">
+                  {autoCommands.map((cmd, index) => (
+                    <div key={index} className="auto-command-item">
+                      <code>{cmd}</code>
+                      <Tooltip label="Remove command"><button aria-label="Remove command"
+                        type="button"
+                        className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
+                        onClick={() => {
+                          setAutoCommands(autoCommands.filter((_, i) => i !== index));
+                        }}
+                      >
+                        ×
+                      </button></Tooltip>
+                    </div>
+                  ))}
                 </div>
               )}
 
               <div className="form-group">
-                <label htmlFor="scrollback-lines">Scrollback Lines</label>
-                <ClampedNumberInput
-                  id="scrollback-lines"
-                  value={scrollbackLines}
-                  onCommit={setScrollbackLines}
-                  min={100}
-                  max={100000}
-                  style={{ width: '120px' }}
-                />
-                <span className="form-hint">Number of lines to keep in terminal history</span>
+                <div className="input-group">
+                  <AITabInput
+                    aria-label="Command to run on connect"
+                    value={newAutoCommand}
+                    onChange={(e) => setNewAutoCommand(e.target.value)}
+                    aiField="command to run on connect"
+                    aiPlaceholder="One CLI command to send right after login (e.g. disable paging); not already in the list"
+                    aiContext={{ host, cliFlavor, existing: autoCommands.join('; ') }}
+                    onAIValue={setNewAutoCommand}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newAutoCommand.trim()) {
+                        e.preventDefault();
+                        setAutoCommands([...autoCommands, newAutoCommand.trim()]);
+                        setNewAutoCommand('');
+                      }
+                    }}
+                    placeholder="Enter command..."
+                  />
+                  <button
+                    type="button"
+                    className="ns-btn"
+                    onClick={() => {
+                      if (newAutoCommand.trim()) {
+                        setAutoCommands([...autoCommands, newAutoCommand.trim()]);
+                        setNewAutoCommand('');
+                      }
+                    }}
+                    disabled={!newAutoCommand.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h3>AI Features</h3>
+              <div className="form-group">
+                <label htmlFor="cli-flavor">CLI Flavor</label>
+                <select className="ns-select"
+                  id="cli-flavor"
+                  value={cliFlavor}
+                  onChange={(e) => setCliFlavor(e.target.value as CliFlavor)}
+                >
+                  {CLI_FLAVOR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Set the device CLI type for AI command suggestions. Auto-detect lets the AI figure it out from context.
+                </span>
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h3>Display</h3>
+              <div className="form-group">
+                <label>Terminal Theme</label>
+                <select aria-label="Terminal Theme" className="ns-select"
+                  value={terminalTheme || ''}
+                  onChange={(e) => setTerminalTheme(e.target.value || null)}
+                >
+                  <option value="">Default</option>
+                  {TERMINAL_THEMES.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {theme.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Color theme for this session's terminal. Leave as Default to use the global setting.
+                </span>
               </div>
 
               <div className="form-group">
-                <div className="setting-row">
-                  <div>
-                    <label>Local Echo</label>
-                    <span className="form-hint">Echo typed characters locally</span>
-                  </div>
-                  <Switch checked={localEcho} onChange={setLocalEcho} label="Local Echo" />
-                </div>
+                <label>Font Family</label>
+                <select aria-label="Font Family" className="ns-select"
+                  value={fontFamily || ''}
+                  onChange={(e) => handleFontFamilyChange(e.target.value || null)}
+                >
+                  {FONT_FAMILY_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-hint">
+                  Font for this session's terminal. Requires the font to be installed on your system.
+                </span>
               </div>
 
-              <div className="form-section">
-                <h3>Auto Commands on Connect</h3>
-                <p className="form-hint" style={{ marginTop: 0 }}>
-                  Commands that run automatically after SSH connection establishes. Useful for "enable", "terminal length 0", etc.
-                </p>
-
-                {autoCommands.length > 0 && (
-                  <div className="auto-commands-list">
-                    {autoCommands.map((cmd, index) => (
-                      <div key={index} className="auto-command-item">
-                        <code>{cmd}</code>
-                        <button
-                          type="button"
-                          className="btn-icon btn-danger-icon"
-                          onClick={() => {
-                            setAutoCommands(autoCommands.filter((_, i) => i !== index));
-                          }}
-                          title="Remove command"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <div className="input-group">
-                    <input
-                      type="text"
-                      value={newAutoCommand}
-                      onChange={(e) => setNewAutoCommand(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newAutoCommand.trim()) {
-                          e.preventDefault();
-                          setAutoCommands([...autoCommands, newAutoCommand.trim()]);
-                          setNewAutoCommand('');
-                        }
-                      }}
-                      placeholder="Enter command..."
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        if (newAutoCommand.trim()) {
-                          setAutoCommands([...autoCommands, newAutoCommand.trim()]);
-                          setNewAutoCommand('');
-                        }
-                      }}
-                      disabled={!newAutoCommand.trim()}
-                    >
-                      Add
-                    </button>
-                  </div>
+              <div className="form-group">
+                <label htmlFor="session-font-size">
+                  Font Size: {fontSizeOverride ?? 14}px
+                </label>
+                <div className="slider-container">
+                  <span className="slider-label">8</span>
+                  <input
+                    id="session-font-size"
+                    type="range"
+                    value={fontSizeOverride ?? 14}
+                    onChange={(e) => handleFontSizeChange(parseInt(e.target.value))}
+                    min={8}
+                    max={32}
+                    step={1}
+                    className="font-size-slider"
+                  />
+                  <span className="slider-label">32</span>
                 </div>
-              </div>
-
-              <div className="form-section">
-                <h3>AI Features</h3>
-                <div className="form-group">
-                  <label htmlFor="cli-flavor">CLI Flavor</label>
-                  <select
-                    id="cli-flavor"
-                    value={cliFlavor}
-                    onChange={(e) => setCliFlavor(e.target.value as CliFlavor)}
-                  >
-                    {CLI_FLAVOR_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Set the device CLI type for AI command suggestions. Auto-detect lets the AI figure it out from context.
-                  </span>
-                </div>
-              </div>
-
-              <div className="form-section">
-                <h3>Display</h3>
-                <div className="form-group">
-                  <label>Terminal Theme</label>
-                  <select
-                    value={terminalTheme || ''}
-                    onChange={(e) => setTerminalTheme(e.target.value || null)}
-                  >
-                    <option value="">Default</option>
-                    {TERMINAL_THEMES.map((theme) => (
-                      <option key={theme.id} value={theme.id}>
-                        {theme.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Color theme for this session's terminal. Leave as Default to use the global setting.
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label>Font Family</label>
-                  <select
-                    value={fontFamily || ''}
-                    onChange={(e) => handleFontFamilyChange(e.target.value || null)}
-                  >
-                    {FONT_FAMILY_OPTIONS.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="form-hint">
-                    Font for this session's terminal. Requires the font to be installed on your system.
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="session-font-size">
-                    Font Size: {fontSizeOverride ?? 14}px
-                  </label>
-                  <div className="slider-container">
-                    <span className="slider-label">8</span>
-                    <input
-                      id="session-font-size"
-                      type="range"
-                      value={fontSizeOverride ?? 14}
-                      onChange={(e) => handleFontSizeChange(parseInt(e.target.value))}
-                      min={8}
-                      max={32}
-                      step={1}
-                      className="font-size-slider"
-                    />
-                    <span className="slider-label">32</span>
-                  </div>
-                  <span className="form-hint">
-                    Drag to adjust font size. Changes preview in real-time.
-                  </span>
-                </div>
+                <span className="form-hint">
+                  Drag to adjust font size. Changes preview in real-time.
+                </span>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Context Tab (only for existing sessions) */}
-          {activeTab === 'context' && isEditing && session && (
-            <div className="settings-tab-content">
-              <SessionContextEditor
-                sessionId={session.id}
-                currentUser={selectedProfile?.username || 'Unknown'}
-              />
-            </div>
-          )}
+        {/* Context Tab (only for existing sessions) */}
+        {activeTab === 'context' && isEditing && session && (
+          <div className="settings-tab-content">
+            <SessionContextEditor
+              sessionId={session.id}
+              currentUser={selectedProfile?.username || 'Unknown'}
+              initialExpandedId={initialContextId}
+            />
+          </div>
+        )}
 
-          {/* Device Memory Tab (only for existing sessions) */}
-          {activeTab === 'memory' && isEditing && session && (
-            <div className="settings-tab-content">
-              <DeviceMemoryEditor
-                sessionId={session.id}
-                currentUser={selectedProfile?.username || 'Unknown'}
-              />
-            </div>
-          )}
-        </div>
+        {/* Device Memory Tab (only for existing sessions) */}
+        {activeTab === 'memory' && isEditing && session && (
+          <div className="settings-tab-content">
+            <DeviceMemoryEditor
+              sessionId={session.id}
+              currentUser={selectedProfile?.username || 'Unknown'}
+            />
+          </div>
+        )}
+      </div>
 
-        <div className="settings-dialog-actions">
-          <button className="btn-secondary" onClick={handleClose}>
-            Cancel
-          </button>
-          <button className="btn-primary" onClick={() => handleSave()} disabled={saving}>
+      <DialogFooter
+        primary={{
+          label: saving ? 'Saving...' : onSaveAndOpenConsole ? 'Save & Open Console' : 'Save',
+          onClick: () => handleSave(onSaveAndOpenConsole !== undefined),
+          disabled: saving,
+        }}
+        onCancel={handleClose}
+        leading={onSaveAndOpenConsole && (
+          <button className="ns-btn" onClick={() => handleSave()} disabled={saving}>
             {saving ? 'Saving...' : 'Save'}
           </button>
-          {onSaveAndOpenConsole && (
-            <button className="btn-primary" onClick={() => handleSave(true)} disabled={saving}>
-              {saving ? 'Saving...' : 'Save & Open Console'}
-            </button>
-          )}
-        </div>
+        )}
+      />
 
-        {/* Inline profile creation (SSH tab shortcut) */}
-        <ProfileEditorDialog
-          isOpen={profileEditorOpen}
-          profile={null}
-          cloneFrom={null}
-          profiles={profiles}
-          onClose={() => setProfileEditorOpen(false)}
-          onSaved={() => {
-            setProfileEditorOpen(false);
-            const known = new Set(profiles.map((p) => p.id));
-            listProfiles()
-              .then((next) => {
-                setProfiles(next);
-                // Auto-select the profile that was just created.
-                const created = next.find((p) => !known.has(p.id));
-                if (created) setSelectedProfileId(created.id);
-              })
-              .catch(() => {});
-            window.dispatchEvent(new Event('profiles-changed'));
-          }}
-        />
-      </div>
-    </div>
+      {/* Inline profile creation (SSH tab shortcut) */}
+      <ProfileEditorDialog
+        isOpen={profileEditorOpen}
+        profile={null}
+        cloneFrom={null}
+        profiles={profiles}
+        onClose={() => setProfileEditorOpen(false)}
+        onSaved={() => {
+          setProfileEditorOpen(false);
+          const known = new Set(profiles.map((p) => p.id));
+          listProfiles()
+            .then((next) => {
+              setProfiles(next);
+              // Auto-select the profile that was just created.
+              const created = next.find((p) => !known.has(p.id));
+              if (created) setSelectedProfileId(created.id);
+            })
+            .catch(() => {});
+          window.dispatchEvent(new Event('profiles-changed'));
+        }}
+      />
+    </ModalFrame>
   );
 }
 

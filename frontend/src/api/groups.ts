@@ -49,7 +49,7 @@ interface GroupTabDTO {
   document_name?: string;
 }
 
-interface GroupDTO {
+export interface GroupDTO {
   id: string;
   name: string;
   tabs: GroupTabDTO[];

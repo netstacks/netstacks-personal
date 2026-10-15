@@ -4,6 +4,7 @@
  * Displays type-specific controls based on the selected annotation type.
  */
 
+import AITabInput from '../AITabInput';
 import type {
   Annotation,
   TextAnnotation,
@@ -16,6 +17,7 @@ import TextAlignSelector from './properties/TextAlignSelector';
 import StrokeStyleSelector from './properties/StrokeStyleSelector';
 import NumberInput from './properties/NumberInput';
 import './AnnotationPropertiesPanel.css';
+import Tooltip from '../Tooltip'
 
 interface AnnotationPropertiesPanelProps {
   annotation: Annotation;
@@ -76,12 +78,12 @@ export default function AnnotationPropertiesPanel({
           {getTypeIcon()}
           <span>{getTypeLabel()} Properties</span>
         </div>
-        <button className="annotation-properties-close" onClick={onClose} title="Close">
+        <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn annotation-properties-close" onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="annotation-properties-content">
@@ -120,12 +122,17 @@ function TextAnnotationProperties({
     <>
       <section className="properties-section">
         <h4 className="properties-section-title">Content</h4>
-        <textarea
+        <AITabInput
+          as="textarea"
+          aria-label="Annotation text"
           className="properties-textarea"
           value={annotation.content}
           onChange={(e) => onUpdate({ content: e.target.value })}
           rows={3}
           placeholder="Enter text..."
+          aiField="topology annotation text"
+          aiPlaceholder="A short note to place on the network topology diagram"
+          onAIValue={(v) => onUpdate({ content: v })}
         />
       </section>
 
@@ -235,12 +242,16 @@ function ShapeAnnotationProperties({
 
       <section className="properties-section">
         <h4 className="properties-section-title">Label</h4>
-        <input
-          type="text"
+        <AITabInput
+          aria-label="Annotation label"
           className="properties-input"
           value={annotation.label || ''}
           onChange={(e) => onUpdate({ label: e.target.value || undefined })}
           placeholder="Enter label..."
+          aiField="topology annotation label"
+          aiPlaceholder="A short label for this shape on the network topology diagram"
+          aiContext={{ type: annotation.type }}
+          onAIValue={(v) => onUpdate({ label: v || undefined })}
         />
         {annotation.label && (
           <>
@@ -306,17 +317,17 @@ function LineAnnotationProperties({
 
       <section className="properties-section">
         <h4 className="properties-section-title">Curve</h4>
-        <div className="properties-toggle-group">
+        <div className="ns-segmented properties-toggle-group">
           <button
             type="button"
-            className={`properties-toggle-btn ${annotation.curveStyle === 'straight' ? 'active' : ''}`}
+            className={`ns-segment properties-toggle-btn ${annotation.curveStyle === 'straight' ? 'active' : ''}`}
             onClick={() => onUpdate({ curveStyle: 'straight' })}
           >
             Straight
           </button>
           <button
             type="button"
-            className={`properties-toggle-btn ${annotation.curveStyle === 'curved' ? 'active' : ''}`}
+            className={`ns-segment properties-toggle-btn ${annotation.curveStyle === 'curved' ? 'active' : ''}`}
             onClick={() => onUpdate({ curveStyle: 'curved' })}
           >
             Curved

@@ -4,8 +4,8 @@
   position: fixed;
   z-index: 1100;
   width: 360px;
-  background: rgba(30, 30, 30, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   box-shadow:
     0 4px 6px rgba(0, 0, 0, 0.3),
@@ -33,7 +33,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 10px 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border);
   background: rgba(0, 0, 0, 0.2);
 }
 
@@ -51,9 +51,9 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  background: rgba(33, 150, 243, 0.2);
-  border-radius: 6px;
-  color: #2196f3;
+  background: var(--color-accent-tint-20);
+  border-radius: var(--radius-control);
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 
@@ -67,47 +67,31 @@
 .snmp-quicklook-title {
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-family: var(--font-family-mono);
 }
 
 .snmp-quicklook-subtitle {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .snmp-quicklook-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  transition: all 0.15s ease;
   flex-shrink: 0;
-}
-
-.snmp-quicklook-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
 }
 
 /* Description / alias */
 .snmp-quicklook-description {
   padding: 6px 14px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -127,15 +111,15 @@
   justify-content: center;
   gap: 10px;
   padding: 20px 0;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
 .snmp-quicklook-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: var(--accent-color, #2196f3);
+  border: 2px solid var(--color-border);
+  border-top-color: var(--accent-color);
   border-radius: 50%;
   animation: snmpSpinnerRotate 0.8s linear infinite;
 }
@@ -156,8 +140,8 @@
   position: absolute;
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent-color, #2196f3);
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  color: var(--accent-color);
+  font-family: var(--font-family-mono);
 }
 
 /* Error state */
@@ -171,30 +155,11 @@
 
 .snmp-quicklook-error-text {
   font-size: 12px;
-  color: var(--error-color, #f44336);
+  color: var(--error-color);
   text-align: center;
   line-height: 1.4;
   max-width: 280px;
   word-break: break-word;
-}
-
-.snmp-quicklook-retry-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.snmp-quicklook-retry-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
 }
 
 /* Rate cards */
@@ -207,17 +172,17 @@
 
 .snmp-quicklook-rate-card {
   background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   padding: 10px 12px;
 }
 
 .snmp-quicklook-rate-card.in {
-  border-left: 2px solid var(--success-color, #4caf50);
+  border-left: 2px solid var(--success-color);
 }
 
 .snmp-quicklook-rate-card.out {
-  border-left: 2px solid var(--accent-color, #2196f3);
+  border-left: 2px solid var(--accent-color);
 }
 
 .snmp-quicklook-rate-label {
@@ -225,25 +190,25 @@
   align-items: center;
   gap: 4px;
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
 }
 
 .snmp-quicklook-rate-card.in .snmp-quicklook-rate-label {
-  color: var(--success-color, #4caf50);
+  color: var(--success-color);
 }
 
 .snmp-quicklook-rate-card.out .snmp-quicklook-rate-label {
-  color: var(--accent-color, #2196f3);
+  color: var(--accent-color);
 }
 
 .snmp-quicklook-rate-value {
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
 }
 
 /* Counters grid */
@@ -251,7 +216,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--color-border);
   padding-top: 10px;
 }
 
@@ -264,18 +229,18 @@
 
 .snmp-quicklook-counter-label {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-muted);
 }
 
 .snmp-quicklook-counter-value {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
   text-align: right;
 }
 
 .snmp-quicklook-counter-value.warn {
-  color: var(--warning-color, #ff9800);
+  color: var(--warning-color);
   font-weight: 600;
 }
 
@@ -285,38 +250,19 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--color-border);
   background: rgba(0, 0, 0, 0.15);
-}
-
-.snmp-quicklook-refresh-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.snmp-quicklook-refresh-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
 }
 
 .snmp-quicklook-polled-ago {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.35);
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
 }
 
 .snmp-quicklook-footer-hint {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--color-text-muted);
   margin: 0 auto;
 }
 
@@ -324,9 +270,9 @@
   display: inline-block;
   padding: 1px 5px;
   font-size: 10px;
-  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-family: var(--font-family-mono);
+  background: var(--color-fill-strong);
+  border: 1px solid var(--color-border);
   border-radius: 3px;
   margin: 0 2px;
 }

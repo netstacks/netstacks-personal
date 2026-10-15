@@ -10,6 +10,7 @@ import type { MopExecutionState } from '../../hooks/useMopExecution';
 import type { SnapshotDiff, MopAiAnalysisResponse } from '../../api/mop';
 
 import { capitalize, isExecutionFinished } from './constants';
+import Tooltip from '../Tooltip';
 
 // ============================================================================
 // Props Interface
@@ -78,13 +79,13 @@ function DocumentActions({ className, generatingDoc, aiEnhancingDoc, onGenerate,
   return (
     <div className={className}>
       {children}
-      <button className="mop-workspace-header-btn" onClick={onGenerate} disabled={busy}>
+      <button className="ns-btn mop-workspace-header-btn" onClick={onGenerate} disabled={busy}>
         <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
           <path d="M3 2h7l3 3v9H3V2zm7 1H4v10h8V5.5L10 3z" />
         </svg>
         {generatingDoc ? 'Generating...' : 'Generate Document'}
       </button>
-      <button className="mop-workspace-header-btn primary" onClick={onAiGenerate} disabled={busy}>
+      <button className="ns-btn mop-workspace-header-btn ns-btn--primary" onClick={onAiGenerate} disabled={busy}>
         <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
           <path d="M8 1C4.1 1 1 4.1 1 8s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm0 12.5c-3 0-5.5-2.5-5.5-5.5S5 2.5 8 2.5s5.5 2.5 5.5 5.5-2.5 5.5-5.5 5.5z" />
           <path d="M10.5 5.5L7.5 8l-2-1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
@@ -213,15 +214,14 @@ export default function MopReviewTab(props: MopReviewTabProps) {
           </svg>
           AI Analysis
           {isFinished && (
-            <button
-              className="mop-workspace-header-btn"
+            <Tooltip label={aiAnalysis ? 'Ask the AI again (ignores the stored analysis)' : 'Analyze outputs, assertions and config diffs'}><button
+              className="ns-btn mop-workspace-header-btn"
               onClick={() => handleAnalyzeExecution(!!aiAnalysis)}
               disabled={analyzingAi}
               style={{ marginLeft: 'auto' }}
-              title={aiAnalysis ? 'Ask the AI again (ignores the stored analysis)' : 'Analyze outputs, assertions and config diffs'}
             >
               {analyzingAi ? 'Analyzing...' : aiAnalysis ? 'Re-run' : 'Run AI Analysis'}
-            </button>
+            </button></Tooltip>
           )}
         </div>
 

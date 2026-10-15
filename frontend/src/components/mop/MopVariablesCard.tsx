@@ -3,9 +3,11 @@
 // inline name validation, and warning chips for placeholders used in steps
 // that are not declared yet (one-click "Declare").
 
+import AITabInput from '../AITabInput'
 import { useState } from 'react';
 import './MopWorkspace.css';
 import type { MopPlanVariablesState } from './useMopPlan';
+import Tooltip from '../Tooltip';
 
 export interface MopVariablesCardProps {
   variables: MopPlanVariablesState;
@@ -36,9 +38,9 @@ export default function MopVariablesCard({ variables: state }: MopVariablesCardP
           <span className="mop-variables-title">Variables</span>
           <span className="mop-variables-count">{variables.length}</span>
           {undeclaredPlaceholders.length > 0 && (
-            <span className="mop-variables-warn-count" title="Placeholders used in steps that are not declared">
+            <Tooltip label="Placeholders used in steps that are not declared"><span className="mop-variables-warn-count">
               {undeclaredPlaceholders.length} undeclared
-            </span>
+            </span></Tooltip>
           )}
           {errorCount > 0 && (
             <span className="mop-variables-warn-count error">{errorCount} invalid</span>
@@ -49,7 +51,7 @@ export default function MopVariablesCard({ variables: state }: MopVariablesCardP
         </span>
         <button
           type="button"
-          className="mop-workspace-header-btn"
+          className="ns-btn mop-workspace-header-btn"
           onClick={() => { addVariable(); setOpen(true); }}
         >
           + Add variable
@@ -97,11 +99,15 @@ export default function MopVariablesCard({ variables: state }: MopVariablesCardP
                   const error = rowErrors[i];
                   const rowId = `mop-var-${i}`;
                   return (
-                    <tr key={i} className={error ? 'invalid' : undefined}>
+                    <tr key={i}>
                       <td>
-                        <input
+                        <AITabInput
                           id={`${rowId}-name`}
-                          className={`mop-variables-input mono ${error ? 'invalid' : ''}`}
+                          className="mop-variables-input mono"
+                          aiField="MOP variable name"
+                          aiPlaceholder="snake_case variable name used as {{name}} in the MOP's commands"
+                          aiContext={{ description: v.description, otherVariables: variables.filter((_, j) => j !== i).map(o => o.name).join(', ') }}
+                          onAIValue={(val) => updateVariable(i, { name: val })}
                           value={v.name}
                           onChange={(e) => updateVariable(i, { name: e.target.value })}
                           aria-label={`Variable ${i + 1} name`}
@@ -115,8 +121,8 @@ export default function MopVariablesCard({ variables: state }: MopVariablesCardP
                         )}
                       </td>
                       <td>
-                        <input
-                          className="mop-variables-input mono"
+                        <input data-ai-fill="off"
+                          className="ns-input mop-variables-input mono"
                           value={v.value}
                           onChange={(e) => updateVariable(i, { value: e.target.value })}
                           aria-label={`Variable ${v.name || i + 1} default value`}
@@ -125,10 +131,14 @@ export default function MopVariablesCard({ variables: state }: MopVariablesCardP
                         />
                       </td>
                       <td>
-                        <input
+                        <AITabInput
                           className="mop-variables-input"
                           value={v.description ?? ''}
                           onChange={(e) => updateVariable(i, { description: e.target.value || undefined })}
+                          aiField="MOP variable description"
+                          aiPlaceholder="What this variable's value is used for in the change"
+                          aiContext={{ name: v.name }}
+                          onAIValue={(val) => updateVariable(i, { description: val || undefined })}
                           aria-label={`Variable ${v.name || i + 1} description`}
                           placeholder="What this value is for"
                         />
@@ -143,17 +153,16 @@ export default function MopVariablesCard({ variables: state }: MopVariablesCardP
                         />
                       </td>
                       <td className="mop-variables-col-actions">
-                        <button
+                        <Tooltip label="Remove variable"><button
                           type="button"
-                          className="mop-plan-step-action-btn danger"
+                          className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small mop-plan-step-action-btn"
                           onClick={() => removeVariable(i)}
                           aria-label={`Remove variable ${v.name || i + 1}`}
-                          title="Remove variable"
                         >
                           <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                             <path d="M6.5 1h3a.5.5 0 01.5.5V2h3.5a.5.5 0 010 1H13v10.5a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 013 13.5V3h-.5a.5.5 0 010-1H6v-.5a.5.5 0 01.5-.5zM4 3v10.5a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V3H4zm2 2h1v7H6V5zm3 0h1v7H9V5z" />
                           </svg>
-                        </button>
+                        </button></Tooltip>
                       </td>
                     </tr>
                   );

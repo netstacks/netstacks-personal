@@ -11,7 +11,7 @@
 
 /* Link fields */
 .detail-field-link {
-  color: #4a9eff;
+  color: var(--color-text-accent);
   text-decoration: none;
 }
 
@@ -23,7 +23,7 @@
 .detail-field-badge {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 11px;
   font-weight: 500;
 }
@@ -34,21 +34,21 @@
 }
 
 .detail-field-tone-good {
-  background-color: rgba(76, 175, 80, 0.2);
-  color: #4caf50;
+  background-color: rgba(var(--color-success-rgb), 0.2);
+  color: var(--color-success);
 }
 
 .detail-field-tone-warn {
-  background-color: rgba(255, 152, 0, 0.2);
-  color: #ff9800;
+  background-color: rgba(var(--color-warning-rgb), 0.2);
+  color: var(--color-warning);
 }
 
 .detail-field-tone-bad {
-  background-color: rgba(244, 67, 54, 0.2);
-  color: #f44336;
+  background-color: rgba(var(--color-error-rgb), 0.2);
+  color: var(--color-error);
 }
 
 .detail-field-tone-muted {
   background-color: rgba(136, 136, 136, 0.2);
-  color: #888;
+  color: var(--color-text-secondary);
 }

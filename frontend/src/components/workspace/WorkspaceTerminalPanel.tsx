@@ -3,6 +3,7 @@ import Terminal, { type TerminalHandle } from '../Terminal'
 import WorkspaceSessionPicker from './WorkspaceSessionPicker'
 import type { TerminalTab } from '../../types/workspace'
 import type { Session } from '../../api/sessions'
+import Tooltip from '../Tooltip'
 
 export interface WorkspaceTerminalPanelHandle {
   sendToActiveTerminal: (command: string) => void
@@ -168,28 +169,29 @@ export default forwardRef<WorkspaceTerminalPanelHandle, WorkspaceTerminalPanelPr
                 <button
                   className="workspace-terminal-tab-close"
                   onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id) }}
+                  aria-label={`Close ${tab.title}`}
                 >
                   ×
                 </button>
               </div>
             ))}
-            <button
-              className="workspace-terminal-action-btn"
+            <Tooltip label="New terminal (right-click strip for more options)"><button aria-label="New terminal (right-click strip for more options)"
+              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
               onClick={handleNewTerminal}
-              title="New terminal (right-click strip for more options)"
               style={{ marginLeft: 2 }}
             >
               +
-            </button>
+            </button></Tooltip>
           </div>
           <div className="workspace-terminal-actions">
-            <button
-              className="workspace-terminal-action-btn"
+            <Tooltip label={collapsed ? 'Expand' : 'Collapse'}><button
+              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small"
               onClick={onToggleCollapse}
-              title={collapsed ? 'Expand' : 'Collapse'}
+              aria-label={collapsed ? 'Expand' : 'Collapse'}
+              aria-expanded={!collapsed}
             >
               {collapsed ? '▲' : '▼'}
-            </button>
+            </button></Tooltip>
           </div>
         </div>
         {!collapsed && (
@@ -223,7 +225,7 @@ export default forwardRef<WorkspaceTerminalPanelHandle, WorkspaceTerminalPanelPr
             {terminalTabs.length === 0 && (
               <div className="workspace-empty-state">
                 <div>No terminals open</div>
-                <button className="workspace-terminal-action-btn" onClick={handleNewTerminal}>
+                <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={handleNewTerminal}>
                   + New Terminal
                 </button>
               </div>

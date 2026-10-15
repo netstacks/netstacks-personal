@@ -1,272 +1,83 @@
-// Read-only command filter for AI troubleshooting agent
-// CRITICAL SAFETY CODE: This prevents the agent from executing configuration commands
+// Read-only classification for AI tool calls (lib/aiPermissions).
+//
+// Device commands: an exact port of the sidecar's CommandFilter
+// (agent/src/tasks/tools/filter.rs), which the sidecar enforces on run_command
+// (/ai/command-check) and ai_ssh_execute while AI Config Mode is off. Both
+// sides run the shared fixture agent/src/tasks/tools/read_only_commands.json
+// in their tests, so a rule changed on one side fails the other's suite.
+//
+// Local shell (run_bash): a read-only allow-list that only decides whether a
+// call needs approval in Auto. The sidecar's BashCommandFilter is the deny gate.
 
-import type { CliFlavor } from '../types/enrichment';
-
-/**
- * Commands that are ALWAYS safe (universal across platforms)
- * These prefixes are allowed regardless of CLI flavor
- */
-const UNIVERSAL_SAFE_PREFIXES = [
-  'show ', 'display ', 'get ', 'list ', 'ping ', 'traceroute ',
-  'tracert ', 'nslookup ', 'dig ', 'host ', 'whois ', 'arp ',
-  'netstat ', 'ss ', 'ip route', 'ip addr', 'ip link', 'ip neigh',
-  'cat ', 'less ', 'more ', 'head ', 'tail ', 'grep ', 'find ',
-  'ls ', 'pwd', 'df ', 'du ', 'uptime', 'date', 'hostname',
-  'who', 'w ', 'ps ', 'top', 'free ', 'vmstat', 'iostat',
-  // Linux hardware/system info (read-only)
-  'lscpu', 'lshw', 'lsblk', 'lspci', 'lsusb', 'lsmod', 'lsof ',
-  'uname', 'arch', 'nproc', 'getconf ', 'sysctl ',
-  'dmidecode', 'hwinfo', 'inxi',
-  'fdisk -l', 'blkid', 'mount', 'lsns',
-  // Linux networking (read-only)
-  'ethtool ', 'ifconfig', 'route ', 'brctl show', 'bridge ',
-  'tc qdisc show', 'tc class show', 'tc filter show',
-  'iptables -L', 'iptables -S', 'ip6tables -L', 'ip6tables -S',
-  'nft list', 'conntrack -L', 'ss -',
-  // Linux process/service info (read-only)
-  'systemctl status', 'systemctl list', 'systemctl is-',
-  'journalctl', 'dmesg', 'last ', 'lastlog',
-  'id ', 'groups ', 'getent ',
-  // Linux file inspection (read-only)
-  'file ', 'stat ', 'wc ', 'md5sum ', 'sha256sum ', 'strings ',
-  'hexdump ', 'xxd ', 'readlink ',
-  // Docker/container inspection (read-only)
-  'docker ps', 'docker images', 'docker inspect', 'docker logs',
-  'docker stats', 'docker top', 'docker port', 'docker network ls',
-  'docker volume ls', 'docker info', 'docker version',
-  'kubectl get', 'kubectl describe', 'kubectl logs', 'kubectl top',
-  // Paging control commands (safe - only affect terminal display)
-  'terminal length ', 'terminal width ', 'term len ', 'term wid ',
-  'terminal pager ', // Arista/Cisco
-  // Juniper CLI session settings (not configuration)
-  'set cli screen-length ', 'set cli screen-width ',
-  'set cli terminal ', 'set cli timestamp ',
-  // Palo Alto CLI session settings
-  'set cli pager ',
-  'set cli config-output-format ',
-];
-
-/**
- * Vendor-specific safe command patterns
- * Each vendor has additional commands that are safe in their context
- */
-const VENDOR_SAFE_PATTERNS: Record<CliFlavor, RegExp[]> = {
-  'auto': [],  // Use universal only
-  'linux': [
-    /^(show|display|get|list|cat|less|more|head|tail|grep|find|ls|pwd|df|du|uptime|date|hostname|who|w|ps|top|free|vmstat|iostat|ip\s+(route|addr|link|neigh)|ss|netstat|arp|ping|traceroute|dig|nslookup|host|lscpu|lshw|lsblk|lspci|lsusb|lsmod|lsof|uname|arch|nproc|getconf|sysctl|dmidecode|hwinfo|inxi|fdisk|blkid|mount|ethtool|ifconfig|route|brctl|bridge|tc|iptables|ip6tables|nft|conntrack|systemctl|journalctl|dmesg|last|lastlog|id|groups|getent|file|stat|wc|md5sum|sha256sum|strings|hexdump|xxd|readlink|docker|kubectl)\b/i,
-  ],
-  'cisco-ios': [
-    /^show\s+/i,
-    /^ping\s+/i,
-    /^traceroute\s+/i,
-    /^debug\s+/i,  // debug is read-only observation
-    /^terminal\s+length\s+\d+/i,  // Pagination control
-    /^more\s+/i,
-  ],
-  'cisco-ios-xr': [
-    /^show\s+/i,
-    /^ping\s+/i,
-    /^traceroute\s+/i,
-    /^terminal\s+length\s+\d+/i,
-    /^terminal\s+exec\s+prompt\s+/i,  // IOS-XR terminal display tweaks
-    /^admin\s+show\s+/i,  // IOS-XR admin-mode read-only show commands
-    /^more\s+/i,
-  ],
-  'cisco-nxos': [
-    /^show\s+/i,
-    /^ping\s+/i,
-    /^traceroute\s+/i,
-    /^debug\s+/i,
-    /^terminal\s+length\s+\d+/i,
-  ],
-  'juniper': [
-    /^show\s+/i,
-    /^ping\s+/i,
-    /^traceroute\s+/i,
-    /^monitor\s+/i,  // Read-only monitoring
-    /^set\s+cli\s+screen-(length|width)\s+\d+/i,  // CLI display only
-  ],
-  'arista': [
-    /^show\s+/i,
-    /^ping\s+/i,
-    /^traceroute\s+/i,
-    /^terminal\s+length\s+\d+/i,
-    /^watch\s+/i,  // Read-only watching
-  ],
-  'paloalto': [
-    /^show\s+/i,
-    /^ping\s+/i,
-    /^traceroute\s+/i,
-    /^debug\s+/i,
-    /^less\s+/i,
-    /^tail\s+/i,
-  ],
-  'fortinet': [
-    /^get\s+/i,
-    /^diagnose\s+/i,
-    /^execute\s+ping\s+/i,
-    /^execute\s+traceroute\s+/i,
-  ],
-};
-
-/**
- * Commands that are NEVER allowed (blocklist)
- * These patterns are checked FIRST and will always block the command
- *
- * NOTE: Pipes (|) are ALLOWED because they're used for output filtering in network CLIs:
- *   - Juniper: show route | no-more, show log | last 50, show config | match interface
- *   - Cisco: show run | include interface, show log | begin ERROR
- *   - Linux: grep, awk, etc. via pipes
- */
-const BLOCKED_PATTERNS = [
-  /\bconfig(ure)?\b/i,       // Configuration mode
-  /\bedit\b/i,               // Juniper edit mode
-  /\bset\s+(?!cli)/i,        // Set commands (except CLI display settings)
-  /\bdelete\b/i,
-  /\bremove\b/i,
-  /\bno\s+/i,                // Negation commands
-  /\bclear\s+(?!screen|counters)/i,   // Clear (except screen/counters which are safe)
-  /\breset\b/i,
-  /\breload\b/i,
-  /\breboot\b/i,
-  /\bshutdown\b/i,
-  /\bformat\b/i,
-  /\bwrite\b/i,
-  /\bcopy\b/i,
-  /\bsave\b/i,
-  /\bcommit\b/i,
-  /\brequest\s+system/i,     // Juniper system requests
-  /\brm\s+/i,                // Linux rm
-  /\bmv\s+/i,                // Linux mv
-  /\bcp\s+/i,                // Linux cp (could overwrite)
-  /\bchmod\b/i,
-  /\bchown\b/i,
-  /\bsudo\b/i,
-  /\bsu\b/i,
-  /[;&`$]/,                  // Command chaining/injection (but NOT pipes!)
-  />\s*\S/,                  // Output redirection (to file)
-  /\bexec\b/i,
-  /\benable\b/i,             // Privilege escalation
-];
-
-/**
- * Result of command validation
- */
-export interface ValidationResult {
-  allowed: boolean;
-  reason?: string;
-  command: string;
+export interface ReadOnlyVerdict {
+  allowed: boolean
+  reason?: string
+  command: string
 }
 
-/**
- * Validate if a command is read-only (safe to execute)
- *
- * Validation order:
- * 1. Check blocklist first (highest priority - always deny)
- * 2. Check universal safe prefixes
- * 3. Check vendor-specific patterns
- * 4. Default deny (if not explicitly allowed)
- *
- * @param command The command to validate
- * @param cliFlavor The CLI flavor for vendor-specific rules
- * @returns Validation result with allowed status and reason if blocked
- */
-export function validateReadOnlyCommand(
-  command: string,
-  cliFlavor: CliFlavor = 'auto'
-): ValidationResult {
-  const trimmed = command.trim();
+const DEVICE_BLOCKED: ReadonlyArray<readonly [RegExp, string]> = [
+  [/[;&|`]|\$\(|>\s*[^=]|<\s*\(|\\\n|&&|\|\|/, 'Shell metacharacters and command chaining are not allowed'],
+  [/[\r\n]/, 'Multi-line commands are not allowed'],
+  [/^\s*(start\s+shell|bash|run\s+(?:start\s+)?shell|run\s+bash|enable\s+shell|shell|cli|cgi|kshell)\b/m, 'Shell escapes drop into a vendor shell with full command access'],
+  [/^\s*do\s+(reload|reset|delete|erase|clear|copy|format|write|debug|enable)\b/m, '`do` invokes privileged commands from config mode'],
+  [/^\s*conf(?:ig(?:ure)?)?(?:\s+t(?:erminal)?)?\b/m, 'Configuration mode commands are not allowed'],
+  [/^\s*write(?:\s+(?:mem(?:ory)?|erase|file|terminal))?\b/m, 'Write commands modify device configuration'],
+  [/^\s*copy\s+(?:run(?:ning)?|start(?:up)?|tftp|ftp|http|scp|usb|flash|disk|nvram)\b/m, 'Copy commands can overwrite configuration or move files'],
+  [/^\s*reload\b/m, 'Reload commands restart the device'],
+  [/^\s*request\s+(?:system\s+(?:reboot|halt|power-off|zeroize)|chassis\s+(?:cb|routing-engine)|firmware|software)\b/m, '`request` commands trigger administrative actions on Juniper devices'],
+  [/^\s*system\s+(?:reset|reboot|halt|shutdown)\b/m, 'System commands restart or halt the device'],
+  [/^\s*factory-reset\b/m, 'Factory-reset wipes the device configuration'],
+  [/^\s*format\s+(?:flash|disk|bootflash|nvram|usb)/m, 'Format erases device storage'],
+  [/^\s*boot\s+system\b/m, 'Boot system changes the boot image'],
+  [/^\s*(?:archive|software)\s+(?:download|install|commit|activate)/m, 'Archive/software install changes device firmware'],
+  [/^\s*install\s+(?:commit|activate|add|remove)\b/m, 'Install commands modify the active firmware'],
+  [/^\s*no\s+\S+/m, 'No commands delete configuration'],
+  [/^\s*(?:delete|erase|destroy|wipe)\b/m, 'Delete/erase commands remove files or configurations'],
+  [/^\s*clear\s+(?:line|logging|ip|ipv6|arp|mac|counters?|interface|configuration|crypto|isis|ospf|bgp|mpls|route|nd)\b/m, 'Clear commands remove operational data'],
+  [/^\s*clear\s+configuration\b/m, 'Clear configuration is a Juniper factory-reset equivalent'],
+  [/^\s*set\s+\S+/m, 'Set commands modify Juniper configuration'],
+  [/^\s*commit(?:\s+(?:confirmed|check|and-quit|synchronize))?\b/m, 'Commit applies configuration changes'],
+  [/^\s*(?:edit|top|exit|update|annotate)\b/m, 'Configuration-mode navigation commands are not allowed'],
+  [/^\s*rollback\b/m, 'Rollback reverts configuration changes'],
+  [/^\s*(?:load|replace)\s+(?:merge|override|set|patch|update|pattern|terminal)/m, 'Load/replace commands inject configuration'],
+  [/^\s*verify\s+(?:md5|sha)/m, 'verify md5/sha can be combined with copy/install workflows'],
+  [/^\s*hw-module\s+(?:reset|reload)/m, 'hw-module reset reboots a line card'],
+]
 
-  // Empty commands are not allowed
-  if (!trimmed) {
-    return {
-      allowed: false,
-      reason: 'Empty command',
-      command: trimmed,
-    };
+const DEVICE_ALLOWED_FIRST_TOKENS: ReadonlySet<string> = new Set([
+  'show', 'display', 'get', 'list', 'ping', 'traceroute', 'trace',
+])
+
+/** Whether a command may run on a network device while AI Config Mode is off. */
+export function checkDeviceCommand(command: string): ReadOnlyVerdict {
+  const normalized = command.trim().toLowerCase()
+  for (const [pattern, reason] of DEVICE_BLOCKED) {
+    if (pattern.test(normalized)) return { allowed: false, reason, command }
   }
-
-  // Check blocklist first (highest priority)
-  for (const pattern of BLOCKED_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      return {
-        allowed: false,
-        reason: `Command contains blocked pattern: ${pattern.source}`,
-        command: trimmed,
-      };
-    }
-  }
-
-  // Check universal safe prefixes
-  const lowerCommand = trimmed.toLowerCase();
-  for (const prefix of UNIVERSAL_SAFE_PREFIXES) {
-    if (lowerCommand.startsWith(prefix)) {
-      return { allowed: true, command: trimmed };
-    }
-  }
-
-  // Check vendor-specific patterns
-  const vendorPatterns = VENDOR_SAFE_PATTERNS[cliFlavor] || [];
-  for (const pattern of vendorPatterns) {
-    if (pattern.test(trimmed)) {
-      return { allowed: true, command: trimmed };
-    }
-  }
-
-  // Default deny - command not recognized as read-only
+  const firstToken = normalized.split(/\s+/)[0] ?? ''
+  if (DEVICE_ALLOWED_FIRST_TOKENS.has(firstToken)) return { allowed: true, command }
   return {
     allowed: false,
-    reason: 'Command not recognized as read-only. Only show/display/get commands are allowed.',
-    command: trimmed,
-  };
+    reason: `Only commands starting with ${[...DEVICE_ALLOWED_FIRST_TOKENS].join(', ')} are read-only`,
+    command,
+  }
 }
 
-/**
- * Validate a batch of commands (the `commands[]` tool input). Allowed only if
- * EVERY command is read-only; the result's `reason` is the first block reason
- * and `command` is the batch joined by newlines for display.
- */
-export function validateReadOnlyCommands(
-  commands: string[],
-  cliFlavor: CliFlavor = 'auto'
-): ValidationResult {
-  const display = commands.map(c => c.trim()).join('\n');
-  if (commands.length === 0) {
-    return { allowed: false, reason: 'Empty command', command: display };
-  }
-  for (const c of commands) {
-    const result = validateReadOnlyCommand(c, cliFlavor);
-    if (!result.allowed) {
-      return { allowed: false, reason: result.reason, command: display };
-    }
-  }
-  return { allowed: true, command: display };
-}
+/** Shell constructs that can change state whatever the command. */
+const SHELL_BLOCKED: ReadonlyArray<RegExp> = [
+  /[;&`$]/,          // chaining / substitution (pipes stay allowed for filtering)
+  />\s*\S/,          // redirection to a file
+  /\b(?:sudo|su|rm|mv|cp|chmod|chown|tee|dd)\b/i,
+]
 
-/**
- * Simple boolean check if a command is read-only
- * @param command The command to check
- * @param cliFlavor Optional CLI flavor for vendor-specific rules
- * @returns true if the command is read-only and safe to execute
- */
-export function isReadOnlyCommand(command: string, cliFlavor?: CliFlavor): boolean {
-  return validateReadOnlyCommand(command, cliFlavor).allowed;
-}
+const SHELL_READ_ONLY = /^(cat|less|more|head|tail|grep|egrep|find|ls|pwd|df|du|uptime|date|hostname|who|w|whoami|ps|top|free|vmstat|iostat|ip\s+(route|addr|link|neigh)(\s+show)?|ss|netstat|arp|ping|traceroute|tracepath|mtr|dig|nslookup|host|whois|lscpu|lshw|lsblk|lspci|lsusb|lsmod|lsof|uname|arch|nproc|getconf|dmidecode|hwinfo|inxi|blkid|ethtool|ifconfig|route|brctl\s+show|tc\s+(qdisc|class|filter)\s+show|systemctl\s+(status|list-\S+|is-\S+)|journalctl|dmesg|last|lastlog|id|groups|getent|file|stat|wc|md5sum|sha256sum|strings|hexdump|xxd|readlink|echo|printenv|env|which|type|docker\s+(ps|images|inspect|logs|stats|top|port|network\s+ls|volume\s+ls|info|version)|kubectl\s+(get|describe|logs|top))\b/i
 
-/**
- * Get a human-readable explanation of why a command was blocked
- * @param result The validation result
- * @returns User-friendly message explaining the block
- */
-export function getBlockReason(result: ValidationResult): string {
-  if (result.allowed) {
-    return 'Command is allowed';
+/** Whether a local shell command only reads (decides approval in Auto). */
+export function checkShellCommand(command: string): ReadOnlyVerdict {
+  const trimmed = command.trim()
+  if (SHELL_BLOCKED.some((pattern) => pattern.test(trimmed))) {
+    return { allowed: false, reason: 'can change files or processes', command }
   }
-
-  if (result.reason?.includes('blocked pattern')) {
-    return 'This command could modify device configuration and is not allowed in troubleshooting mode.';
-  }
-
-  return 'Only read-only commands (show, display, get, ping, traceroute) are allowed. Configuration commands are blocked for safety.';
+  if (SHELL_READ_ONLY.test(trimmed)) return { allowed: true, command }
+  return { allowed: false, reason: 'not a known read-only command', command }
 }

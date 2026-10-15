@@ -1,36 +1,26 @@
 import type { ReactNode } from 'react'
 import './TopBar.css'
-import { useShortcut } from '../hooks/useKeyboard'
+import { useBinding } from '../hooks/useKeyboard'
+import Tooltip from './Tooltip'
 
 export interface TopBarProps {
   platform: 'macos' | 'windows' | 'linux'
-  sidebarOpen: boolean
-  onToggleSidebar: () => void
-  aiPanelOpen: boolean
-  onToggleAiPanel: () => void
   onOpenCommandCenter: () => void
   /** Opens the clipboard-history palette (docs/clipboard-history-plan.md). */
   onOpenClipboardHistory?: () => void
   searchPlaceholder?: string
   menuSlot?: ReactNode
-  windowControlsSlot?: ReactNode
 }
 
 export default function TopBar({
   platform,
-  sidebarOpen,
-  onToggleSidebar,
-  aiPanelOpen,
-  onToggleAiPanel,
   onOpenCommandCenter,
   onOpenClipboardHistory,
   searchPlaceholder = 'Search everything…',
   menuSlot,
-  windowControlsSlot,
 }: TopBarProps) {
-  const paletteShortcut = useShortcut('commandPalette')
-  const sidebarShortcut = useShortcut('toggleSidebar')
-  const clipboardShortcut = useShortcut('clipboardHistory')
+  const paletteBinding = useBinding('commandPalette')
+  const clipboardBinding = useBinding('clipboardHistory')
   const isMac = platform === 'macos'
   return (
     <div className={`topbar ${isMac ? 'is-macos' : ''}`} data-testid="topbar">
@@ -41,27 +31,28 @@ export default function TopBar({
 
       {/* Center: command center */}
       <div className="topbar-center" data-tauri-drag-region>
-        <button
+        <Tooltip label="Search everything" shortcut={paletteBinding}><button
           type="button"
           className="command-center"
           data-testid="command-center"
           onClick={onOpenCommandCenter}
-          title={`Search everything (${paletteShortcut})`}
         >
-          <span className="command-center-icon" aria-hidden>⌕</span>
+          <svg aria-hidden width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <circle cx="6.5" cy="6.5" r="5" />
+            <path d="M10.3 10.3L15 15" strokeLinecap="round" />
+          </svg>
           <span className="command-center-text">{searchPlaceholder}</span>
-        </button>
+        </button></Tooltip>
       </div>
 
-      {/* Right: panel toggles + window controls */}
+      {/* Right: clipboard history */}
       <div className="topbar-right" data-tauri-drag-region>
         {onOpenClipboardHistory && (
-          <button
+          <Tooltip label="Clipboard History" shortcut={clipboardBinding}><button
             type="button"
             className="topbar-icon-btn"
             data-testid="clipboard-history-btn"
             onClick={onOpenClipboardHistory}
-            title={`Clipboard History (${clipboardShortcut})`}
             aria-label="Clipboard history"
           >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
@@ -69,29 +60,8 @@ export default function TopBar({
               <path d="M9 4.5V3h6v1.5" />
               <path d="M9 10h6M9 14h6M9 18h4" />
             </svg>
-          </button>
+          </button></Tooltip>
         )}
-        <button
-          type="button"
-          className="topbar-icon-btn"
-          data-testid="toggle-sidebar-btn"
-          aria-pressed={sidebarOpen}
-          onClick={onToggleSidebar}
-          title={`Toggle Sidebar (${sidebarShortcut})`}
-        >
-          <span aria-hidden>▌</span>
-        </button>
-        <button
-          type="button"
-          className="topbar-icon-btn"
-          data-testid="toggle-ai-panel-btn"
-          aria-pressed={aiPanelOpen}
-          onClick={onToggleAiPanel}
-          title="Toggle AI Panel"
-        >
-          <span aria-hidden>▐</span>
-        </button>
-        {windowControlsSlot}
       </div>
     </div>
   )

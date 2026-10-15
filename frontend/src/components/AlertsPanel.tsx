@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../lib/enrichmentHelpers';
 import './AlertsPanel.css';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
 interface AlertsPanelProps {
   onOpenAlertTab: (id: string) => void;
 }
@@ -172,11 +173,10 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ onOpenAlertTab }) => {
     <div className="alerts-panel">
       <div className="alerts-panel-header">
         <div className="alerts-panel-title">Alerts</div>
-        <span
-          className="alerts-panel-live-indicator"
-          title={lastFetchAt
+        <Tooltip label={lastFetchAt
             ? `Auto-refreshing every 15s · last update ${new Date(lastFetchAt).toLocaleTimeString()}`
-            : 'Auto-refreshing every 15s'}
+            : 'Auto-refreshing every 15s'}><span
+          className="alerts-panel-live-indicator"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -193,51 +193,53 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ onOpenAlertTab }) => {
               height: 6,
               borderRadius: '50%',
               background: error ? '#f44336' : '#4caf50',
-              animation: error ? 'none' : 'alerts-panel-live-pulse 2s ease-in-out infinite',
+              animation: error ? 'none' : 'blink 2s ease-in-out infinite',
             }}
             aria-hidden="true"
           />
           Live
-        </span>
-        <button
-          className="alerts-panel-refresh-btn"
+        </span></Tooltip>
+        <Tooltip label="Refresh"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
           onClick={handleRefresh}
           disabled={isLoading}
-          title="Refresh"
+          aria-label="Refresh"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="23 4 23 10 17 10" />
             <polyline points="1 20 1 14 7 14" />
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
-        </button>
+        </button></Tooltip>
       </div>
 
       <div className="alerts-panel-filters">
-        <button
-          className={`alerts-panel-filter-chip ${stateFilter === 'all' ? 'active' : ''}`}
-          onClick={() => handleFilterChange('all')}
-        >
-          All
-        </button>
-        <button
-          className={`alerts-panel-filter-chip ${stateFilter === 'active' ? 'active' : ''}`}
-          onClick={() => handleFilterChange('active')}
-        >
-          Active
-        </button>
-        <button
-          className={`alerts-panel-filter-chip ${stateFilter === 'acknowledged' ? 'active' : ''}`}
-          onClick={() => handleFilterChange('acknowledged')}
-        >
-          Acknowledged
-        </button>
-        <button
-          className={`alerts-panel-filter-chip ${stateFilter === 'resolved' ? 'active' : ''}`}
-          onClick={() => handleFilterChange('resolved')}
-        >
-          Resolved
-        </button>
+        <div className="ns-segmented">
+          <button
+            className={`ns-segment ${stateFilter === 'all' ? 'active' : ''}`}
+            onClick={() => handleFilterChange('all')}
+          >
+            All
+          </button>
+          <button
+            className={`ns-segment ${stateFilter === 'active' ? 'active' : ''}`}
+            onClick={() => handleFilterChange('active')}
+          >
+            Active
+          </button>
+          <button
+            className={`ns-segment ${stateFilter === 'acknowledged' ? 'active' : ''}`}
+            onClick={() => handleFilterChange('acknowledged')}
+          >
+            Acknowledged
+          </button>
+          <button
+            className={`ns-segment ${stateFilter === 'resolved' ? 'active' : ''}`}
+            onClick={() => handleFilterChange('resolved')}
+          >
+            Resolved
+          </button>
+        </div>
       </div>
 
       {isLoading && alerts.length === 0 && (
@@ -250,7 +252,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ onOpenAlertTab }) => {
       {error && (
         <div className="alerts-panel-error">
           <div>Error: {error}</div>
-          <button onClick={handleRefresh}>Retry</button>
+          <button className="ns-btn ns-btn--small" onClick={handleRefresh}>Retry</button>
         </div>
       )}
 
@@ -305,7 +307,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ onOpenAlertTab }) => {
 
           {alerts.length < total && (
             <button
-              className="alerts-panel-load-more"
+              className="ns-btn alerts-panel-load-more"
               onClick={loadMore}
               disabled={isLoadingMore}
             >

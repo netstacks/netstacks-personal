@@ -1,3 +1,4 @@
+import AITabInput from './AITabInput'
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ANTHROPIC_MODELS, MODEL_PLACEHOLDER, SUGGESTED_MODEL } from '../lib/aiModelDefaults';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
@@ -40,7 +41,11 @@ import { useSettings, type AiProviderType as SettingsProviderType } from '../hoo
 import { useMode } from '../hooks/useMode';
 import { useTokenUsage, type AiProviderType as TokenProviderType } from '../contexts/TokenUsageContext';
 import { TOOL_REGISTRY, TOOL_CATEGORIES, type ToolCategory } from '../lib/agentTools';
+import { PERMISSION_MODES, PERMISSION_MODE_SETTING, type PermissionMode } from '../lib/aiModes';
 import McpServersSection from './McpServersSection';
+import SettingsSection from './settings/SettingsSection';
+import SettingRow from './settings/SettingRow';
+import SettingsItem from './settings/SettingsItem';
 import AIMemoryTab from './AIMemoryTab';
 import { PasswordInput } from './PasswordInput';
 import './AISettingsTab.css';
@@ -48,6 +53,7 @@ import './AISettingsTab.css';
 // Icons
 import { getErrorMessage } from '../api/errors'
 import Switch from './Switch';
+import Tooltip from './Tooltip';
 const Icons = {
   anthropic: (
     <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
@@ -86,16 +92,6 @@ const Icons = {
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
-  check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  ),
-  key: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-    </svg>
-  ),
   trash: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
       <polyline points="3 6 5 6 21 6" />
@@ -125,58 +121,9 @@ const Icons = {
       <polyline points="7 3 7 8 15 8" />
     </svg>
   ),
-  sparkles: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z" />
-      <path d="M19 14l.5 2 2 .5-2 .5-.5 2-.5-2-2-.5 2-.5.5-2z" />
-      <path d="M5 17l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5L3 19l1.5-.5.5-1.5z" />
-    </svg>
-  ),
-  error: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  ),
-  shield: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
-  brain: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
-      <line x1="10" y1="21" x2="14" y2="21" />
-      <line x1="9" y1="10" x2="15" y2="10" />
-      <line x1="12" y1="7" x2="12" y2="13" />
-    </svg>
-  ),
-  activity: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
-  ),
   star: (
     <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
       <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  ),
-  tokens: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  ),
-  refresh: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="23 4 23 10 17 10" />
-      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-    </svg>
-  ),
-  tool: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   ),
 };
@@ -752,15 +699,6 @@ export default function AISettingsTab() {
   // Per-agent-type tool management
   const [toolsAgentType, setToolsAgentType] = useState<'autopilot' | 'overlord'>('autopilot');
 
-  // Ensure Overlord always has run_bash in its disabled list by default
-  useEffect(() => {
-    const overlordKey = 'ai.disabledTools.overlord' as keyof typeof settings;
-    const overlordDisabled = (settings[overlordKey] as string[]) || [];
-    if (!overlordDisabled.includes('run_bash')) {
-      updateSetting(overlordKey, [...overlordDisabled, 'run_bash']);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const disabledToolsKeyFor = (at: 'autopilot' | 'overlord') =>
     `ai.disabledTools.${at}` as keyof typeof settings;
 
@@ -1191,69 +1129,52 @@ export default function AISettingsTab() {
 
   if (loading) {
     return (
-      <div className="ai-settings-tab">
-        <div className="ai-loading">Loading AI settings...</div>
-      </div>
+      <p className="form-hint">Loading AI settings…</p>
     );
   }
 
   const defaultProvider = settings['ai.defaultProvider'] || 'anthropic';
 
   return (
-    <div className="ai-settings-tab">
-      {/* Header */}
-      <div className="ai-header">
-        <p className="ai-description">
-          {isEnterprise
-            ? 'AI features are available through your NetStacks Controller. Local preferences for automation and tools are configured below.'
-            : 'Configure multiple AI providers. Each provider can be configured with its own API key. Select a default provider or switch providers in the AI chat panel.'}
-        </p>
-      </div>
-
-      {error && <div className="ai-error">{error}</div>}
-      {success && <div className="ai-success">{success}</div>}
+    <>
+      {(error || success) && (
+        <div>
+          {error && <p className="settings-error">{error}</p>}
+          {success && <p className="settings-success">{success}</p>}
+        </div>
+      )}
 
       {/* Provider Sections — hidden in enterprise mode (managed centrally) */}
       {isEnterprise ? (
-        <section className="ai-section">
-          <div className="section-header">
-            <h3>PROVIDERS</h3>
-          </div>
-          <div style={{ padding: '16px 20px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5' }}>
-            AI providers are managed by your NetStacks Controller administrator.
-          </div>
+        <SettingsSection
+          title="Providers"
+          description="AI features are available through your NetStacks Controller; its administrator manages the providers. Local preferences for automation and tools are below."
+        >
           {enterpriseProviders.length > 0 ? (
-            <div className="ai-provider-list" style={{ padding: '0 20px 16px' }}>
+            <div className="settings-group">
               {enterpriseProviders.map((p) => (
-                <div
+                <SettingsItem
                   key={p.type}
-                  className="ai-provider-section configured"
-                  style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}
-                >
-                  <span className="ai-provider-name" style={{ flex: 1 }}>{p.name}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>{p.type}</span>
-                  {p.is_default && (
-                    <span className="ai-provider-default-badge">
-                      {Icons.star}
-                      Default
-                    </span>
-                  )}
-                </div>
+                  title={p.name}
+                  badges={
+                    <>
+                      <span className="settings-badge">{p.type}</span>
+                      {p.is_default && <span className="settings-badge settings-badge--accent">default</span>}
+                    </>
+                  }
+                />
               ))}
             </div>
           ) : (
-            <div style={{ padding: '0 20px 16px', color: 'var(--text-tertiary)', fontSize: '12px' }}>
-              No providers configured on the Controller. Contact your administrator.
-            </div>
+            <p className="form-hint">No providers configured on the Controller. Contact your administrator.</p>
           )}
-        </section>
+        </SettingsSection>
       ) : (
-      <section className="ai-section">
-        <div className="section-header">
-          <h3>PROVIDERS</h3>
-        </div>
-
-        <div className="ai-provider-list">
+      <SettingsSection
+        title="Providers"
+        description="Configure AI providers, each with its own API key. Pick a default provider here, or switch providers in the AI chat panel."
+      >
+        <div className="settings-group">
           {PROVIDERS.map((p) => {
             const status = providerStatus[p.type];
             const providerEnabled = isProviderEnabled(p.type);
@@ -1323,7 +1244,6 @@ export default function AISettingsTab() {
                         <label>API Key</label>
                         <div className="api-key-row">
                           <PasswordInput
-                            className="form-input"
                             value={apiKeys[p.type]}
                             onChange={(e) => setApiKeys(prev => ({ ...prev, [p.type]: e.target.value }))}
                             placeholder={status.hasKey ? '********** (key saved)' : 'Enter your API key'}
@@ -1338,13 +1258,13 @@ export default function AISettingsTab() {
                             }}
                           />
                           {status.hasKey && (
-                            <button
-                              className="btn-delete-key"
+                            <Tooltip label="Remove API key"><button
+                              className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
                               onClick={() => handleDeleteKey(p.type)}
-                              title="Remove API key"
+                              aria-label="Remove API key"
                             >
                               {Icons.trash}
-                            </button>
+                            </button></Tooltip>
                           )}
                         </div>
                       </div>
@@ -1353,9 +1273,9 @@ export default function AISettingsTab() {
                     {/* Base URL (all providers — override for proxies/gateways) */}
                     <div className="form-group">
                       <label>Base URL</label>
-                      <input
+                      <input data-ai-fill="off"
                         type="text"
-                        className="form-input"
+                        className="ns-input"
                         value={baseUrls[p.type]}
                         onChange={(e) => setBaseUrls(prev => ({ ...prev, [p.type]: e.target.value }))}
                         placeholder={
@@ -1379,7 +1299,7 @@ export default function AISettingsTab() {
                         pointed at a custom/self-signed endpoint via Base URL (incl.
                         OpenRouter, which now honors a custom base_url). */}
                     <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                      <label>
                         <input
                           type="checkbox"
                           checked={verifySSL[p.type]}
@@ -1398,8 +1318,8 @@ export default function AISettingsTab() {
                     {p.type === 'custom' && (
                       <div className="form-group">
                         <label>API Format</label>
-                        <select
-                          className="form-input"
+                        <select aria-label="API Format"
+                          className="ns-select"
                           value={apiFormat}
                           onChange={(e) => setApiFormat(e.target.value as 'openai' | 'gemini' | 'vertex-anthropic')}
                         >
@@ -1423,9 +1343,9 @@ export default function AISettingsTab() {
                     {p.type === 'custom' && (
                       <div className="form-group">
                         <label>Model Name</label>
-                        <input
+                        <input data-ai-fill="off"
                           type="text"
-                          className="form-input"
+                          className="ns-input"
                           value={customModel}
                           onChange={(e) => setCustomModel(e.target.value)}
                           placeholder={
@@ -1443,8 +1363,8 @@ export default function AISettingsTab() {
                     {p.type === 'custom' && (
                       <div className="form-group">
                         <label>Authentication</label>
-                        <select
-                          className="form-input"
+                        <select aria-label="Authentication"
+                          className="ns-select"
                           value={authMode}
                           onChange={(e) => setAuthMode(e.target.value as 'api_key' | 'oauth2')}
                         >
@@ -1465,9 +1385,9 @@ export default function AISettingsTab() {
                       <>
                         <div className="form-group">
                           <label>Token URL</label>
-                          <input
+                          <input data-ai-fill="off"
                             type="text"
-                            className="form-input"
+                            className="ns-input"
                             value={oauth2TokenUrl}
                             onChange={(e) => setOauth2TokenUrl(e.target.value)}
                             placeholder="https://api.example.com/oauth/token"
@@ -1475,9 +1395,9 @@ export default function AISettingsTab() {
                         </div>
                         <div className="form-group">
                           <label>Client ID</label>
-                          <input
+                          <input data-ai-fill="off"
                             type="text"
-                            className="form-input"
+                            className="ns-input"
                             value={oauth2ClientId}
                             onChange={(e) => setOauth2ClientId(e.target.value)}
                             placeholder="your-client-id"
@@ -1486,13 +1406,12 @@ export default function AISettingsTab() {
                         </div>
                         <div className="form-group">
                           <label>Custom Headers</label>
-                          <textarea
-                            className="form-input"
+                          <textarea data-ai-fill="off"
+                            className="ns-textarea settings-code"
                             rows={3}
                             value={customHeaders}
                             onChange={(e) => setCustomHeaders(e.target.value)}
                             placeholder={"user_email: name@example.com\nX-Custom-Header: value"}
-                            style={{ fontFamily: 'monospace', fontSize: '12px' }}
                           />
                           <span className="form-hint">One header per line as &quot;Key: Value&quot;. Added to every API request.</span>
                         </div>
@@ -1515,29 +1434,29 @@ export default function AISettingsTab() {
                                   {model}
                                 </span>
                                 <div className="model-actions">
-                                  <button
-                                    className="btn-move-model"
+                                  <Tooltip label="Move up (make default)"><button
+                                    className="ns-btn ns-btn--ghost ns-icon-btn"
                                     onClick={() => moveProviderModel(p.type, index, 'up')}
                                     disabled={isFirst}
-                                    title="Move up (make default)"
+                                    aria-label="Move up (make default)"
                                   >
                                     {Icons.arrowUp}
-                                  </button>
-                                  <button
-                                    className="btn-move-model"
+                                  </button></Tooltip>
+                                  <Tooltip label="Move down"><button
+                                    className="ns-btn ns-btn--ghost ns-icon-btn"
                                     onClick={() => moveProviderModel(p.type, index, 'down')}
                                     disabled={isLast}
-                                    title="Move down"
+                                    aria-label="Move down"
                                   >
                                     {Icons.arrowDown}
-                                  </button>
-                                  <button
-                                    className="btn-remove-model"
+                                  </button></Tooltip>
+                                  <Tooltip label="Remove model"><button
+                                    className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
                                     onClick={() => removeProviderModel(p.type, model)}
-                                    title="Remove model"
+                                    aria-label="Remove model"
                                   >
                                     {Icons.trash}
-                                  </button>
+                                  </button></Tooltip>
                                 </div>
                               </div>
                             );
@@ -1548,9 +1467,9 @@ export default function AISettingsTab() {
                         </div>
                         <div className="add-model-row">
                           <div className="model-combobox">
-                            <input
+                            <input data-ai-fill="off"
                               type="text"
-                              className="form-input"
+                              className="ns-input"
                               value={newModelInputs[p.type]}
                               onChange={(e) => setNewModelInputs(prev => ({ ...prev, [p.type]: e.target.value }))}
                               onFocus={() => setOpenModelCombo(p.type)}
@@ -1601,20 +1520,19 @@ export default function AISettingsTab() {
                             })()}
                           </div>
                           <button
-                            className="btn-add-model"
+                            className="ns-btn"
                             onClick={() => addProviderModel(p.type, newModelInputs[p.type])}
                             disabled={!newModelInputs[p.type].trim()}
                           >
                             Add
                           </button>
-                          <button
-                            className="btn-refresh-models"
+                          <Tooltip label="Refresh model list from provider"><button
+                            className="ns-btn"
                             onClick={() => fetchLiveModels(p.type, true)}
                             disabled={!!modelsLoading[p.type]}
-                            title="Refresh model list from provider"
                           >
                             {modelsLoading[p.type] ? 'Refreshing…' : 'Refresh'}
-                          </button>
+                          </button></Tooltip>
                         </div>
                         {modelsError[p.type] && (
                           <span className="form-hint model-fetch-error">
@@ -1626,14 +1544,14 @@ export default function AISettingsTab() {
                         {/* Max Tokens */}
                         <div className="max-tokens-row">
                           <label>Max Tokens:</label>
-                          <input
+                          <input aria-label="Max Tokens"
                             type="number"
                             min="0"
                             max="200000"
                             step="256"
                             value={settings[`ai.maxTokens.${p.type}` as keyof typeof settings] as number || 0}
                             onChange={(e) => updateSetting(`ai.maxTokens.${p.type}` as keyof typeof settings, parseInt(e.target.value) || 0)}
-                            className="form-input max-tokens-input"
+                            className="ns-input max-tokens-input"
                           />
                           <span className="max-tokens-hint">0 = no limit</span>
                         </div>
@@ -1673,27 +1591,25 @@ export default function AISettingsTab() {
 
                     {/* Actions */}
                     <div className="ai-provider-actions">
-                      <button
-                        className="btn-set-default"
+                      <Tooltip label={reqs.canSetDefault ? '' : `Needs ${reqs.missing.join(', ')}`}><button
+                        className="ns-btn"
                         onClick={() => handleSetDefault(p.type)}
                         disabled={isDefault || !reqs.canSetDefault}
-                        title={reqs.canSetDefault ? '' : `Needs ${reqs.missing.join(', ')}`}
                       >
                         {isDefault ? 'Default Provider' : 'Set as Default'}
-                      </button>
+                      </button></Tooltip>
 
-                      <button
-                        className="btn-save-key"
+                      <Tooltip label={p.requiresKey ? 'Save API key and endpoint settings' : 'Save endpoint settings'}><button
+                        className="ns-btn ns-btn--primary"
                         onClick={() => handleSaveKey(p.type)}
                         disabled={saving === p.type || !canSaveKey}
-                        title={p.requiresKey ? 'Save API key and endpoint settings' : 'Save endpoint settings'}
                       >
                         {Icons.save}
                         {saving === p.type ? 'Saving...' : (p.requiresKey ? 'Save Key' : 'Save')}
-                      </button>
+                      </button></Tooltip>
 
                       <button
-                        className="btn-test-connection"
+                        className="ns-btn btn-test-connection"
                         onClick={() => handleTestConnection(p.type)}
                         disabled={testing === p.type || (p.requiresKey && !status.hasKey && !apiKeys[p.type])}
                       >
@@ -1707,280 +1623,174 @@ export default function AISettingsTab() {
             );
           })}
         </div>
-      </section>
+      </SettingsSection>
       )}
 
       {/* AI Automation Section */}
-      <section className="ai-section">
-        <div className="section-header">
-          <h3>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" style={{ marginRight: '6px' }}>
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            AI AUTOMATION
-          </h3>
-        </div>
-
-        <p className="ai-description">
-          Enable or disable automatic AI features. Disabling reduces API usage and costs.
-        </p>
-
-        <div className="ai-automation-toggles">
-          {/* Command Autocomplete Toggle */}
-          <div className="ai-automation-feature">
-            <div className="ai-automation-item">
-              <div className="ai-automation-info">
-                <span className="ai-automation-label">Command Autocomplete</span>
-                <span className="ai-automation-description">
-                  AI suggests commands as you type in terminals (uses API after 300ms debounce)
-                </span>
-              </div>
-              <Switch
-                checked={settings['ai.inlineSuggestions']}
-                onChange={(v) => updateSetting('ai.inlineSuggestions', v)}
-                label="Command Autocomplete"
-              />
-            </div>
-          </div>
-
-          {/* Next Step Suggestions Toggle */}
-          <div className="ai-automation-feature">
-            <div className="ai-automation-item">
-              <div className="ai-automation-info">
-                <span className="ai-automation-label">Next Step Suggestions</span>
-                <span className="ai-automation-description">
-                  AI suggests follow-up commands after you execute commands
-                </span>
-              </div>
-              <Switch
-                checked={settings['ai.nextStepSuggestions']}
-                onChange={(v) => updateSetting('ai.nextStepSuggestions', v)}
-                label="Next Step Suggestions"
-              />
-            </div>
-          </div>
-
-          {/* Contextual Ask-AI help toggle */}
-          <div className="ai-automation-feature">
-            <div className="ai-automation-item">
-              <div className="ai-automation-info">
-                <span className="ai-automation-label">Contextual "Ask AI" help</span>
-                <span className="ai-automation-description">
-                  Show small "Ask AI" buttons next to confusing settings (API Resources,
-                  enrichment sources, token matchers, integrations). Opens a pop-over where
-                  the AI explains the concept and can help you set it up.
-                </span>
-              </div>
-              <Switch
-                checked={settings['ai.contextualHelp.enabled']}
-                onChange={(v) => updateSetting('ai.contextualHelp.enabled', v)}
-                label="Contextual 'Ask AI' help"
-              />
-            </div>
-          </div>
-
-          {/* Topology structural edits toggle */}
-          <div className="ai-automation-feature">
-            <div className="ai-automation-item">
-              <div className="ai-automation-info">
-                <span className="ai-automation-label">Allow AI to edit topologies</span>
-                <span className="ai-automation-description">
-                  Let the AI structurally change the active topology (add, remove, and
-                  move devices &amp; connections). When off, the AI can still read,
-                  analyze, highlight, and annotate the map. All AI edits are tracked in
-                  undo history.
-                </span>
-              </div>
-              <Switch
-                checked={settings['ai.topology.allowStructuralEdits']}
-                onChange={(v) => updateSetting('ai.topology.allowStructuralEdits', v)}
-                label="Allow AI to edit topologies"
-              />
-            </div>
-          </div>
-
-          {/* AI Terminal Mode — remote file-write tools (NS-API-10) */}
+      <SettingsSection
+        title="AI Automation"
+        description="Automatic AI features and the safety switches for what the AI may change. Disabling features reduces API usage and costs."
+        help={{
+          topic: 'AI automation and safety modes',
+          prompt: `Explain the AI automation switches in NetStacks and help me choose safe settings. Right now AI Terminal Mode is ${aiTerminalMode ? 'on' : 'off'}, AI Config Mode is ${configModeStatus.enabled ? 'on' : 'off'}, and structural topology edits are ${settings['ai.topology.allowStructuralEdits'] ? 'allowed' : 'not allowed'}. `
+            + 'Cover what each one lets the AI do (Terminal Mode: write/edit/patch files on devices; Config Mode: configuration commands for a limited time; topology edits), how they combine with the Ask/Auto/Go Nuts permission modes, and what stays blocked regardless.',
+        }}
+      >
+        <div className="settings-group">
+          <SettingRow label="Command Autocomplete" description="AI suggests commands as you type in terminals (uses the API after a 300 ms pause)">
+            <Switch
+              checked={settings['ai.inlineSuggestions']}
+              onChange={(v) => updateSetting('ai.inlineSuggestions', v)}
+              label="Command Autocomplete"
+            />
+          </SettingRow>
+          <SettingRow label="Next Step Suggestions" description="AI suggests follow-up commands after you execute commands">
+            <Switch
+              checked={settings['ai.nextStepSuggestions']}
+              onChange={(v) => updateSetting('ai.nextStepSuggestions', v)}
+              label="Next Step Suggestions"
+            />
+          </SettingRow>
+          <SettingRow
+            label={'Contextual "Ask AI" help'}
+            description={'Show small "Ask AI" buttons on the complex setup areas (integrations, enrichment, profiles, jump hosts, tunnels, AI permissions, MOPs, …). Opens a pop-over where the AI explains the feature and helps you set it up.'}
+          >
+            <Switch
+              checked={settings['ai.contextualHelp.enabled']}
+              onChange={(v) => updateSetting('ai.contextualHelp.enabled', v)}
+              label="Contextual 'Ask AI' help"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Allow AI to edit topologies"
+            description="Let the AI structurally change the active topology (add, remove, and move devices & connections). When off, the AI can still read, analyze, highlight, and annotate the map. All AI edits are tracked in undo history."
+          >
+            <Switch
+              checked={settings['ai.topology.allowStructuralEdits']}
+              onChange={(v) => updateSetting('ai.topology.allowStructuralEdits', v)}
+              label="Allow AI to edit topologies"
+            />
+          </SettingRow>
           {!isEnterprise && (
-            <div className="ai-automation-feature">
-              <div className="ai-automation-item">
-                <div className="ai-automation-info">
-                  <span className="ai-automation-label">AI Terminal Mode</span>
-                  <span className="ai-automation-description">
-                    Allow the AI's <code>write_file</code>, <code>edit_file</code> and{' '}
-                    <code>patch_file</code> tools to modify files on connected devices
-                    and hosts over the active session.
-                  </span>
-                  <span className="ai-automation-description ai-automation-warning">
-                    Warning: with this on, the AI can change remote filesystems directly.
-                    Leave it off unless you need it.
-                  </span>
-                </div>
-                <Switch
-                  checked={aiTerminalMode}
-                  onChange={(v) => { void handleToggleTerminalMode(v) }}
-                  label="AI Terminal Mode — allow write_file, edit_file and patch_file on devices"
-                />
-              </div>
-            </div>
+            <SettingRow
+              label="AI Terminal Mode"
+              description={
+                <>
+                  Allow the AI's <code>write_file</code>, <code>edit_file</code> and <code>patch_file</code> tools to modify
+                  files on connected devices and hosts over the active session.{' '}
+                  <span className="ai-warning-text">With this on, the AI can change remote filesystems directly — leave it off unless you need it.</span>
+                </>
+              }
+            >
+              <Switch
+                checked={aiTerminalMode}
+                onChange={(v) => { void handleToggleTerminalMode(v) }}
+                label="AI Terminal Mode — allow write_file, edit_file and patch_file on devices"
+              />
+            </SettingRow>
           )}
-
           {/* AUDIT FIX (EXEC-002): server-side AI config-mode panel.
               Replaces the old persistent client-side toggle. Enabling
               requires the user to re-supply the master password and the
               override auto-expires after ~5 min. */}
-          <div className="ai-automation-feature ai-config-changes-feature">
-            <div className="ai-automation-item">
-              <div className="ai-automation-info">
-                <span className="ai-automation-label">AI Configuration Mode</span>
-                <span className="ai-automation-description">
-                  {isEnterprise && !controllerAiConfigEnabled
-                    ? 'This feature is disabled by your administrator. Contact your admin to enable AI configuration changes on the controller.'
-                    : isEnterprise
-                      ? 'Temporarily allows the AI assistant to execute configuration commands on network devices. Auto-disables after 5 minutes.'
-                      : 'Temporarily allows the AI assistant to execute configuration commands on network devices. Requires your master password to enable, auto-disables after 5 minutes.'
-                  }
-                </span>
-              </div>
-              {!(isEnterprise && !controllerAiConfigEnabled) && (
-                configModeStatus.enabled ? (
+          <SettingRow
+            label="AI Configuration Mode"
+            description={isEnterprise && !controllerAiConfigEnabled
+              ? 'This feature is disabled by your administrator. Contact your admin to enable AI configuration changes on the controller.'
+              : isEnterprise
+                ? 'Temporarily allows the AI assistant to execute configuration commands on network devices. Auto-disables after 5 minutes.'
+                : 'Temporarily allows the AI assistant to execute configuration commands on network devices. Requires your master password to enable, auto-disables after 5 minutes.'}
+            stacked
+          >
+            {!(isEnterprise && !controllerAiConfigEnabled) && (
+              configModeStatus.enabled ? (
+                <>
+                  <p className="ai-warning-text">
+                    AI is currently allowed to send configuration commands. The override expires automatically; disable it to revoke immediately.
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      className="ns-btn ns-btn--small"
+                      onClick={handleDisableConfigMode}
+                      disabled={configModeBusy}
+                    >
+                      {configModeBusy
+                        ? 'Disabling…'
+                        : `Disable (${Math.max(0, configModeStatus.seconds_remaining ?? 0)}s left)`}
+                    </button>
+                  </div>
+                </>
+              ) : isEnterprise ? (
+                <div>
                   <button
                     type="button"
-                    className="form-button"
-                    onClick={handleDisableConfigMode}
-                    disabled={configModeBusy}
-                    style={{ background: '#7c2d12', color: '#fed7aa', minWidth: '160px' }}
-                  >
-                    {configModeBusy
-                      ? 'Disabling…'
-                      : `Disable (${Math.max(0, configModeStatus.seconds_remaining ?? 0)}s left)`}
-                  </button>
-                ) : (
-                  <span style={{ fontSize: '12px', opacity: 0.7 }}>Disabled</span>
-                )
-              )}
-            </div>
-
-            {!configModeStatus.enabled && !(isEnterprise && !controllerAiConfigEnabled) && (
-              isEnterprise ? (
-                <div style={{ marginTop: '8px' }}>
-                  <button
-                    type="button"
-                    className="form-button"
+                    className="ns-btn ns-btn--small ns-btn--danger"
                     onClick={() => { void handleEnableConfigMode(); }}
                     disabled={configModeBusy}
-                    style={{ background: '#b45309', color: '#fed7aa', minWidth: '160px', padding: '8px 16px', borderRadius: '4px', border: 'none', cursor: configModeBusy ? 'not-allowed' : 'pointer', opacity: configModeBusy ? 0.6 : 1 }}
                   >
                     {configModeBusy ? 'Enabling…' : 'Enable for 5 min'}
                   </button>
                 </div>
               ) : (
-                <form onSubmit={handleEnableConfigMode} style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <form onSubmit={handleEnableConfigMode} className="ai-config-mode-form">
                   <PasswordInput
-                    className="form-input"
+                    aria-label="Master password"
                     placeholder="Master password to enable…"
                     value={configModePassword}
                     onChange={(e) => setConfigModePassword(e.target.value)}
                     autoComplete="current-password"
                     disabled={configModeBusy}
-                    style={{ flex: 1 }}
                   />
                   <button
                     type="submit"
-                    className="form-button"
+                    className="ns-btn ns-btn--danger"
                     disabled={configModeBusy || configModePassword.length < 12}
-                    style={{ background: '#b45309', color: '#fed7aa' }}
                   >
                     {configModeBusy ? 'Enabling…' : 'Enable for 5 min'}
                   </button>
                 </form>
               )
             )}
-
-            {configModeError && (
-              <div style={{ marginTop: '8px', color: '#fca5a5', fontSize: '12px' }}>
-                {configModeError}
-              </div>
-            )}
-
-            {configModeStatus.enabled && (
-              <div className="ai-config-changes-warning" style={{ marginTop: '8px' }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                <span>AI is currently allowed to send configuration commands. The override expires automatically; click Disable to revoke immediately.</span>
-              </div>
-            )}
-          </div>
+            {configModeError && <p className="settings-error">{configModeError}</p>}
+          </SettingRow>
         </div>
+      </SettingsSection>
 
-        {/* Context Management */}
-        <div className="ai-automation-feature" style={{ marginTop: '16px' }}>
-          <div className="ai-automation-item">
-            <div className="ai-automation-info">
-              <span className="ai-automation-label">Max Conversation Messages</span>
-              <span className="ai-automation-description">
-                Limit conversation history to prevent context overflow errors. Set to 0 for unlimited.
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
+      <SettingsSection title="Context" description="How much conversation and workspace state is sent with each AI request.">
+        <div className="settings-group">
+          <SettingRow label="Max Conversation Messages" description="Limit conversation history to prevent context overflow errors. Set to 0 for unlimited.">
+            <span className="ai-number-setting">
+              <input aria-label="Max Conversation Messages"
                 type="number"
                 min="0"
                 max="100"
                 value={settings['ai.maxConversationMessages']}
                 onChange={(e) => updateSetting('ai.maxConversationMessages', parseInt(e.target.value) || 0)}
-                style={{ width: '60px', textAlign: 'center' }}
-                className="form-input"
+                className="ns-input setting-input-number"
               />
-              <span style={{ fontSize: '11px', opacity: 0.7 }}>messages</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Live Workspace Context */}
-        <div className="ai-automation-feature" style={{ marginTop: '16px' }}>
-          <div className="ai-automation-item" style={{ marginBottom: '12px' }}>
-            <div className="ai-automation-info">
-              <span className="ai-automation-label">Live Workspace Context</span>
-              <span className="ai-automation-description">
-                Automatically include current terminal scrollback and editor content with each AI request
-              </span>
-            </div>
+              messages
+            </span>
+          </SettingRow>
+          <SettingRow label="Live Workspace Context" description="Automatically include current terminal scrollback and editor content with each AI request">
             <Switch
               checked={settings['ai.liveContext.enabled']}
               onChange={(v) => updateSetting('ai.liveContext.enabled', v)}
               label="Live Workspace Context"
             />
-          </div>
-
+          </SettingRow>
           {settings['ai.liveContext.enabled'] && (
             <>
-              <div className="ai-automation-item" style={{ marginBottom: '12px', paddingLeft: '20px' }}>
-                <div className="ai-automation-info">
-                  <span className="ai-automation-label">Include Editor Content</span>
-                  <span className="ai-automation-description">
-                    Send the active editor file (redacted) with each AI request
-                  </span>
-                </div>
+              <SettingRow label="Include Editor Content" description="Send the active editor file (redacted) with each AI request">
                 <Switch
                   checked={settings['ai.liveContext.includeEditor']}
                   onChange={(v) => updateSetting('ai.liveContext.includeEditor', v)}
                   label="Include Editor Content"
                 />
-              </div>
-
-              <div className="ai-automation-item" style={{ paddingLeft: '20px' }}>
-                <div className="ai-automation-info">
-                  <span className="ai-automation-label">Terminal Scrollback Lines</span>
-                  <span className="ai-automation-description">
-                    Number of terminal lines to include (20-1000)
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
+              </SettingRow>
+              <SettingRow label="Terminal Scrollback Lines" description="Number of terminal lines to include (20–1000)">
+                <span className="ai-number-setting">
+                  <input aria-label="Terminal Scrollback Lines"
                     type="number"
                     min="20"
                     max="1000"
@@ -1990,66 +1800,40 @@ export default function AISettingsTab() {
                       const clamped = Math.max(20, Math.min(1000, val));
                       updateSetting('ai.liveContext.scrollbackLines', clamped);
                     }}
-                    style={{ width: '70px', textAlign: 'center' }}
-                    className="form-input"
+                    className="ns-input setting-input-number"
                   />
-                  <span style={{ fontSize: '11px', opacity: 0.7 }}>lines</span>
-                </div>
-              </div>
+                  lines
+                </span>
+              </SettingRow>
             </>
           )}
         </div>
-      </section>
+      </SettingsSection>
 
       {/* AI Agents Section */}
-      <section className="ai-section">
-        <div className="section-header">
-          <h3>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" style={{ marginRight: '6px' }}>
-              <path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z" />
-              <path d="M12 11v2" />
-              <path d="M8 15h8" />
-              <rect x="6" y="15" width="12" height="7" rx="2" />
-            </svg>
-            AI AGENTS
-          </h3>
-        </div>
-
-        <p className="ai-description">
-          Configure how AI agents execute background tasks. Agents use the ReAct (Reasoning + Acting) loop to
-          autonomously complete network automation tasks.
-        </p>
-
-        <div className="ai-agent-settings">
+      <SettingsSection
+        title="AI Agents"
+        description="How AI agents run background tasks. Agents use the ReAct (Reasoning + Acting) loop to complete network automation tasks on their own."
+      >
+        <div className="settings-group">
           {/* Agent uses the single default provider (top of this page). The only
               per-toolset override is an optional model. */}
-          <div className="ai-agent-setting-row">
-            <div className="ai-agent-setting-info">
-              <span className="ai-agent-setting-label">Model override (optional)</span>
-              <span className="ai-agent-setting-description">
-                The agent uses the default provider ({defaultProviderLabel}). Leave blank
-                to use its default model, or enter a specific model name to use instead.
-              </span>
-            </div>
-            <input
+          <SettingRow
+            label="Model override (optional)"
+            description={`The agent uses the default provider (${defaultProviderLabel}). Leave blank to use its default model, or enter a specific model name to use instead.`}
+          >
+            <input data-ai-fill="off"
               type="text"
+              aria-label="Agent model override"
               value={settings['ai.agent.model'] || ''}
               placeholder="Use default model"
               onChange={(e) => updateSetting('ai.agent.model', e.target.value || null)}
-              className="ai-agent-select"
+              className="ns-input ai-agent-select"
             />
-          </div>
-
-          {/* Temperature */}
-          <div className="ai-agent-setting-row">
-            <div className="ai-agent-setting-info">
-              <span className="ai-agent-setting-label">Temperature</span>
-              <span className="ai-agent-setting-description">
-                Controls randomness (0 = deterministic, 1 = creative)
-              </span>
-            </div>
-            <div className="ai-agent-slider-container">
-              <input
+          </SettingRow>
+          <SettingRow label="Temperature" description="Controls randomness (0 = deterministic, 1 = creative)">
+            <span className="ai-agent-slider-container">
+              <input aria-label="Temperature"
                 type="range"
                 min="0"
                 max="1"
@@ -2059,82 +1843,47 @@ export default function AISettingsTab() {
                 className="ai-agent-slider"
               />
               <span className="ai-agent-slider-value">{settings['ai.agent.temperature'].toFixed(1)}</span>
-            </div>
-          </div>
-
-          {/* Max Tokens */}
-          <div className="ai-agent-setting-row">
-            <div className="ai-agent-setting-info">
-              <span className="ai-agent-setting-label">Max Tokens</span>
-              <span className="ai-agent-setting-description">
-                Maximum tokens per AI response
-              </span>
-            </div>
-            <input
+            </span>
+          </SettingRow>
+          <SettingRow label="Max Tokens" description="Maximum tokens per AI response">
+            <input aria-label="Max Tokens"
               type="number"
               min="256"
               max="32000"
               step="256"
               value={settings['ai.agent.maxTokens']}
               onChange={(e) => updateSetting('ai.agent.maxTokens', parseInt(e.target.value) || 4096)}
-              className="form-input ai-agent-number-input"
+              className="ns-input ai-agent-number-input"
             />
-          </div>
-
-          {/* Max Iterations */}
-          <div className="ai-agent-setting-row">
-            <div className="ai-agent-setting-info">
-              <span className="ai-agent-setting-label">Max Iterations</span>
-              <span className="ai-agent-setting-description">
-                Maximum ReAct loop iterations before timeout
-              </span>
-            </div>
-            <input
+          </SettingRow>
+          <SettingRow label="Max Iterations" description="Maximum ReAct loop iterations before timeout">
+            <input aria-label="Max Iterations"
               type="number"
               min="1"
               max="50"
               value={settings['ai.agent.maxIterations']}
               onChange={(e) => updateSetting('ai.agent.maxIterations', parseInt(e.target.value) || 15)}
-              className="form-input ai-agent-number-input"
+              className="ns-input ai-agent-number-input"
             />
-          </div>
-
-          {/* System Prompt - now managed in Settings > Prompts */}
-          <div className="ai-agent-setting-row">
-            <div className="ai-agent-setting-info">
-              <span className="ai-agent-setting-label">System Prompt</span>
-              <span className="ai-agent-setting-description">
-                Agent system prompt can be configured in Settings &gt; Prompts.
-              </span>
-            </div>
-          </div>
+          </SettingRow>
+          <SettingRow label="System Prompt" description="The agent system prompt is configured in Settings → Prompts." />
         </div>
-      </section>
+      </SettingsSection>
 
       {/* Token Usage Section */}
-      <section className="ai-section">
-        <div className="section-header">
-          <h3>
-            {Icons.tokens}
-            <span style={{ marginLeft: '6px' }}>TOKEN USAGE</span>
-          </h3>
+      <SettingsSection
+        title="Token Usage"
+        description={`AI token consumption across all sessions, since ${new Date(tokenUsage.sessionStart).toLocaleDateString()}. Kept until you reset it.`}
+        actions={
           <button
-            className="btn-reset-tokens"
+            className="ns-btn ns-btn--small"
             onClick={resetAllTokens}
-            title="Reset all token counters"
             disabled={tokenUsage.totalRequests === 0}
           >
-            {Icons.refresh}
             Reset All
           </button>
-        </div>
-
-        <p className="ai-description" style={{ marginBottom: '16px' }}>
-          Track AI token consumption across all sessions. Data persists until manually reset.
-          Since {new Date(tokenUsage.sessionStart).toLocaleDateString()}.
-        </p>
-
-        {/* Total Usage Summary */}
+        }
+      >
         <div className="token-usage-total">
           <div className="token-usage-stat">
             <span className="stat-value">{tokenUsage.totalTokens.toLocaleString()}</span>
@@ -2154,106 +1903,113 @@ export default function AISettingsTab() {
           </div>
         </div>
 
-        {/* Per-Provider Usage */}
-        <div className="token-usage-providers">
-          {(Object.keys(tokenUsage.providers) as TokenProviderType[]).map((providerKey) => {
-            const provider = tokenUsage.providers[providerKey];
-            const providerInfo = PROVIDERS.find(p => p.type === providerKey);
-            if (provider.requestCount === 0) return null;
-
-            return (
-              <div key={providerKey} className="token-provider-row">
-                <div className="token-provider-info">
-                  <span className="token-provider-icon">{providerInfo?.icon}</span>
-                  <span className="token-provider-name">{providerInfo?.name || providerKey}</span>
-                </div>
-                <div className="token-provider-stats">
-                  <span className="token-stat" title="Total tokens">
-                    {provider.totalTokens.toLocaleString()}
-                  </span>
-                  <span className="token-stat-detail" title="Input / Output">
-                    ({provider.inputTokens.toLocaleString()} / {provider.outputTokens.toLocaleString()})
-                  </span>
-                  <span className="token-requests" title="Requests">
-                    {provider.requestCount} req
-                  </span>
-                  <button
-                    className="btn-reset-provider"
-                    onClick={() => resetProviderTokens(providerKey)}
-                    title={`Reset ${providerInfo?.name || providerKey} tokens`}
-                  >
-                    {Icons.refresh}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-          {tokenUsage.totalRequests === 0 && (
-            <div className="token-no-usage">No token usage recorded yet</div>
-          )}
-        </div>
-      </section>
+        {tokenUsage.totalRequests === 0 ? (
+          <p className="form-hint">No token usage recorded yet.</p>
+        ) : (
+          <div className="settings-group">
+            {(Object.keys(tokenUsage.providers) as TokenProviderType[]).map((providerKey) => {
+              const provider = tokenUsage.providers[providerKey];
+              const providerInfo = PROVIDERS.find(p => p.type === providerKey);
+              if (provider.requestCount === 0) return null;
+              const name = providerInfo?.name || providerKey;
+              return (
+                <SettingsItem
+                  key={providerKey}
+                  leading={providerInfo?.icon}
+                  title={name}
+                  meta={
+                    <>
+                      <span>{provider.totalTokens.toLocaleString()} tokens</span>
+                      <span>{provider.inputTokens.toLocaleString()} in / {provider.outputTokens.toLocaleString()} out</span>
+                      <span>{provider.requestCount} requests</span>
+                    </>
+                  }
+                  actions={
+                    <button
+                      className="ns-btn ns-btn--small ns-btn--ghost"
+                      onClick={() => resetProviderTokens(providerKey)}
+                      aria-label={`Reset ${name} tokens`}
+                    >
+                      Reset
+                    </button>
+                  }
+                />
+              );
+            })}
+          </div>
+        )}
+      </SettingsSection>
 
       {/* AI Tools Section — shown when local_ai_tools feature is enabled */}
       {hasAiTools && (
-      <section className="ai-section">
-        <div className="section-header">
-          <h3>
-            {Icons.tool}
-            <span style={{ marginLeft: '6px' }}>AI TOOLS</span>
-          </h3>
-          <span className="ai-tools-count">
+      <>
+      <SettingsSection
+        title="AI Tools"
+        description="Each agent type has its own permission mode and tool configuration. A disabled tool is never offered to or run by that agent type."
+        help={{
+          topic: 'AI permissions and tools',
+          prompt: `Help me configure AI permissions in NetStacks. Auto Pilot is in ${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING.autopilot]].label} mode and Overlord in ${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING.overlord]].label} mode; ${disabledTools.length} of ${TOOL_REGISTRY.length} tools are disabled for ${toolsAgentType === 'autopilot' ? 'Auto Pilot' : 'Overlord'}. `
+            + 'Explain Ask (approve every call), Auto (approve only writes) and Go Nuts (approve nothing), what always stays blocked (disabled tools, the bash deny list, config commands without Config Mode, file writes without Terminal Mode), which tools count as writes, and recommend settings for day-to-day troubleshooting vs change windows.',
+        }}
+        actions={
+          <span className="settings-badge">
             {TOOL_REGISTRY.length - disabledTools.length} / {TOOL_REGISTRY.length} enabled
           </span>
-        </div>
-
-        <p className="ai-description">
-          Enable or disable AI tools per agent type. Each agent type can have its own tool configuration.
-        </p>
-
+        }
+      >
         {/* Agent type tabs */}
-        <div className="ai-tools-agent-tabs" style={{ display: 'flex', gap: '0', marginBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+        <div className="ns-segmented">
           {(['autopilot', 'overlord'] as const).map(at => (
             <button
               key={at}
-              className={`ai-tools-agent-tab${toolsAgentType === at ? ' active' : ''}`}
+              className={`ns-segment${toolsAgentType === at ? ' active' : ''}`}
+              aria-pressed={toolsAgentType === at}
               onClick={() => setToolsAgentType(at)}
-              style={{
-                padding: '6px 16px',
-                border: 'none',
-                background: toolsAgentType === at ? 'rgba(255,255,255,0.08)' : 'transparent',
-                color: toolsAgentType === at ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                cursor: 'pointer',
-                fontSize: '12px',
-                fontWeight: toolsAgentType === at ? 600 : 400,
-                borderBottom: toolsAgentType === at ? '2px solid var(--color-accent, #3b82f6)' : '2px solid transparent',
-                transition: 'all 0.15s',
-              }}
             >
               {at === 'autopilot' ? settings['ai.modes.autopilot.name'] : settings['ai.modes.overlord.name']}
             </button>
           ))}
         </div>
 
-        {/* Rename the two modes — used everywhere the mode is shown + in the AI's mode-awareness prompt */}
-        <div className="ai-mode-names" style={{ display: 'flex', gap: 16, margin: '8px 0 4px' }}>
-          {(['autopilot', 'overlord'] as const).map((m) => (
-            <label key={m} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-              <span style={{ color: 'var(--color-text-secondary)' }}>
-                {m === 'autopilot' ? 'Mode 1 name' : 'Mode 2 name'}
-              </span>
-              <input
-                type="text"
-                value={settings[`ai.modes.${m}.name` as keyof typeof settings] as string}
-                placeholder={m === 'autopilot' ? 'Auto Pilot' : 'Overlord'}
-                onChange={(e) => updateSetting(`ai.modes.${m}.name` as keyof typeof settings, (e.target.value || (m === 'autopilot' ? 'Auto Pilot' : 'Overlord')) as never)}
-                style={{ padding: '5px 8px', fontSize: 12 }}
-              />
-            </label>
-          ))}
+        <div className="settings-group">
+          {/* Permission mode — the AI panel's mode picker edits this same setting */}
+          <SettingRow
+            label="Permission mode"
+            description={`${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING[toolsAgentType]]].description}. In every mode, disabled tools, the bash deny list, AI Terminal Mode, AI Config Mode and the topology edit switch still apply.`}
+          >
+            <select
+              aria-label="Permission mode"
+              className="ns-select"
+              value={settings[PERMISSION_MODE_SETTING[toolsAgentType]]}
+              onChange={(e) => updateSetting(PERMISSION_MODE_SETTING[toolsAgentType], e.target.value as PermissionMode)}
+            >
+              {(Object.entries(PERMISSION_MODES) as [PermissionMode, { label: string }][]).map(([key, pm]) => (
+                <option key={key} value={key}>{pm.label}</option>
+              ))}
+            </select>
+          </SettingRow>
+          {/* Rename the two modes — used everywhere the mode is shown + in the AI's mode-awareness prompt */}
+          <SettingRow label="Mode names" description="Shown wherever the agent modes appear, and in the AI's own prompt." stacked>
+            <div className="settings-form-row">
+              {(['autopilot', 'overlord'] as const).map((m) => (
+                <div key={m} className="form-group">
+                  <label htmlFor={`ai-mode-name-${m}`}>{m === 'autopilot' ? 'Mode 1 name' : 'Mode 2 name'}</label>
+                  <AITabInput
+                    id={`ai-mode-name-${m}`}
+                    value={settings[`ai.modes.${m}.name` as keyof typeof settings] as string}
+                    placeholder={m === 'autopilot' ? 'Auto Pilot' : 'Overlord'}
+                    onChange={(e) => updateSetting(`ai.modes.${m}.name` as keyof typeof settings, (e.target.value || (m === 'autopilot' ? 'Auto Pilot' : 'Overlord')) as never)}
+                    aiField="AI agent mode name"
+                    aiPlaceholder={m === 'autopilot' ? 'Display name for the autonomous agent mode' : 'Display name for the ask-before-acting agent mode'}
+                    onAIValue={(v) => updateSetting(`ai.modes.${m}.name` as keyof typeof settings, v as never)}
+                  />
+                </div>
+              ))}
+            </div>
+          </SettingRow>
         </div>
 
-        <div className="ai-tools-categories">
+        <div className="settings-group">
           {(Object.keys(TOOL_CATEGORIES) as ToolCategory[]).map((category) => {
             const categoryInfo = TOOL_CATEGORIES[category];
             const categoryTools = TOOL_REGISTRY.filter(t => t.category === category);
@@ -2301,7 +2057,7 @@ export default function AISettingsTab() {
                           <span className="ai-tool-name">
                             {tool.name}
                             {tool.defaultDisabled && (
-                              <span className="ai-tool-default-off" title="Starts disabled; enable it here to let the AI use it">off by default</span>
+                              <Tooltip label="Starts disabled; enable it here to let the AI use it"><span className="ai-tool-default-off">off by default</span></Tooltip>
                             )}
                           </span>
                           <span className="ai-tool-description">{tool.shortDescription}</span>
@@ -2315,179 +2071,122 @@ export default function AISettingsTab() {
           })}
         </div>
 
-        {/* Bash Deny List Configuration */}
-        <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <h4 style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-            Bash Command Deny List
-          </h4>
-          <p className="ai-description" style={{ margin: '0 0 8px' }}>
-            Commands blocked from AI bash execution. Built-in deny list includes rm, sudo, kill, shutdown, chmod, etc.
-            Add extra commands here to extend the deny list.
-          </p>
+      </SettingsSection>
 
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
-            <input
-              type="text"
-              value={bashDenyInput}
-              onChange={e => setBashDenyInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addBashDenyEntry(); }}
-              placeholder="e.g. wget, nc, ncat"
-              style={{
-                flex: 1,
-                padding: '4px 8px',
-                background: 'rgba(0,0,0,0.2)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '4px',
-                color: 'var(--color-text-primary)',
-                fontSize: '12px',
-              }}
-            />
-            <button
-              onClick={addBashDenyEntry}
-              disabled={!bashDenyInput.trim()}
-              style={{
-                padding: '4px 12px',
-                background: 'var(--color-accent, #3b82f6)',
-                border: 'none',
-                borderRadius: '4px',
-                color: '#fff',
-                fontSize: '12px',
-                cursor: 'pointer',
-                opacity: bashDenyInput.trim() ? 1 : 0.5,
-              }}
-            >
-              Add
-            </button>
-          </div>
-
-          {bashDeniedCommands.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-              {bashDeniedCommands.map(cmd => (
-                <span
-                  key={cmd}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '2px 8px',
-                    background: 'rgba(239,68,68,0.15)',
-                    border: '1px solid rgba(239,68,68,0.3)',
-                    borderRadius: '3px',
-                    fontSize: '11px',
-                    color: 'var(--color-text-secondary)',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {cmd}
-                  <button
-                    onClick={() => removeBashDenyEntry(cmd)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'rgba(239,68,68,0.7)',
-                      cursor: 'pointer',
-                      padding: '0 2px',
-                      fontSize: '14px',
-                      lineHeight: 1,
-                    }}
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {bashDeniedCommands.length === 0 && (
-            <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-              No custom deny entries — using built-in deny list only
-            </p>
-          )}
+      <SettingsSection
+        title="Bash Command Deny List"
+        description="Commands blocked from AI bash execution, on top of the built-in deny list (rm, sudo, kill, shutdown, chmod, …)."
+      >
+        <div className="ai-bash-deny-add">
+          <AITabInput
+            value={bashDenyInput}
+            onChange={e => setBashDenyInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addBashDenyEntry(); }}
+            placeholder="e.g. wget, nc, ncat"
+            aria-label="Command to deny"
+            aiField="bash command to deny"
+            aiPlaceholder="One shell command name the AI must never run, beyond the built-in deny list"
+            aiContext={{ alreadyDenied: (settings['ai.bash.deniedCommands'] ?? []).join(', ') }}
+            onAIValue={setBashDenyInput}
+          />
+          <button
+            className="ns-btn ns-btn--primary"
+            onClick={addBashDenyEntry}
+            disabled={!bashDenyInput.trim()}
+          >
+            Add
+          </button>
         </div>
-      </section>
+
+        {bashDeniedCommands.length > 0 && (
+          <div className="ai-bash-deny-list">
+            {bashDeniedCommands.map(cmd => (
+              <span key={cmd} className="ai-bash-deny-chip">
+                {cmd}
+                <button
+                  type="button"
+                  className="ai-bash-deny-chip-remove"
+                  onClick={() => removeBashDenyEntry(cmd)}
+                  aria-label={`Remove ${cmd}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {bashDeniedCommands.length === 0 && (
+          <p className="form-hint">
+            No custom deny entries — using built-in deny list only
+          </p>
+        )}
+      </SettingsSection>
+      </>
       )}
 
       {/* AI Overlord Settings */}
-      <section className="ai-section">
-        <div className="ai-section-header">
-          <div className="ai-section-icon">{Icons.activity}</div>
-          <h3>AI Overlord</h3>
+      <SettingsSection
+        title="AI Overlord"
+        description="The provider and model Overlord uses to analyze terminal output. Overlord watches your terminals and flags issues like BGP state problems, interface errors and security concerns."
+      >
+        <div className="settings-group">
+          <SettingRow label="Provider">
+            <select aria-label="Overlord provider"
+              className="ns-select"
+              value={settings['ai.overlord.provider'] || ''}
+              onChange={(e) => updateSetting('ai.overlord.provider', (e.target.value || null) as AiProviderType | null)}
+            >
+              <option value="">Use Default Provider</option>
+              {PROVIDERS.filter(p => settings['ai.enabledProviders']?.includes(p.type as AiProviderType)).map(p => (
+                <option key={p.type} value={p.type}>{p.name}</option>
+              ))}
+            </select>
+          </SettingRow>
+          <SettingRow label="Model" description={`e.g. ${ANTHROPIC_MODELS.opus} for better analysis quality`}>
+            <input data-ai-fill="off"
+              type="text"
+              aria-label="Overlord model"
+              className="ns-input ai-agent-select"
+              value={settings['ai.overlord.model'] || ''}
+              onChange={(e) => updateSetting('ai.overlord.model', e.target.value || null)}
+              placeholder="Use default model"
+            />
+          </SettingRow>
         </div>
-        <p className="ai-description">
-          Configure which AI provider and model to use for Overlord terminal analysis.
-          Overlord watches your terminal output and flags issues like BGP state problems, interface errors, and security concerns.
-        </p>
-        <div className="ai-automation-feature" style={{ marginTop: '8px' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', display: 'block' }}>Provider</label>
-              <select
-                className="form-input"
-                value={settings['ai.overlord.provider'] || ''}
-                onChange={(e) => updateSetting('ai.overlord.provider', (e.target.value || null) as AiProviderType | null)}
-              >
-                <option value="">Use Default Provider</option>
-                {PROVIDERS.filter(p => settings['ai.enabledProviders']?.includes(p.type as AiProviderType)).map(p => (
-                  <option key={p.type} value={p.type}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', display: 'block' }}>Model</label>
-              <input
-                type="text"
-                className="form-input"
-                value={settings['ai.overlord.model'] || ''}
-                onChange={(e) => updateSetting('ai.overlord.model', e.target.value || null)}
-                placeholder="Use default model"
-              />
-              <span className="form-hint">e.g., {ANTHROPIC_MODELS.opus} for better analysis quality</span>
-            </div>
-          </div>
-        </div>
-      </section>
+      </SettingsSection>
 
       {/* MCP Servers Section — Personal Mode only; admin-managed in Enterprise mode */}
       {hasAiTools && !isEnterprise && <McpServersSection />}
 
       {/* AI Memory Section */}
-      <section className="ai-section">
-        <div className="ai-section-header">
-          <div className="ai-section-icon">{Icons.brain}</div>
-          <h3>AI Memory</h3>
-        </div>
-        <AIMemoryTab />
-      </section>
+      <AIMemoryTab />
 
       {/* AI Data Security Section */}
-      <section className="ai-section">
-        <div className="ai-section-header">
-          <div className="ai-section-icon">{Icons.shield}</div>
-          <h3>AI Data Security</h3>
-        </div>
-        <p className="ai-description">
-          Automatically scrub credentials, secrets, and network identifiers from data before it reaches external AI providers.
-          19 mandatory credential patterns are always active.
-        </p>
-
+      <SettingsSection
+        title="AI Data Security"
+        description="Credentials, secrets and network identifiers are scrubbed from data before it reaches external AI providers. 19 mandatory credential patterns are always active."
+      >
         {sanitizationLoading ? (
-          <div className="ai-loading">Loading sanitization settings...</div>
+          <p className="form-hint">Loading sanitization settings…</p>
         ) : (
-          <div className="sanitization-settings">
-            {/* Mandatory Patterns (collapsible info) */}
-            <div className="sanitization-group">
-              <button
-                className="sanitization-group-header"
-                onClick={() => setMandatoryPatternsExpanded(!mandatoryPatternsExpanded)}
-              >
-                <span className={`chevron ${mandatoryPatternsExpanded ? 'expanded' : ''}`}>
-                  {Icons.arrowDown}
-                </span>
-                <span>Mandatory Patterns (19 always active)</span>
-              </button>
+          <div className="settings-group">
+            <SettingRow
+              label="Mandatory patterns"
+              description="Always active; they cannot be turned off."
+              stacked={mandatoryPatternsExpanded}
+            >
+              <div>
+                <button
+                  className="ns-btn ns-btn--small ns-btn--ghost"
+                  aria-expanded={mandatoryPatternsExpanded}
+                  onClick={() => setMandatoryPatternsExpanded(!mandatoryPatternsExpanded)}
+                >
+                  {mandatoryPatternsExpanded ? 'Hide the 19 patterns' : 'Show the 19 patterns'}
+                </button>
+              </div>
               {mandatoryPatternsExpanded && (
-                <div className="sanitization-mandatory-list">
+                <ol className="sanitization-mandatory-list">
                   {[
                     'Cisco enable secret/password', 'Cisco password 7', 'Cisco password 0',
                     'SNMP community strings', 'SNMPv3 auth/priv keys', 'TACACS keys', 'RADIUS keys',
@@ -2495,19 +2194,18 @@ export default function AISettingsTab() {
                     'Palo Alto passwords', 'Palo Alto keys', 'Private key blocks', 'Certificate blocks',
                     'Generic API keys/tokens', 'AWS access keys', 'AWS secret keys',
                     'Generic passwords', 'Generic secrets/shared keys',
-                  ].map((name, i) => (
-                    <div key={i} className="sanitization-mandatory-item">
-                      <span className="sanitization-mandatory-badge">{i + 1}</span>
-                      <span>{name}</span>
-                    </div>
-                  ))}
-                </div>
+                  ].map((name) => <li key={name}>{name}</li>)}
+                </ol>
               )}
-            </div>
+            </SettingRow>
+          </div>
+        )}
+      </SettingsSection>
 
-            {/* Optional Redaction Toggles */}
-            <div className="sanitization-group">
-              <div className="sanitization-group-label">Optional Redaction</div>
+      {!sanitizationLoading && (
+        <>
+          <SettingsSection title="Optional Redaction" description="Extra identifiers to scrub before data leaves this machine.">
+            <div className="settings-group">
               {([
                 { key: 'redact_ip_addresses' as const, label: 'IPv4 Addresses', desc: '10.0.0.1, 192.168.1.0/24' },
                 { key: 'redact_ipv6_addresses' as const, label: 'IPv6 Addresses', desc: 'fe80::1, 2001:db8::1' },
@@ -2515,69 +2213,69 @@ export default function AISettingsTab() {
                 { key: 'redact_hostnames' as const, label: 'Hostnames/FQDNs', desc: 'router1.corp.example.com' },
                 { key: 'redact_usernames' as const, label: 'Usernames', desc: 'username admin' },
               ]).map(({ key, label, desc }) => (
-                <div key={key} className="sanitization-toggle-row">
-                  <div className="sanitization-toggle-info">
-                    <span className="sanitization-toggle-label">{label}</span>
-                    <span className="sanitization-toggle-desc">{desc}</span>
-                  </div>
+                <SettingRow key={key} label={label} description={desc}>
                   <Switch
-                    size="sm"
                     checked={sanitizationConfig[key] as boolean}
                     onChange={(v) => handleToggleSanitization(key, v)}
                     label={`Redact ${label}`}
                   />
-                </div>
+                </SettingRow>
               ))}
             </div>
+          </SettingsSection>
 
-            {/* Custom Patterns */}
-            <div className="sanitization-group">
-              <div className="sanitization-group-label">Custom Patterns</div>
-              {sanitizationConfig.custom_patterns.length > 0 && (
-                <div className="sanitization-custom-list">
-                  {sanitizationConfig.custom_patterns.map((p, i) => (
-                    <div key={i} className="sanitization-custom-item">
-                      <div className="sanitization-custom-info">
-                        <span className="sanitization-custom-name">{p.name}</span>
-                        <code className="sanitization-custom-regex">{p.regex}</code>
-                        <span className="sanitization-custom-arrow">&rarr;</span>
-                        <code className="sanitization-custom-replacement">{p.replacement}</code>
-                      </div>
-                      <button
-                        className="sanitization-remove-btn"
-                        onClick={() => handleRemoveCustomPattern(i)}
-                        title="Remove pattern"
-                      >
-                        {Icons.trash}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="sanitization-add-pattern">
-                <input
-                  type="text"
+          <SettingsSection title="Custom Redaction Patterns" description="Your own regular expressions and what to replace each match with.">
+            <div className="settings-group">
+              {sanitizationConfig.custom_patterns.map((p, i) => (
+                <SettingsItem
+                  key={i}
+                  title={p.name}
+                  meta={<><code>{p.regex}</code><span>→</span><code>{p.replacement}</code></>}
+                  actions={
+                    <button
+                      className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger"
+                      onClick={() => handleRemoveCustomPattern(i)}
+                    >
+                      Remove
+                    </button>
+                  }
+                />
+              ))}
+              <div className="sanitization-add-row">
+                <AITabInput
+                  aria-label="Pattern name"
                   placeholder="Name"
                   value={newPattern.name}
                   onChange={(e) => setNewPattern(p => ({ ...p, name: e.target.value }))}
-                  className="sanitization-input sanitization-input-name"
+                  aiField="redaction pattern name"
+                  aiPlaceholder="Short name for a secret-redaction rule applied before text reaches the AI"
+                  aiContext={{ regex: newPattern.regex, replacement: newPattern.replacement }}
+                  onAIValue={(v) => setNewPattern(p => ({ ...p, name: v }))}
                 />
-                <input
-                  type="text"
+                <AITabInput
+                  aria-label="Pattern regex"
                   placeholder="Regex"
                   value={newPattern.regex}
                   onChange={(e) => setNewPattern(p => ({ ...p, regex: e.target.value }))}
-                  className="sanitization-input sanitization-input-regex"
+                  className="settings-code"
+                  aiField="redaction regex"
+                  aiPlaceholder="Regular expression matching the secret to redact from device output (Rust regex syntax)"
+                  aiContext={{ name: newPattern.name, replacement: newPattern.replacement }}
+                  onAIValue={(v) => setNewPattern(p => ({ ...p, regex: v }))}
                 />
-                <input
-                  type="text"
+                <AITabInput
+                  aria-label="Replacement"
                   placeholder="Replacement"
                   value={newPattern.replacement}
                   onChange={(e) => setNewPattern(p => ({ ...p, replacement: e.target.value }))}
-                  className="sanitization-input sanitization-input-replacement"
+                  className="settings-code"
+                  aiField="redaction replacement"
+                  aiPlaceholder="Replacement text for the matched secret, e.g. [REDACTED_PASSWORD]"
+                  aiContext={{ name: newPattern.name, regex: newPattern.regex }}
+                  onAIValue={(v) => setNewPattern(p => ({ ...p, replacement: v }))}
                 />
                 <button
-                  className="btn btn-sm btn-primary"
+                  className="ns-btn ns-btn--small"
                   onClick={handleAddCustomPattern}
                   disabled={!newPattern.name || !newPattern.regex || !newPattern.replacement}
                 >
@@ -2585,34 +2283,34 @@ export default function AISettingsTab() {
                 </button>
               </div>
             </div>
+          </SettingsSection>
 
-            {/* Allowlist */}
-            <div className="sanitization-group">
-              <div className="sanitization-group-label">Allowlist</div>
-              <p className="sanitization-group-desc">Strings that should never be redacted (case-insensitive match).</p>
+          <SettingsSection title="Allowlist" description="Strings that are never redacted (case-insensitive match).">
+            <div className="settings-group">
               {sanitizationConfig.allowlist.length > 0 && (
                 <div className="sanitization-allowlist">
                   {sanitizationConfig.allowlist.map((item, i) => (
                     <span key={i} className="sanitization-allowlist-tag">
                       {item}
-                      <button onClick={() => handleRemoveAllowlistItem(i)} title="Remove">&times;</button>
+                      <button type="button" aria-label={`Remove ${item}`} onClick={() => handleRemoveAllowlistItem(i)}>&times;</button>
                     </span>
                   ))}
                 </div>
               )}
-              <div className="sanitization-add-allowlist">
-                <input
+              <div className="sanitization-add-row">
+                <input data-ai-fill="off"
                   type="text"
+                  aria-label="Allowlist entry"
                   placeholder="Add allowlist entry..."
                   value={newAllowlistItem}
                   onChange={(e) => setNewAllowlistItem(e.target.value)}
-                  className="sanitization-input"
+                  className="ns-input"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleAddAllowlistItem();
                   }}
                 />
                 <button
-                  className="btn btn-sm btn-primary"
+                  className="ns-btn ns-btn--small"
                   onClick={handleAddAllowlistItem}
                   disabled={!newAllowlistItem.trim()}
                 >
@@ -2620,41 +2318,45 @@ export default function AISettingsTab() {
                 </button>
               </div>
             </div>
+          </SettingsSection>
 
-            {/* Test Panel */}
-            <div className="sanitization-group">
-              <div className="sanitization-group-label">Test Sanitization</div>
-              <textarea
-                className="sanitization-test-input"
-                placeholder="Paste text to test sanitization (e.g. enable secret 5 $1$abc$xyz)"
-                value={testInput}
-                onChange={(e) => setTestInput(e.target.value)}
-                rows={4}
-              />
+          <SettingsSection
+            title="Test Sanitization"
+            description="Paste text to see exactly what would be sent to the AI provider."
+            actions={
               <button
-                className="btn btn-sm btn-primary sanitization-test-btn"
+                className="ns-btn ns-btn--small"
                 onClick={handleTestSanitization}
                 disabled={testRunning || !testInput.trim()}
               >
                 {testRunning ? 'Testing...' : 'Test'}
               </button>
-              {testResult && (
-                <div className="sanitization-test-result">
-                  <div className="sanitization-test-stats">
-                    <span className="sanitization-test-count">{testResult.redaction_count} redaction{testResult.redaction_count !== 1 ? 's' : ''}</span>
-                    {testResult.pattern_names.length > 0 && (
-                      <span className="sanitization-test-patterns">
-                        Matched: {testResult.pattern_names.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                  <pre className="sanitization-test-output">{testResult.sanitized}</pre>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-    </div>
+            }
+          >
+            <AITabInput
+              as="textarea"
+              className="settings-code"
+              aria-label="Text to test"
+              placeholder="e.g. enable secret 5 $1$abc$xyz"
+              value={testInput}
+              onChange={(e) => setTestInput(e.target.value)}
+              rows={4}
+              aiField="sample device output to test redaction"
+              aiPlaceholder="A few lines of realistic network-device config containing fake secrets (passwords, SNMP communities, keys) to test the redaction rules"
+              onAIValue={setTestInput}
+            />
+            {testResult && (
+              <div className="sanitization-test-result">
+                <p className="form-hint">
+                  {testResult.redaction_count} redaction{testResult.redaction_count !== 1 ? 's' : ''}
+                  {testResult.pattern_names.length > 0 && ` · Matched: ${testResult.pattern_names.join(', ')}`}
+                </p>
+                <pre className="sanitization-test-output">{testResult.sanitized}</pre>
+              </div>
+            )}
+          </SettingsSection>
+        </>
+      )}
+    </>
   );
 }

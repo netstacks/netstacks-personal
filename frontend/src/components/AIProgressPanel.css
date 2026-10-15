@@ -16,8 +16,7 @@
   padding: 8px 14px;
   background: linear-gradient(135deg, #8b5cf6, #a855f7);
   border-radius: 20px;
-  color: white;
-  cursor: pointer;
+  color: var(--color-text-on-accent);
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
   transition: transform 0.15s, box-shadow 0.15s;
 }
@@ -43,18 +42,8 @@
 }
 
 .ai-progress-spinner .checkmark {
-  color: white;
+  color: var(--color-text-primary);
 }
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .ai-progress-text {
   font-size: 13px;
   font-weight: 500;
@@ -91,7 +80,7 @@
   justify-content: space-between;
   padding: 12px 14px;
   background: linear-gradient(135deg, #8b5cf6, #a855f7);
-  color: white;
+  color: var(--color-text-on-accent);
 }
 
 .ai-progress-title {
@@ -105,31 +94,6 @@
 .ai-progress-actions {
   display: flex;
   gap: 4px;
-}
-
-.ai-progress-minimize,
-.ai-progress-close {
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  border-radius: 4px;
-  padding: 4px;
-  cursor: pointer;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-}
-
-.ai-progress-minimize:hover,
-.ai-progress-close:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.ai-progress-minimize svg,
-.ai-progress-close svg {
-  width: 16px;
-  height: 16px;
 }
 
 /* Progress bar */
@@ -191,8 +155,9 @@
 .ai-progress-logs {
   max-height: 200px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 14px;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-family: var(--font-family-mono);
   font-size: 11px;
 }
 
@@ -216,19 +181,19 @@
 }
 
 .ai-progress-log-level.info {
-  color: #60a5fa;
+  color: var(--color-text-accent);
 }
 
 .ai-progress-log-level.success {
-  color: #34d399;
+  color: var(--color-success);
 }
 
 .ai-progress-log-level.warning {
-  color: #fbbf24;
+  color: var(--color-warning);
 }
 
 .ai-progress-log-level.error {
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .ai-progress-log-message {
@@ -237,11 +202,11 @@
 }
 
 .ai-progress-log.error .ai-progress-log-message {
-  color: #f87171;
+  color: var(--color-error);
 }
 
 .ai-progress-log.success .ai-progress-log-message {
-  color: #34d399;
+  color: var(--color-success);
 }
 
 /* Footer with action buttons */
@@ -262,30 +227,13 @@
   padding: 8px 12px;
   background: linear-gradient(135deg, #8b5cf6, #a855f7);
   border: none;
-  border-radius: 6px;
-  color: white;
+  border-radius: var(--radius-control);
+  color: var(--color-text-on-accent);
   font-size: 13px;
   font-weight: 500;
-  cursor: pointer;
   transition: opacity 0.15s;
 }
 
 .ai-progress-open-panel:hover {
   opacity: 0.9;
-}
-
-.ai-progress-dismiss-btn {
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.ai-progress-dismiss-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }

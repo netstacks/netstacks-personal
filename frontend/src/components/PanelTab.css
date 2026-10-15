@@ -1,0 +1,117 @@
+/* Vertical panel tabs and their rail — shared by the left PanelTabRail and the
+ * floating right EdgeDock so both window edges use the same tabs. The docked
+ * left rail is a full-height gutter like the chrome beside it; the floating
+ * right dock has no surface of its own. */
+.panel-tab-rail {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: var(--spacing-xs);
+  width: 30px;
+  /* Tabs sit flush on the window edge: no padding on the edge side. */
+  padding: var(--spacing-sm) 4px var(--spacing-sm) 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel-tab-rail--floating {
+  padding: var(--spacing-sm) 0 var(--spacing-sm) 4px;
+}
+
+.panel-tab-rail:not(.panel-tab-rail--floating) {
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+}
+
+/* Dark: a faint tint over the window background, quieter than the chrome bars. */
+:root[data-theme='dark'] .panel-tab-rail:not(.panel-tab-rail--floating) {
+  background: color-mix(in srgb, var(--color-bg-secondary) 40%, transparent);
+}
+
+:root[data-material] .panel-tab-rail:not(.panel-tab-rail--floating) {
+  background: transparent;
+}
+
+.panel-tab {
+  --panel-tab-fill: var(--color-fill-subtle);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  writing-mode: vertical-rl;
+  padding: 12px 0;
+  border: none;
+  /* A tab sticking out of the window edge: rounded on the content side only. */
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: var(--panel-tab-fill);
+  /* Halfway to primary: secondary text on the tab fill is under 4.5:1. */
+  color: color-mix(in srgb, var(--color-text-secondary), var(--color-text-primary));
+  font: inherit;
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+}
+
+.panel-tab:hover {
+  --panel-tab-fill: var(--color-fill);
+  color: var(--color-text-primary);
+}
+
+.panel-tab[aria-selected='true'],
+.panel-tab[aria-expanded='true'] {
+  --panel-tab-fill: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+:root[data-window-focused='false'] .panel-tab[aria-selected='true'],
+:root[data-window-focused='false'] .panel-tab[aria-expanded='true'] {
+  --panel-tab-fill: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Floating over content (right edge): the fill sits on a slightly see-through,
+ * blurred window background, so the tab reads like its twin on the left rail
+ * while the terminal text behind it stays faintly visible. */
+.panel-tab-rail--floating .panel-tab {
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: linear-gradient(var(--panel-tab-fill), var(--panel-tab-fill)),
+    color-mix(in srgb, var(--color-bg-primary) 80%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* Count badge, upright inside the vertical label. */
+.panel-tab-badge {
+  writing-mode: horizontal-tb;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.panel-tab[aria-expanded='true'] .panel-tab-badge {
+  background: var(--color-text-on-accent);
+  color: var(--color-accent);
+}
+
+/* Activity dot (the AI agent's state). */
+.panel-tab-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+}
+
+.panel-tab-status.thinking {
+  background: var(--color-warning);
+  animation: pulse 1.5s infinite;
+}
+
+.panel-tab-status.executing {
+  background: var(--color-accent);
+  animation: pulse 1.5s infinite;
+}

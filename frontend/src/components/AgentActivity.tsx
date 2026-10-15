@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TaskMessage } from '../types/tasks';
 import './AgentActivity.css';
+import Tooltip from './Tooltip';
 
 type StepKind = TaskMessage['kind'];
 
@@ -102,7 +103,7 @@ export default function AgentActivity({ steps, live, fill }: { steps: TaskMessag
           {steps.length} step{steps.length === 1 ? '' : 's'}
         </span>
         {steps.length > 1 && (
-          <button className="aa-collapse-all" onClick={toggleAll}>
+          <button className="ns-btn ns-btn--small" onClick={toggleAll}>
             {allCollapsed ? 'Expand all' : 'Collapse all'}
           </button>
         )}
@@ -114,7 +115,7 @@ export default function AgentActivity({ steps, live, fill }: { steps: TaskMessag
           const isCollapsed = collapsed.has(step.seq);
           return (
             <div key={step.seq} className={`aa-card aa-${step.kind}${isCollapsed ? ' collapsed' : ''}`}>
-              <div className="aa-card-head" onClick={() => toggle(step.seq)} title={isCollapsed ? 'Expand' : 'Collapse'}>
+              <Tooltip label={isCollapsed ? 'Expand' : 'Collapse'}><div className="aa-card-head" onClick={() => toggle(step.seq)}>
                 <span className="aa-chevron">
                   <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <polyline points="9 6 15 12 9 18" />
@@ -126,7 +127,7 @@ export default function AgentActivity({ steps, live, fill }: { steps: TaskMessag
                 <span className="aa-title">{KIND_TITLE[step.kind] ?? step.kind}</span>
                 {step.tool_name && <span className="aa-tool">{step.tool_name}</span>}
                 {meta && <span className="aa-meta">{meta}</span>}
-              </div>
+              </div></Tooltip>
 
               {!isCollapsed && (
                 step.kind === 'command' ? (

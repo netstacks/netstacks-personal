@@ -1,7 +1,11 @@
+import AITabInput from './AITabInput'
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import { listAiMemories, createAiMemory, updateAiMemory, deleteAiMemory, type AiMemory } from '../api/ai'
 import { confirmDialog } from './ConfirmDialog'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
+import './AIMemoryTab.css'
 
 const CATEGORIES = ['general', 'network', 'device', 'procedure', 'preference'] as const
 
@@ -78,135 +82,98 @@ export default function AIMemoryTab() {
     setEditCategory(memory.category)
   }
 
-  const categoryBadge = (cat: string) => {
-    const colors: Record<string, string> = {
-      network: '#4dd0e1',
-      device: '#81c784',
-      procedure: '#ffa726',
-      preference: '#ba68c8',
-      general: '#64b5f6',
-    }
-    return (
-      <span style={{
-        fontSize: '10px',
-        padding: '1px 6px',
-        borderRadius: '3px',
-        background: `${colors[cat] || colors.general}22`,
-        color: colors[cat] || colors.general,
-        fontWeight: 500,
-      }}>
-        {cat}
-      </span>
-    )
-  }
 
   return (
-    <div style={{ padding: '0 4px' }}>
-      <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
-        Facts the AI remembers across conversations. The AI can save memories automatically, or you can add them manually.
-      </p>
-
-      {/* Filter */}
-      <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <select
+    <SettingsSection
+      title="AI Memory"
+      description="Facts the AI remembers across conversations. The AI saves memories automatically, or you can add them here."
+      actions={
+        <select aria-label="Filter by category"
           value={filterCategory}
           onChange={e => setFilterCategory(e.target.value)}
-          style={{ fontSize: '12px', padding: '4px 8px', background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
+          className="ns-select"
         >
           <option value="">All categories</option>
           {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-          {memories.length} {memories.length === 1 ? 'memory' : 'memories'}
-        </span>
-      </div>
-
-      {/* Add new */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-        <input
-          type="text"
-          value={newContent}
-          onChange={e => setNewContent(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleAdd()}
-          placeholder="Add a memory..."
-          style={{ flex: 1, fontSize: '12px', padding: '6px 8px', background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
-        />
-        <select
-          value={newCategory}
-          onChange={e => setNewCategory(e.target.value)}
-          style={{ fontSize: '12px', padding: '4px 8px', background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
-        >
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <button
-          onClick={handleAdd}
-          disabled={!newContent.trim()}
-          style={{ fontSize: '12px', padding: '4px 12px', background: 'var(--color-accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: newContent.trim() ? 'pointer' : 'default', opacity: newContent.trim() ? 1 : 0.5 }}
-        >
-          Add
-        </button>
-      </div>
-
-      {/* Memory list */}
-      {loading ? (
-        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Loading...</p>
-      ) : memories.length === 0 ? (
-        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-          No memories yet. The AI will save important facts automatically during conversations, or add them manually above.
-        </p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {memories.map(m => (
-            <div key={m.id} style={{
-              padding: '8px 10px',
-              background: 'var(--color-bg-secondary)',
-              borderRadius: '4px',
-              border: '1px solid var(--color-border)',
-              fontSize: '12px',
-            }}>
-              {editingId === m.id ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <input
-                    type="text"
-                    value={editContent}
-                    onChange={e => setEditContent(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleUpdate(m.id)}
-                    style={{ fontSize: '12px', padding: '4px 8px', background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: '4px' }}
-                    autoFocus
-                  />
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <select
-                      value={editCategory}
-                      onChange={e => setEditCategory(e.target.value)}
-                      style={{ fontSize: '11px', padding: '2px 6px', background: 'var(--color-bg-primary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: '3px' }}
-                    >
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button onClick={() => handleUpdate(m.id)} style={{ fontSize: '11px', padding: '2px 8px', background: 'var(--color-accent)', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>Save</button>
-                    <button onClick={() => setEditingId(null)} style={{ fontSize: '11px', padding: '2px 8px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: '3px', cursor: 'pointer' }}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                      {categoryBadge(m.category)}
-                      {m.source === 'ai' && (
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>auto-saved</span>
-                      )}
-                    </div>
-                    <div style={{ color: 'var(--color-text-primary)', lineHeight: 1.4 }}>{m.content}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                    <button onClick={() => startEdit(m)} title="Edit" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: '12px', padding: '2px' }}>&#x270E;</button>
-                    <button onClick={() => handleDelete(m.id)} title="Delete" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: '12px', padding: '2px' }}>&times;</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+      }
+    >
+      <div className="settings-group">
+        <div className="ai-memory-add">
+          <AITabInput
+            aria-label="New memory"
+            value={newContent}
+            onChange={e => setNewContent(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAdd()}
+            placeholder="Add a memory..."
+            aiField="AI memory"
+            aiPlaceholder="A durable fact about the user's network or preferences for the AI to remember"
+            aiContext={{ category: newCategory }}
+            onAIValue={setNewContent}
+          />
+          <select aria-label="Category"
+            value={newCategory}
+            onChange={e => setNewCategory(e.target.value)}
+            className="ns-select"
+          >
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button onClick={handleAdd} disabled={!newContent.trim()} className="ns-btn ns-btn--small">
+            Add
+          </button>
         </div>
+        {memories.map(m => (
+          <SettingsItem
+            key={m.id}
+            title={editingId === m.id ? (
+              <AITabInput aria-label="Memory"
+                value={editContent}
+                onChange={e => setEditContent(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleUpdate(m.id)}
+                aiField="AI memory"
+                aiPlaceholder="A durable fact about the user's network or preferences for the AI to remember"
+                aiContext={{ category: m.category }}
+                onAIValue={setEditContent}
+                autoFocus
+              />
+            ) : m.content}
+            meta={
+              editingId === m.id ? (
+                <select aria-label="Category"
+                  value={editCategory}
+                  onChange={e => setEditCategory(e.target.value)}
+                  className="ns-select"
+                >
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              ) : (
+                <>
+                  <span className="settings-badge">{m.category}</span>
+                  {m.source === 'ai' && <span>auto-saved</span>}
+                </>
+              )
+            }
+            actions={editingId === m.id ? (
+              <>
+                <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => setEditingId(null)}>Cancel</button>
+                <button className="ns-btn ns-btn--small ns-btn--primary" onClick={() => handleUpdate(m.id)}>Save</button>
+              </>
+            ) : (
+              <>
+                <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => startEdit(m)}>Edit</button>
+                <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(m.id)}>Delete</button>
+              </>
+            )}
+          />
+        ))}
+      </div>
+      {loading ? (
+        <p className="form-hint">Loading…</p>
+      ) : memories.length === 0 ? (
+        <p className="form-hint">No memories yet. The AI saves important facts automatically during conversations, or add them above.</p>
+      ) : (
+        <p className="form-hint">{memories.length} {memories.length === 1 ? 'memory' : 'memories'}</p>
       )}
-    </div>
+    </SettingsSection>
   )
 }

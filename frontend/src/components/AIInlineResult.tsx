@@ -47,7 +47,7 @@ export default function AIInlineResult({ content, onClose, position }: AIInlineR
     <div className="ai-inline-result" style={style} ref={cardRef}>
       <div className="ai-inline-result-header">
         <span className="ai-inline-result-badge">AI Analysis</span>
-        <button className="ai-inline-result-close" onClick={onClose}>&times;</button>
+        <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose}>&times;</button>
       </div>
       <div className="ai-inline-result-content">
         {content.split('\n').map((line, i) => {

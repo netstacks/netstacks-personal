@@ -47,10 +47,11 @@ export default function NumberInput({
           onClick={handleDecrement}
           disabled={value <= min}
           type="button"
+          aria-label="Decrease"
         >
           -
         </button>
-        <input
+        <input aria-label={label || 'Value'}
           type="number"
           className="number-input-field"
           value={value}
@@ -65,6 +66,7 @@ export default function NumberInput({
           onClick={handleIncrement}
           disabled={value >= max}
           type="button"
+          aria-label="Increase"
         >
           +
         </button>

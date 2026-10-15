@@ -1,8 +1,12 @@
+import AITabInput from './AITabInput'
 import { useState, useEffect, useCallback } from 'react'
 import { getClient } from '../api/client'
 import type { AiToolType } from '../types/workspace'
 import GitAccountsSettingsTab from './GitAccountsSettingsTab'
 import { LanguageFeaturesTab } from './settings/LanguageFeaturesTab'
+import Switch from './Switch'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
 
 export interface WorkspaceDefaults {
   defaultAiTool: AiToolType
@@ -59,9 +63,6 @@ export default function WorkspaceSettingsTab() {
   // never actually persisted. Reading from localStorage on mount means
   // saved tweaks survive reloads even without backend support.
   const [defaults, setDefaults] = useState<WorkspaceDefaults>(() => loadWorkspaceDefaults())
-  const [wsSection, setWsSection] = useState(true)
-  const [gitSection, setGitSection] = useState(true)
-  const [langSection, setLangSection] = useState(true)
 
   useEffect(() => {
     // Best-effort: if the backend ever gains the endpoint, prefer the
@@ -101,60 +102,14 @@ export default function WorkspaceSettingsTab() {
     }
   }, [])
 
-  const sectionHeaderStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '8px 0',
-    fontSize: 13,
-    fontWeight: 600,
-    color: 'var(--color-text-primary)',
-    cursor: 'pointer',
-    userSelect: 'none',
-    borderBottom: '1px solid var(--color-border)',
-    marginBottom: 12,
-  }
-
-  const fieldStyle: React.CSSProperties = {
-    marginBottom: 16,
-  }
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: 12,
-    color: 'var(--color-text-secondary)',
-    marginBottom: 4,
-  }
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '6px 8px',
-    background: 'var(--color-bg-primary)',
-    border: '1px solid var(--color-border)',
-    borderRadius: 4,
-    color: 'var(--color-text-primary)',
-    fontSize: 13,
-    fontFamily: 'var(--font-family)',
-  }
-
-  const selectStyle: React.CSSProperties = {
-    ...inputStyle,
-  }
-
   return (
-    <div className="settings-tab-content" style={{ padding: 16 }}>
-      {/* Workspace Defaults Section */}
-      <div style={sectionHeaderStyle} onClick={() => setWsSection(!wsSection)}>
-        <span style={{ fontSize: 10 }}>{wsSection ? '▾' : '▸'}</span>
-        Workspace Defaults
-      </div>
-
-      {wsSection && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={fieldStyle}>
-            <label style={labelStyle}>Default AI Coding Tool</label>
+    <>
+      <SettingsSection title="Workspace Defaults" description="Applied when you create a new workspace.">
+        <div className="settings-group">
+          <SettingRow label="Default AI Coding Tool">
             <select
-              style={selectStyle}
+              aria-label="Default AI Coding Tool"
+              className="ns-select"
               value={defaults.defaultAiTool}
               onChange={e => saveDefaults({ ...defaults, defaultAiTool: e.target.value as AiToolType })}
             >
@@ -162,94 +117,79 @@ export default function WorkspaceSettingsTab() {
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4 }}>
-              Used as the default when creating new workspaces
-            </div>
-          </div>
+          </SettingRow>
 
           {defaults.defaultAiTool === 'custom' && (
-            <div style={fieldStyle}>
-              <label style={labelStyle}>Custom AI Command</label>
-              <input
-                style={{ ...inputStyle, fontFamily: 'var(--font-family-mono)' }}
+            <SettingRow label="Custom AI Command" stacked>
+              <AITabInput
+                aria-label="Custom AI Command"
+                className="settings-code"
                 value={defaults.defaultCustomCommand}
                 onChange={e => saveDefaults({ ...defaults, defaultCustomCommand: e.target.value })}
                 placeholder="e.g. aider --model sonnet"
+                aiField="AI coding tool command"
+                aiPlaceholder="Shell command that starts the user's AI coding CLI in a workspace"
+                onAIValue={(v) => saveDefaults({ ...defaults, defaultCustomCommand: v })}
               />
-            </div>
+            </SettingRow>
           )}
 
           {defaults.defaultAiTool !== 'custom' && defaults.defaultAiTool !== 'none' && defaults.defaultAiTool !== 'netstacks-agent' && (
-            <div style={fieldStyle}>
-              <label style={labelStyle}>Default Launch Arguments</label>
-              <input
-                style={{ ...inputStyle, fontFamily: 'var(--font-family-mono)' }}
+            <SettingRow
+              label="Default Launch Arguments"
+              description={<>Full command: cd &lt;workspace&gt; &amp;&amp; clear &amp;&amp; {defaults.defaultAiTool} {defaults.defaultLaunchArgs || ''}</>}
+              stacked
+            >
+              <AITabInput
+                aria-label="Default Launch Arguments"
+                className="settings-code"
                 value={defaults.defaultLaunchArgs}
                 onChange={e => saveDefaults({ ...defaults, defaultLaunchArgs: e.target.value })}
                 placeholder="e.g. --dangerously-skip-permissions --continue"
+                aiField="AI tool launch arguments"
+                aiPlaceholder="Command-line flags passed to the AI coding tool when a workspace opens"
+                aiContext={{ tool: defaults.defaultAiTool }}
+                onAIValue={(v) => saveDefaults({ ...defaults, defaultLaunchArgs: v })}
               />
-              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4 }}>
-                Full command: cd &lt;workspace&gt; &amp;&amp; clear &amp;&amp; {defaults.defaultAiTool} {defaults.defaultLaunchArgs || ''}
-              </div>
-            </div>
+            </SettingRow>
           )}
 
-          <div style={fieldStyle}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={defaults.autoLaunchAi}
-                onChange={e => saveDefaults({ ...defaults, autoLaunchAi: e.target.checked })}
-              />
-              Auto-launch AI tool when workspace opens
-            </label>
-          </div>
+          <SettingRow label="Auto-launch AI tool when workspace opens">
+            <Switch
+              checked={defaults.autoLaunchAi}
+              onChange={v => saveDefaults({ ...defaults, autoLaunchAi: v })}
+              label="Auto-launch AI tool when workspace opens"
+            />
+          </SettingRow>
 
-          <div style={fieldStyle}>
-            <label style={labelStyle}>Default Terminal Panel Height (px)</label>
+          <SettingRow label="Default Terminal Panel Height" description="Pixels">
             <input
+              aria-label="Default Terminal Panel Height"
+              className="ns-input setting-input-number"
               type="number"
-              style={{ ...inputStyle, width: 100 }}
               value={defaults.defaultTerminalPanelHeight}
               onChange={e => saveDefaults({ ...defaults, defaultTerminalPanelHeight: parseInt(e.target.value) || 250 })}
               min={100}
               max={800}
             />
-          </div>
+          </SettingRow>
 
-          <div style={fieldStyle}>
-            <label style={labelStyle}>Default File Explorer Width (px)</label>
+          <SettingRow label="Default File Explorer Width" description="Pixels">
             <input
+              aria-label="Default File Explorer Width"
+              className="ns-input setting-input-number"
               type="number"
-              style={{ ...inputStyle, width: 100 }}
               value={defaults.defaultFileExplorerWidth}
               onChange={e => saveDefaults({ ...defaults, defaultFileExplorerWidth: parseInt(e.target.value) || 220 })}
               min={150}
               max={500}
             />
-          </div>
+          </SettingRow>
         </div>
-      )}
+      </SettingsSection>
 
-      {/* Git Accounts Section */}
-      <div style={sectionHeaderStyle} onClick={() => setGitSection(!gitSection)}>
-        <span style={{ fontSize: 10 }}>{gitSection ? '▾' : '▸'}</span>
-        Git Accounts
-      </div>
-
-      {gitSection && (
-        <GitAccountsSettingsTab />
-      )}
-
-      {/* Language Features Section */}
-      <div style={sectionHeaderStyle} onClick={() => setLangSection(!langSection)}>
-        <span style={{ fontSize: 10 }}>{langSection ? '▾' : '▸'}</span>
-        Language Features
-      </div>
-
-      {langSection && (
-        <LanguageFeaturesTab />
-      )}
-    </div>
+      <GitAccountsSettingsTab />
+      <LanguageFeaturesTab />
+    </>
   )
 }

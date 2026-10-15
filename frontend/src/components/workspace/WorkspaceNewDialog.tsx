@@ -1,3 +1,4 @@
+import AITabInput from '../AITabInput'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { listSessions } from '../../api/sessions'
@@ -5,11 +6,12 @@ import { AgentGitOps } from '../../lib/gitOps'
 import { LocalFileOps } from '../../lib/fileOps'
 import { getClient } from '../../api/client'
 import { showToast } from '../Toast'
-import { useOverlayDismiss } from '../../hooks/useOverlayDismiss'
 import { loadWorkspaceDefaults } from '../WorkspaceSettingsTab'
 import type { WorkspaceConfig, AiToolType } from '../../types/workspace'
 
 import { getErrorMessage } from '../../api/errors'
+import DialogFooter from '../DialogFooter'
+import ModalFrame from '../ModalFrame'
 type DialogMode = 'local' | 'remote' | 'clone'
 
 interface WorkspaceNewDialogProps {
@@ -309,208 +311,215 @@ export default function WorkspaceNewDialog({
     ? (remotePath.trim().length > 0 && remoteSessionId)
     : (cloneUrl.trim().length > 0 && clonePath.trim().length > 0)
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onCancel, clickOutside: false })
 
   return (
-    <div className="workspace-new-dialog-overlay" {...backdropProps}>
-      <div className="workspace-new-dialog" {...contentProps}>
-        <h3>New Workspace</h3>
+    <ModalFrame id="workspace-new" onDismiss={onCancel} clickOutside={false} className="workspace-new-dialog" label="New Workspace">
+      <h3>New Workspace</h3>
 
-        <div className="workspace-new-dialog-field">
-          <span className="workspace-new-dialog-label">Mode</span>
-          <div className="workspace-new-dialog-radio-group">
-            <label className="workspace-new-dialog-radio">
-              <input type="radio" checked={mode === 'local'} onChange={() => setMode('local')} />
-              Local Directory
-            </label>
-            <label className="workspace-new-dialog-radio">
-              <input
-                type="radio"
-                checked={mode === 'remote'}
-                onChange={() => setMode('remote')}
-              />
-              Remote Server
-            </label>
-            <label className="workspace-new-dialog-radio">
-              <input type="radio" checked={mode === 'clone'} onChange={() => setMode('clone')} />
-              Clone Repository
-            </label>
-          </div>
-        </div>
-
-        {mode === 'local' && (
-          <div className="workspace-new-dialog-field">
-            <span className="workspace-new-dialog-label">Directory</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                className="workspace-new-dialog-input"
-                value={localPath}
-                onChange={e => setLocalPath(e.target.value)}
-                placeholder="/path/to/project"
-              />
-              <button className="workspace-new-dialog-btn" onClick={handleBrowse}>Browse</button>
-            </div>
-          </div>
-        )}
-
-        {mode === 'local' && gitCheck && (
-          <div className="workspace-new-dialog-git-status">
-            {gitCheck.checking ? (
-              <span style={{ color: 'var(--color-text-secondary)' }}>Checking directory...</span>
-            ) : gitCheck.isRepo ? (
-              <div className="workspace-new-dialog-git-ok">
-                ✓ Git repository{gitCheck.branch ? ` on branch "${gitCheck.branch}"` : ''}
-              </div>
-            ) : gitCheck.isEmpty ? (
-              <div className="workspace-new-dialog-git-empty">
-                <span>Empty directory</span>
-                <label className="workspace-new-dialog-checkbox">
-                  <input type="checkbox" checked={initGit} onChange={e => setInitGit(e.target.checked)} />
-                  Initialize as git repository
-                </label>
-              </div>
-            ) : (
-              <div className="workspace-new-dialog-git-warn">
-                <span>Not a git repository</span>
-                <label className="workspace-new-dialog-checkbox">
-                  <input type="checkbox" checked={initGit} onChange={e => setInitGit(e.target.checked)} />
-                  Initialize as git repository
-                </label>
-              </div>
-            )}
-          </div>
-        )}
-
-        {mode === 'remote' && (
-          <>
-            <div className="workspace-new-dialog-field">
-              <span className="workspace-new-dialog-label">SSH Session</span>
-              <select
-                className="workspace-new-dialog-select"
-                value={remoteSessionId}
-                onChange={e => setRemoteSessionId(e.target.value)}
-              >
-                {sessions.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-                {sessions.length === 0 && <option value="">No sessions available</option>}
-              </select>
-            </div>
-            <div className="workspace-new-dialog-field">
-              <span className="workspace-new-dialog-label">Remote Path</span>
-              <input
-                className="workspace-new-dialog-input"
-                value={remotePath}
-                onChange={e => setRemotePath(e.target.value)}
-                placeholder="/home/user/project"
-              />
-            </div>
-          </>
-        )}
-
-        {mode === 'clone' && (
-          <>
-            <div className="workspace-new-dialog-field">
-              <span className="workspace-new-dialog-label">Repository URL</span>
-              <input
-                className="workspace-new-dialog-input"
-                value={cloneUrl}
-                onChange={e => setCloneUrl(e.target.value)}
-                placeholder="https://github.com/user/repo.git"
-              />
-            </div>
-            <div className="workspace-new-dialog-field">
-              <span className="workspace-new-dialog-label">Clone to Directory</span>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  className="workspace-new-dialog-input"
-                  value={clonePath}
-                  onChange={e => setClonePath(e.target.value)}
-                  placeholder="/path/to/clone/into"
-                />
-                <button className="workspace-new-dialog-btn" onClick={async () => {
-                  const selected = await open({ directory: true, multiple: false })
-                  if (selected && typeof selected === 'string') setClonePath(selected)
-                }}>Browse</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="workspace-new-dialog-field">
-          <span className="workspace-new-dialog-label">AI Coding Tool</span>
-          <select
-            className="workspace-new-dialog-select"
-            value={aiTool}
-            onChange={e => {
-              setAiTool(e.target.value as AiToolType)
-              setTouched(t => ({ ...t, aiTool: true }))
-            }}
-          >
-            {AI_TOOLS.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {aiTool === 'custom' && (
-          <div className="workspace-new-dialog-field">
-            <span className="workspace-new-dialog-label">Custom Command</span>
+      <div className="workspace-new-dialog-field">
+        <span className="workspace-new-dialog-label">Mode</span>
+        <div className="workspace-new-dialog-radio-group">
+          <label className="workspace-new-dialog-radio">
+            <input type="radio" checked={mode === 'local'} onChange={() => setMode('local')} />
+            Local Directory
+          </label>
+          <label className="workspace-new-dialog-radio">
             <input
-              className="workspace-new-dialog-input"
-              value={customCommand}
-              onChange={e => {
-                setCustomCommand(e.target.value)
-                setTouched(t => ({ ...t, customCommand: true }))
-              }}
-              placeholder="e.g. aider --model sonnet"
+              type="radio"
+              checked={mode === 'remote'}
+              onChange={() => setMode('remote')}
             />
-          </div>
-        )}
-
-        {aiTool !== 'custom' && aiTool !== 'none' && aiTool !== 'netstacks-agent' && (
-          <div className="workspace-new-dialog-field">
-            <span className="workspace-new-dialog-label">Launch Arguments</span>
-            <input
-              className="workspace-new-dialog-input"
-              value={launchArgs}
-              onChange={e => {
-                setLaunchArgs(e.target.value)
-                setTouched(t => ({ ...t, launchArgs: true }))
-              }}
-              placeholder="e.g. --dangerously-skip-permissions --continue"
-            />
-            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2, display: 'block' }}>
-              Full command: cd &lt;workspace&gt; &amp;&amp; clear &amp;&amp; {aiTool} {launchArgs || ''}
-            </span>
-          </div>
-        )}
-
-        <div className="workspace-new-dialog-field">
-          <label className="workspace-new-dialog-checkbox">
-            <input
-              type="checkbox"
-              checked={autoLaunch}
-              onChange={e => {
-                setAutoLaunch(e.target.checked)
-                setTouched(t => ({ ...t, autoLaunch: true }))
-              }}
-            />
-            Auto-launch AI tool on open
+            Remote Server
+          </label>
+          <label className="workspace-new-dialog-radio">
+            <input type="radio" checked={mode === 'clone'} onChange={() => setMode('clone')} />
+            Clone Repository
           </label>
         </div>
-
-        <div className="workspace-new-dialog-actions">
-          <button className="workspace-new-dialog-btn" onClick={onCancel}>Cancel</button>
-          <button
-            className="workspace-new-dialog-btn primary"
-            onClick={handleSubmit}
-            disabled={!isValid || cloning}
-          >
-            {cloning ? 'Cloning...' : mode === 'clone' ? 'Clone & Open' : 'Open Workspace'}
-          </button>
-        </div>
       </div>
-    </div>
+
+      {mode === 'local' && (
+        <div className="workspace-new-dialog-field">
+          <span className="workspace-new-dialog-label">Directory</span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input data-ai-fill="off"
+              className="workspace-new-dialog-field ns-input"
+              value={localPath}
+              onChange={e => setLocalPath(e.target.value)}
+              placeholder="/path/to/project"
+            />
+            <button className="ns-btn" onClick={handleBrowse}>Browse</button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'local' && gitCheck && (
+        <div className="workspace-new-dialog-git-status">
+          {gitCheck.checking ? (
+            <span style={{ color: 'var(--color-text-secondary)' }}>Checking directory...</span>
+          ) : gitCheck.isRepo ? (
+            <div className="workspace-new-dialog-git-ok">
+              ✓ Git repository{gitCheck.branch ? ` on branch "${gitCheck.branch}"` : ''}
+            </div>
+          ) : gitCheck.isEmpty ? (
+            <div className="workspace-new-dialog-git-empty">
+              <span>Empty directory</span>
+              <label className="workspace-new-dialog-checkbox">
+                <input type="checkbox" checked={initGit} onChange={e => setInitGit(e.target.checked)} />
+                Initialize as git repository
+              </label>
+            </div>
+          ) : (
+            <div className="workspace-new-dialog-git-warn">
+              <span>Not a git repository</span>
+              <label className="workspace-new-dialog-checkbox">
+                <input type="checkbox" checked={initGit} onChange={e => setInitGit(e.target.checked)} />
+                Initialize as git repository
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'remote' && (
+        <>
+          <div className="workspace-new-dialog-field">
+            <span className="workspace-new-dialog-label">SSH Session</span>
+            <select aria-label="SSH Session"
+              className="workspace-new-dialog-field ns-select"
+              value={remoteSessionId}
+              onChange={e => setRemoteSessionId(e.target.value)}
+            >
+              {sessions.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+              {sessions.length === 0 && <option value="">No sessions available</option>}
+            </select>
+          </div>
+          <div className="workspace-new-dialog-field">
+            <span className="workspace-new-dialog-label">Remote Path</span>
+            <input data-ai-fill="off"
+              className="workspace-new-dialog-field ns-input"
+              value={remotePath}
+              onChange={e => setRemotePath(e.target.value)}
+              placeholder="/home/user/project"
+            />
+          </div>
+        </>
+      )}
+
+      {mode === 'clone' && (
+        <>
+          <div className="workspace-new-dialog-field">
+            <span className="workspace-new-dialog-label">Repository URL</span>
+            <input data-ai-fill="off"
+              className="workspace-new-dialog-field ns-input"
+              value={cloneUrl}
+              onChange={e => setCloneUrl(e.target.value)}
+              placeholder="https://github.com/user/repo.git"
+            />
+          </div>
+          <div className="workspace-new-dialog-field">
+            <span className="workspace-new-dialog-label">Clone to Directory</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input data-ai-fill="off"
+                className="workspace-new-dialog-field ns-input"
+                value={clonePath}
+                onChange={e => setClonePath(e.target.value)}
+                placeholder="/path/to/clone/into"
+              />
+              <button className="ns-btn" onClick={async () => {
+                const selected = await open({ directory: true, multiple: false })
+                if (selected && typeof selected === 'string') setClonePath(selected)
+              }}>Browse</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="workspace-new-dialog-field">
+        <span className="workspace-new-dialog-label">AI Coding Tool</span>
+        <select aria-label="AI Coding Tool"
+          className="workspace-new-dialog-field ns-select"
+          value={aiTool}
+          onChange={e => {
+            setAiTool(e.target.value as AiToolType)
+            setTouched(t => ({ ...t, aiTool: true }))
+          }}
+        >
+          {AI_TOOLS.map(t => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {aiTool === 'custom' && (
+        <div className="workspace-new-dialog-field">
+          <span className="workspace-new-dialog-label">Custom Command</span>
+          <AITabInput
+            aria-label="Custom command"
+            className="workspace-new-dialog-field"
+            value={customCommand}
+            onChange={e => {
+              setCustomCommand(e.target.value)
+              setTouched(t => ({ ...t, customCommand: true }))
+            }}
+            placeholder="e.g. aider --model sonnet"
+            aiField="AI coding tool command"
+            aiPlaceholder="Shell command that starts the user's AI coding CLI in this workspace"
+            onAIValue={(v) => {
+              setCustomCommand(v)
+              setTouched(t => ({ ...t, customCommand: true }))
+            }}
+          />
+        </div>
+      )}
+
+      {aiTool !== 'custom' && aiTool !== 'none' && aiTool !== 'netstacks-agent' && (
+        <div className="workspace-new-dialog-field">
+          <span className="workspace-new-dialog-label">Launch Arguments</span>
+          <AITabInput
+            aria-label="Launch arguments"
+            className="workspace-new-dialog-field"
+            value={launchArgs}
+            onChange={e => {
+              setLaunchArgs(e.target.value)
+              setTouched(t => ({ ...t, launchArgs: true }))
+            }}
+            placeholder="e.g. --dangerously-skip-permissions --continue"
+            aiField="AI tool launch arguments"
+            aiPlaceholder="Command-line flags passed to the AI coding tool when this workspace opens"
+            aiContext={{ tool: aiTool }}
+            onAIValue={(v) => {
+              setLaunchArgs(v)
+              setTouched(t => ({ ...t, launchArgs: true }))
+            }}
+          />
+          <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 2, display: 'block' }}>
+            Full command: cd &lt;workspace&gt; &amp;&amp; clear &amp;&amp; {aiTool} {launchArgs || ''}
+          </span>
+        </div>
+      )}
+
+      <div className="workspace-new-dialog-field">
+        <label className="workspace-new-dialog-checkbox">
+          <input
+            type="checkbox"
+            checked={autoLaunch}
+            onChange={e => {
+              setAutoLaunch(e.target.checked)
+              setTouched(t => ({ ...t, autoLaunch: true }))
+            }}
+          />
+          Auto-launch AI tool on open
+        </label>
+      </div>
+
+      <DialogFooter
+        primary={{ label: cloning ? 'Cloning...' : mode === 'clone' ? 'Clone & Open' : 'Open Workspace', onClick: handleSubmit, disabled: !isValid || cloning }}
+        onCancel={onCancel}
+        inline
+      />
+    </ModalFrame>
   )
 }

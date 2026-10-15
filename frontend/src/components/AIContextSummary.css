@@ -1,5 +1,5 @@
 .ai-context-summary {
-  border-top: 1px solid var(--border-color, #3c3c3c);
+  border-top: 1px solid var(--border-color);
   padding-top: 8px;
   margin-top: 8px;
   font-size: 12px;
@@ -11,15 +11,14 @@
   gap: 6px;
   background: none;
   border: none;
-  color: var(--text-muted, #888);
-  cursor: pointer;
+  color: var(--text-muted);
   padding: 4px 0;
   width: 100%;
   text-align: left;
 }
 
 .ai-context-summary-toggle:hover {
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
 }
 
 .ai-context-summary-arrow {
@@ -32,7 +31,7 @@
 
 .ai-context-summary-preview {
   margin-left: auto;
-  color: var(--text-dimmed, #666);
+  color: var(--text-dimmed);
   font-style: italic;
   white-space: nowrap;
   overflow: hidden;
@@ -43,17 +42,17 @@
 .ai-context-summary-content {
   padding: 8px;
   margin-top: 4px;
-  background: var(--bg-tertiary, #252525);
-  border-radius: 4px;
-  font-family: var(--font-mono, monospace);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-control);
+  font-family: var(--font-family-mono);
 }
 
 .ai-context-summary-line {
   padding: 2px 0;
-  color: var(--text-secondary, #ccc);
+  color: var(--text-secondary);
 }
 
 .ai-context-summary-line:first-child {
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   font-weight: 500;
 }

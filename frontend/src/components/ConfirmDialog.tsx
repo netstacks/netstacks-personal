@@ -1,9 +1,10 @@
 /**
  * Imperative confirmation dialog.
  *
- * Replaces `window.confirm` (broken in Tauri WebView) with a real React
- * modal. Call `confirmDialog({...})` from anywhere — anywhere — and await
- * a boolean. Mount `<ConfirmDialogHost />` once at the app root.
+ * Replaces `window.confirm` (broken in Tauri WebView). Call
+ * `confirmDialog({...})` from anywhere and await a boolean. Under Tauri a
+ * plain-text confirm is a native OS alert; a JSX body (or the browser build)
+ * gets the React modal. Mount `<ConfirmDialogHost />` once at the app root.
  *
  * Example:
  *   if (await confirmDialog({
@@ -15,13 +16,16 @@
  *     await deleteProfile(id);
  *   }
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
+import { useState, useEffect, useCallback } from 'react'
+import { ask } from '@tauri-apps/plugin-dialog'
+import DialogFooter from './DialogFooter'
+import { isTauri } from '../lib/nativeWindow'
+import ModalFrame from './ModalFrame'
 import './ConfirmDialog.css'
 
 export interface ConfirmOptions {
   title: string
-  /** Body text or JSX. Strings render in a `<p>`. */
+  /** Body text or JSX. Text is shown in a native alert under Tauri. */
   body?: string | React.ReactNode
   /** Confirm button label. Default "Confirm". */
   confirmLabel?: string
@@ -45,6 +49,8 @@ let current: PendingConfirm | null = null
 // third concurrent call replaced the second and its promise never settled.
 let queue: PendingConfirm[] = []
 
+const DESTRUCTIVE_HINT = 'This action cannot be undone.'
+
 function notifyListeners() {
   listeners.forEach((l) => l(current))
 }
@@ -53,10 +59,20 @@ function notifyListeners() {
  * Show a confirmation dialog and await the user's choice.
  *
  * Returns true if confirmed, false if cancelled / dismissed via Escape /
- * backdrop click. Only one confirm is shown at a time — concurrent calls
- * queue and resolve in order.
+ * backdrop click. Only one HTML confirm is shown at a time — concurrent
+ * calls queue and resolve in order.
  */
 export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
+  if (isTauri() && (opts.body === undefined || typeof opts.body === 'string')) {
+    const message = [opts.body, opts.destructive && DESTRUCTIVE_HINT].filter(Boolean).join('\n\n')
+    // With no body the title is the alert's message (no duplicate heading).
+    return ask(message || opts.title, {
+      title: message ? opts.title : undefined,
+      kind: opts.destructive ? 'warning' : 'info',
+      okLabel: opts.confirmLabel ?? 'Confirm',
+      cancelLabel: opts.cancelLabel ?? 'Cancel',
+    })
+  }
   return new Promise((resolve) => {
     const id = `confirm-${crypto.randomUUID()}`
     const pending: PendingConfirm = { ...opts, id, resolve }
@@ -89,8 +105,6 @@ export function resetConfirmQueueForTests() {
  */
 export function ConfirmDialogHost() {
   const [pending, setPending] = useState<PendingConfirm | null>(current)
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const confirmBtnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     listeners.push(setPending)
@@ -99,24 +113,8 @@ export function ConfirmDialogHost() {
     }
   }, [])
 
-  // Autofocus the confirm button (or cancel for destructive — but the
-  // Escape key handler covers the safety case already).
-  useEffect(() => {
-    if (pending) {
-      confirmBtnRef.current?.focus()
-    }
-  }, [pending])
-
   const handleCancel = useCallback(() => resolveCurrent(false), [])
   const handleConfirm = useCallback(() => resolveCurrent(true), [])
-
-  // Escape / backdrop dismiss (resolves false). Goes through the shared
-  // hook so the confirm — always the topmost overlay — is the ONLY thing
-  // that handles Escape while it's up; the dialog underneath stays open.
-  const { backdropProps, contentProps } = useOverlayDismiss({
-    onDismiss: handleCancel,
-    enabled: pending !== null,
-  })
 
   if (!pending) return null
 
@@ -129,35 +127,25 @@ export function ConfirmDialogHost() {
   } = pending
 
   return (
-    <div className="confirm-dialog-overlay" {...backdropProps} role="presentation">
-      <div
-        ref={dialogRef}
-        className="confirm-dialog"
-        {...contentProps}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={`${pending.id}-title`}
-      >
-        <h3 id={`${pending.id}-title`}>{title}</h3>
-        {body !== undefined &&
-          (typeof body === 'string' ? <p>{body}</p> : <div className="confirm-dialog-body">{body}</div>)}
-        {destructive && (
-          <p className="confirm-dialog-warning">This action cannot be undone.</p>
-        )}
-        <div className="confirm-dialog-actions">
-          <button className="btn-secondary" onClick={handleCancel}>
-            {cancelLabel}
-          </button>
-          <button
-            ref={confirmBtnRef}
-            className={destructive ? 'btn-danger' : 'btn-primary'}
-            onClick={handleConfirm}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ModalFrame key={pending.id} id="confirm" role="alertdialog" onDismiss={handleCancel} resizable={false} className="confirm-dialog" labelledBy={`${pending.id}-title`}>
+      {/* Escape / backdrop dismiss resolves false; the frame's dismiss handling
+          makes the confirm — always the topmost overlay — the only thing that
+          handles Escape while it's up. The title is the drag handle. */}
+      <h3 id={`${pending.id}-title`} data-drag-handle>{title}</h3>
+      {body !== undefined &&
+        (typeof body === 'string' ? <p>{body}</p> : <div className="confirm-dialog-body">{body}</div>)}
+      {destructive && (
+        <p className="confirm-dialog-warning">{DESTRUCTIVE_HINT}</p>
+      )}
+      {/* Keyed per confirm so the confirm button takes focus for each queued one. */}
+      <DialogFooter
+        key={pending.id}
+        primary={{ label: confirmLabel, onClick: handleConfirm, danger: destructive, autoFocus: true }}
+        onCancel={handleCancel}
+        cancelLabel={cancelLabel}
+        inline
+      />
+    </ModalFrame>
   )
 }
 

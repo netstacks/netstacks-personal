@@ -3,6 +3,7 @@ import type { GitOps } from '../../types/workspace'
 import './WorkspaceDiffViewer.css'
 
 import { getErrorMessage } from '../../api/errors'
+import Tooltip from '../Tooltip'
 interface WorkspaceDiffViewerProps {
   filePath: string
   gitOps: GitOps
@@ -112,9 +113,9 @@ export default function WorkspaceDiffViewer({ filePath, gitOps }: WorkspaceDiffV
           <span className="workspace-diff-stat-add">+{additions}</span>
           <span className="workspace-diff-stat-del">-{deletions}</span>
         </div>
-        <button className="workspace-diff-refresh-btn" onClick={fetchDiff} title="Refresh diff">
+        <Tooltip label="Refresh diff"><button className="ns-btn ns-btn--small" onClick={fetchDiff}>
           Refresh
-        </button>
+        </button></Tooltip>
       </div>
       <div className="workspace-diff-content">
         {hunks.map((hunk, hi) => (

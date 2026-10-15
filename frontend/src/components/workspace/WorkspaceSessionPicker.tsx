@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listSessions, type Session } from '../../api/sessions'
 import { getErrorMessage } from '../../api/errors'
+import SearchField from '../SearchField'
 import './WorkspaceSessionPicker.css'
+import Tooltip from '../Tooltip'
 
 interface WorkspaceSessionPickerProps {
   /**
@@ -127,23 +129,21 @@ export default function WorkspaceSessionPicker({
         aria-label="Open session in panel"
       >
         <div className="wsp-picker-header">
-          <input
-            ref={inputRef}
-            type="text"
-            className="wsp-picker-input"
+          <SearchField
+            className="wsp-picker-search"
+            inputRef={inputRef}
             placeholder="Search sessions by name or host…"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={setQuery}
             onKeyDown={handleKey}
           />
-          <button
+          <Tooltip label="Close (Esc)"><button aria-label="Close (Esc)"
             type="button"
-            className="wsp-picker-close"
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={onClose}
-            title="Close (Esc)"
           >
             ×
-          </button>
+          </button></Tooltip>
         </div>
         <div className="wsp-picker-list" ref={listRef}>
           {loading && <div className="wsp-picker-empty">Loading…</div>}

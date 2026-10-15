@@ -45,6 +45,9 @@ import {
   phaseResultNotes,
 } from './mopHelpers';
 
+import DialogFooter from '../DialogFooter';
+import Tooltip from '../Tooltip';
+import ModalFrame from '../ModalFrame';
 // ============================================================================
 // Props Interface
 // ============================================================================
@@ -362,9 +365,8 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
       <div className="mop-execute-config-bar">
         {/* AI Risk Badge */}
         {aiRiskLevel && (
-          <div
+          <Tooltip label={aiRiskReason || `Risk: ${aiRiskLevel}`}><div
             className={`mop-ai-risk-badge ${aiRiskLevel}`}
-            title={aiRiskReason || `Risk: ${aiRiskLevel}`}
           >
             {aiRiskLevel === 'critical' && (
               <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
@@ -372,7 +374,7 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
               </svg>
             )}
             {capitalize(aiRiskLevel)} Risk
-          </div>
+          </div></Tooltip>
         )}
         {aiRiskChecking && (
           <div className="mop-ai-risk-badge checking">
@@ -382,11 +384,11 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
 
         <div className="mop-execute-config-group">
           <label>Control Mode</label>
-          <div className="mop-execute-config-select">
+          <div className="ns-segmented mop-execute-config-select">
             {(['manual', 'auto_run', 'ai_pilot'] as ControlMode[]).map(m => (
               <button
                 key={m}
-                className={`mop-execute-config-option ${controlMode === m ? 'active' : ''}`}
+                className={`ns-segment mop-execute-config-option ${controlMode === m ? 'active' : ''}`}
                 onClick={() => setControlMode(m)}
                 disabled={!!execution}
               >
@@ -398,17 +400,15 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
 
         <div className="mop-execute-config-group">
           <label>Strategy</label>
-          <div className="mop-execute-config-select">
+          <div className="ns-segmented mop-execute-config-select">
             {(['sequential', 'parallel_by_phase'] as ExecutionStrategy[]).map(strategy => (
-              <button
-                key={strategy}
-                className={`mop-execute-config-option ${executionStrategy === strategy ? 'active' : ''}`}
+              <Tooltip key={strategy} label={strategy === 'sequential' ? 'One device at a time per phase' : 'All devices at once per phase'}><button
+                className={`ns-segment mop-execute-config-option ${executionStrategy === strategy ? 'active' : ''}`}
                 onClick={() => setExecutionStrategy(strategy)}
                 disabled={!!execution}
-                title={strategy === 'sequential' ? 'One device at a time per phase' : 'All devices at once per phase'}
               >
                 {strategy === 'sequential' ? 'Sequential' : 'Parallel'}
-              </button>
+              </button></Tooltip>
             ))}
           </div>
         </div>
@@ -416,21 +416,19 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
         {controlMode === 'ai_pilot' && !execution && (
           <div className="mop-execute-config-group">
             <label>Trust Level</label>
-            <div className="mop-execute-config-select">
+            <div className="ns-segmented mop-execute-config-select">
               {([1, 2, 3, 4] as const).map(level => (
-                <button
-                  key={level}
-                  className={`mop-execute-config-option ${aiPilot.state.level === level ? 'active' : ''}`}
-                  onClick={() => aiPilot.setLevel(level)}
-                  title={
+                <Tooltip key={level} label={
                     level === 1 ? 'Observer: AI comments on every step result (saved as AI feedback)'
                       : level === 2 ? 'Advisor: AI proposes the next step or phase, you approve'
                       : level === 3 ? 'Co-Pilot: you start a phase; when the AI gate says proceed the next phase runs automatically'
                       : 'Autopilot: after you approve the plan, pre-checks → change → post-checks run back to back, stopping on any failure or non-proceed gate'
-                  }
+                  }><button
+                  className={`ns-segment mop-execute-config-option ${aiPilot.state.level === level ? 'active' : ''}`}
+                  onClick={() => aiPilot.setLevel(level)}
                 >
                   L{level}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           </div>
@@ -439,20 +437,18 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
         {controlMode !== 'manual' && !execution && (
           <div className="mop-execute-config-group">
             <label>On Failure</label>
-            <div className="mop-execute-config-select">
+            <div className="ns-segmented mop-execute-config-select">
               {(['pause', 'skip', 'abort'] as OnFailureBehavior[]).map(b => (
-                <button
-                  key={b}
-                  className={`mop-execute-config-option ${onFailure === b ? 'active' : ''}`}
-                  onClick={() => setOnFailure(b)}
-                  title={
+                <Tooltip key={b} label={
                     b === 'pause' ? 'Pause the execution after a phase with failures'
                       : b === 'skip' ? 'Keep going on the remaining devices'
                       : 'Abort the execution after the first device with failures'
-                  }
+                  }><button
+                  className={`ns-segment mop-execute-config-option ${onFailure === b ? 'active' : ''}`}
+                  onClick={() => setOnFailure(b)}
                 >
                   {capitalize(b)}
-                </button>
+                </button></Tooltip>
               ))}
             </div>
           </div>
@@ -466,29 +462,27 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
               {approvalStatus === 'pending_review' ? 'Awaiting Approval' : 'Rejected — Edit & Resubmit'}
             </span>
           ) : (
-            <button
-              className="mop-workspace-header-btn primary"
+            <Tooltip label={!hasSteps ? 'Add steps first' : !hasDevices ? 'Select devices first' : hasVariableIssues ? 'Resolve the variable issues listed below first' : 'Start execution'}><button
+              className="ns-btn mop-workspace-header-btn ns-btn--primary"
               disabled={!canStart}
               onClick={startExecutionFlow}
-              title={!hasSteps ? 'Add steps first' : !hasDevices ? 'Select devices first' : hasVariableIssues ? 'Resolve the variable issues listed below first' : 'Start execution'}
             >
               {executionStarting ? 'Starting...' : 'Start Execution'}
-            </button>
+            </button></Tooltip>
           )
         ) : isFinished ? (
           <div style={{ display: 'flex', gap: 6 }}>
             <span className="mop-execute-finished-label" style={{ color: EXEC_STATUS_COLORS[execution.status] }}>
               {EXEC_STATUS_LABELS[execution.status] || capitalize(execution.status)}
             </span>
-            <button
-              className="mop-workspace-header-btn"
+            <Tooltip label="Reset the view for another run — this execution stays in the Executions list"><button
+              className="ns-btn mop-workspace-header-btn"
               onClick={() => openDialog('new')}
-              title="Reset the view for another run — this execution stays in the Executions list"
             >
               New Execution
-            </button>
+            </button></Tooltip>
             <button
-              className="mop-workspace-header-btn primary"
+              className="ns-btn mop-workspace-header-btn ns-btn--primary"
               onClick={() => setActiveTab('review')}
             >
               View Results
@@ -497,30 +491,28 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
         ) : (
           <div className="mop-execute-config-group" style={{ flexDirection: 'row', gap: 6 }}>
             {isRunning && (
-              <button className="mop-workspace-header-btn" onClick={() => execHook.pauseExecution()} disabled={busy}>
+              <button className="ns-btn mop-workspace-header-btn" onClick={() => execHook.pauseExecution()} disabled={busy}>
                 Pause
               </button>
             )}
             {isPaused && (
-              <button className="mop-workspace-header-btn primary" onClick={() => execHook.resumeExecution()} disabled={busy}>
+              <button className="ns-btn mop-workspace-header-btn ns-btn--primary" onClick={() => execHook.resumeExecution()} disabled={busy}>
                 Resume
               </button>
             )}
-            <button
-              className="mop-workspace-header-btn primary"
+            <Tooltip label={pendingSteps > 0 ? `${pendingSteps} step${pendingSteps !== 1 ? 's' : ''} still pending` : 'Mark the execution complete'}><button
+              className="ns-btn mop-workspace-header-btn ns-btn--primary"
               onClick={onCompleteClick}
               disabled={busy || !!executingStepId}
-              title={pendingSteps > 0 ? `${pendingSteps} step${pendingSteps !== 1 ? 's' : ''} still pending` : 'Mark the execution complete'}
             >
               {completeLabel}
-            </button>
-            <button
-              className="mop-workspace-header-btn danger"
+            </button></Tooltip>
+            <Tooltip label="Abort the execution (asks for confirmation)"><button
+              className="ns-btn mop-workspace-header-btn ns-btn--danger"
               onClick={() => openDialog('abort')}
-              title="Abort the execution (asks for confirmation)"
             >
               Abort
-            </button>
+            </button></Tooltip>
           </div>
         )}
       </div>
@@ -537,14 +529,13 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
             <span>Executions</span>
             <span className="mop-execute-step-group-count">{planExecutions.length}</span>
             <span style={{ flex: 1 }} />
-            <button
-              className="mop-plan-step-action-btn"
+            <Tooltip label="Refresh"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn"
               onClick={(e) => { e.stopPropagation(); handleRefreshExecutions(); }}
               disabled={planExecutionsLoading}
-              title="Refresh"
             >
               {planExecutionsLoading ? <span className="mop-ai-loading small" /> : 'Refresh'}
-            </button>
+            </button></Tooltip>
           </div>
           {executionsOpen && (
             <div className="mop-execute-executions-list">
@@ -566,7 +557,7 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                       <span className="mop-execute-executions-current">Open</span>
                     ) : (
                       <button
-                        className="mop-workspace-header-btn"
+                        className="ns-btn mop-workspace-header-btn"
                         onClick={() => handleOpenExecution(exec.id)}
                         disabled={busy || !!executingStepId}
                       >
@@ -596,92 +587,84 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
               : `Run ${phase.label} on ${eligible} device${eligible !== 1 ? 's' : ''}`;
             return (
               <span key={phase.key} className="mop-execute-phase-btn-group">
-                <button
-                  className={`mop-workspace-header-btn ${isCurrentPhaseRunning ? '' : 'primary'}`}
+                <Tooltip label={title}><button
+                  className={`ns-btn mop-workspace-header-btn ${isCurrentPhaseRunning ? '' : 'ns-btn--primary'}`}
                   disabled={disabled}
                   onClick={() => handleRunPhase(stepType)}
-                  title={title}
                 >
                   {isCurrentPhaseRunning ? `Running ${phase.label}...` : `Run ${phase.label}`}
-                </button>
+                </button></Tooltip>
                 {blocked && eligible > 0 && !busy && (
-                  <button
+                  <Tooltip label="Ignore phase order for this phase"><button
                     className="mop-execute-run-anyway"
                     onClick={() => setRunAnyway(prev => new Set(prev).add(stepType))}
-                    title="Ignore phase order for this phase"
                   >
                     Run anyway
-                  </button>
+                  </button></Tooltip>
                 )}
               </span>
             );
           })}
           <span style={{ flex: 1 }} />
-          <button
-            className="mop-execute-rollback-btn"
+          <Tooltip label={rollbackTitle}><button
+            className="ns-btn ns-btn--small mop-execute-rollback-btn"
             disabled={!anyRollbackSteps || busy || !isActive}
             onClick={() => handleRunRollback()}
-            title={rollbackTitle}
           >
             {rollbackRunning ? 'Rolling back...' : 'Roll back all devices'}
-          </button>
+          </button></Tooltip>
         </div>
       )}
 
       {/* Manual-mode driver bar */}
       {execution && controlMode === 'manual' && !isFinished && (
         <div className="mop-execute-autorun-bar mop-execute-manual-bar">
-          <button
-            className="mop-workspace-header-btn primary"
+          <Tooltip label={!isActive ? 'Resume the execution first' : pendingSteps === 0 ? 'No pending steps' : 'Run the next pending step (Enter)'}><button
+            className="ns-btn mop-workspace-header-btn ns-btn--primary"
             onClick={handleRunNextStep}
             disabled={busy || !!executingStepId || !isActive || pendingSteps === 0}
-            title={!isActive ? 'Resume the execution first' : pendingSteps === 0 ? 'No pending steps' : 'Run the next pending step (Enter)'}
           >
             Run next step
-          </button>
-          <button
-            className="mop-workspace-header-btn"
+          </button></Tooltip>
+          <Tooltip label="Skip the selected step (S)"><button
+            className="ns-btn mop-workspace-header-btn"
             onClick={() => selectedExecStepData && handleSkipStep(selectedExecStepData.step.id)}
             disabled={!isActive || !selectedExecStepData || !(selectedExecStepData.step.status === 'pending' || selectedExecStepData.step.status === 'failed')}
-            title="Skip the selected step (S)"
           >
             Skip selected
-          </button>
-          <button
-            className="mop-workspace-header-btn"
+          </button></Tooltip>
+          <Tooltip label="Select the next pending step (N)"><button
+            className="ns-btn mop-workspace-header-btn"
             onClick={() => {
               const next = findNextPendingStep(executionDevices, execState.stepsByDevice, selectedExecStepData?.device.id ?? null);
               if (next) setSelectedExecStepId(next.step.id);
             }}
             disabled={pendingSteps === 0}
-            title="Select the next pending step (N)"
           >
             Next
-          </button>
+          </button></Tooltip>
           <span className="mop-execute-manual-hint">Enter = run · S = skip · N = next (focus this panel)</span>
           <span style={{ flex: 1 }} />
-          <button
-            className="mop-execute-rollback-btn"
+          <Tooltip label={rollbackTitle}><button
+            className="ns-btn ns-btn--small mop-execute-rollback-btn"
             disabled={!anyRollbackSteps || busy || !isActive}
             onClick={() => handleRunRollback()}
-            title={rollbackTitle}
           >
             {rollbackRunning ? 'Rolling back...' : 'Roll back all devices'}
-          </button>
+          </button></Tooltip>
         </div>
       )}
 
       {/* Rollback affordance once the execution is finished (the agent accepts rollback in complete/failed/aborted) */}
       {execution && isFinished && anyRollbackSteps && (
         <div className="mop-execute-autorun-bar">
-          <button
-            className="mop-execute-rollback-btn"
+          <Tooltip label={rollbackTitle}><button
+            className="ns-btn ns-btn--small mop-execute-rollback-btn"
             disabled={busy}
             onClick={() => handleRunRollback()}
-            title={rollbackTitle}
           >
             {rollbackRunning ? 'Rolling back...' : 'Roll back all devices'}
-          </button>
+          </button></Tooltip>
           <span className="mop-execute-manual-hint">Runs each device's rollback steps with the platform's config wrapper.</span>
         </div>
       )}
@@ -714,15 +697,14 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
               <span className="mop-ai-pilot-header-dot" />
               <span>AI Pilot active · L{aiPilot.state.level}</span>
               {aiPilot.state.driving && <span className="mop-ai-pilot-driving">running phases automatically…</span>}
-              {aiPilot.state.processing && !aiPilot.state.driving && <span className="mop-ai-loading small" title="AI thinking" />}
+              {aiPilot.state.processing && !aiPilot.state.driving && <Tooltip label="AI thinking"><span className="mop-ai-loading small" role="img" aria-label="AI thinking" /></Tooltip>}
             </div>
-            <button
-              className="mop-workspace-header-btn"
+            <Tooltip label="Deactivate AI Pilot — execution stays running, AI stops driving"><button
+              className="ns-btn mop-workspace-header-btn"
               onClick={aiPilot.deactivate}
-              title="Deactivate AI Pilot — execution stays running, AI stops driving"
             >
               Stop AI Pilot
-            </button>
+            </button></Tooltip>
           </div>
 
           {/* L4 plan approval gate */}
@@ -737,7 +719,7 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                 <strong>L4 Autopilot requires plan approval</strong>
                 <p>On approval the pilot runs pre-checks, the change and post-checks back to back. Each phase gate must come back "proceed" with enough confidence; any failed step, other recommendation or low confidence stops it and hands control back to you.</p>
               </div>
-              <button className="mop-workspace-header-btn primary" onClick={aiPilot.approvePlan}>
+              <button className="ns-btn mop-workspace-header-btn ns-btn--primary" onClick={aiPilot.approvePlan}>
                 Approve Plan
               </button>
             </div>
@@ -756,7 +738,7 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                 <p>The AI is uncertain about the current state. Human review recommended before continuing.</p>
               </div>
               <button
-                className="mop-workspace-header-btn"
+                className="ns-btn mop-workspace-header-btn"
                 onClick={() => aiPilot.activate(aiPilot.state.level)}
               >
                 Acknowledge &amp; Continue
@@ -781,10 +763,10 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                 <p>{aiPilot.state.currentSuggestion.rationale}</p>
               </div>
               <div className="mop-ai-pilot-suggestion-actions">
-                <button className="mop-workspace-header-btn primary" onClick={aiPilot.approveSuggestion}>
+                <button className="ns-btn mop-workspace-header-btn ns-btn--primary" onClick={aiPilot.approveSuggestion}>
                   Approve
                 </button>
-                <button className="mop-workspace-header-btn" onClick={aiPilot.dismissSuggestion}>
+                <button className="ns-btn mop-workspace-header-btn" onClick={aiPilot.dismissSuggestion}>
                   Dismiss
                 </button>
               </div>
@@ -810,10 +792,10 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                 </span>
               </div>
               <div className="mop-ai-pilot-suggestion-actions">
-                <button className="mop-workspace-header-btn primary" onClick={aiPilot.approvePhaseGate}>
+                <button className="ns-btn mop-workspace-header-btn ns-btn--primary" onClick={aiPilot.approvePhaseGate}>
                   Proceed
                 </button>
-                <button className="mop-workspace-header-btn danger" onClick={aiPilot.rejectPhaseGate}>
+                <button className="ns-btn mop-workspace-header-btn ns-btn--danger" onClick={aiPilot.rejectPhaseGate}>
                   Pause
                 </button>
               </div>
@@ -829,11 +811,11 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                 </svg>
                 AI Commentary
                 <span style={{ flex: 1 }} />
-                <button className="mop-plan-step-action-btn" onClick={aiPilot.clearCommentary} title="Clear">
+                <Tooltip label="Clear"><button className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-plan-step-action-btn" onClick={aiPilot.clearCommentary} aria-label="Clear">
                   <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                     <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3 8H5V7h6v2z" />
                   </svg>
-                </button>
+                </button></Tooltip>
               </div>
               <div className="mop-ai-pilot-commentary-feed">
                 {aiPilot.state.commentary.slice(-10).map(entry => (
@@ -890,10 +872,10 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
             <h3>Ready to Execute</h3>
             <p>Add steps to your plan and select target devices to start execution.</p>
             <div className="mop-workspace-empty-actions">
-              <button className="mop-workspace-header-btn" onClick={() => setActiveTab('plan')}>
+              <button className="ns-btn mop-workspace-header-btn" onClick={() => setActiveTab('plan')}>
                 Go to Plan
               </button>
-              <button className="mop-workspace-header-btn" onClick={() => setActiveTab('devices')}>
+              <button className="ns-btn mop-workspace-header-btn" onClick={() => setActiveTab('devices')}>
                 Go to Devices
               </button>
             </div>
@@ -920,7 +902,7 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                         <span className="mop-execute-device-status pending" />
                         <span className="mop-execute-device-name">{deviceName}</span>
                         <span className="mop-execute-device-host">{deviceHost}</span>
-                        {flavor && <span className="mop-execute-flavor-badge" title="CLI flavor">{flavor}</span>}
+                        {flavor && <Tooltip label="CLI flavor"><span className="mop-execute-flavor-badge">{flavor}</span></Tooltip>}
                         <span style={{ flex: 1 }} />
                         <span className="mop-execute-device-progress">
                           {scopedSteps.length === devicePlanSteps.length
@@ -969,9 +951,9 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                                         {resolvedCommand || '(empty)'}
                                       </span>
                                       {scoped && (
-                                        <span className="mop-execute-step-scope" title="Device scope from the Devices tab">
+                                        <Tooltip label="Device scope from the Devices tab"><span className="mop-execute-step-scope">
                                           ({n} of {selectedDeviceIds.size} devices)
-                                        </span>
+                                        </span></Tooltip>
                                       )}
                                       <span style={{ flex: 1 }} />
                                       <span className="mop-execute-step-status-label pending">Pending</span>
@@ -989,12 +971,12 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
               ) : hasSteps ? (
                 <div className="mop-workspace-empty" style={{ height: '100%' }}>
                   <p>Select devices in the Devices tab to preview execution.</p>
-                  <button className="mop-workspace-header-btn" onClick={() => setActiveTab('devices')}>Go to Devices</button>
+                  <button className="ns-btn mop-workspace-header-btn" onClick={() => setActiveTab('devices')}>Go to Devices</button>
                 </div>
               ) : (
                 <div className="mop-workspace-empty" style={{ height: '100%' }}>
                   <p>Add steps in the Plan tab.</p>
-                  <button className="mop-workspace-header-btn" onClick={() => setActiveTab('plan')}>Go to Plan</button>
+                  <button className="ns-btn mop-workspace-header-btn" onClick={() => setActiveTab('plan')}>Go to Plan</button>
                 </div>
               )}
             </div>
@@ -1032,29 +1014,28 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                       <span className={`mop-execute-device-status ${statusClass}`} />
                       <span className="mop-execute-device-name">{device.device_name}</span>
                       <span className="mop-execute-device-host">{device.device_host}</span>
-                      {flavor && <span className="mop-execute-flavor-badge" title="CLI flavor (drives the config wrapper)">{flavor}</span>}
+                      {flavor && <Tooltip label="CLI flavor (drives the config wrapper)"><span className="mop-execute-flavor-badge">{flavor}</span></Tooltip>}
                       {isDeviceSkipped && <span className="mop-execute-device-skipped">Skipped</span>}
-                      {devicePhaseRunning && <span className="mop-ai-loading small" title="Phase running" />}
+                      {devicePhaseRunning && <Tooltip label="Phase running"><span className="mop-ai-loading small" role="img" aria-label="Phase running" /></Tooltip>}
                       <span style={{ flex: 1 }} />
                       <span className="mop-execute-device-progress">
                         {statusInfo.label}
                       </span>
                       {hasRollback && !isDeviceSkipped && (
-                        <button
-                          className="mop-execute-rollback-btn run"
+                        <Tooltip label={busy ? 'Wait for the current phase to finish' : !(isActive || isFinished) ? 'Start the execution first' : 'Run this device\'s rollback steps'}><button
+                          className="ns-btn ns-btn--small mop-execute-rollback-btn ns-btn--danger"
                           disabled={busy || !(isActive || isFinished)}
                           onClick={(e) => { e.stopPropagation(); handleRunRollback(device.id); }}
-                          title={busy ? 'Wait for the current phase to finish' : !(isActive || isFinished) ? 'Start the execution first' : 'Run this device\'s rollback steps'}
                         >
                           <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                             <polygon points="4,2 13,8 4,14" />
                           </svg>
                           Run rollback
-                        </button>
+                        </button></Tooltip>
                       )}
                       {hasRollback && (
-                        <button
-                          className={`mop-execute-rollback-btn ${rollbackVisible.has(device.id) ? 'active' : ''}`}
+                        <Tooltip label="Show / hide rollback steps"><button
+                          className={`ns-btn ns-btn--small mop-execute-rollback-btn ${rollbackVisible.has(device.id) ? 'active' : ''}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             setRollbackVisible(prev => {
@@ -1064,13 +1045,12 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                               return next;
                             });
                           }}
-                          title="Show / hide rollback steps"
                         >
                           <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                             <path d="M8 1v2a5 5 0 110 10v2a7 7 0 100-14zm0 4v2l3 3h-2v2H7V10H5l3-3z" />
                           </svg>
                           Rollback
-                        </button>
+                        </button></Tooltip>
                       )}
                       <span className={`mop-execute-device-chevron ${isExpanded ? 'expanded' : ''}`}>
                         <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
@@ -1123,13 +1103,12 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                                 </span>
                                 <span style={{ flex: 1 }} />
                                 {canRunPhaseHere && (
-                                  <button
-                                    className="mop-execute-run-pending-btn"
+                                  <Tooltip label={`Run the ${pendingHere} pending ${label.toLowerCase()} on ${device.device_name}, in order`}><button
+                                    className="ns-btn ns-btn--small"
                                     onClick={(e) => { e.stopPropagation(); handleRunPendingInPhase(device.id, type); }}
-                                    title={`Run the ${pendingHere} pending ${label.toLowerCase()} on ${device.device_name}, in order`}
                                   >
                                     Run pending ({pendingHere})
-                                  </button>
+                                  </button></Tooltip>
                                 )}
                               </div>
 
@@ -1153,23 +1132,23 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                                     onClick={() => setSelectedExecStepId(step.id)}
                                   >
                                     <div className="mop-execute-step-main">
-                                      <span
+                                      <Tooltip label={step.status}><span
                                         className={`mop-execute-step-status ${step.status}`}
                                         style={{ background: getStepStatusColor(step.status) }}
-                                        title={step.status}
-                                      />
+                                        role="img" aria-label={step.status}
+                                      /></Tooltip>
                                       <span className="mop-execute-step-order" style={{ color }}>{idx + 1}</span>
                                       {step.execution_source === 'quick_action' && <span className="mop-step-source-badge api">API</span>}
                                       {step.execution_source === 'script' && <span className="mop-step-source-badge script">Script</span>}
 
                                       {isEditing ? (
-                                        <input
+                                        <input data-ai-fill="off" aria-label="Step command"
                                           className="mop-execute-step-edit-input"
                                           value={editingStepCommand}
                                           onChange={(e) => setEditingStepCommand(e.target.value)}
                                           onBlur={() => handleSaveEditStep(step.id)}
                                           onKeyDown={(e) => {
-                                            if (e.key === 'Enter') handleSaveEditStep(step.id);
+                                            if (e.key === 'Enter') { e.preventDefault(); handleSaveEditStep(step.id); }
                                             if (e.key === 'Escape') setEditingStepId(null);
                                           }}
                                           onClick={(e) => e.stopPropagation()}
@@ -1185,9 +1164,9 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
                                         <span className="mop-execute-step-error-mark" title={step.error_message}>!</span>
                                       )}
                                       {failedAssertions > 0 && (
-                                        <span className="mop-assertion-pill fail small" title={`${failedAssertions} assertion${failedAssertions !== 1 ? 's' : ''} failed`}>
+                                        <Tooltip label={`${failedAssertions} assertion${failedAssertions !== 1 ? 's' : ''} failed`}><span className="mop-assertion-pill fail small">
                                           {failedAssertions} assert
-                                        </span>
+                                        </span></Tooltip>
                                       )}
 
                                       <span style={{ flex: 1 }} />
@@ -1204,74 +1183,74 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
 
                                       <div className="mop-execute-step-actions">
                                         {canRun && (
-                                          <button
-                                            className="mop-execute-step-action-btn run"
+                                          <Tooltip label="Run this step"><button
+                                            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); handleExecuteStep(step.id); }}
                                             disabled={isExecuting || !!executingStepId}
-                                            title="Run this step"
+                                            aria-label="Run this step"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                               <polygon points="4,2 13,8 4,14" />
                                             </svg>
-                                          </button>
+                                          </button></Tooltip>
                                         )}
                                         {canRunAll && (
-                                          <button
-                                            className="mop-execute-step-action-btn"
+                                          <Tooltip label="Run this step on all devices"><button
+                                            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); handleRunStepOnAllDevices(step.id); }}
                                             disabled={isExecuting || !!executingStepId}
-                                            title="Run this step on all devices"
+                                            aria-label="Run this step on all devices"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                               <polygon points="2,2 8,8 2,14" />
                                               <polygon points="8,2 14,8 8,14" />
                                             </svg>
-                                          </button>
+                                          </button></Tooltip>
                                         )}
                                         {canRetry && (
-                                          <button
-                                            className="mop-execute-step-action-btn"
+                                          <Tooltip label="Retry this step"><button
+                                            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); handleExecuteStep(step.id); }}
                                             disabled={!!executingStepId}
-                                            title="Retry this step"
+                                            aria-label="Retry this step"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                               <path d="M13 8a5 5 0 01-5 5 5 5 0 01-5-5 5 5 0 015-5v2l3-3-3-3v2a7 7 0 107 7h-2z" />
                                             </svg>
-                                          </button>
+                                          </button></Tooltip>
                                         )}
                                         {canSkip && (
-                                          <button
-                                            className="mop-execute-step-action-btn"
+                                          <Tooltip label="Skip this step"><button
+                                            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); handleSkipStep(step.id); }}
-                                            title="Skip this step"
+                                            aria-label="Skip this step"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                               <path d="M4 3l5 5-5 5V3zm6 0h2v10h-2V3z" />
                                             </svg>
-                                          </button>
+                                          </button></Tooltip>
                                         )}
                                         {canEdit && !isEditing && (
-                                          <button
-                                            className="mop-execute-step-action-btn"
+                                          <Tooltip label="Edit command before running"><button
+                                            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); handleStartEditStep(step); }}
-                                            title="Edit command before running"
+                                            aria-label="Edit command before running"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                               <path d="M13.23 1h-1.46L3.52 9.25l-.16.22L1 13.59 2.41 15l4.12-2.36.22-.16L15 4.23V2.77L13.23 1zM2.41 13.59l1.51-3 1.45 1.45-2.96 1.55zm3.83-2.06L4.47 9.76l6.69-6.69 1.77 1.77-6.69 6.69z" />
                                             </svg>
-                                          </button>
+                                          </button></Tooltip>
                                         )}
                                         {canReset && (
-                                          <button
-                                            className="mop-execute-step-action-btn"
+                                          <Tooltip label="Revert to pending"><button
+                                            className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small mop-execute-step-action-btn"
                                             onClick={(e) => { e.stopPropagation(); execHook.updateStepOutput(step.id, { output: '', status: 'pending' }); }}
-                                            title="Revert to pending"
+                                            aria-label="Revert to pending"
                                           >
                                             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                                               <path d="M8 1v2a5 5 0 110 10v2a7 7 0 100-14z" />
                                             </svg>
-                                          </button>
+                                          </button></Tooltip>
                                         )}
                                       </div>
                                     </div>
@@ -1420,67 +1399,53 @@ export default function MopExecuteTab({ isEnterprise, view, exec, plan, actions,
 
       {/* Confirmation dialogs: Abort (with reason), Complete with failures/pending, New Execution */}
       {dialog && (
-        <div className="mop-workspace-overlay" onClick={() => closeDialog()}>
-          <div className="mop-workspace-dialog" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
-            {dialog === 'abort' && (
-              <>
-                <h3>Abort execution</h3>
-                <p>Running steps are marked failed and pending steps skipped. This cannot be undone.</p>
-                <textarea
-                  className="mop-workspace-dialog-textarea"
-                  value={abortReason}
-                  onChange={(e) => setAbortReason(e.target.value)}
-                  placeholder="Reason (optional) — recorded on the execution"
-                  rows={2}
-                  autoFocus
-                />
-                <div className="mop-workspace-dialog-actions">
-                  <button className="mop-workspace-header-btn" onClick={() => closeDialog()}>Cancel</button>
-                  <button
-                    className="mop-workspace-header-btn danger"
-                    onClick={() => { closeDialog(); handleAbort(abortReason.trim() || undefined); }}
-                  >
-                    Abort execution
-                  </button>
-                </div>
-              </>
-            )}
-            {dialog === 'complete' && (
-              <>
-                <h3>Complete execution</h3>
-                <p>
-                  {failedSteps > 0 && `${failedSteps} step${failedSteps !== 1 ? 's' : ''} failed. `}
-                  {pendingSteps > 0 && `${pendingSteps} step${pendingSteps !== 1 ? 's' : ''} never ran. `}
-                  Mark the execution complete anyway? The results stay as they are.
-                </p>
-                <div className="mop-workspace-dialog-actions">
-                  <button className="mop-workspace-header-btn" onClick={() => closeDialog()}>Cancel</button>
-                  <button
-                    className="mop-workspace-header-btn primary"
-                    onClick={() => { closeDialog(); handleComplete(); }}
-                  >
-                    {completeLabel}
-                  </button>
-                </div>
-              </>
-            )}
-            {dialog === 'new' && (
-              <>
-                <h3>Start a new execution?</h3>
-                <p>The finished execution stays saved and can be reopened from the Executions list. Only this view is reset.</p>
-                <div className="mop-workspace-dialog-actions">
-                  <button className="mop-workspace-header-btn" onClick={() => closeDialog()}>Cancel</button>
-                  <button
-                    className="mop-workspace-header-btn primary"
-                    onClick={() => { closeDialog(); handleNewExecution(); }}
-                  >
-                    New Execution
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <ModalFrame id="mop-execute-dialog" onDismiss={() => closeDialog()} className="mop-workspace-dialog" label="MOP">
+          {dialog === 'abort' && (
+            <>
+              <h3>Abort execution</h3>
+              <p>Running steps are marked failed and pending steps skipped. This cannot be undone.</p>
+              <textarea data-ai-fill="off"
+                className="ns-textarea mop-workspace-dialog-textarea"
+                value={abortReason}
+                onChange={(e) => setAbortReason(e.target.value)}
+                placeholder="Reason (optional) — recorded on the execution"
+                rows={2}
+                autoFocus
+              />
+              <DialogFooter
+                primary={{ label: 'Abort execution', onClick: () => { closeDialog(); handleAbort(abortReason.trim() || undefined); }, danger: true }}
+                onCancel={() => closeDialog()}
+                inline
+              />
+            </>
+          )}
+          {dialog === 'complete' && (
+            <>
+              <h3>Complete execution</h3>
+              <p>
+                {failedSteps > 0 && `${failedSteps} step${failedSteps !== 1 ? 's' : ''} failed. `}
+                {pendingSteps > 0 && `${pendingSteps} step${pendingSteps !== 1 ? 's' : ''} never ran. `}
+                Mark the execution complete anyway? The results stay as they are.
+              </p>
+              <DialogFooter
+                primary={{ label: completeLabel, onClick: () => { closeDialog(); handleComplete(); } }}
+                onCancel={() => closeDialog()}
+                inline
+              />
+            </>
+          )}
+          {dialog === 'new' && (
+            <>
+              <h3>Start a new execution?</h3>
+              <p>The finished execution stays saved and can be reopened from the Executions list. Only this view is reset.</p>
+              <DialogFooter
+                primary={{ label: 'New Execution', onClick: () => { closeDialog(); handleNewExecution(); } }}
+                onCancel={() => closeDialog()}
+                inline
+              />
+            </>
+          )}
+        </ModalFrame>
       )}
     </div>
   );

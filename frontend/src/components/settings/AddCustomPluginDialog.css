@@ -1,0 +1,35 @@
+.lsp-dialog {
+  max-width: 560px;
+}
+
+.lsp-dialog .dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.lsp-dialog-mono {
+  font-family: var(--font-family-mono);
+}
+
+.lsp-dialog-test {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.lsp-dialog-test-result {
+  font-size: var(--font-size-small);
+}
+
+.lsp-dialog-test-result.pass {
+  color: var(--color-success);
+}
+
+.lsp-dialog-test-result.fail {
+  color: var(--color-error);
+}
+
+.lsp-dialog .dialog-error {
+  margin: 0;
+}

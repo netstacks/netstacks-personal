@@ -7,10 +7,11 @@
  *   - Auto Pilot: All tools + bash, runs autonomously by default
  *   - Overlord: All tools (no bash by default), asks before acting
  *
- * Permission Modes (mirrors Claude Code):
+ * Permission Modes (mirrors Claude Code), one per agent type in the
+ * `ai.permissionMode.<agentType>` setting — see lib/aiPermissions:
  *   - Ask: User approves every tool call
- *   - Auto: Read-only auto-executes, writes need approval
- *   - YOLO: Everything auto-executes
+ *   - Auto: Reads auto-execute, writes need approval
+ *   - Go Nuts (`yolo`): Everything auto-executes
  *
  * The identity block, tier addendum, mode block and live-context rules are part
  * of the product and not user-editable. The per-mode agent prompt (AGENT_PROMPT)
@@ -27,10 +28,6 @@ export interface AgentTypeConfig {
   id: AgentType
   label: string
   description: string
-  enabledFlags: string[]
-  allowsCommands: boolean
-  allowsBash: boolean
-  defaultPermissionMode: PermissionMode
 }
 
 export const AGENT_TYPES: Record<AgentType, AgentTypeConfig> = {
@@ -38,39 +35,23 @@ export const AGENT_TYPES: Record<AgentType, AgentTypeConfig> = {
     id: 'autopilot',
     label: 'Auto Pilot',
     description: 'Full access — all tools + bash, runs autonomously',
-    enabledFlags: [
-      'hasSessions', 'hasExecuteCommand', 'hasTerminalContext',
-      'hasDocuments', 'hasSessionContext', 'hasChangeControl',
-      'hasNeighborDiscovery', 'hasNetBoxTopology',
-      'hasLibreNms', 'hasNetStacksCrawler',
-      'hasMopCreation',
-      'hasMcpServers', 'hasBackupAnalysis', 'hasUINavigation',
-      'hasBash',
-    ],
-    allowsCommands: true,
-    allowsBash: true,
-    defaultPermissionMode: 'auto',
   },
   overlord: {
     id: 'overlord',
     label: 'Overlord',
     description: 'Full access — all tools, asks before acting',
-    // run_bash is included here so it can be allocated per-mode via the
-    // per-mode tool settings; it is disabled by default for this mode via
-    // `ai.disabledTools.overlord` = ['run_bash'].
-    enabledFlags: [
-      'hasSessions', 'hasExecuteCommand', 'hasTerminalContext',
-      'hasDocuments', 'hasSessionContext', 'hasChangeControl',
-      'hasNeighborDiscovery', 'hasNetBoxTopology',
-      'hasLibreNms', 'hasNetStacksCrawler',
-      'hasMopCreation',
-      'hasMcpServers', 'hasBackupAnalysis', 'hasUINavigation',
-      'hasBash',
-    ],
-    allowsCommands: true,
-    allowsBash: true,
-    defaultPermissionMode: 'ask',
   },
+}
+
+/** Settings key holding each agent type's permission mode. */
+export const PERMISSION_MODE_SETTING: Record<AgentType, 'ai.permissionMode.autopilot' | 'ai.permissionMode.overlord'> = {
+  autopilot: 'ai.permissionMode.autopilot',
+  overlord: 'ai.permissionMode.overlord',
+}
+
+/** The permission mode the user set for an agent type (Settings → AI). */
+export function getPermissionMode(agentType: AgentType): PermissionMode {
+  return getSettings()[PERMISSION_MODE_SETTING[agentType]]
 }
 
 /** Settings keys holding each mode's user-customizable display name. */
@@ -95,15 +76,9 @@ export function getModeName(agentType: AgentType): string {
   return AGENT_TYPES[agentType]?.label ?? String(agentType)
 }
 
-/** Whether run_bash is effectively enabled for a mode (allowed + not disabled). */
+/** Whether run_bash is enabled for a mode (not in its disabled-tools list). */
 function bashEnabledFor(agentType: AgentType): boolean {
-  if (!AGENT_TYPES[agentType].allowsBash) return false
-  try {
-    const disabled = getSettings()[`ai.disabledTools.${agentType}` as keyof AppSettings] as string[] | undefined
-    return !(disabled || []).includes('run_bash')
-  } catch {
-    return AGENT_TYPES[agentType].allowsBash
-  }
+  return !getSettings()[`ai.disabledTools.${agentType}`].includes('run_bash')
 }
 
 export const PERMISSION_MODES: Record<PermissionMode, { label: string; description: string }> = {
@@ -113,7 +88,7 @@ export const PERMISSION_MODES: Record<PermissionMode, { label: string; descripti
   },
   auto: {
     label: 'Auto',
-    description: 'Read-only commands auto-execute, writes need approval',
+    description: 'Reads auto-execute, anything that changes state needs approval',
   },
   yolo: {
     label: 'Go Nuts',
@@ -156,7 +131,7 @@ When a user asks "how do I integrate <app>?", answer with the pattern above (cre
 
 To CHECK or QUERY an already-configured external API (a CMDB, IPAM, monitoring, ticketing, etc.), you do NOT need bash — call **list_api_resources** to see what's configured, then **call_api_resource** with the resource name + path. Use this for read-only checks and to collect data (e.g. pulling a device inventory) from any API Resource.
 
-Device onboarding from a generic source (not just NetBox): if a user has a CMDB or inventory API that isn't a built-in integration, proactively offer to onboard from it. Say something like: "If you can give me a Swagger/OpenAPI spec and the auth details, I can create an API Resource for it, then collect your devices and onboard them as sessions with a default credential profile." Flow: **propose_api_resource** (assemble the config from their spec/auth; the user enters the secret and saves) → **call_api_resource** to inspect the response shape and pick the name/host fields → **onboard_devices** (maps fields, shows the user a preview, and creates the sessions only after they confirm). Always let the user pick the default credential profile.
+Device onboarding from a generic source (not just NetBox): if a user has a CMDB or inventory API that isn't a built-in integration, proactively offer to onboard from it. Say something like: "If you can give me a Swagger/OpenAPI spec and the auth details, I can create an API Resource for it, then collect your devices and onboard them as sessions with a default credential profile." Flow: **propose_api_resource** (assemble the config from their spec/auth; the user enters the secret and saves) → **call_api_resource** to inspect the response shape and pick the name/host fields → **onboard_devices** (maps fields and creates the sessions; it goes through the user's permission mode like every tool that changes state). Always let the user pick the default credential profile.
 
 For detailed, authoritative how-tos on NetStacks itself (setup, API Resources, integrations, enrichment/token matchers, NetBox, Crawler/Netdisco, AI setup, Documents), call **search_netstacks_docs** then **read_netstacks_doc** — these read documentation bundled into the app. Prefer them over guessing when explaining how to use NetStacks.
 
@@ -296,21 +271,21 @@ export function getSystemPrompt(
 
 /**
  * Mode-awareness block, computed from the CURRENT user configuration (custom
- * mode names + whether run_bash is enabled per mode) so the LLM knows which mode
+ * mode names, permission mode, whether run_bash is enabled per mode) so the LLM knows which mode
  * it's in and can guide the user to the other mode when it lacks the local shell.
  */
 function getModeBlock(agentType: AgentType): string {
-  const config = AGENT_TYPES[agentType]
-  if (!config) return '' // unknown/legacy agent type — no mode block
+  if (!AGENT_TYPES[agentType]) return '' // unknown/legacy agent type — no mode block
   const other: AgentType = agentType === 'autopilot' ? 'overlord' : 'autopilot'
   const thisName = getModeName(agentType)
   const otherName = getModeName(other)
   const hasBashHere = bashEnabledFor(agentType)
   const hasBashOther = bashEnabledFor(other)
+  const permission = PERMISSION_MODES[getPermissionMode(agentType)]
 
   const lines: string[] = [
     `\n\n## Your Mode: ${thisName}`,
-    `You are operating as the "${thisName}" agent mode (default permission: ${config.defaultPermissionMode}).`,
+    `You are operating as the "${thisName}" agent mode (permission mode: ${permission.label} — ${permission.description}).`,
     hasBashHere
       ? `- You HAVE the local shell (run_bash).`
       : `- You do NOT have the local shell (run_bash) in this mode.`,
@@ -324,33 +299,4 @@ function getModeBlock(agentType: AgentType): string {
     )
   }
   return lines.join('\n')
-}
-
-/** Flags that require enterprise mode (controller backend) */
-const ENTERPRISE_ONLY_FLAGS = new Set(['hasBackupAnalysis'])
-
-/**
- * Build ToolAvailability flags from an agent type.
- * Only enables flags that the agent type allows AND the underlying capability exists.
- * Enterprise-only flags are disabled in standalone mode.
- */
-export function getToolAvailability(
-  agentType: AgentType,
-  isEnterprise: boolean,
-  existingAvailability: Record<string, boolean>,
-): Record<string, boolean> {
-  const config = AGENT_TYPES[agentType]
-  const modeFlags = new Set(config.enabledFlags)
-  const availability: Record<string, boolean> = { isEnterprise }
-
-  for (const flag of config.enabledFlags) {
-    if (!modeFlags.has(flag)) continue
-    if (ENTERPRISE_ONLY_FLAGS.has(flag) && !isEnterprise) {
-      availability[flag] = false
-    } else {
-      availability[flag] = existingAvailability[flag] !== false
-    }
-  }
-
-  return availability
 }

@@ -15,6 +15,8 @@ import { getErrorMessage } from '../api/errors'
 import AskAiHelp from './AskAiHelp'
 import './OnboardingWizard.css'
 
+import DialogFooter from './DialogFooter'
+import ModalFrame from './ModalFrame'
 interface OnboardingWizardProps {
   isOpen: boolean
   /** Marks setup complete and closes. */
@@ -153,13 +155,10 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
         const needsKey = KEYED_PROVIDERS.includes(provider)
         return (
           <div className="ow-body">
-            <div className="ow-step-head">
-              <h2>Set up the AI assistant</h2>
-              <AskAiHelp prompt={`How do I get an API key for the ${provider} provider and set it up in NetStacks?`} />
-            </div>
+            <h2>Set up the AI assistant</h2>
             <label className="ow-field">
               <span>Provider</span>
-              <select value={provider} onChange={(e) => onProviderChange(e.target.value as AiProviderType)}>
+              <select className="ns-select" value={provider} onChange={(e) => onProviderChange(e.target.value as AiProviderType)}>
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="openai">OpenAI</option>
                 <option value="openrouter">OpenRouter</option>
@@ -181,13 +180,13 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
             {needsKey && (
               <label className="ow-field">
                 <span>API key{KEY_OPTIONAL.includes(provider) ? ' (optional)' : ''}</span>
-                <input type="password" value={apiKey} placeholder="Paste your API key" onChange={(e) => setApiKey(e.target.value)} />
+                <input className="ns-input" type="password" value={apiKey} placeholder="Paste your API key" onChange={(e) => setApiKey(e.target.value)} />
               </label>
             )}
             {ENDPOINT_PROVIDERS.includes(provider) && (
               <label className="ow-field">
                 <span>Base URL{provider === 'custom' ? '' : ' (optional)'}</span>
-                <input
+                <input data-ai-fill="off" className="ns-input"
                   type="text"
                   value={baseUrl}
                   placeholder={DEFAULT_BASE_URL[provider] || 'https://llm.example.com/v1 (OpenAI-compatible)'}
@@ -197,7 +196,7 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
             )}
             <label className="ow-field">
               <span>Model</span>
-              <input
+              <input data-ai-fill="off" className="ns-input"
                 type="text"
                 value={model}
                 list="ow-model-list"
@@ -212,7 +211,7 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
             </label>
             <p className="ow-muted">Leave the model blank to use the first one the provider lists.</p>
             <div className="ow-inline">
-              <button className="ow-btn" onClick={saveAndTestAi} disabled={aiBusy}>
+              <button className="ns-btn" onClick={saveAndTestAi} disabled={aiBusy}>
                 {aiBusy ? 'Testing…' : 'Save & test'}
               </button>
               {aiResult && (
@@ -228,12 +227,15 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
           <div className="ow-body">
             <div className="ow-step-head">
               <h2>Connect NetBox (optional)</h2>
-              <AskAiHelp prompt="Walk me through connecting NetBox to NetStacks: creating the API Resource (NetBox URL + API token), then a NetBox source, and what it gives me." />
+              <AskAiHelp
+                topic="connecting NetBox"
+                prompt="Walk me through connecting NetBox to NetStacks: creating the API Resource (NetBox URL, bearer API token, test path /api/status/ — propose_api_resource can open the form), then a NetBox source that references it, and what the import gives me."
+              />
             </div>
             <p>NetBox is your source of truth for device inventory. Connecting it imports your
               devices as ready-to-connect sessions. It's set up as an <strong>API Resource</strong>
               (NetBox URL + API token) wrapped by a NetBox <strong>integration</strong>.</p>
-            <button className="ow-btn" onClick={onOpenIntegrations}>Open NetBox setup →</button>
+            <button className="ns-btn" onClick={onOpenIntegrations}>Open NetBox setup →</button>
             <p className="ow-muted">No NetBox? Skip this — you can add devices manually or import sessions later.</p>
           </div>
         )
@@ -242,7 +244,10 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
           <div className="ow-body">
             <div className="ow-step-head">
               <h2>A few concepts</h2>
-              <AskAiHelp prompt="Explain how API Resources, Integrations, and Enrichment relate in NetStacks, and how I'd integrate an app that isn't a built-in integration." />
+              <AskAiHelp
+                topic="NetStacks concepts"
+                prompt="Explain how API Resources, Integrations and Enrichment relate in NetStacks, and how I'd integrate an app that isn't a built-in integration (API Resource → Quick Call, Enrichment source or MOP step). Use the bundled NetStacks docs."
+              />
             </div>
             <ul className="ow-concepts">
               <li><strong>API Resource</strong> — a reusable external endpoint (URL + auth), credentials kept in the vault. The building block for everything external.</li>
@@ -271,26 +276,22 @@ export default function OnboardingWizard({ isOpen, onClose, onOpenIntegrations }
   const isLast = stepIdx === STEPS.length - 1
 
   return (
-    <div className="ow-overlay">
-      <div className="ow-dialog" ref={containerRef} role="dialog" aria-modal="true">
-        <div className="ow-progress">
-          {STEPS.map((s, i) => (
-            <span key={s} className={`ow-dot ${i === stepIdx ? 'active' : ''} ${i < stepIdx ? 'done' : ''}`} />
-          ))}
-        </div>
-
-        {renderStep()}
-
-        <div className="ow-footer">
-          <button className="ow-btn ghost" onClick={onClose}>{isLast ? 'Close' : 'Skip setup'}</button>
-          <div className="ow-inline">
-            {stepIdx > 0 && !isLast && <button className="ow-btn ghost" onClick={back}>Back</button>}
-            {isLast
-              ? <button className="ow-btn primary" onClick={onClose}>Finish</button>
-              : <button className="ow-btn primary" onClick={next}>Next</button>}
-          </div>
-        </div>
+    <ModalFrame id="onboarding" ref={containerRef} className="ow-dialog" label="Welcome to NetStacks">
+      <div className="ow-progress">
+        {STEPS.map((s, i) => (
+          <span key={s} className={`ow-dot ${i === stepIdx ? 'active' : ''} ${i < stepIdx ? 'done' : ''}`} />
+        ))}
       </div>
-    </div>
+
+      {renderStep()}
+
+      <DialogFooter
+        primary={{ label: isLast ? 'Finish' : 'Next', onClick: isLast ? onClose : next }}
+        onCancel={onClose}
+        cancelLabel={isLast ? 'Close' : 'Skip setup'}
+        leading={stepIdx > 0 && !isLast && <button className="ns-btn ns-btn--ghost" onClick={back}>Back</button>}
+        inline
+      />
+    </ModalFrame>
   )
 }

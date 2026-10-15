@@ -98,6 +98,16 @@ function fmtShortcut(acc: string | undefined): string | undefined {
     .replace(/\+/g, '')
 }
 
+/** Lower is better; -1 = no match. */
+function matchRank(row: Row, q: string): number {
+  const label = row.label.toLowerCase()
+  if (label.startsWith(q)) return 0
+  if (label.split(/[\s/·:-]+/).some((word) => word.startsWith(q))) return 1
+  if (label.includes(q)) return 2
+  if (row.category.toLowerCase().includes(q) || (row.description?.toLowerCase().includes(q) ?? false)) return 3
+  return -1
+}
+
 export default function CommandPalette({ isOpen, onClose, commands, onNavigate }: CommandPaletteProps) {
   // Re-render when the user rebinds a shortcut so row hints stay current.
   useKeybindings()
@@ -125,21 +135,19 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
     return [...fromRegistry, ...fromLegacy]
   }, [registryCommands, commands, onClose])
 
-  // Filter + sort. Enabled rows first, then alphabetical inside each
-  // enabled/disabled group. Match against label + category for a forgiving
-  // search experience.
+  // Filter + sort. Enabled rows first, then by relevance (label prefix,
+  // label word prefix, label substring, category/description match), then
+  // alphabetical. Matching label + category + description keeps search forgiving.
   const filteredCommands = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const matched = allRows.filter((r) =>
-      !q ||
-      r.label.toLowerCase().includes(q) ||
-      r.category.toLowerCase().includes(q) ||
-      (r.description?.toLowerCase().includes(q) ?? false),
-    )
-    return matched.sort((a, b) => {
-      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1
-      return a.label.localeCompare(b.label)
-    })
+    const ranked = allRows
+      .map((r) => ({ row: r, rank: q ? matchRank(r, q) : 0 }))
+      .filter((m) => m.rank >= 0)
+    return ranked.sort((a, b) => {
+      if (a.row.enabled !== b.row.enabled) return a.row.enabled ? -1 : 1
+      if (a.rank !== b.rank) return a.rank - b.rank
+      return a.row.label.localeCompare(b.row.label)
+    }).map((m) => m.row)
   }, [allRows, search])
 
   // Entity hits render first, so the single keyboard cursor spans
@@ -253,7 +261,7 @@ export default function CommandPalette({ isOpen, onClose, commands, onNavigate }
     <div className="command-palette-overlay" data-testid="command-palette" onClick={onClose}>
       <div className="command-palette" onClick={e => e.stopPropagation()}>
         <div className="command-palette-input-wrapper">
-          <input
+          <input data-ai-fill="off"
             ref={inputRef}
             type="text"
             className="command-palette-input" data-testid="command-palette-input"

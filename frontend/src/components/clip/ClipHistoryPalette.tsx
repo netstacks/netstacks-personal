@@ -18,6 +18,7 @@ import type { Clip } from '../../types/clip'
 import { SOURCE_LABEL, indexClip, matchesQuery, type IndexedClip } from './clipHistoryHelpers'
 import './ClipHistoryPalette.css'
 import './movablePopup.css'
+import Tooltip from '../Tooltip'
 
 interface ClipHistoryPaletteProps {
   onClose: () => void
@@ -60,8 +61,8 @@ const ClipRow = memo(function ClipRow({ item, index, selected, canPaste, onSelec
     >
       <div className="clip-history-main">
         <div className="clip-history-line">
-          {clip.pinned && <span className="clip-badge clip-badge-pin" title="Pinned">★</span>}
-          {clip.redacted && <span className="clip-badge clip-badge-redacted" title="A credential was scrubbed from this clip">🔒</span>}
+          {clip.pinned && <Tooltip label="Pinned"><span className="clip-badge clip-badge-pin">★</span></Tooltip>}
+          {clip.redacted && <Tooltip label="A credential was scrubbed from this clip"><span className="clip-badge clip-badge-redacted">🔒</span></Tooltip>}
           <span className="clip-history-text">{item.title || '(whitespace)'}</span>
         </div>
         <div className="clip-history-meta">
@@ -69,22 +70,22 @@ const ClipRow = memo(function ClipRow({ item, index, selected, canPaste, onSelec
           {where && <span className="clip-history-where">{where}</span>}
           <span>{formatClipSize(clip.bytes, clip.lines)}</span>
           {badLineEnding && (
-            <span className="clip-badge clip-badge-warn" title="Line endings that often paste wrong into device CLIs">
+            <Tooltip label="Line endings that often paste wrong into device CLIs"><span className="clip-badge clip-badge-warn">
               {clip.lineEnding.toUpperCase()}
-            </span>
+            </span></Tooltip>
           )}
           <span>{formatRelativeTime(new Date(clip.createdAt))}</span>
         </div>
       </div>
       <div className="clip-history-actions" onClick={(e) => e.stopPropagation()}>
-        <button type="button" title={clip.pinned ? 'Unpin' : 'Pin (survives expiry)'} onClick={() => onPin(clip)}>
+        <Tooltip label={clip.pinned ? 'Unpin' : 'Pin (survives expiry)'}><button aria-label={clip.pinned ? 'Unpin' : 'Pin'} aria-pressed={clip.pinned} type="button" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => onPin(clip)}>
           {clip.pinned ? '★' : '☆'}
-        </button>
+        </button></Tooltip>
         {canPaste && (
-          <button type="button" title="Preview the paste (shows what the preset changes)" onClick={() => onPreview(clip)}>👁</button>
+          <Tooltip label="Preview the paste (shows what the preset changes)"><button aria-label="Preview the paste (shows what the preset changes)" type="button" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => onPreview(clip)}>👁</button></Tooltip>
         )}
-        <button type="button" title="Copy to clipboard" onClick={() => onCopy(clip)}>⧉</button>
-        <button type="button" title="Delete from history" onClick={() => onRemove(clip)}>✕</button>
+        <Tooltip label="Copy to clipboard"><button aria-label="Copy to clipboard" type="button" className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small" onClick={() => onCopy(clip)}>⧉</button></Tooltip>
+        <Tooltip label="Delete from history"><button aria-label="Delete from history" type="button" className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn ns-btn--small" onClick={() => onRemove(clip)}>✕</button></Tooltip>
       </div>
     </div>
   )
@@ -174,12 +175,12 @@ export default function ClipHistoryPalette({ onClose, canPaste, onPaste, onPrevi
   return (
     <div className="command-palette-overlay" {...backdropProps}>
       <div className="clip-history movable-popup" role="dialog" aria-label="Clipboard history" style={style} {...contentProps}>
-        <div className="movable-popup-titlebar" onMouseDown={onHeaderMouseDown} title="Drag to move">
+        <Tooltip label="Drag to move"><div className="movable-popup-titlebar" onMouseDown={onHeaderMouseDown}>
           <span className="movable-popup-title">Clipboard History</span>
-          <button type="button" className="movable-popup-close" onClick={onClose} aria-label="Close">✕</button>
-        </div>
+          <button type="button" className="ns-btn ns-btn--ghost ns-icon-btn movable-popup-close" onClick={onClose} aria-label="Close">✕</button>
+        </div></Tooltip>
         <div className="command-palette-input-wrapper clip-history-head">
-          <input
+          <input data-ai-fill="off"
             autoFocus
             className="command-palette-input"
             placeholder="Search clipboard history — text, device, session, source…"
@@ -187,14 +188,13 @@ export default function ClipHistoryPalette({ onClose, canPaste, onPaste, onPrevi
             onChange={(e) => { setQuery(e.target.value); setSelected(0) }}
             onKeyDown={onKeyDown}
           />
-          <button
+          <Tooltip label="Show pinned clips only"><button
             type="button"
-            className={`clip-history-filter${pinnedOnly ? ' active' : ''}`}
+            className={`ns-btn ns-btn--ghost ns-btn--small clip-history-filter${pinnedOnly ? ' active' : ''}`}
             onClick={() => setPinnedOnly((v) => !v)}
-            title="Show pinned clips only"
           >
             ★ Pinned
-          </button>
+          </button></Tooltip>
         </div>
 
         <div className="command-palette-list clip-history-list" ref={listRef}>
@@ -226,17 +226,16 @@ export default function ClipHistoryPalette({ onClose, canPaste, onPaste, onPrevi
           <span>
             <kbd>↵</kbd> {canPaste ? 'paste into terminal' : 'copy'} · <kbd>Ctrl+↵</kbd> copy · <kbd>Del</kbd> remove
           </span>
-          <button
+          <Tooltip label="Delete every unpinned clip"><button
             type="button"
-            className="clip-history-clear"
+            className="ns-btn ns-btn--small"
             disabled={!clips.some((c) => !c.pinned)}
             onClick={() => void clearUnpinned()}
-            title="Delete every unpinned clip"
           >
             Clear unpinned
-          </button>
+          </button></Tooltip>
         </div>
-        <div className="movable-popup-resize" onMouseDown={onResizeMouseDown} title="Drag to resize" />
+        <Tooltip label="Drag to resize"><div className="movable-popup-resize" onMouseDown={onResizeMouseDown} /></Tooltip>
       </div>
     </div>
   )

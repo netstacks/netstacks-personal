@@ -22,6 +22,7 @@ import DetailSections from './detail/DetailSections';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import './DeviceDetailCard.css';
+import Tooltip from './Tooltip';
 
 interface DeviceDetailCardProps {
   /** Device to display details for */
@@ -358,15 +359,15 @@ export default function DeviceDetailCard({
           )}
         </div>
         <div className="device-detail-card-header-actions">
-          <button
-            className="device-detail-card-header-btn"
+          <Tooltip label="Close"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={onClose}
-            title="Close"
+            aria-label="Close"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
@@ -393,17 +394,17 @@ export default function DeviceDetailCard({
       {/* Footer */}
       <div className="device-detail-card-footer">
         {onOpenInTab && (
-          <button className="device-detail-card-btn" onClick={onOpenInTab}>
+          <button className="ns-btn device-detail-card-btn" onClick={onOpenInTab}>
             Open in Tab
           </button>
         )}
         {enrichment && onSaveToDocs && (
-          <button className="device-detail-card-btn" onClick={onSaveToDocs}>
+          <button className="ns-btn device-detail-card-btn" onClick={onSaveToDocs}>
             Save to Docs
           </button>
         )}
         {!enrichment && onOpenTerminal && (
-          <button className="device-detail-card-btn primary" onClick={onOpenTerminal}>
+          <button className="ns-btn device-detail-card-btn ns-btn--primary" onClick={onOpenTerminal}>
             Open Terminal
           </button>
         )}

@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mocks must be declared before importing the component under test.
 const sendChatMessage = vi.fn()
+const ai = vi.hoisted(() => ({ AiNotConfiguredError: class AiNotConfiguredError extends Error {} }))
 vi.mock('../../api/ai', () => ({
   sendChatMessage: (...args: unknown[]) => sendChatMessage(...args),
-  AiNotConfiguredError: class AiNotConfiguredError extends Error {},
+  AiNotConfiguredError: ai.AiNotConfiguredError,
 }))
 vi.mock('../../lib/aiModes', () => ({ NETSTACKS_CONCEPTS_PRIMER: 'PRIMER' }))
 
@@ -104,6 +105,46 @@ describe('AITabInput — Tab-to-generate + handler composition', () => {
     )
     fireEvent.focus(screen.getByRole('textbox'))
     expect(callerFocus).toHaveBeenCalledOnce()
-    expect(screen.getByText('TAB ✨')).toBeInTheDocument()
+    expect(screen.getByText('Tab')).toBeInTheDocument()
+  })
+
+  it('never offers or generates AI for password fields', () => {
+    const { container } = render(
+      <AITabInput type="password" value="" onChange={() => {}} aiField="secret" onAIValue={() => {}} />,
+    )
+    const input = container.querySelector('input')!
+    fireEvent.focus(input)
+    expect(screen.queryByText('Tab')).toBeNull()
+    fireEvent.keyDown(input, { key: 'Tab' })
+    expect(sendChatMessage).not.toHaveBeenCalled()
+  })
+
+  it('shows a set-up hint once AI turns out not to be configured, and Tab then moves on', async () => {
+    sendChatMessage.mockRejectedValue(new ai.AiNotConfiguredError('no provider'))
+    render(<AITabInput value="" onChange={() => {}} aiField="name" onAIValue={() => {}} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.focus(input)
+    fireEvent.keyDown(input, { key: 'Tab' })
+    await waitFor(() => expect(screen.getByText('AI not set up')).toBeInTheDocument())
+    const second = fireEvent.keyDown(input, { key: 'Tab' })
+    expect(second).toBe(true)
+    expect(sendChatMessage).toHaveBeenCalledOnce()
+  })
+
+  it('lets Tab move focus while a value is generating, and Escape cancels it', async () => {
+    let resolve!: (v: string) => void
+    sendChatMessage.mockReturnValue(new Promise<string>((r) => { resolve = r }))
+    const onAIValue = vi.fn()
+    render(<AITabInput value="" onChange={() => {}} aiField="name" onAIValue={onAIValue} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.keyDown(input, { key: 'Tab' })
+    await waitFor(() => expect(input).toHaveAttribute('aria-busy', 'true'))
+    expect(fireEvent.keyDown(input, { key: 'Tab' })).toBe(true)
+    expect(sendChatMessage).toHaveBeenCalledOnce()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input).not.toHaveAttribute('aria-busy')
+    resolve('late value')
+    await Promise.resolve()
+    expect(onAIValue).not.toHaveBeenCalled()
   })
 })

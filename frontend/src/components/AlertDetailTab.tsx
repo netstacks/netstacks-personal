@@ -18,6 +18,7 @@ import type {
 } from '../types/incidents'
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter'
 interface AlertDetailTabProps {
   alertId: string
   onOpenIncidentTab: (id: string) => void
@@ -274,7 +275,7 @@ export default function AlertDetailTab({
       <div className="alert-detail-container">
         <div className="alert-detail-error">
           <p>Failed to load alert: {error}</p>
-          <button className="alert-detail-btn primary" onClick={fetchData}>
+          <button className="ns-btn ns-btn--primary" onClick={fetchData}>
             Retry
           </button>
         </div>
@@ -311,7 +312,7 @@ export default function AlertDetailTab({
         <div className="alert-detail-header-actions">
           {alert.state === 'active' && (
             <button
-              className="alert-detail-btn primary"
+              className="ns-btn ns-btn--primary"
               onClick={() => { setShowAcknowledge(true); setShowResolve(false); setShowSuppress(false) }}
             >
               Acknowledge
@@ -319,7 +320,7 @@ export default function AlertDetailTab({
           )}
           {alert.state === 'acknowledged' && (
             <button
-              className="alert-detail-btn primary"
+              className="ns-btn ns-btn--primary"
               onClick={() => { setShowResolve(true); setShowAcknowledge(false); setShowSuppress(false) }}
             >
               Resolve
@@ -327,7 +328,7 @@ export default function AlertDetailTab({
           )}
           {(alert.state === 'active' || alert.state === 'acknowledged') && (
             <button
-              className="alert-detail-btn secondary"
+              className="ns-btn"
               onClick={() => { setShowSuppress(true); setShowAcknowledge(false); setShowResolve(false) }}
             >
               Suppress
@@ -380,22 +381,12 @@ export default function AlertDetailTab({
                 />
               </div>
               {actionError && <div className="alert-detail-error-text">{actionError}</div>}
-              <div className="alert-detail-inline-panel-actions">
-                <button
-                  className="alert-detail-btn"
-                  onClick={() => { setShowAcknowledge(false); setActionError(null) }}
-                  disabled={actionLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="alert-detail-btn primary"
-                  onClick={handleAcknowledge}
-                  disabled={actionLoading}
-                >
-                  {actionLoading ? 'Acknowledging...' : 'Confirm'}
-                </button>
-              </div>
+              <DialogFooter
+                primary={{ label: actionLoading ? 'Acknowledging...' : 'Confirm', onClick: handleAcknowledge, disabled: actionLoading }}
+                onCancel={() => { setShowAcknowledge(false); setActionError(null) }}
+                cancelDisabled={actionLoading}
+                inline
+              />
             </div>
           </div>
         )}
@@ -427,22 +418,12 @@ export default function AlertDetailTab({
                 />
               </div>
               {actionError && <div className="alert-detail-error-text">{actionError}</div>}
-              <div className="alert-detail-inline-panel-actions">
-                <button
-                  className="alert-detail-btn"
-                  onClick={() => { setShowResolve(false); setActionError(null) }}
-                  disabled={actionLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="alert-detail-btn primary"
-                  onClick={handleResolve}
-                  disabled={actionLoading}
-                >
-                  {actionLoading ? 'Resolving...' : 'Confirm'}
-                </button>
-              </div>
+              <DialogFooter
+                primary={{ label: actionLoading ? 'Resolving...' : 'Confirm', onClick: handleResolve, disabled: actionLoading }}
+                onCancel={() => { setShowResolve(false); setActionError(null) }}
+                cancelDisabled={actionLoading}
+                inline
+              />
             </div>
           </div>
         )}
@@ -457,8 +438,8 @@ export default function AlertDetailTab({
               </p>
               <div className="alert-detail-form-group">
                 <label className="alert-detail-form-label">Duration *</label>
-                <select
-                  className="alert-detail-select"
+                <select aria-label="Duration"
+                  className="ns-select alert-detail-select"
                   value={suppressDuration}
                   onChange={(e) => setSuppressDuration(e.target.value)}
                 >
@@ -485,22 +466,12 @@ export default function AlertDetailTab({
                 />
               </div>
               {actionError && <div className="alert-detail-error-text">{actionError}</div>}
-              <div className="alert-detail-inline-panel-actions">
-                <button
-                  className="alert-detail-btn"
-                  onClick={() => { setShowSuppress(false); setActionError(null) }}
-                  disabled={actionLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="alert-detail-btn primary"
-                  onClick={handleSuppress}
-                  disabled={actionLoading || !suppressReason.trim()}
-                >
-                  {actionLoading ? 'Suppressing...' : 'Confirm'}
-                </button>
-              </div>
+              <DialogFooter
+                primary={{ label: actionLoading ? 'Suppressing...' : 'Confirm', onClick: handleSuppress, disabled: actionLoading || !suppressReason.trim() }}
+                onCancel={() => { setShowSuppress(false); setActionError(null) }}
+                cancelDisabled={actionLoading}
+                inline
+              />
             </div>
           </div>
         )}
@@ -641,7 +612,7 @@ export default function AlertDetailTab({
             <span>Raw Payload</span>
             <div className="alert-detail-payload-actions">
               <button
-                className="alert-detail-btn alert-detail-btn-sm"
+                className="ns-btn ns-btn--small"
                 onClick={(e) => {
                   e.stopPropagation()
                   copyPayload()

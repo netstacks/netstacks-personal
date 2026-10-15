@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import AITabInput from './AITabInput'
+import { useState, useEffect, useRef } from 'react';
 import {
   listMcpServers,
   addMcpServer,
@@ -18,61 +19,12 @@ import { PasswordInput } from './PasswordInput';
 import Switch from './Switch';
 import './McpServersSection.css';
 
-// Icons
 import { getErrorMessage } from '../api/errors'
-const Icons = {
-  plug: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-      <path d="M12 2v6" />
-      <path d="M8 2v6" />
-      <path d="M16 2v6" />
-      <rect x="4" y="8" width="16" height="4" rx="1" />
-      <path d="M12 12v4" />
-      <path d="M8 16h8" />
-      <path d="M10 20h4" />
-    </svg>
-  ),
-  connect: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M5 12h14" />
-      <path d="M12 5l7 7-7 7" />
-    </svg>
-  ),
-  disconnect: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <path d="M18 6L6 18" />
-      <path d="M6 6l12 12" />
-    </svg>
-  ),
-  trash: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-    </svg>
-  ),
-  plus: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  ),
-  tool: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-      <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
-    </svg>
-  ),
-  chevronDown: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  ),
-  chevronRight: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  ),
-};
-
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import SettingsSection from './settings/SettingsSection';
+import SettingsItem from './settings/SettingsItem';
+import ModalFrame from './ModalFrame';
 const SERVER_TYPE_OPTIONS = [
   { value: 'custom', label: 'Custom' },
   { value: 'search', label: 'Search' },
@@ -94,6 +46,7 @@ interface AddServerDialogProps {
 }
 
 function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: AddServerDialogProps) {
+  const formRef = useRef<HTMLFormElement>(null);
   const isEditing = !!editingServer;
   const [name, setName] = useState('');
   const [transportType, setTransportType] = useState<'stdio' | 'sse'>('stdio');
@@ -132,18 +85,6 @@ function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: Ad
     }
   }, [isOpen, editingServer]);
 
-  // Escape dismisses the dialog (unless a save is in flight).
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !saving) {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, saving, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -221,151 +162,156 @@ function AddServerDialog({ isOpen, onClose, onAdd, editingServer, onUpdate }: Ad
   );
 
   return (
-    <div className="mcp-dialog-overlay" onClick={() => { if (!saving) onClose(); }}>
-      <div className="mcp-dialog" onClick={e => e.stopPropagation()}>
-        <h3>{isEditing ? `Edit MCP Server: ${editingServer?.name}` : 'Add MCP Server'}</h3>
-        <form className="mcp-dialog-form" onSubmit={handleSubmit}>
-          <div className="mcp-form-field">
-            <label htmlFor="mcp-name">Name</label>
-            <input
-              id="mcp-name"
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g., Filesystem Server"
-              autoFocus
-            />
-          </div>
+    <ModalFrame id="mcp-server" onDismiss={onClose} dismissEnabled={!saving} className="mcp-dialog" label="MCP Server">
+      <h3>{isEditing ? `Edit MCP Server: ${editingServer?.name}` : 'Add MCP Server'}</h3>
+      <form ref={formRef} className="mcp-dialog-form" onSubmit={handleSubmit}>
+        <div className="mcp-form-field">
+          <label htmlFor="mcp-name">Name</label>
+          <AITabInput
+            id="mcp-name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g., Filesystem Server"
+            autoFocus
+            aiField="MCP server name"
+            aiPlaceholder="Short name for this Model Context Protocol server"
+            aiContext={{ transport: transportType, command, args: argsText, url }}
+            onAIValue={setName}
+          />
+        </div>
 
-          {/* Transport type toggle */}
-          <div className="mcp-form-field">
-            <label>Transport</label>
-            <div className="mcp-transport-toggle">
-              <button
-                type="button"
-                className={`mcp-transport-btn ${transportType === 'stdio' ? 'active' : ''}`}
-                onClick={() => setTransportType('stdio')}
-              >
-                Command (stdio)
-              </button>
-              <button
-                type="button"
-                className={`mcp-transport-btn ${transportType === 'sse' ? 'active' : ''}`}
-                onClick={() => setTransportType('sse')}
-              >
-                URL (SSE)
-              </button>
-            </div>
-          </div>
-
-          {/* stdio fields */}
-          {transportType === 'stdio' && (
-            <>
-              <div className="mcp-form-field">
-                <label htmlFor="mcp-command">Command</label>
-                <input
-                  id="mcp-command"
-                  type="text"
-                  value={command}
-                  onChange={e => setCommand(e.target.value)}
-                  placeholder="e.g., npx"
-                />
-                <span className="field-hint">The executable to run</span>
-              </div>
-              <div className="mcp-form-field">
-                <label htmlFor="mcp-args">Arguments</label>
-                <textarea
-                  id="mcp-args"
-                  value={argsText}
-                  onChange={e => setArgsText(e.target.value)}
-                  placeholder={`e.g.,\n-y\n@modelcontextprotocol/server-filesystem\n/tmp`}
-                />
-                <span className="field-hint">One argument per line, or JSON array</span>
-              </div>
-            </>
-          )}
-
-          {/* SSE fields */}
-          {transportType === 'sse' && (
-            <>
-              <div className="mcp-form-field">
-                <label htmlFor="mcp-url">URL</label>
-                <input
-                  id="mcp-url"
-                  type="text"
-                  value={url}
-                  onChange={e => setUrl(e.target.value)}
-                  placeholder="e.g., https://mcp.example.com/sse"
-                />
-                <span className="field-hint">SSE/Streamable HTTP endpoint URL</span>
-              </div>
-              <div className="mcp-form-field">
-                <label htmlFor="mcp-auth-type">Authentication</label>
-                <select
-                  id="mcp-auth-type"
-                  value={authType}
-                  onChange={e => setAuthType(e.target.value as 'none' | 'bearer' | 'api-key')}
-                >
-                  <option value="none">None</option>
-                  <option value="bearer">Bearer Token</option>
-                  <option value="api-key">API Key</option>
-                </select>
-              </div>
-              {authType !== 'none' && (
-                <div className="mcp-form-field">
-                  <label htmlFor="mcp-auth-token">
-                    {authType === 'bearer' ? 'Bearer Token' : 'API Key'}
-                  </label>
-                  <PasswordInput
-                    id="mcp-auth-token"
-                    value={authToken}
-                    onChange={e => setAuthToken(e.target.value)}
-                    placeholder={
-                      isEditing
-                        ? 'Leave blank to keep stored token'
-                        : authType === 'bearer'
-                        ? 'Enter bearer token'
-                        : 'Enter API key'
-                    }
-                  />
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Server type */}
-          <div className="mcp-form-field">
-            <label htmlFor="mcp-server-type">Server Type</label>
-            <select
-              id="mcp-server-type"
-              value={serverType}
-              onChange={e => setServerType(e.target.value)}
+        {/* Transport type toggle */}
+        <div className="mcp-form-field">
+          <label>Transport</label>
+          <div className="ns-segmented mcp-transport-toggle">
+            <button
+              type="button"
+              className={`ns-segment mcp-transport-btn ${transportType === 'stdio' ? 'active' : ''}`}
+              onClick={() => setTransportType('stdio')}
             >
-              {SERVER_TYPE_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <span className="field-hint">Helps AI understand what this server provides</span>
-          </div>
-
-          {error && <div className="mcp-error">{error}</div>}
-          <div className="mcp-dialog-actions">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>
-              Cancel
+              Command (stdio)
             </button>
             <button
-              type="submit"
-              className="btn-add-source"
-              disabled={saving || !isValid}
+              type="button"
+              className={`ns-segment mcp-transport-btn ${transportType === 'sse' ? 'active' : ''}`}
+              onClick={() => setTransportType('sse')}
             >
-              {saving
-                ? isEditing ? 'Saving…' : 'Adding…'
-                : isEditing ? 'Save' : 'Add Server'}
+              URL (SSE)
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+
+        {/* stdio fields */}
+        {transportType === 'stdio' && (
+          <>
+            <div className="mcp-form-field">
+              <label htmlFor="mcp-command">Command</label>
+              <AITabInput
+                id="mcp-command"
+                value={command}
+                onChange={e => setCommand(e.target.value)}
+                placeholder="e.g., npx"
+                aiField="MCP server command"
+                aiPlaceholder="Executable that starts this stdio MCP server (e.g. npx, uvx, a binary path)"
+                aiContext={{ name, args: argsText }}
+                onAIValue={setCommand}
+              />
+              <span className="field-hint">The executable to run</span>
+            </div>
+            <div className="mcp-form-field">
+              <label htmlFor="mcp-args">Arguments</label>
+              <AITabInput
+                as="textarea"
+                id="mcp-args"
+                value={argsText}
+                onChange={e => setArgsText(e.target.value)}
+                placeholder={`e.g.,\n-y\n@modelcontextprotocol/server-filesystem\n/tmp`}
+                aiField="MCP server arguments"
+                aiPlaceholder="Command-line arguments for the MCP server, one per line"
+                aiContext={{ name, command }}
+                onAIValue={setArgsText}
+              />
+              <span className="field-hint">One argument per line, or JSON array</span>
+            </div>
+          </>
+        )}
+
+        {/* SSE fields */}
+        {transportType === 'sse' && (
+          <>
+            <div className="mcp-form-field">
+              <label htmlFor="mcp-url">URL</label>
+              <input data-ai-fill="off" className="ns-input"
+                id="mcp-url"
+                type="text"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                placeholder="e.g., https://mcp.example.com/sse"
+              />
+              <span className="field-hint">SSE/Streamable HTTP endpoint URL</span>
+            </div>
+            <div className="mcp-form-field">
+              <label htmlFor="mcp-auth-type">Authentication</label>
+              <select className="ns-select"
+                id="mcp-auth-type"
+                value={authType}
+                onChange={e => setAuthType(e.target.value as 'none' | 'bearer' | 'api-key')}
+              >
+                <option value="none">None</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="api-key">API Key</option>
+              </select>
+            </div>
+            {authType !== 'none' && (
+              <div className="mcp-form-field">
+                <label htmlFor="mcp-auth-token">
+                  {authType === 'bearer' ? 'Bearer Token' : 'API Key'}
+                </label>
+                <PasswordInput
+                  id="mcp-auth-token"
+                  value={authToken}
+                  onChange={e => setAuthToken(e.target.value)}
+                  placeholder={
+                    isEditing
+                      ? 'Leave blank to keep stored token'
+                      : authType === 'bearer'
+                      ? 'Enter bearer token'
+                      : 'Enter API key'
+                  }
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Server type */}
+        <div className="mcp-form-field">
+          <label htmlFor="mcp-server-type">Server Type</label>
+          <select className="ns-select"
+            id="mcp-server-type"
+            value={serverType}
+            onChange={e => setServerType(e.target.value)}
+          >
+            {SERVER_TYPE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <span className="field-hint">Helps AI understand what this server provides</span>
+        </div>
+
+        {error && <div className="mcp-error">{error}</div>}
+        <DialogFooter
+          primary={{
+            label: saving ? (isEditing ? 'Saving…' : 'Adding…') : (isEditing ? 'Save' : 'Add Server'),
+            onClick: () => formRef.current?.requestSubmit(),
+            disabled: saving || !isValid,
+          }}
+          onCancel={onClose}
+          cancelDisabled={saving}
+          inline
+        />
+      </form>
+    </ModalFrame>
   );
 }
 
@@ -387,7 +333,6 @@ function ServerItem({ server, onConnect, onDisconnect, onEdit, onTest, onRestart
   const [expanded, setExpanded] = useState(false);
   const [togglingToolId, setTogglingToolId] = useState<string | null>(null);
 
-  const statusClass = server.connected ? 'success' : 'inactive';
   const statusTitle = server.connected ? 'Connected' : 'Disconnected';
 
   // Count enabled tools
@@ -411,141 +356,96 @@ function ServerItem({ server, onConnect, onDisconnect, onEdit, onTest, onRestart
     : `${server.command} ${server.args.join(' ')}`;
 
   return (
-    <div className={`source-item ${expanded ? 'mcp-server-expanded' : ''}`}>
-      <div className="source-status">
-        <span className={`status-dot ${statusClass} ${connecting ? 'mcp-connecting' : ''}`} title={statusTitle} />
-      </div>
-      <div className="source-info">
-        <div className="source-header">
+    <SettingsItem
+      leading={<span className={`settings-status-dot${server.connected ? ' settings-status-dot--ok' : ''}${connecting ? ' settings-status-dot--busy mcp-connecting' : ''}`} role="img" aria-label={statusTitle} />}
+      title={server.name}
+      badges={
+        <>
+          <span className="settings-badge">{server.transport_type === 'sse' ? 'SSE' : 'stdio'}</span>
+          {server.server_type !== 'custom' && <span className="settings-badge">{server.server_type}</span>}
+        </>
+      }
+      meta={
+        <>
+          <code>{connectionInfo}</code>
+          {toolsCountText && <span>{toolsCountText}</span>}
+        </>
+      }
+      actions={
+        <>
           <button
-            className="source-action-btn"
+            className="ns-btn ns-btn--ghost ns-btn--small"
+            aria-expanded={expanded}
             onClick={() => setExpanded(!expanded)}
-            style={{ padding: '2px', marginRight: '4px' }}
-            title={expanded ? 'Collapse' : 'Expand'}
           >
-            {expanded ? Icons.chevronDown : Icons.chevronRight}
+            Tools
           </button>
-          <span className="source-icon">{Icons.plug}</span>
-          <span className="source-name">{server.name}</span>
-          <span className={`mcp-badge mcp-badge-transport`}>
-            {server.transport_type === 'sse' ? 'SSE' : 'stdio'}
-          </span>
-          {server.server_type !== 'custom' && (
-            <span className="mcp-badge mcp-badge-type">{server.server_type}</span>
-          )}
-          {server.tools.length > 0 && (
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>
-              ({toolsCountText})
-            </span>
-          )}
-        </div>
-        <div className="source-details">
-          <span className="source-url">{connectionInfo}</span>
-        </div>
-        {error && <div className="mcp-server-error">{error}</div>}
-
-        {/* Expanded tools list */}
-        {expanded && server.tools.length > 0 && (
-          <div className="mcp-tools-list">
-            <div className="mcp-tools-header">Discovered Tools</div>
-            {server.tools.map(tool => (
-              <div
-                key={tool.id}
-                className={`mcp-tool-item ${tool.enabled ? 'mcp-tool-enabled' : 'mcp-tool-disabled'}`}
+          {server.connected ? (
+            <>
+              <Tooltip label="Disconnect + reconnect — re-discovers tools"><button
+                className="ns-btn ns-btn--ghost ns-btn--small"
+                onClick={onRestart}
+                disabled={connecting}
               >
+                Restart
+              </button></Tooltip>
+              <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={onDisconnect} disabled={connecting}>
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <>
+              <Tooltip label="Test connection (does not persist tools)"><button
+                className="ns-btn ns-btn--ghost ns-btn--small"
+                onClick={onTest}
+                disabled={connecting || testing}
+              >
+                {testing ? 'Testing…' : 'Test'}
+              </button></Tooltip>
+              <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={onConnect} disabled={connecting || testing}>
+                {connecting ? 'Connecting...' : 'Connect'}
+              </button>
+            </>
+          )}
+          <Tooltip label="Edit — drops the current connection so changes take effect"><button
+            className="ns-btn ns-btn--ghost ns-btn--small"
+            onClick={onEdit}
+            disabled={connecting}
+          >
+            Edit
+          </button></Tooltip>
+          <button className="ns-btn ns-btn--ghost ns-btn--danger ns-btn--small" onClick={onDelete} disabled={connecting}>
+            Delete
+          </button>
+        </>
+      }
+    >
+      {error && <p className="settings-error">{error}</p>}
+      {expanded && (
+        server.tools.length > 0 ? (
+          <div className="mcp-tools-list">
+            {server.tools.map(tool => (
+              <div key={tool.id} className={`mcp-tool-item ${tool.enabled ? '' : 'mcp-tool-disabled'}`}>
                 <Switch
                   size="sm"
-                  className="mcp-tool-toggle"
                   checked={tool.enabled}
                   onChange={() => handleToolToggle(tool.id, tool.enabled)}
                   disabled={togglingToolId === tool.id}
-                  title={tool.enabled ? 'Disable tool for AI agents' : 'Enable tool for AI agents'}
+                  tooltip={tool.enabled ? 'Disable tool for AI agents' : 'Enable tool for AI agents'}
                   label={`Enable ${tool.name} for AI agents`}
                 />
-                <span className="mcp-tool-icon">{Icons.tool}</span>
                 <div className="mcp-tool-info">
                   <div className="mcp-tool-name">{tool.name}</div>
-                  {tool.description && (
-                    <div className="mcp-tool-description">{tool.description}</div>
-                  )}
+                  {tool.description && <div className="mcp-tool-description">{tool.description}</div>}
                 </div>
               </div>
             ))}
           </div>
-        )}
-
-        {expanded && server.connected && server.tools.length === 0 && (
-          <div className="mcp-tools-list">
-            <div className="mcp-no-tools">No tools discovered from this server</div>
-          </div>
-        )}
-
-        {expanded && !server.connected && (
-          <div className="mcp-tools-list">
-            <div className="mcp-no-tools">Connect to discover available tools</div>
-          </div>
-        )}
-      </div>
-      <div className="source-actions">
-        {server.connected ? (
-          <>
-            <button
-              className="source-action-btn"
-              onClick={onRestart}
-              disabled={connecting}
-              title="Disconnect + reconnect — re-discovers tools"
-            >
-              <span>Restart</span>
-            </button>
-            <button
-              className="source-action-btn"
-              onClick={onDisconnect}
-              disabled={connecting}
-              title="Disconnect"
-            >
-              {Icons.disconnect}
-              <span>Disconnect</span>
-            </button>
-          </>
         ) : (
-          <>
-            <button
-              className="source-action-btn"
-              onClick={onTest}
-              disabled={connecting || testing}
-              title="Test connection (does not persist tools)"
-            >
-              <span>{testing ? 'Testing…' : 'Test'}</span>
-            </button>
-            <button
-              className="source-action-btn"
-              onClick={onConnect}
-              disabled={connecting || testing}
-              title="Connect"
-            >
-              {Icons.connect}
-              <span>{connecting ? 'Connecting...' : 'Connect'}</span>
-            </button>
-          </>
-        )}
-        <button
-          className="source-action-btn"
-          onClick={onEdit}
-          disabled={connecting}
-          title="Edit — drops the current connection so changes take effect"
-        >
-          <span>Edit</span>
-        </button>
-        <button
-          className="source-action-btn delete"
-          onClick={onDelete}
-          disabled={connecting}
-          title="Delete"
-        >
-          {Icons.trash}
-        </button>
-      </div>
-    </div>
+          <p className="form-hint">{server.connected ? 'No tools discovered from this server.' : 'Connect to discover available tools.'}</p>
+        )
+      )}
+    </SettingsItem>
   );
 }
 
@@ -703,38 +603,37 @@ export default function McpServersSection() {
 
   if (loading) {
     return (
-      <section className="ai-section mcp-servers-section">
-        <div className="section-header">
-          <h3>MCP SERVERS</h3>
-        </div>
-        <div className="sources-empty">Loading MCP servers...</div>
-      </section>
+      <SettingsSection title="MCP Servers">
+        <p className="form-hint">Loading MCP servers…</p>
+      </SettingsSection>
     );
   }
 
   return (
-    <section className="ai-section mcp-servers-section">
-      <div className="section-header">
-        <h3>MCP SERVERS</h3>
-      </div>
+    <SettingsSection
+      title="MCP Servers"
+      help={{
+        topic: 'MCP servers',
+        prompt: `Help me use MCP servers with the NetStacks AI. I have ${servers.length} MCP server(s)${servers.length ? ` (${servers.map(sv => sv.name).join(', ')})` : ''}. `
+          + 'Explain what an MCP server adds (its tools appear to the AI as mcp_<server>_<tool>), how to add one (stdio command vs URL), how per-tool enable works, and that MCP tool calls are treated as writes by the permission mode (Ask/Auto prompt for them).',
+      }}
+      actions={
+        <button className="ns-btn ns-btn--small" onClick={() => setDialogOpen(true)}>+ Add MCP server</button>
+      }
+    >
 
       {error && (
-        <div className="mcp-error">
-          {error}
-          <button type="button" className="btn-secondary" onClick={() => setError(null)} style={{ marginLeft: 8 }}>
-            Dismiss
-          </button>
-        </div>
+        <p className="settings-error">
+          {error}{' '}
+          <button type="button" className="ns-btn ns-btn--small" onClick={() => setError(null)}>Dismiss</button>
+        </p>
       )}
 
-      <div className="sources-list">
-        {servers.length === 0 ? (
-          <div className="sources-empty">
-            <p>No MCP servers configured.</p>
-            <p>Add an MCP server to extend agent capabilities with external tools.</p>
-          </div>
-        ) : (
-          servers.map(server => (
+      {servers.length === 0 ? (
+        <p className="form-hint">No MCP servers yet. Add one to extend the AI with external tools.</p>
+      ) : (
+        <div className="settings-group">
+          {servers.map(server => (
             <ServerItem
               key={server.id}
               server={server}
@@ -749,16 +648,9 @@ export default function McpServersSection() {
               testing={testingId === server.id}
               error={serverErrors[server.id] || null}
             />
-          ))
-        )}
-      </div>
-
-      <div className="section-footer">
-        <button className="btn-add-source" onClick={() => setDialogOpen(true)}>
-          {Icons.plus}
-          <span>Add MCP Server</span>
-        </button>
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Add Server Dialog */}
       <AddServerDialog
@@ -778,24 +670,20 @@ export default function McpServersSection() {
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="delete-confirm-overlay" onClick={handleDeleteCancel}>
-          <div className="delete-confirm-dialog" onClick={e => e.stopPropagation()}>
-            <h3>Delete MCP Server</h3>
-            <p>Are you sure you want to delete "{deleteConfirm.name}"?</p>
-            <p className="delete-confirm-warning">
-              This will remove the server configuration and all discovered tools.
-            </p>
-            <div className="delete-confirm-actions">
-              <button className="btn-secondary" onClick={handleDeleteCancel} disabled={deleting}>
-                Cancel
-              </button>
-              <button className="btn-danger" onClick={handleDeleteConfirm} disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalFrame id="mcp-delete" onDismiss={handleDeleteCancel} resizable={false} className="delete-confirm-dialog" label="Delete MCP server">
+          <h3>Delete MCP Server</h3>
+          <p>Are you sure you want to delete "{deleteConfirm.name}"?</p>
+          <p className="delete-confirm-warning">
+            This will remove the server configuration and all discovered tools.
+          </p>
+          <DialogFooter
+            primary={{ label: deleting ? 'Deleting...' : 'Delete', onClick: handleDeleteConfirm, disabled: deleting, danger: true }}
+            onCancel={handleDeleteCancel}
+            cancelDisabled={deleting}
+            inline
+          />
+        </ModalFrame>
       )}
-    </section>
+    </SettingsSection>
   );
 }

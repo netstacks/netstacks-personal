@@ -215,11 +215,11 @@ export const changeStatusLabels: Record<ChangeStatus, string> = {
 export const changeStatusColors: Record<ChangeStatus, string> = {
   draft: 'var(--text-secondary)',
   executing: 'var(--accent)',
-  validating: 'var(--warning)',
-  complete: 'var(--success)',
+  validating: 'var(--color-warning)',
+  complete: 'var(--color-success)',
   failed: 'var(--error)',
-  rolled_back: 'var(--warning)',
-  pending_review: 'var(--warning)',
-  approved: 'var(--success)',
+  rolled_back: 'var(--color-warning)',
+  pending_review: 'var(--color-warning)',
+  approved: 'var(--color-success)',
   rejected: 'var(--error)',
 };

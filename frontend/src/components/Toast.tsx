@@ -160,7 +160,7 @@ export function ToastContainer() {
               {(toast.actions ?? (toast.action ? [toast.action] : [])).map((a, i) => (
                 <button
                   key={i}
-                  className="toast-action-btn"
+                  className="toast-action-btn ns-btn ns-btn--small"
                   onClick={(e) => {
                     e.stopPropagation()
                     a.onClick()
@@ -174,6 +174,7 @@ export function ToastContainer() {
           )}
           <button
             className="toast-close"
+            aria-label="Dismiss"
             onClick={(e) => { e.stopPropagation(); handleDismiss(toast.id) }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

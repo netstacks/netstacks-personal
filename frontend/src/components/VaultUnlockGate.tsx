@@ -319,7 +319,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
               <>
                 <button
                   type="button"
-                  className="vault-submit vault-biometric-btn"
+                  className="ns-btn ns-btn--large vault-biometric-btn"
                   onClick={handleBiometricUnlock}
                   disabled={biometricLoading || loading}
                 >
@@ -356,6 +356,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                   autoFocus
                   disabled={loading}
                   autoComplete={state === 'setup' ? 'new-password' : 'current-password'}
+                  large
                 />
               </div>
 
@@ -369,11 +370,12 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                     placeholder="Confirm your password"
                     disabled={loading}
                     autoComplete="new-password"
+                    large
                   />
                 </div>
               )}
 
-              <button type="submit" className="vault-submit" disabled={loading}>
+              <button type="submit" className="ns-btn ns-btn--large ns-btn--primary vault-submit" disabled={loading}>
                 {loading ? (
                   <>
                     <div className="vault-spinner small" />
@@ -385,7 +387,10 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                       {state === 'setup' ? (
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                       ) : (
-                        <rect x="3" y="11" width="18" height="11" rx="2" />
+                        <>
+                          <rect x="3" y="11" width="18" height="11" rx="2" />
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </>
                       )}
                     </svg>
                     <span>{state === 'setup' ? 'Create Vault' : 'Unlock'}</span>
@@ -407,7 +412,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                 {resetStep === 1 ? (
                   <button
                     type="button"
-                    className="vault-submit vault-reset-btn"
+                    className="ns-btn ns-btn--large ns-btn--danger vault-submit"
                     onClick={() => setResetStep(2)}
                     disabled={resetLoading}
                   >
@@ -416,7 +421,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                 ) : (
                   <button
                     type="button"
-                    className="vault-submit vault-reset-btn"
+                    className="ns-btn ns-btn--large ns-btn--danger vault-submit"
                     onClick={handleReset}
                     disabled={resetLoading}
                   >
@@ -444,12 +449,6 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
             {state === 'setup' && (
               <p className="vault-hint">
                 This password encrypts all stored credentials. Choose something memorable but secure.
-              </p>
-            )}
-
-            {state === 'unlock' && resetStep === 0 && (
-              <p className="vault-hint">
-                Enter your master password to access stored credentials.
               </p>
             )}
 
@@ -502,7 +501,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
                   autoComplete="url"
                   autoFocus
                   disabled={enterpriseSwitching}
-                  className="vault-input"
+                  className="ns-input ns-input--large vault-input"
                 />
               </div>
 
@@ -519,7 +518,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
 
               <button
                 type="submit"
-                className="vault-submit"
+                className="ns-btn ns-btn--large ns-btn--primary vault-submit"
                 disabled={enterpriseSwitching || !enterpriseUrl.trim()}
               >
                 {enterpriseSwitching ? (

@@ -96,3 +96,23 @@ describe('default-off AI tools seeding', () => {
     expect(result.current.settings['ai.disabledTools.overlord']).toEqual(['run_bash'])
   })
 })
+
+describe('useSettings font family migration', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('maps the legacy literal "System Default" stack to the platform default', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif",
+    }))
+    const { result } = renderHook(() => useSettings())
+    expect(result.current.settings.fontFamily).toBe('')
+  })
+
+  it('keeps a user-chosen font family', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ fontFamily: "'JetBrains Mono', Menlo, Monaco, monospace" }))
+    const { result } = renderHook(() => useSettings())
+    expect(result.current.settings.fontFamily).toBe("'JetBrains Mono', Menlo, Monaco, monospace")
+  })
+})

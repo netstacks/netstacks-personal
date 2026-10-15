@@ -1,3 +1,4 @@
+import Tooltip from './Tooltip'
 import './Switch.css'
 
 interface SwitchProps {
@@ -10,8 +11,8 @@ interface SwitchProps {
   /** `md` (40×22 track) is the default; `sm` (34×20) for dense rows. The
    *  hit target stays ≥ 28px tall in both sizes. */
   size?: 'md' | 'sm'
-  /** Native tooltip on the whole control. */
-  title?: string
+  /** Hover label on the whole control. */
+  tooltip?: string
   className?: string
 }
 
@@ -20,10 +21,11 @@ interface SwitchProps {
  * implementations (RC-5): scoped stylesheet, keyboard focus ring, a
  * disabled state, and a hit target that meets the 28px minimum.
  */
-export default function Switch({ checked, onChange, disabled, label, size = 'md', title, className }: SwitchProps) {
+export default function Switch({ checked, onChange, disabled, label, size = 'md', tooltip, className }: SwitchProps) {
   const cls = ['ns-switch', size === 'sm' ? 'ns-switch-sm' : '', className ?? ''].filter(Boolean).join(' ')
   return (
-    <label className={cls} title={title}>
+    <Tooltip label={tooltip}>
+    <label className={cls}>
       <input
         type="checkbox"
         role="switch"
@@ -38,5 +40,6 @@ export default function Switch({ checked, onChange, disabled, label, size = 'md'
         <span className="ns-switch-knob" />
       </span>
     </label>
+    </Tooltip>
   )
 }

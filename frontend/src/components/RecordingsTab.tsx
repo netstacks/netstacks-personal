@@ -16,14 +16,18 @@ import {
 import { confirmDialog } from './ConfirmDialog'
 import { showToast } from './Toast'
 import { useSubmitting } from '../hooks/useSubmitting'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import { downloadFile } from '../lib/formatters'
 import RecordingPlayer from './RecordingPlayer'
+import SearchField from './SearchField'
 import './RecordingsTab.css'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
 
 // Sanitize a recording name for use as a filename — keep word chars and
 // dashes, collapse everything else to a single hyphen, trim to 80 chars.
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 function safeFilename(name: string): string {
   const cleaned = name.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
   return (cleaned || 'recording').slice(0, 80)
@@ -149,7 +153,6 @@ export default function RecordingsTab() {
   }
 
   const closePlayer = useCallback(() => setPlayingId(null), [])
-  const playerDismiss = useOverlayDismiss({ onDismiss: closePlayer, enabled: !!playingId })
 
   const filtered = filter.trim()
     ? recordings.filter((r) =>
@@ -160,177 +163,99 @@ export default function RecordingsTab() {
     : recordings
 
   return (
-    <div className="recordings-tab settings-content">
-      <div className="settings-section">
-        <div className="recordings-header">
-          <div>
-            <h3>Recordings</h3>
-            <p className="settings-section-description">
-              Every terminal recording stored on this machine. Play one
-              back, rename it for context, or delete it to reclaim disk.
-              Recordings are also reachable from any document that
-              references them.
-            </p>
-          </div>
-          <button
-            className="btn-secondary"
-            onClick={load}
-            disabled={loading || submitting}
-            title="Reload"
-          >
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-        </div>
+    <SettingsSection
+      title="Recordings"
+      description="Every terminal recording stored on this machine. Play one back, rename it for context, or delete it to reclaim disk. Recordings are also reachable from any document that references them."
+      actions={
+        <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={load} disabled={loading || submitting}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      }
+    >
+      {error && <p className="settings-error">{error}</p>}
 
-        {error && <div className="settings-error">{error}</div>}
+      {!loading && recordings.length === 0 && !error && (
+        <p className="form-hint">No recordings yet. Start one from a terminal tab's context menu — Record session. The capture appears here when you stop.</p>
+      )}
 
-        {!loading && recordings.length === 0 && !error && (
-          <div className="recordings-empty">
-            <p>No recordings yet.</p>
-            <p className="settings-note">
-              Start one from a terminal tab's context menu — Record
-              session. The capture appears here when you stop.
-            </p>
-          </div>
-        )}
-
-        {recordings.length > 0 && (
-          <>
-            <div className="recordings-filter">
-              <input
-                type="search"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filter by name or date…"
-              />
-              {filter && (
-                <button
-                  className="recordings-filter-clear"
-                  onClick={() => setFilter('')}
-                  title="Clear filter"
-                >
-                  ×
-                </button>
-              )}
+      {recordings.length > 0 && (
+        <>
+          <SearchField value={filter} onChange={setFilter} placeholder="Filter by name or date…" />
+          {filtered.length === 0 ? (
+            <p className="form-hint">No matches for "{filter}".</p>
+          ) : (
+            <div className="settings-group">
+              {filtered.map((rec) => (
+                <SettingsItem
+                  key={rec.id}
+                  title={editingId === rec.id ? (
+                    <input data-ai-fill="off"
+                        className="ns-input"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveEdit(rec)
+                          else if (e.key === 'Escape') cancelEdit()
+                        }}
+                        autoFocus
+                        disabled={submitting}
+                        aria-label="Recording name"
+                      />
+                  ) : rec.name}
+                  meta={
+                    <>
+                      <span>{formatDate(rec.created_at)}</span>
+                      <span>{formatDuration(rec.duration_ms)}</span>
+                      <span>{rec.terminal_cols}×{rec.terminal_rows}</span>
+                    </>
+                  }
+                  actions={editingId === rec.id ? (
+                    <>
+                        <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={cancelEdit} disabled={submitting}>Cancel</button>
+                        <button className="ns-btn ns-btn--small ns-btn--primary" onClick={() => saveEdit(rec)} disabled={submitting}>
+                          {submitting ? 'Saving…' : 'Save'}
+                        </button>
+                      </>
+                  ) : (
+                    <>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => setPlayingId(rec.id)}>Play</button>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => startEdit(rec)} disabled={submitting}>Rename</button>
+                      <Tooltip label="Download as .cast file (asciinema-compatible)"><button
+                        className="ns-btn ns-btn--small ns-btn--ghost"
+                        onClick={() => handleExport(rec)}
+                        disabled={submitting}
+                      >
+                        Share
+                      </button></Tooltip>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(rec)} disabled={submitting}>Delete</button>
+                    </>
+                  )}
+                />
+              ))}
             </div>
-
-            <div className="recordings-list">
-              {filtered.length === 0 ? (
-                <div className="recordings-empty">
-                  <p>No matches for "{filter}".</p>
-                </div>
-              ) : (
-                filtered.map((rec) => (
-                  <div key={rec.id} className="recordings-item">
-                    <div className="recordings-item-info">
-                      {editingId === rec.id ? (
-                        <input
-                          className="recordings-item-rename"
-                          value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveEdit(rec)
-                            if (e.key === 'Escape') cancelEdit()
-                          }}
-                          autoFocus
-                          disabled={submitting}
-                          aria-label="Recording name"
-                        />
-                      ) : (
-                        <div className="recordings-item-name">{rec.name}</div>
-                      )}
-                      <div className="recordings-item-meta">
-                        <span>{formatDate(rec.created_at)}</span>
-                        <span>·</span>
-                        <span>{formatDuration(rec.duration_ms)}</span>
-                        <span>·</span>
-                        <span>
-                          {rec.terminal_cols}×{rec.terminal_rows}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="recordings-item-actions">
-                      {editingId === rec.id ? (
-                        <>
-                          <button
-                            className="btn-secondary"
-                            onClick={cancelEdit}
-                            disabled={submitting}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            className="btn-primary"
-                            onClick={() => saveEdit(rec)}
-                            disabled={submitting}
-                          >
-                            {submitting ? 'Saving…' : 'Save'}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="btn-secondary"
-                            onClick={() => setPlayingId(rec.id)}
-                          >
-                            Play
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            onClick={() => startEdit(rec)}
-                            disabled={submitting}
-                          >
-                            Rename
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            onClick={() => handleExport(rec)}
-                            disabled={submitting}
-                            title="Download as .cast file (asciinema-compatible)"
-                          >
-                            Share
-                          </button>
-                          <button
-                            className="btn-danger"
-                            onClick={() => handleDelete(rec)}
-                            disabled={submitting}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <p className="settings-note">
-              Showing {filtered.length} of {recordings.length}{' '}
-              {recordings.length === 1 ? 'recording' : 'recordings'}.
-            </p>
-          </>
-        )}
-      </div>
+          )}
+          <p className="form-hint">
+            Showing {filtered.length} of {recordings.length}{' '}
+            {recordings.length === 1 ? 'recording' : 'recordings'}.
+          </p>
+        </>
+      )}
 
       {playingId && (
-        <div className="recordings-player-overlay" {...playerDismiss.backdropProps}>
-          <div className="recordings-player-modal" {...playerDismiss.contentProps}>
-            <div className="recordings-player-header">
-              <button
-                className="recordings-player-close"
-                onClick={closePlayer}
-                title="Close player"
-              >
-                ×
-              </button>
-            </div>
-            <div className="recordings-player-body">
-              <RecordingPlayer recordingId={playingId} />
-            </div>
+        <ModalFrame id="recording-player" onDismiss={closePlayer} className="recordings-player-modal" label="Recording player">
+          <div className="recordings-player-header">
+            <Tooltip label="Close player"><button aria-label="Close player"
+              className="ns-btn ns-btn--ghost ns-icon-btn"
+              onClick={closePlayer}
+            >
+              ×
+            </button></Tooltip>
           </div>
-        </div>
+          <div className="recordings-player-body">
+            <RecordingPlayer recordingId={playingId} />
+          </div>
+        </ModalFrame>
       )}
-    </div>
+    </SettingsSection>
   )
 }

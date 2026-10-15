@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import './AIScriptGenerator.css';
 import { useShortcut } from '../hooks/useKeyboard'
 import { generateScript, createScript, type Script } from '../api/scripts';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface AIScriptGeneratorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -72,19 +74,6 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
   const [saving, setSaving] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Close on Escape (opening is the aiGenerateScript app shortcut)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Close on Escape
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim()) return;
 
@@ -128,7 +117,6 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
       const script = await createScript({
         name: `AI Script: ${prompt.slice(0, 50)}${prompt.length > 50 ? '...' : ''}`,
         content: generatedScript,
-        is_template: false,
       });
       onSave(script);
     } catch (err) {
@@ -144,7 +132,6 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
       id: '',
       name: `AI Script: ${prompt.slice(0, 50)}${prompt.length > 50 ? '...' : ''}`,
       content: generatedScript,
-      is_template: false,
       last_run_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -166,132 +153,126 @@ function AIScriptGenerator({ isOpen, onClose, onEditInPanel, onSave }: AIScriptG
   if (!isOpen) return null;
 
   return (
-    <div className="ai-generator-overlay" onClick={onClose}>
-      <div className="ai-generator" onClick={(e) => e.stopPropagation()}>
-        <div className="ai-generator-header">
-          <div className="ai-generator-title">
-            {Icons.ai}
-            <span>AI Script Generator</span>
-          </div>
-          <button className="ai-generator-close" onClick={onClose} title="Close (Esc)">
-            {Icons.close}
-          </button>
+    <ModalFrame id="ai-script-generator" onDismiss={onClose} className="ai-generator" label="Generate Script">
+      <div className="ai-generator-header">
+        <div className="ai-generator-title">
+          {Icons.ai}
+          <span>AI Script Generator</span>
         </div>
-
-        <div className="ai-generator-content">
-          {/* Prompt Input */}
-          <div className="ai-prompt-section">
-            <label className="ai-prompt-label">
-              Describe what you want the script to do:
-            </label>
-            <div className="ai-prompt-input-wrapper">
-              <textarea
-                className="ai-prompt-input"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={handlePromptKeyDown}
-                placeholder="e.g., Backup running config from all network devices in the Production folder..."
-                rows={3}
-                disabled={generating}
-              />
-              {generating ? (
-                <button
-                  className="ai-prompt-submit ai-stop-btn"
-                  onClick={handleStop}
-                  title="Stop generating"
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                  <span>Stop</span>
-                </button>
-              ) : (
-                <button
-                  className="ai-prompt-submit"
-                  onClick={handleGenerate}
-                  disabled={!prompt.trim()}
-                  title="Generate (Enter)"
-                >
-                  {Icons.send}
-                  <span>Generate</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Example Prompts */}
-          {!generatedScript && !generating && (
-            <div className="ai-examples">
-              <span className="ai-examples-label">Examples:</span>
-              <div className="ai-examples-list">
-                {EXAMPLE_PROMPTS.map((example, index) => (
-                  <button
-                    key={index}
-                    className="ai-example-btn"
-                    onClick={() => handleExampleClick(example)}
-                    disabled={generating}
-                  >
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="ai-error">
-              {error}
-            </div>
-          )}
-
-          {/* Generated Script */}
-          {generatedScript && (
-            <div className="ai-result">
-              {explanation && (
-                <div className="ai-explanation">
-                  <strong>Explanation:</strong> {explanation}
-                </div>
-              )}
-
-              <div className="ai-script-preview">
-                <div className="ai-script-header">
-                  <span className="ai-script-icon">{Icons.code}</span>
-                  <span>Generated Script</span>
-                </div>
-                <pre className="ai-script-code">{generatedScript}</pre>
-              </div>
-
-              <div className="ai-result-actions">
-                <button
-                  className="ai-action-btn"
-                  onClick={handleEditInPanel}
-                  title="Edit in Script Editor"
-                >
-                  {Icons.edit}
-                  <span>Edit in Panel</span>
-                </button>
-                <button
-                  className="ai-action-btn primary"
-                  onClick={handleSaveScript}
-                  disabled={saving}
-                  title="Save Script"
-                >
-                  {Icons.save}
-                  <span>{saving ? 'Saving...' : 'Save Script'}</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="ai-generator-footer">
-          <span className="ai-generator-hint">
-            Press <kbd>{generateShortcut}</kbd> anywhere to open this dialog
-          </span>
-        </div>
+        <Tooltip label="Close (Esc)"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close (Esc)">
+          {Icons.close}
+        </button></Tooltip>
       </div>
-    </div>
+
+      <div className="ai-generator-content">
+        {/* Prompt Input */}
+        <div className="ai-prompt-section">
+          <label className="ai-prompt-label">
+            Describe what you want the script to do:
+          </label>
+          <div className="ai-prompt-input-wrapper">
+            <textarea data-ai-fill="off"
+              className="ai-prompt-input"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handlePromptKeyDown}
+              placeholder="e.g., Backup running config from all network devices in the Production folder..."
+              rows={3}
+              disabled={generating}
+            />
+            {generating ? (
+              <Tooltip label="Stop generating"><button
+                className="ai-prompt-submit ai-stop-btn"
+                onClick={handleStop}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+                <span>Stop</span>
+              </button></Tooltip>
+            ) : (
+              <Tooltip label="Generate (Enter)"><button
+                className="ai-prompt-submit"
+                onClick={handleGenerate}
+                disabled={!prompt.trim()}
+              >
+                {Icons.send}
+                <span>Generate</span>
+              </button></Tooltip>
+            )}
+          </div>
+        </div>
+
+        {/* Example Prompts */}
+        {!generatedScript && !generating && (
+          <div className="ai-examples">
+            <span className="ai-examples-label">Examples:</span>
+            <div className="ai-examples-list">
+              {EXAMPLE_PROMPTS.map((example, index) => (
+                <button
+                  key={index}
+                  className="ai-example-btn"
+                  onClick={() => handleExampleClick(example)}
+                  disabled={generating}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="ai-error">
+            {error}
+          </div>
+        )}
+
+        {/* Generated Script */}
+        {generatedScript && (
+          <div className="ai-result">
+            {explanation && (
+              <div className="ai-explanation">
+                <strong>Explanation:</strong> {explanation}
+              </div>
+            )}
+
+            <div className="ai-script-preview">
+              <div className="ai-script-header">
+                <span className="ai-script-icon">{Icons.code}</span>
+                <span>Generated Script</span>
+              </div>
+              <pre className="ai-script-code">{generatedScript}</pre>
+            </div>
+
+            <div className="ai-result-actions">
+              <Tooltip label="Edit in Script Editor"><button
+                className="ns-btn"
+                onClick={handleEditInPanel}
+              >
+                {Icons.edit}
+                <span>Edit in Panel</span>
+              </button></Tooltip>
+              <Tooltip label="Save Script"><button
+                className="ns-btn ns-btn--primary"
+                onClick={handleSaveScript}
+                disabled={saving}
+              >
+                {Icons.save}
+                <span>{saving ? 'Saving...' : 'Save Script'}</span>
+              </button></Tooltip>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="ai-generator-footer">
+        <span className="ai-generator-hint">
+          Press <kbd>{generateShortcut}</kbd> anywhere to open this dialog
+        </span>
+      </div>
+    </ModalFrame>
   );
 }
 

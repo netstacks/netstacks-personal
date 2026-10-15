@@ -1,9 +1,10 @@
 /**
- * InteractionPanel (Feature B) — replaces the binary TaskApprovalModal.
+ * InteractionPanel (Feature B).
  *
  * A queued, kind-switched panel for human-in-the-loop interactions parked by
  * a running agent task:
- *   - `approval`: review a mutating tool's args, Approve / Reject.
+ *   - `approval`: review a tool call the task's permission settings put to the
+ *     user (Settings → AI, Auto Pilot), Approve / Reject.
  *   - `question`: the agent's `ask_user` free-form question — answer with text
  *     or a suggested choice chip.
  *
@@ -87,14 +88,14 @@ export default function InteractionPanel() {
             )}
             <div className="interaction-actions">
               <button
-                className="interaction-btn reject"
+                className="ns-btn"
                 disabled={busy}
                 onClick={() => void resolve({ kind: 'reject' })}
               >
                 Reject
               </button>
               <button
-                className="interaction-btn approve"
+                className="ns-btn ns-btn--primary"
                 disabled={busy}
                 onClick={() => void resolve({ kind: 'approve' })}
               >
@@ -120,8 +121,8 @@ export default function InteractionPanel() {
                 ))}
               </div>
             )}
-            <textarea
-              className="interaction-answer"
+            <textarea data-ai-fill="off"
+              className="ns-textarea interaction-answer"
               value={answer}
               placeholder="Type your answer…"
               onChange={(e) => setAnswer(e.target.value)}
@@ -129,14 +130,14 @@ export default function InteractionPanel() {
             />
             <div className="interaction-actions">
               <button
-                className="interaction-btn reject"
+                className="ns-btn"
                 disabled={busy}
                 onClick={() => void resolve({ kind: 'reject', reason: 'user skipped' })}
               >
                 Skip
               </button>
               <button
-                className="interaction-btn approve"
+                className="ns-btn ns-btn--primary"
                 disabled={busy || answer.trim().length === 0}
                 onClick={() => void resolve({ kind: 'answer', text: answer.trim() })}
               >

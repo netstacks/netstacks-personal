@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { loadConnectTargets } from '../api/enterpriseProfiles';
 import type { AccessibleProfile } from '../types/enterpriseProfile';
 import type { EnterpriseSession } from '../api/enterpriseSessions';
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss';
 import './EnterpriseConnectDialog.css';
 
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface EnterpriseConnectDialogProps {
   session: EnterpriseSession;
   /** Called with the chosen profile id, or '' to send NO profile_id (let the
@@ -136,164 +138,150 @@ export default function EnterpriseConnectDialog({
     return parts.join(' ');
   };
 
-  const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onCancel });
 
   return (
-    <div className="enterprise-connect-dialog-overlay" {...backdropProps}>
-      <div className="enterprise-connect-dialog" {...contentProps}>
-        <div className="enterprise-connect-dialog-header">
-          <h3>Connect to {deviceName || session.name}</h3>
-          <button
-            className="enterprise-connect-dialog-close"
-            onClick={onCancel}
-            title="Cancel"
-          >
-            {Icons.x}
-          </button>
+    <ModalFrame id="enterprise-connect" onDismiss={onCancel} className="enterprise-connect-dialog" label="Connect to Controller">
+      <div className="enterprise-connect-dialog-header">
+        <h3>Connect to {deviceName || session.name}</h3>
+        <Tooltip label="Cancel"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
+          onClick={onCancel}
+          aria-label="Cancel"
+        >
+          {Icons.x}
+        </button></Tooltip>
+      </div>
+
+      <div className="enterprise-connect-dialog-body">
+        <div className="enterprise-connect-session-info">
+          <div className="enterprise-connect-info-row">
+            <span className="label">Host:</span>
+            <span className="value">{session.port ? `${session.host}:${session.port}` : session.host}</span>
+          </div>
+          {session.description && (
+            <div className="enterprise-connect-info-row">
+              <span className="label">Description:</span>
+              <span className="value">{session.description}</span>
+            </div>
+          )}
         </div>
 
-        <div className="enterprise-connect-dialog-body">
-          <div className="enterprise-connect-session-info">
-            <div className="enterprise-connect-info-row">
-              <span className="label">Host:</span>
-              <span className="value">{session.port ? `${session.host}:${session.port}` : session.host}</span>
-            </div>
-            {session.description && (
-              <div className="enterprise-connect-info-row">
-                <span className="label">Description:</span>
-                <span className="value">{session.description}</span>
-              </div>
-            )}
+        {loading && (
+          <div className="enterprise-connect-loading">
+            Loading profiles...
           </div>
+        )}
 
-          {loading && (
-            <div className="enterprise-connect-loading">
-              Loading profiles...
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="enterprise-connect-error">
-              {error}
-            </div>
-          )}
+        {error && !loading && (
+          <div className="enterprise-connect-error">
+            {error}
+          </div>
+        )}
 
 {!loading && !error && (() => {
-            const personalProfiles = profiles.filter(p => p.profile_type === 'personal');
-            const sharedProfiles = profiles.filter(p => p.profile_type === 'shared');
-            const serviceProfiles = profiles.filter(p => p.profile_type === 'service');
+          const personalProfiles = profiles.filter(p => p.profile_type === 'personal');
+          const sharedProfiles = profiles.filter(p => p.profile_type === 'shared');
+          const serviceProfiles = profiles.filter(p => p.profile_type === 'service');
 
-            // Label the device-anchored option with the resolved profile name
-            // when the device has an assigned profile we can see in the list.
-            const deviceDefaultProfile = deviceProfileId
-              ? profiles.find((p) => p.id === deviceProfileId)
-              : undefined;
-            const deviceDefaultLabel = deviceDefaultProfile
-              ? `Device default (recommended) — ${deviceDefaultProfile.name}`
-              : 'Device default (recommended)';
+          // Label the device-anchored option with the resolved profile name
+          // when the device has an assigned profile we can see in the list.
+          const deviceDefaultProfile = deviceProfileId
+            ? profiles.find((p) => p.id === deviceProfileId)
+            : undefined;
+          const deviceDefaultLabel = deviceDefaultProfile
+            ? `Device default (recommended) — ${deviceDefaultProfile.name}`
+            : 'Device default (recommended)';
 
-            return (
-              <div className="enterprise-connect-credential-select">
-                <label htmlFor="profile-select">
-                  Select Profile:
-                </label>
-                <div className="credential-select-wrapper">
-                  <select
-                    id="profile-select"
-                    value={selectedProfileId}
-                    onChange={(e) => setSelectedProfileId(e.target.value)}
-                    className="credential-select"
-                  >
-                    <option value={DEVICE_DEFAULT}>{deviceDefaultLabel}</option>
-                    {personalProfiles.length > 0 && (
-                      <optgroup label={PROFILE_TYPE_LABEL.personal}>
-                        {personalProfiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {formatProfileLabel(profile)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {sharedProfiles.length > 0 && (
-                      <optgroup label={PROFILE_TYPE_LABEL.shared}>
-                        {sharedProfiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {formatProfileLabel(profile)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {serviceProfiles.length > 0 && (
-                      <optgroup label={PROFILE_TYPE_LABEL.service}>
-                        {serviceProfiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {formatProfileLabel(profile)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+          return (
+            <div className="enterprise-connect-credential-select">
+              <label htmlFor="profile-select">
+                Select Profile:
+              </label>
+              <div className="credential-select-wrapper">
+                <select
+                  id="profile-select"
+                  value={selectedProfileId}
+                  onChange={(e) => setSelectedProfileId(e.target.value)}
+                  className="credential-select ns-select"
+                >
+                  <option value={DEVICE_DEFAULT}>{deviceDefaultLabel}</option>
+                  {personalProfiles.length > 0 && (
+                    <optgroup label={PROFILE_TYPE_LABEL.personal}>
+                      {personalProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {formatProfileLabel(profile)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {sharedProfiles.length > 0 && (
+                    <optgroup label={PROFILE_TYPE_LABEL.shared}>
+                      {sharedProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {formatProfileLabel(profile)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {serviceProfiles.length > 0 && (
+                    <optgroup label={PROFILE_TYPE_LABEL.service}>
+                      {serviceProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {formatProfileLabel(profile)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {personalProfiles.length === 0 && (
+                <div className="credential-section-info">
+                  <span className="vault-icon">{Icons.user}</span>
+                  <span className="info-text">No personal profiles yet</span>
                 </div>
+              )}
 
-                {personalProfiles.length === 0 && (
-                  <div className="credential-section-info">
-                    <span className="vault-icon">{Icons.user}</span>
-                    <span className="info-text">No personal profiles yet</span>
-                  </div>
-                )}
+              {selectedProfileId && (
+                <div className="credential-details">
+                  {(() => {
+                    const profile = profiles.find((p) => p.id === selectedProfileId);
+                    if (!profile) return null;
 
-                {selectedProfileId && (
-                  <div className="credential-details">
-                    {(() => {
-                      const profile = profiles.find((p) => p.id === selectedProfileId);
-                      if (!profile) return null;
-
-                      return (
-                        <div className="credential-info">
-                          <span className="credential-icon">
-                            {getProfileIcon(profile.auth_mode)}
-                          </span>
-                          <div className="credential-meta">
-                            <div className="credential-name">
-                              {profile.name}
-                              <span className={`vault-badge ${profile.profile_type}`}>
-                                {profile.profile_type === 'personal' ? Icons.user : Icons.users}
-                              </span>
-                            </div>
-                            {profile.description && (
-                              <div className="credential-description">{profile.description}</div>
-                            )}
-                            <div className="credential-host">
-                              Auth: {authModeLabel(profile.auth_mode)}
-                              {profile.transports.length > 0 && ` · ${profile.transports.join(', ')}`}
-                            </div>
+                    return (
+                      <div className="credential-info">
+                        <span className="credential-icon">
+                          {getProfileIcon(profile.auth_mode)}
+                        </span>
+                        <div className="credential-meta">
+                          <div className="credential-name">
+                            {profile.name}
+                            <span className={`vault-badge ${profile.profile_type}`}>
+                              {profile.profile_type === 'personal' ? Icons.user : Icons.users}
+                            </span>
+                          </div>
+                          {profile.description && (
+                            <div className="credential-description">{profile.description}</div>
+                          )}
+                          <div className="credential-host">
+                            Auth: {authModeLabel(profile.auth_mode)}
+                            {profile.transports.length > 0 && ` · ${profile.transports.join(', ')}`}
                           </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-
-        <div className="enterprise-connect-dialog-footer">
-          <button
-            className="enterprise-connect-btn secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            className="enterprise-connect-btn primary"
-            onClick={handleConnect}
-            disabled={loading || !selectedProfileId}
-          >
-            Connect
-          </button>
-        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
-    </div>
+
+      <DialogFooter
+        primary={{ label: 'Connect', onClick: handleConnect, disabled: loading || !selectedProfileId }}
+        onCancel={onCancel}
+      />
+    </ModalFrame>
   );
 }

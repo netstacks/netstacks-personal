@@ -491,11 +491,10 @@ struct ScriptRow {
     id: String,
     name: String,
     content: String,
-    is_template: i32,
     last_run_at: Option<String>,
     created_at: String,
     updated_at: String,
-    /// AUDIT FIX (EXEC-014): provenance — `'user'`, `'ai'`, or `'template'`.
+    /// AUDIT FIX (EXEC-014): provenance — `'user'` or `'ai'`.
     #[sqlx(default)]
     created_by: Option<String>,
     /// AUDIT FIX (EXEC-014): approval flag for AI-authored scripts.
@@ -514,7 +513,6 @@ impl ScriptRow {
             id: self.id,
             name: self.name,
             content: self.content,
-            is_template: self.is_template != 0,
             last_run_at,
             created_at: parse_datetime(&self.created_at)?,
             updated_at: parse_datetime(&self.updated_at)?,
@@ -545,7 +543,7 @@ pub async fn list_scripts(
     State(state): State<Arc<ScriptsState>>,
 ) -> Result<Json<Vec<Script>>, ScriptError> {
     let rows: Vec<ScriptRow> =
-        sqlx::query_as("SELECT * FROM scripts ORDER BY is_template DESC, name")
+        sqlx::query_as("SELECT * FROM scripts ORDER BY name")
             .fetch_all(&state.pool)
             .await
             .map_err(|e| ScriptError {
@@ -588,15 +586,14 @@ pub async fn get_script(
 
 /// Create a new script.
 ///
-/// AUDIT FIX (EXEC-014): every row carries a `created_by` ('user' / 'ai' /
-/// 'template') and an `approved` flag. The frontend's AI side panel sets
+/// AUDIT FIX (EXEC-014): every row carries a `created_by` ('user' / 'ai')
+/// and an `approved` flag. The frontend's AI side panel sets
 /// `X-NetStacks-AI-Origin: true` on requests it makes on the AI's behalf;
 /// in that case the row is tagged `'ai'` + `approved=0` and the script
 /// cannot be run until the user explicitly calls
 /// `POST /api/scripts/:id/approve`. Plain user-initiated POSTs (no header)
-/// default to `'user'` + `approved=1`. Caller-supplied `created_by` is
-/// ignored — only the header is trusted as a provenance signal so a
-/// prompt-injected AI cannot self-promote.
+/// default to `'user'` + `approved=1`. Only the header is trusted as a
+/// provenance signal so a prompt-injected AI cannot self-promote.
 pub async fn create_script(
     State(state): State<Arc<ScriptsState>>,
     headers: axum::http::HeaderMap,
@@ -616,24 +613,17 @@ pub async fn create_script(
 
     let id = Uuid::new_v4().to_string();
     let now = format_datetime(&Utc::now());
-    let created_by = match new_script.created_by.as_deref() {
-        Some("template") => "template",
-        _ => "user",
-    };
-
     sqlx::query(
         r#"
-        INSERT INTO scripts (id, name, content, is_template, created_at, updated_at, created_by, approved)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT INTO scripts (id, name, content, created_at, updated_at, created_by, approved)
+        VALUES (?, ?, ?, ?, ?, 'user', 1)
         "#,
     )
     .bind(&id)
     .bind(&new_script.name)
     .bind(&new_script.content)
-    .bind(if new_script.is_template { 1 } else { 0 })
     .bind(&now)
     .bind(&now)
-    .bind(created_by)
     .execute(&state.pool)
     .await
     .map_err(|e| ScriptError {
@@ -658,8 +648,8 @@ pub async fn create_ai_script(
     let now = format_datetime(&Utc::now());
     sqlx::query(
         r#"
-        INSERT INTO scripts (id, name, content, is_template, created_at, updated_at, created_by, approved)
-        VALUES (?, ?, ?, 0, ?, ?, 'ai', 0)
+        INSERT INTO scripts (id, name, content, created_at, updated_at, created_by, approved)
+        VALUES (?, ?, ?, ?, ?, 'ai', 0)
         "#,
     )
     .bind(&id)
@@ -717,7 +707,6 @@ pub async fn update_script(
     let prior_content = current.content.clone();
     let name = update.name.unwrap_or(current.name);
     let content = update.content.unwrap_or(current.content);
-    let is_template = update.is_template.unwrap_or(current.is_template);
 
     // AUDIT FIX (EXEC-014): editing an AI-authored script clears its
     // approval flag so the user must re-review before running again.
@@ -733,13 +722,12 @@ pub async fn update_script(
     sqlx::query(
         r#"
         UPDATE scripts
-        SET name = ?, content = ?, is_template = ?, updated_at = ?, approved = ?
+        SET name = ?, content = ?, updated_at = ?, approved = ?
         WHERE id = ?
         "#,
     )
     .bind(&name)
     .bind(&content)
-    .bind(if is_template { 1 } else { 0 })
     .bind(&now)
     .bind(new_approved)
     .bind(&id)
@@ -1607,180 +1595,6 @@ pub async fn run_script_stream(
 
     let stream = ReceiverStream::new(rx);
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
-/// Seed template scripts if they don't exist
-pub async fn seed_templates(pool: &SqlitePool) -> Result<(), String> {
-    // Check if templates already exist
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM scripts WHERE is_template = 1")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if count.0 > 0 {
-        return Ok(()); // Templates already seeded
-    }
-
-    let templates = vec![
-        (
-            "Run show command",
-            r#"#!/usr/bin/env python3
-"""Run a show command on selected devices.
-
-Select devices in the toolbar, set the command parameter, and click Run.
-NetStacks runs this once per device with full SSH credentials injected.
-"""
-
-import os
-import json
-from netmiko import ConnectHandler
-
-def main(command: str = "show version"):
-    """Run a CLI command and return structured output."""
-    device = json.loads(os.environ["NETSTACKS_DEVICE"])
-    name = os.environ.get("NETSTACKS_DEVICE_NAME", device["host"])
-
-    conn = ConnectHandler(
-        device_type=device["device_type"],
-        host=device["host"],
-        username=device["username"],
-        password=device.get("password", ""),
-        port=device.get("port", 22),
-    )
-    output = conn.send_command(command)
-    conn.disconnect()
-
-    print(f"=== {name} ===")
-    print(output)
-    return {"device": name, "command": command, "lines": len(output.splitlines())}
-"#,
-        ),
-        (
-            "Config backup to file",
-            r#"#!/usr/bin/env python3
-"""Back up running-config from selected devices to local files.
-
-Select devices, click Run. Configs saved to ~/netstacks-backups/
-with device name and timestamp in the filename.
-"""
-
-import os
-import json
-from datetime import datetime
-from netmiko import ConnectHandler
-
-def main():
-    """Backup running configuration to a local file."""
-    device = json.loads(os.environ["NETSTACKS_DEVICE"])
-    name = os.environ.get("NETSTACKS_DEVICE_NAME", device["host"])
-
-    conn = ConnectHandler(
-        device_type=device["device_type"],
-        host=device["host"],
-        username=device["username"],
-        password=device.get("password", ""),
-        port=device.get("port", 22),
-    )
-    config = conn.send_command("show running-config")
-    conn.disconnect()
-
-    # Save to file
-    backup_dir = os.path.expanduser("~/netstacks-backups")
-    os.makedirs(backup_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{name}_{timestamp}.txt"
-    filepath = os.path.join(backup_dir, filename)
-
-    with open(filepath, "w") as f:
-        f.write(config)
-
-    print(f"Saved {len(config.splitlines())} lines to {filepath}")
-    return {"device": name, "file": filepath, "lines": len(config.splitlines())}
-"#,
-        ),
-        (
-            "Find interface errors",
-            r#"#!/usr/bin/env python3
-"""Scan interfaces for CRC errors, input/output errors, and drops.
-
-Select devices, click Run. Reports any interfaces with non-zero error
-counters — useful for quick health checks across your network.
-"""
-
-import os
-import json
-import re
-from netmiko import ConnectHandler
-
-def main(threshold: int = 0):
-    """Find interfaces with error counters above threshold."""
-    device = json.loads(os.environ["NETSTACKS_DEVICE"])
-    name = os.environ.get("NETSTACKS_DEVICE_NAME", device["host"])
-
-    conn = ConnectHandler(
-        device_type=device["device_type"],
-        host=device["host"],
-        username=device["username"],
-        password=device.get("password", ""),
-        port=device.get("port", 22),
-    )
-    output = conn.send_command("show interfaces")
-    conn.disconnect()
-
-    # Parse interface blocks and find errors
-    issues = []
-    current_iface = None
-    for line in output.splitlines():
-        # Match interface name (e.g. "Ethernet1 is up, line protocol is up")
-        iface_match = re.match(r'^(\S+) is', line)
-        if iface_match:
-            current_iface = iface_match.group(1)
-            continue
-
-        if current_iface:
-            # Look for error counters
-            for pattern in [r'(\d+) input errors', r'(\d+) CRC', r'(\d+) output errors',
-                           r'(\d+) collisions', r'(\d+) drops']:
-                m = re.search(pattern, line)
-                if m and int(m.group(1)) > threshold:
-                    issues.append({
-                        "interface": current_iface,
-                        "counter": pattern.split(r')')[-1].strip(),
-                        "value": int(m.group(1)),
-                    })
-
-    if issues:
-        print(f"[{name}] Found {len(issues)} interface issues:")
-        for issue in issues:
-            print(f"  {issue['interface']}: {issue['value']}{issue['counter']}")
-    else:
-        print(f"[{name}] No interface errors above threshold ({threshold})")
-
-    return {"device": name, "issues": issues, "clean": len(issues) == 0}
-"#,
-        ),
-    ];
-
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-    let template_count = templates.len();
-    for (name, content) in templates {
-        let id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO scripts (id, name, content, is_template, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-        )
-        .bind(&id)
-        .bind(name)
-        .bind(content)
-        .bind(&now)
-        .bind(&now)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    }
-
-    tracing::info!("Seeded {} template scripts", template_count);
-    Ok(())
 }
 
 #[cfg(test)]

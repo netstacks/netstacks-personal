@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import './EnterpriseDevicePanel.css';
+import SearchField from './SearchField';
 import { listEnterpriseDevices, updateEnterpriseDevice, type DeviceSummary } from '../api/enterpriseDevices';
-import { useClampedMenuPosition } from '../hooks/useClampedMenuPosition';
+import ContextMenu, { type MenuItem } from './ContextMenu';
 import DeviceMemoryEditor from './DeviceMemoryEditor';
 import SessionContextEditor from './SessionContextEditor';
 import { useAuthStore } from '../stores/authStore';
@@ -10,13 +11,10 @@ import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 // Icons
 import { getErrorMessage } from '../api/errors'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 const Icons = {
-  search: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  ),
   refresh: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <polyline points="23 4 23 10 17 10" />
@@ -75,7 +73,6 @@ export default function EnterpriseDevicePanel({
     y: number;
     device: DeviceSummary;
   } | null>(null);
-  const { ref: contextMenuRef, style: contextMenuStyle } = useClampedMenuPosition(contextMenu);
 
   // Edit device state
   const [editDevice, setEditDevice] = useState<DeviceSummary | null>(null);
@@ -177,13 +174,15 @@ export default function EnterpriseDevicePanel({
     fetchDevices();
   }, []);
 
-  // Close context menu on click outside
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handleClick = () => setContextMenu(null);
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, [contextMenu]);
+  const deviceMenuItems = (device: DeviceSummary): MenuItem[] => [
+    { id: 'connect', label: 'Connect', action: () => onDeviceConnect(device) },
+    { id: 'favorite', label: isFavorite(device.id) ? 'Remove from Favorites' : 'Add to Favorites', action: () => toggleFavorite(device.id) },
+    { id: 'edit-divider', label: '', divider: true, action: () => {} },
+    { id: 'edit', label: 'Edit Device', action: () => handleEditDevice(device) },
+    ...(onViewLatestBackup || onOpenBackupHistory ? [{ id: 'backup-divider', label: '', divider: true, action: () => {} }] : []),
+    ...(onViewLatestBackup ? [{ id: 'latest-backup', label: 'View Latest Backup', action: () => onViewLatestBackup(device) }] : []),
+    ...(onOpenBackupHistory ? [{ id: 'backup-history', label: 'Backup History', action: () => onOpenBackupHistory(device) }] : []),
+  ];
 
   // Extract unique values for filter dropdowns
   const filterOptions = useMemo(() => {
@@ -246,35 +245,26 @@ export default function EnterpriseDevicePanel({
       {headerTarget && createPortal(
         <>
           <span className="device-count-badge">{filteredDevices.length}</span>
-          <button
-            className="device-refresh-btn"
+          <Tooltip label="Refresh"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={fetchDevices}
             disabled={loading}
-            title="Refresh"
+            aria-label="Refresh"
           >
             {Icons.refresh}
-          </button>
+          </button></Tooltip>
         </>,
         headerTarget
       )}
 
       {/* Search */}
-      <div className="device-panel-search">
-        <span className="device-panel-search-icon">{Icons.search}</span>
-        <input
-          type="search"
-          className="device-panel-search-input"
-          placeholder="Search devices..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
+      <SearchField placeholder="Search devices..." value={searchQuery} onChange={setSearchQuery} />
 
       {/* Filter dropdowns */}
       <div className="device-panel-filters">
         <div className="device-filter-group">
           <label>Source</label>
-          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+          <select aria-label="Source" className="ns-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
             <option value="all">All Sources</option>
             {filterOptions.sources.map((source) => (
               <option key={source} value={source}>
@@ -286,7 +276,7 @@ export default function EnterpriseDevicePanel({
 
         <div className="device-filter-group">
           <label>Type</label>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+          <select aria-label="Type" className="ns-select" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="all">All Types</option>
             {filterOptions.types.map((type) => (
               <option key={type} value={type}>
@@ -298,7 +288,7 @@ export default function EnterpriseDevicePanel({
 
         <div className="device-filter-group">
           <label>Site</label>
-          <select value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)}>
+          <select aria-label="Site" className="ns-select" value={siteFilter} onChange={(e) => setSiteFilter(e.target.value)}>
             <option value="all">All Sites</option>
             {filterOptions.sites.map((site) => (
               <option key={site} value={site}>
@@ -354,21 +344,19 @@ export default function EnterpriseDevicePanel({
                       title={`Connect to ${device.host}:${device.port}`}
                     >
                       <div className="device-item-header">
-                        <button
+                        <Tooltip label={isFavorite(device.id) ? 'Remove from favorites' : 'Add to favorites'}><button aria-label={isFavorite(device.id) ? 'Remove from favorites' : 'Add to favorites'}
                           className={`device-favorite-btn ${isFavorite(device.id) ? 'is-favorite' : ''}`}
                           onClick={(e) => toggleFavorite(device.id, e)}
-                          title={isFavorite(device.id) ? 'Remove from favorites' : 'Add to favorites'}
                         >
                           {isFavorite(device.id) ? Icons.starFilled : Icons.star}
-                        </button>
+                        </button></Tooltip>
                         <span className="device-item-name">{formatName(device.name)}</span>
-                        <button
+                        <Tooltip label="Connect with default credential"><button
                           className="device-connect-btn"
                           onClick={(e) => { e.stopPropagation(); (onDeviceQuickConnect || onDeviceConnect)(device); }}
-                          title="Connect with default credential"
                         >
                           Connect
-                        </button>
+                        </button></Tooltip>
                       </div>
                       <div className="device-item-details">
                         <div className="device-item-details-inner">
@@ -405,21 +393,19 @@ export default function EnterpriseDevicePanel({
                 title={`Connect to ${device.host}:${device.port}`}
               >
                 <div className="device-item-header">
-                  <button
+                  <Tooltip label={isFavorite(device.id) ? 'Remove from favorites' : 'Add to favorites'}><button aria-label={isFavorite(device.id) ? 'Remove from favorites' : 'Add to favorites'}
                     className={`device-favorite-btn ${isFavorite(device.id) ? 'is-favorite' : ''}`}
                     onClick={(e) => toggleFavorite(device.id, e)}
-                    title={isFavorite(device.id) ? 'Remove from favorites' : 'Add to favorites'}
                   >
                     {isFavorite(device.id) ? Icons.starFilled : Icons.star}
-                  </button>
+                  </button></Tooltip>
                   <span className="device-item-name">{formatName(device.name)}</span>
-                  <button
+                  <Tooltip label="Connect with default credential"><button
                     className="device-connect-btn"
                     onClick={(e) => { e.stopPropagation(); (onDeviceQuickConnect || onDeviceConnect)(device); }}
-                    title="Connect with default credential"
                   >
                     Connect
-                  </button>
+                  </button></Tooltip>
                 </div>
                 <div className="device-item-details">
                   <div className="device-item-details-inner">
@@ -446,166 +432,102 @@ export default function EnterpriseDevicePanel({
         </div>
       )}
 
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="enterprise-context-menu"
-          style={contextMenuStyle}
-        >
-          <button
-            className="enterprise-context-menu-item"
-            onClick={() => {
-              onDeviceConnect(contextMenu.device);
-              setContextMenu(null);
-            }}
-          >
-            Connect
-          </button>
-          <button
-            className="enterprise-context-menu-item"
-            onClick={() => {
-              toggleFavorite(contextMenu.device.id);
-              setContextMenu(null);
-            }}
-          >
-            {isFavorite(contextMenu.device.id) ? 'Remove from Favorites' : 'Add to Favorites'}
-          </button>
-          <div className="enterprise-context-menu-divider" />
-          <button
-            className="enterprise-context-menu-item"
-            onClick={() => {
-              handleEditDevice(contextMenu.device);
-              setContextMenu(null);
-            }}
-          >
-            Edit Device
-          </button>
-          {(onViewLatestBackup || onOpenBackupHistory) && (
-            <>
-              <div className="enterprise-context-menu-divider" />
-              {onViewLatestBackup && (
-                <button
-                  className="enterprise-context-menu-item"
-                  onClick={() => {
-                    onViewLatestBackup(contextMenu.device);
-                    setContextMenu(null);
-                  }}
-                >
-                  View Latest Backup
-                </button>
-              )}
-              {onOpenBackupHistory && (
-                <button
-                  className="enterprise-context-menu-item"
-                  onClick={() => {
-                    onOpenBackupHistory(contextMenu.device);
-                    setContextMenu(null);
-                  }}
-                >
-                  Backup History
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? deviceMenuItems(contextMenu.device) : []}
+        onClose={() => setContextMenu(null)}
+      />
 
       {/* Edit Device Dialog */}
       {editDevice && (
-        <div className="device-edit-overlay">
-          <div className="device-edit-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="device-edit-header">
-              <h3>Edit Device</h3>
-              <button className="device-edit-close" onClick={() => setEditDevice(null)}>&times;</button>
-            </div>
-            <div className="device-edit-tabs">
-              <button
-                className={`device-edit-tab ${editTab === 'properties' ? 'active' : ''}`}
-                onClick={() => setEditTab('properties')}
-              >
-                Properties
-              </button>
-              <button
-                className={`device-edit-tab ${editTab === 'memory' ? 'active' : ''}`}
-                onClick={() => setEditTab('memory')}
-              >
-                Device Memory
-              </button>
-              <button
-                className={`device-edit-tab ${editTab === 'context' ? 'active' : ''}`}
-                onClick={() => setEditTab('context')}
-              >
-                Context
-              </button>
-            </div>
-            {editTab === 'properties' && (
-              <>
-            <div className="device-edit-form">
-              <div className="device-edit-field">
-                <label>Name</label>
-                <input value={editForm.name} onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))} />
-              </div>
-              <div className="device-edit-row">
-                <div className="device-edit-field">
-                  <label>Host</label>
-                  <input value={editForm.host} onChange={(e) => setEditForm(prev => ({ ...prev, host: e.target.value }))} />
-                </div>
-                <div className="device-edit-field" style={{ maxWidth: 80 }}>
-                  <label>Port</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={65535}
-                    step={1}
-                    value={editForm.port}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
-                  />
-                </div>
-              </div>
-              <div className="device-edit-field">
-                <label>Device Type</label>
-                <input value={editForm.device_type} onChange={(e) => setEditForm(prev => ({ ...prev, device_type: e.target.value }))} />
-              </div>
-              <div className="device-edit-row">
-                <div className="device-edit-field">
-                  <label>Site</label>
-                  <input value={editForm.site} onChange={(e) => setEditForm(prev => ({ ...prev, site: e.target.value }))} />
-                </div>
-              </div>
-              <div className="device-edit-row">
-                <div className="device-edit-field">
-                  <label>Manufacturer</label>
-                  <input value={editForm.manufacturer} onChange={(e) => setEditForm(prev => ({ ...prev, manufacturer: e.target.value }))} />
-                </div>
-                <div className="device-edit-field">
-                  <label>Model</label>
-                  <input value={editForm.model} onChange={(e) => setEditForm(prev => ({ ...prev, model: e.target.value }))} />
-                </div>
-              </div>
-            </div>
-            <div className="device-edit-actions">
-              <button className="device-edit-btn" onClick={() => setEditDevice(null)} disabled={editSaving}>
-                Cancel
-              </button>
-              <button className="device-edit-btn primary" onClick={handleSaveEdit} disabled={editSaving}>
-                {editSaving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-              </>
-            )}
-            {editTab === 'memory' && (
-              <div className="device-edit-memory">
-                <DeviceMemoryEditor deviceId={editDevice.id} currentUser={currentUser} />
-              </div>
-            )}
-            {editTab === 'context' && (
-              <div className="device-edit-memory">
-                <SessionContextEditor deviceId={editDevice.id} currentUser={currentUser} />
-              </div>
-            )}
+        <ModalFrame id="enterprise-device-edit" className="device-edit-dialog" label="Edit Device">
+          <div className="device-edit-header">
+            <h3>Edit Device</h3>
+            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => setEditDevice(null)}>&times;</button>
           </div>
-        </div>
+          <div className="ns-segmented">
+            <button
+              className={`ns-segment ${editTab === 'properties' ? 'active' : ''}`}
+              onClick={() => setEditTab('properties')}
+            >
+              Properties
+            </button>
+            <button
+              className={`ns-segment ${editTab === 'memory' ? 'active' : ''}`}
+              onClick={() => setEditTab('memory')}
+            >
+              Device Memory
+            </button>
+            <button
+              className={`ns-segment ${editTab === 'context' ? 'active' : ''}`}
+              onClick={() => setEditTab('context')}
+            >
+              Context
+            </button>
+          </div>
+          {editTab === 'properties' && (
+            <>
+          <div className="device-edit-form">
+            <div className="device-edit-field">
+              <label>Name</label>
+              <input data-ai-fill="off" aria-label="Name" className="ns-input" value={editForm.name} onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))} />
+            </div>
+            <div className="device-edit-row">
+              <div className="device-edit-field">
+                <label>Host</label>
+                <input data-ai-fill="off" aria-label="Host" className="ns-input" value={editForm.host} onChange={(e) => setEditForm(prev => ({ ...prev, host: e.target.value }))} />
+              </div>
+              <div className="device-edit-field" style={{ maxWidth: 80 }}>
+                <label>Port</label>
+                <input aria-label="Port" className="ns-input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  step={1}
+                  value={editForm.port}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
+                />
+              </div>
+            </div>
+            <div className="device-edit-field">
+              <label>Device Type</label>
+              <input data-ai-fill="off" aria-label="Device Type" className="ns-input" value={editForm.device_type} onChange={(e) => setEditForm(prev => ({ ...prev, device_type: e.target.value }))} />
+            </div>
+            <div className="device-edit-row">
+              <div className="device-edit-field">
+                <label>Site</label>
+                <input data-ai-fill="off" aria-label="Site" className="ns-input" value={editForm.site} onChange={(e) => setEditForm(prev => ({ ...prev, site: e.target.value }))} />
+              </div>
+            </div>
+            <div className="device-edit-row">
+              <div className="device-edit-field">
+                <label>Manufacturer</label>
+                <input data-ai-fill="off" aria-label="Manufacturer" className="ns-input" value={editForm.manufacturer} onChange={(e) => setEditForm(prev => ({ ...prev, manufacturer: e.target.value }))} />
+              </div>
+              <div className="device-edit-field">
+                <label>Model</label>
+                <input data-ai-fill="off" aria-label="Model" className="ns-input" value={editForm.model} onChange={(e) => setEditForm(prev => ({ ...prev, model: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter
+            primary={{ label: editSaving ? 'Saving...' : 'Save', onClick: handleSaveEdit, disabled: editSaving }}
+            onCancel={() => setEditDevice(null)}
+            cancelDisabled={editSaving}
+          />
+            </>
+          )}
+          {editTab === 'memory' && (
+            <div className="device-edit-memory">
+              <DeviceMemoryEditor deviceId={editDevice.id} currentUser={currentUser} />
+            </div>
+          )}
+          {editTab === 'context' && (
+            <div className="device-edit-memory">
+              <SessionContextEditor deviceId={editDevice.id} currentUser={currentUser} />
+            </div>
+          )}
+        </ModalFrame>
       )}
     </div>
   );

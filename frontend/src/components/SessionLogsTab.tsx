@@ -17,11 +17,15 @@ import {
 import { confirmDialog } from './ConfirmDialog'
 import { showToast } from './Toast'
 import { useSubmitting } from '../hooks/useSubmitting'
-import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
 import { downloadFile } from '../lib/formatters'
 import './RecordingsTab.css'
+import SettingsSection from './settings/SettingsSection'
+import SettingsItem from './settings/SettingsItem'
+import SearchField from './SearchField'
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString()
@@ -97,7 +101,6 @@ export default function SessionLogsTab() {
     setViewingName('')
   }, [])
 
-  const viewerDismiss = useOverlayDismiss({ onDismiss: closeViewer, enabled: !!viewingId })
 
   const handleDelete = async (doc: Document) => {
     const ok = await confirmDialog({
@@ -144,143 +147,82 @@ export default function SessionLogsTab() {
     : logs
 
   return (
-    <div className="recordings-tab settings-content">
-      <div className="settings-section">
-        <div className="recordings-header">
-          <div>
-            <h3>Session Logs</h3>
-            <p className="settings-section-description">
-              Terminal session output captured via Start Log on a terminal
-              tab. Logs are stored as documents under the Logs folder, so
-              they're also browsable from Documents. View, export, or
-              delete from here.
-            </p>
-          </div>
-          <button
-            className="btn-secondary"
-            onClick={load}
-            disabled={loading || submitting}
-            title="Refresh"
-          >
-            Refresh
-          </button>
-        </div>
+    <SettingsSection
+      title="Session Logs"
+      description="Terminal output captured with Start Log on a terminal tab. Logs are stored as documents under the Logs folder, so they're also browsable from Documents. View, export, or delete them here."
+      actions={
+        <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={load} disabled={loading || submitting}>
+          Refresh
+        </button>
+      }
+    >
+      {error && <p className="settings-error">{error}</p>}
 
-        {error && <div className="settings-error">{error}</div>}
-
-        {loading ? (
-          <p className="settings-note">Loading…</p>
-        ) : logs.length === 0 ? (
-          <p className="settings-note">
-            No session logs yet. Right-click a terminal tab and choose
-            "Start Log" to capture one.
-          </p>
-        ) : (
-          <>
-            <input
-              type="search"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by name or date"
-              className="settings-input"
-              style={{ marginBottom: 12 }}
-            />
-
-            <div className="recordings-list">
-              {filtered.length === 0 ? (
-                <p className="settings-note">No matches.</p>
-              ) : (
-                filtered.map((doc) => (
-                  <div key={doc.id} className="recordings-item">
-                    <div className="recordings-item-info">
-                      <div className="recordings-item-name">{doc.name}</div>
-                      <div className="recordings-item-meta">
-                        <span title={doc.created_at}>{formatDate(doc.created_at)}</span>
-                      </div>
-                    </div>
-                    <div className="recordings-item-actions">
-                      <button
-                        className="btn-secondary"
-                        onClick={() => openViewer(doc)}
-                        disabled={submitting}
-                      >
-                        View
-                      </button>
-                      <button
-                        className="btn-secondary"
+      {loading ? (
+        <p className="form-hint">Loading…</p>
+      ) : logs.length === 0 ? (
+        <p className="form-hint">No session logs yet. Right-click a terminal tab and choose “Start Log” to capture one.</p>
+      ) : (
+        <>
+          <SearchField value={filter} onChange={setFilter} placeholder="Filter by name or date" />
+          {filtered.length === 0 ? (
+            <p className="form-hint">No matches.</p>
+          ) : (
+            <div className="settings-group">
+              {filtered.map((doc) => (
+                <SettingsItem
+                  key={doc.id}
+                  title={doc.name}
+                  meta={<span title={doc.created_at}>{formatDate(doc.created_at)}</span>}
+                  actions={
+                    <>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => openViewer(doc)} disabled={submitting}>View</button>
+                      <Tooltip label="Download as .log file"><button
+                        className="ns-btn ns-btn--small ns-btn--ghost"
                         onClick={() => handleExport(doc)}
                         disabled={submitting}
-                        title="Download as .log file"
                       >
                         Export
-                      </button>
-                      <button
-                        className="btn-danger"
-                        onClick={() => handleDelete(doc)}
-                        disabled={submitting}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
+                      </button></Tooltip>
+                      <button className="ns-btn ns-btn--small ns-btn--ghost ns-btn--danger" onClick={() => handleDelete(doc)} disabled={submitting}>Delete</button>
+                    </>
+                  }
+                />
+              ))}
             </div>
-
-            <p className="settings-note">
-              Showing {filtered.length} of {logs.length}{' '}
-              {logs.length === 1 ? 'log' : 'logs'}.
-            </p>
-          </>
-        )}
-      </div>
+          )}
+          <p className="form-hint">
+            Showing {filtered.length} of {logs.length}{' '}
+            {logs.length === 1 ? 'log' : 'logs'}.
+          </p>
+        </>
+      )}
 
       {viewingId && (
-        <div className="recordings-player-overlay" {...viewerDismiss.backdropProps}>
-          <div className="recordings-player-modal" {...viewerDismiss.contentProps}>
-            <div className="recordings-player-header">
-              <span style={{ fontSize: 13, color: 'var(--color-text-secondary, #999)', marginRight: 'auto', paddingLeft: 12 }}>
-                {viewingName}
-                {!viewingLoading && viewingContent && (
-                  <span style={{ marginLeft: 12 }}>
-                    · {approxLineCount(viewingContent)} lines · {viewingContent.length.toLocaleString()} chars
-                  </span>
-                )}
-              </span>
-              <button
-                className="recordings-player-close"
-                onClick={closeViewer}
-                title="Close viewer"
-              >
-                ×
-              </button>
-            </div>
-            <div className="recordings-player-body">
-              {viewingLoading ? (
-                <p className="settings-note" style={{ padding: 20 }}>Loading log…</p>
-              ) : (
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 16,
-                    background: 'var(--color-bg-primary, #1e1e1e)',
-                    color: 'var(--color-text-primary, #ddd)',
-                    fontFamily: 'var(--font-mono, monospace)',
-                    fontSize: 12,
-                    lineHeight: 1.5,
-                    overflow: 'auto',
-                    maxHeight: '70vh',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {viewingContent}
-                </pre>
+        <ModalFrame id="session-log-viewer" onDismiss={closeViewer} className="recordings-player-modal" label="Session log">
+          <div className="recordings-player-header">
+            <span className="recordings-player-title">
+              {viewingName}
+              {!viewingLoading && viewingContent && (
+                <> · {approxLineCount(viewingContent)} lines · {viewingContent.length.toLocaleString()} chars</>
               )}
-            </div>
+            </span>
+            <Tooltip label="Close viewer"><button aria-label="Close viewer"
+              className="ns-btn ns-btn--ghost ns-icon-btn"
+              onClick={closeViewer}
+            >
+              ×
+            </button></Tooltip>
           </div>
-        </div>
+          <div className="recordings-player-body">
+            {viewingLoading ? (
+              <p className="form-hint recordings-log-loading">Loading log…</p>
+            ) : (
+              <pre className="recordings-log-view">{viewingContent}</pre>
+            )}
+          </div>
+        </ModalFrame>
       )}
-    </div>
+    </SettingsSection>
   )
 }

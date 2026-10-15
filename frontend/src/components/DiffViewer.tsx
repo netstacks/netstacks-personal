@@ -1,5 +1,7 @@
-import { useMemo, useRef, useEffect, useCallback, useState } from 'react';
+import { useMemo, useRef, useCallback, useState } from 'react';
 import './DiffViewer.css';
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 
 interface DiffViewerProps {
   before: string;
@@ -73,17 +75,6 @@ export default function DiffViewer({
     }
   }, [syncScroll]);
 
-  // Handle escape key to close
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   // Jump to first change
   const jumpToFirstChange = useCallback(() => {
     const firstChangeIndex = diffLines.findIndex(l => l.type !== 'unchanged');
@@ -94,118 +85,113 @@ export default function DiffViewer({
   }, [diffLines]);
 
   return (
-    <div className="diff-viewer-overlay" onClick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}>
-      <div className="diff-viewer">
-        <div className="diff-header">
-          <h2>Configuration Diff</h2>
-          <div className="diff-stats">
-            <span className="stat added" title="Lines added">+{stats.added}</span>
-            <span className="stat removed" title="Lines removed">-{stats.removed}</span>
-            <span className="stat modified" title="Lines modified">~{stats.modified}</span>
-          </div>
-          <div className="diff-actions">
-            <button
-              className="jump-btn"
-              onClick={jumpToFirstChange}
-              title="Jump to first change"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="M21 21l-4.35-4.35" />
-              </svg>
-              First Change
-            </button>
-            <label className="sync-toggle" title="Sync scrolling between panes">
-              <input
-                type="checkbox"
-                checked={syncScroll}
-                onChange={(e) => setSyncScroll(e.target.checked)}
-              />
-              Sync Scroll
-            </label>
-          </div>
-          <button className="close-btn" onClick={onClose} title="Close (Esc)">
+    <ModalFrame id="diff-viewer" onDismiss={onClose} className="diff-viewer" label="Diff">
+      <div className="diff-header">
+        <h2>Configuration Diff</h2>
+        <div className="diff-stats">
+          <Tooltip label="Lines added"><span className="stat added">+{stats.added}</span></Tooltip>
+          <Tooltip label="Lines removed"><span className="stat removed">-{stats.removed}</span></Tooltip>
+          <Tooltip label="Lines modified"><span className="stat modified">~{stats.modified}</span></Tooltip>
+        </div>
+        <div className="diff-actions">
+          <Tooltip label="Jump to first change"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
+            onClick={jumpToFirstChange}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
             </svg>
-          </button>
+            First Change
+          </button></Tooltip>
+          <Tooltip label="Sync scrolling between panes"><label className="sync-toggle">
+            <input
+              type="checkbox"
+              checked={syncScroll}
+              onChange={(e) => setSyncScroll(e.target.checked)}
+            />
+            Sync Scroll
+          </label></Tooltip>
         </div>
+        <Tooltip label="Close (Esc)"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close (Esc)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button></Tooltip>
+      </div>
 
-        <div className="diff-labels">
-          <div className="label before">{beforeLabel}</div>
-          <div className="label after">{afterLabel}</div>
+      <div className="diff-labels">
+        <div className="label before">{beforeLabel}</div>
+        <div className="label after">{afterLabel}</div>
+      </div>
+
+      <div className="diff-content">
+        <div
+          className="diff-pane before"
+          ref={beforePaneRef}
+          onScroll={() => handleScroll('before')}
+        >
+          {diffLines.map((line, i) => (
+            <div
+              key={i}
+              className={`diff-line ${line.type}`}
+            >
+              <span className="line-number">{line.lineNumber}</span>
+              <span className="line-marker">
+                {line.type === 'removed' && '-'}
+                {line.type === 'modified' && '~'}
+              </span>
+              <span className="line-content">
+                {line.type === 'added' ? '' : line.beforeLine}
+              </span>
+            </div>
+          ))}
         </div>
-
-        <div className="diff-content">
-          <div
-            className="diff-pane before"
-            ref={beforePaneRef}
-            onScroll={() => handleScroll('before')}
-          >
-            {diffLines.map((line, i) => (
-              <div
-                key={i}
-                className={`diff-line ${line.type}`}
-              >
-                <span className="line-number">{line.lineNumber}</span>
-                <span className="line-marker">
-                  {line.type === 'removed' && '-'}
-                  {line.type === 'modified' && '~'}
-                </span>
-                <span className="line-content">
-                  {line.type === 'added' ? '' : line.beforeLine}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="diff-divider" />
-          <div
-            className="diff-pane after"
-            ref={afterPaneRef}
-            onScroll={() => handleScroll('after')}
-          >
-            {diffLines.map((line, i) => (
-              <div
-                key={i}
-                className={`diff-line ${line.type}`}
-              >
-                <span className="line-number">{line.lineNumber}</span>
-                <span className="line-marker">
-                  {line.type === 'added' && '+'}
-                  {line.type === 'modified' && '~'}
-                </span>
-                <span className="line-content">
-                  {line.type === 'removed' ? '' : line.afterLine}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="diff-footer">
-          <div className="legend">
-            <span className="legend-item added">
-              <span className="legend-color"></span>
-              Added ({stats.added})
-            </span>
-            <span className="legend-item removed">
-              <span className="legend-color"></span>
-              Removed ({stats.removed})
-            </span>
-            <span className="legend-item modified">
-              <span className="legend-color"></span>
-              Modified ({stats.modified})
-            </span>
-            <span className="legend-item unchanged">
-              <span className="legend-color"></span>
-              Unchanged ({stats.unchanged})
-            </span>
-          </div>
-          <button onClick={onClose}>Close</button>
+        <div className="diff-divider" />
+        <div
+          className="diff-pane after"
+          ref={afterPaneRef}
+          onScroll={() => handleScroll('after')}
+        >
+          {diffLines.map((line, i) => (
+            <div
+              key={i}
+              className={`diff-line ${line.type}`}
+            >
+              <span className="line-number">{line.lineNumber}</span>
+              <span className="line-marker">
+                {line.type === 'added' && '+'}
+                {line.type === 'modified' && '~'}
+              </span>
+              <span className="line-content">
+                {line.type === 'removed' ? '' : line.afterLine}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
-    </div>
+
+      <div className="diff-footer">
+        <div className="legend">
+          <span className="legend-item added">
+            <span className="legend-color"></span>
+            Added ({stats.added})
+          </span>
+          <span className="legend-item removed">
+            <span className="legend-color"></span>
+            Removed ({stats.removed})
+          </span>
+          <span className="legend-item modified">
+            <span className="legend-color"></span>
+            Modified ({stats.modified})
+          </span>
+          <span className="legend-item unchanged">
+            <span className="legend-color"></span>
+            Unchanged ({stats.unchanged})
+          </span>
+        </div>
+        <button className="ns-btn" onClick={onClose}>Close</button>
+      </div>
+    </ModalFrame>
   );
 }

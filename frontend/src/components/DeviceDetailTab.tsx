@@ -39,7 +39,9 @@ import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
 import DetailSections from './detail/DetailSections';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
+import SearchField from './SearchField';
 import './DeviceDetailTab.css';
+import Tooltip from './Tooltip'
 
 /** SNMP-polled resource data */
 interface SnmpResources {
@@ -143,11 +145,6 @@ const Icons = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <polyline points="16 18 22 12 16 6" />
       <polyline points="8 6 2 12 8 18" />
-    </svg>
-  ),
-  filter: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   ),
   clock: (
@@ -1533,9 +1530,8 @@ export default function DeviceDetailTab({
           </div>
         </div>
         <div className="device-detail-tab-header-actions">
-          <button
-            className={`device-detail-tab-action-btn ${pollState !== 'idle' && pollState !== 'complete' && pollState !== 'error' ? 'polling' : ''}`}
-            title={canPoll ? 'Refresh SNMP interface stats' : 'SNMP not available (no host or profile)'}
+          <Tooltip label={canPoll ? 'Refresh SNMP interface stats' : 'SNMP not available (no host or profile)'}><button
+            className="ns-btn"
             disabled={!canPoll || (pollState !== 'idle' && pollState !== 'complete' && pollState !== 'error')}
             onClick={handleRefresh}
           >
@@ -1552,15 +1548,14 @@ export default function DeviceDetailTab({
                pollState === 'sample2' ? 'Sampling...' :
                'Refresh'}
             </span>
-          </button>
+          </button></Tooltip>
           <div className="device-detail-tab-save-wrapper" ref={saveDialogRef}>
-            <button
-              className={`device-detail-tab-action-btn ${savingState !== 'idle' ? 'polling' : ''}`}
+            <Tooltip label="Save to Docs"><button
+              className="ns-btn"
               onClick={() => {
                 if (savingState === 'idle') setSaveDialogOpen(!saveDialogOpen);
               }}
               disabled={savingState !== 'idle'}
-              title="Save to Docs"
             >
               {savingState !== 'idle' ? (
                 <span className="device-detail-tab-spinner" />
@@ -1572,7 +1567,7 @@ export default function DeviceDetailTab({
                  savingState === 'ai-generating' ? 'AI Generating...' :
                  'Save to Docs'}
               </span>
-            </button>
+            </button></Tooltip>
             {saveDialogOpen && (
               <div className="device-detail-tab-save-dialog">
                 <button className="device-detail-tab-save-option" onClick={handleBasicSave}>
@@ -1598,10 +1593,10 @@ export default function DeviceDetailTab({
             )}
           </div>
           {onOpenTerminal && (
-            <button className="device-detail-tab-action-btn primary" onClick={onOpenTerminal} title="Open Terminal">
+            <Tooltip label="Open Terminal"><button className="ns-btn ns-btn--primary" onClick={onOpenTerminal}>
               {Icons.terminal}
               <span>Open Terminal</span>
-            </button>
+            </button></Tooltip>
           )}
         </div>
       </div>
@@ -1841,23 +1836,12 @@ export default function DeviceDetailTab({
               <div className="device-detail-tab-card-header">
                 {Icons.network}
                 <span>Device View</span>
-                <div className="device-detail-tab-device-view-search">
-                  <input
-                    type="text"
-                    placeholder="Search interfaces..."
-                    value={deviceViewSearch}
-                    onChange={(e) => setDeviceViewSearch(e.target.value)}
-                    className="device-detail-tab-device-view-search-input"
-                  />
-                  {deviceViewSearch && (
-                    <button
-                      className="device-detail-tab-device-view-search-clear"
-                      onClick={() => setDeviceViewSearch('')}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
+                <SearchField
+                  className="device-detail-tab-device-view-search"
+                  placeholder="Search interfaces..."
+                  value={deviceViewSearch}
+                  onChange={setDeviceViewSearch}
+                />
               </div>
               <div className="device-detail-tab-card-body">
                 <div className="device-detail-tab-stencil-vertical">
@@ -1916,7 +1900,7 @@ export default function DeviceDetailTab({
                   {/* Expand toggle for inactive interfaces - hide when searching */}
                   {restCount > 0 && !filteredBySearch && (
                     <button
-                      className="device-detail-tab-stencil-toggle"
+                      className="ns-btn ns-btn--ghost ns-btn--small device-detail-tab-stencil-toggle"
                       onClick={() => setDeviceViewExpanded(!deviceViewExpanded)}
                     >
                       {deviceViewExpanded
@@ -2142,15 +2126,12 @@ export default function DeviceDetailTab({
             <div className="device-detail-tab-card-header">
               {Icons.network}
               <span>Interfaces ({interfaces.length})</span>
-              <div className="device-detail-tab-filter">
-                <span className="device-detail-tab-filter-icon">{Icons.filter}</span>
-                <input
-                  type="search"
-                  placeholder="Filter interfaces..."
-                  value={interfaceFilter}
-                  onChange={(e) => setInterfaceFilter(e.target.value)}
-                />
-              </div>
+              <SearchField
+                className="device-detail-tab-filter"
+                placeholder="Filter interfaces..."
+                value={interfaceFilter}
+                onChange={setInterfaceFilter}
+              />
             </div>
             <div className="device-detail-tab-card-body no-padding">
               <div className={`device-detail-tab-interface-table ${liveRates.size > 0 ? 'has-live-rates' : ''}`}>
@@ -2315,12 +2296,12 @@ export default function DeviceDetailTab({
                   : 'Device information has not been collected yet. Open a terminal to this device and run Discover to collect system information, resource metrics, and interface details.'}
             </p>
             {canPoll ? (
-              <button className="device-detail-tab-action-btn primary" onClick={handleRefresh} disabled={pollState !== 'idle' && pollState !== 'complete' && pollState !== 'error'}>
+              <button className="ns-btn ns-btn--primary" onClick={handleRefresh} disabled={pollState !== 'idle' && pollState !== 'complete' && pollState !== 'error'}>
                 {Icons.refresh}
                 <span>Refresh</span>
               </button>
             ) : onOpenTerminal ? (
-              <button className="device-detail-tab-action-btn primary" onClick={onOpenTerminal}>
+              <button className="ns-btn ns-btn--primary" onClick={onOpenTerminal}>
                 {Icons.terminal}
                 <span>Open Terminal</span>
               </button>

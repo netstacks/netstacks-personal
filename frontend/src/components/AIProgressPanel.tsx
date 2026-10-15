@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './AIProgressPanel.css';
+import Tooltip from './Tooltip';
 
 export interface AIProgressLog {
   timestamp: Date;
@@ -108,24 +109,24 @@ export default function AIProgressPanel({
               <span>AI Discovery</span>
             </div>
             <div className="ai-progress-actions">
-              <button
-                className="ai-progress-minimize"
+              <Tooltip label="Minimize"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={() => setIsExpanded(false)}
-                title="Minimize"
+                aria-label="Minimize"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 9l6 6 6-6" />
                 </svg>
-              </button>
-              <button
-                className="ai-progress-close"
+              </button></Tooltip>
+              <Tooltip label="Dismiss"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={onDismiss}
-                title="Dismiss"
+                aria-label="Dismiss"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M18 6L6 18M6 6l12 12" />
                 </svg>
-              </button>
+              </button></Tooltip>
             </div>
           </div>
 
@@ -178,7 +179,7 @@ export default function AIProgressPanel({
                 Open in AI Panel
               </button>
               <button
-                className="ai-progress-dismiss-btn"
+                className="ns-btn"
                 onClick={onDismiss}
               >
                 Dismiss

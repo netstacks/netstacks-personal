@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import './SettingsPanel.css'
+import SearchField from './SearchField'
 import KeyboardSettings from './KeyboardSettings'
 import ProfilesTab from './ProfilesTab'
 import VaultSettings from './VaultSettings'
@@ -31,11 +32,14 @@ import { useSettings, type AppSettings } from '../hooks/useSettings'
 import { confirmDialog } from './ConfirmDialog'
 import { TERMINAL_THEMES } from '../lib/terminalThemes'
 import { getAppTheme, setAppTheme, type AppTheme } from '../lib/appTheme'
+import { getPlatform, type Platform } from '../utils/platform'
 import { useMode } from '../hooks/useMode'
 import { useAuthStore } from '../stores/authStore'
 import { useCapabilitiesStore } from '../stores/capabilitiesStore'
 import { getCertStatus, type CertStatus } from '../api/cert'
 import SettingsConnection from './SettingsConnection'
+import SettingsSection from './settings/SettingsSection'
+import SettingRow from './settings/SettingRow'
 import SettingsTunnels from './SettingsTunnels'
 import Switch from './Switch'
 import { DEFAULT_STATUS_BAR_SETTINGS, saveStatusBarSettings } from '../api/statusBarSettings'
@@ -46,7 +50,7 @@ interface Setting {
   category: string
   label: string
   description: string
-  type: 'boolean' | 'string' | 'number' | 'select'
+  type: 'boolean' | 'string' | 'number' | 'select' | 'segmented'
   value: unknown
   options?: { label: string; value: string }[]
   /** For type: 'number' — min/max/step passed to <input>. Optional;
@@ -55,6 +59,8 @@ interface Setting {
   min?: number
   max?: number
   step?: number
+  /** Only shown on these platforms (default: all). */
+  platforms?: Platform[]
 }
 
 export type { SettingsTab } from '../types/settingsTab'
@@ -67,7 +73,7 @@ interface SettingsPanelProps {
 
 // Tab keyword registry for cross-tab search
 const TAB_SEARCH_INDEX: { tab: SettingsTab; label: string; keywords: string[] }[] = [
-  { tab: 'general', label: 'General', keywords: ['font', 'size', 'family', 'theme', 'terminal', 'copy', 'select', 'appearance', 'status bar', 'panels', 'weight', 'ssh', 'host key', 'known hosts'] },
+  { tab: 'general', label: 'General', keywords: ['font', 'size', 'family', 'theme', 'terminal', 'editor', 'copy', 'select', 'appearance', 'status bar', 'panels', 'weight', 'ssh', 'host key', 'known hosts'] },
   { tab: 'ai', label: 'AI', keywords: ['ai', 'provider', 'anthropic', 'openai', 'ollama', 'openrouter', 'litellm', 'model', 'mcp', 'server', 'tools', 'agent', 'highlighting', 'token', 'sanitization', 'sanitize', 'suggestions', 'autocomplete', 'next step', 'enabled providers', 'config changes', 'configuration changes'] },
   { tab: 'aiEngineer', label: 'AI Engineer', keywords: ['ai engineer', 'profile', 'personality', 'behavior', 'vendor', 'autonomy', 'onboarding', 'safety rules', 'troubleshooting', 'verbosity'] },
   { tab: 'prompts', label: 'Prompts', keywords: ['prompt', 'custom prompt', 'system prompt'] },
@@ -108,12 +114,14 @@ const defaultSettings: Setting[] = [
     id: 'ui.appTheme',
     category: 'Appearance',
     label: 'Theme',
-    description: 'Color theme for the application UI. Dark is the default; Light keeps the activity bar and status bar dark to anchor the layout.',
-    type: 'select',
-    value: 'dark',
+    description: 'System follows your OS light/dark appearance. Light (Deep) uses soft slate greys and keeps the activity bar dark.',
+    type: 'segmented',
+    value: 'system',
     options: [
-      { label: 'Dark', value: 'dark' },
+      { label: 'System', value: 'system' },
       { label: 'Light', value: 'light' },
+      { label: 'Light (Deep)', value: 'light-deep' },
+      { label: 'Dark', value: 'dark' },
     ],
   },
   {
@@ -136,9 +144,9 @@ const defaultSettings: Setting[] = [
     label: 'Font Family',
     description: 'Controls the font family for the entire application UI',
     type: 'select',
-    value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif",
+    value: '',
     options: [
-      { label: 'System Default', value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif" },
+      { label: 'System Default', value: '' },
       { label: 'VS Code (Segoe UI)', value: "-apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif" },
       { label: 'Helvetica Neue', value: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
       { label: 'Inter', value: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" },
@@ -147,6 +155,17 @@ const defaultSettings: Setting[] = [
       { label: 'JetBrains Mono', value: "'JetBrains Mono', Menlo, Monaco, monospace" },
       { label: 'Fira Code', value: "'Fira Code', Menlo, Monaco, monospace" },
     ],
+  },
+  {
+    id: 'editor.fontSize',
+    category: 'Appearance',
+    label: 'Editor Font Size',
+    description: 'Text size in pixels for the document, script and config editors',
+    type: 'number',
+    value: 13,
+    min: 8,
+    max: 32,
+    step: 1,
   },
   // Terminal
   {
@@ -166,8 +185,9 @@ const defaultSettings: Setting[] = [
     label: 'Terminal Font Family',
     description: 'Monospace face for terminal sessions. Sessions with their own font setting override this.',
     type: 'select',
-    value: 'Menlo, Monaco, Consolas, monospace',
+    value: '',
     options: [
+      { label: 'System Default', value: '' },
       { label: 'Menlo', value: 'Menlo, Monaco, Consolas, monospace' },
       { label: 'SF Mono', value: "'SF Mono', Menlo, Monaco, monospace" },
       { label: 'JetBrains Mono', value: "'JetBrains Mono', Menlo, Monaco, monospace" },
@@ -175,7 +195,6 @@ const defaultSettings: Setting[] = [
       { label: 'Cascadia Code', value: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace" },
       { label: 'Source Code Pro', value: "'Source Code Pro', Menlo, Monaco, monospace" },
       { label: 'Consolas', value: 'Consolas, Menlo, Monaco, monospace' },
-      { label: 'System Monospace', value: 'ui-monospace, monospace' },
     ],
   },
   {
@@ -238,10 +257,20 @@ const defaultSettings: Setting[] = [
   {
     id: 'ui.glassEffects',
     category: 'Appearance',
-    label: 'Glass Effects',
-    description: 'Translucent, blurred "liquid glass" look for chrome, modals, popovers and the AI panels. Turn off for solid, opaque surfaces.',
+    label: 'Translucent Panels',
+    description: 'Translucent, blurred chrome, modals, popovers and AI panels. Turn off for solid, opaque surfaces.',
     type: 'boolean',
     value: true,
+    platforms: ['windows', 'linux'],
+  },
+  {
+    id: 'ui.macSourceList',
+    category: 'Appearance',
+    label: 'Sidebar Navigation List',
+    description: 'Show the sidebar views as a list at the top of the sidebar instead of the icon activity bar.',
+    type: 'boolean',
+    value: true,
+    platforms: ['macos'],
   },
   {
     id: 'terminal.lineNumbers',
@@ -317,7 +346,7 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
   // second copy in local state — a copy went stale the moment anything else
   // (Reset, a popout window) wrote to useSettings (NS-SET-2).
   const settings = useMemo<Setting[]>(() =>
-    defaultSettings.map(s => ({
+    defaultSettings.filter(s => !s.platforms || s.platforms.includes(getPlatform())).map(s => ({
       ...s,
       value: s.id === 'ui.appTheme'
         ? appTheme
@@ -419,67 +448,105 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
     if (Number.isFinite(n)) handleChange(setting.id, clampNumber(setting, n))
   }
 
+  const handleSegmentKey = (setting: Setting, e: React.KeyboardEvent) => {
+    const options = setting.options ?? []
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (step === 0 || options.length === 0) return
+    e.preventDefault()
+    const index = options.findIndex(o => o.value === setting.value)
+    const next = options[(index + step + options.length) % options.length]
+    handleChange(setting.id, next.value)
+    const group = e.currentTarget as HTMLElement
+    requestAnimationFrame(() => group.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+  }
+
   const renderSettingItem = (setting: Setting) => {
-    // For boolean and select, put control on same line as label
-    if (setting.type === 'boolean' || setting.type === 'select' || setting.type === 'number') {
+    if (setting.type === 'segmented') {
       return (
-        <div key={setting.id} className="setting-item">
-          <div className="setting-header">
-            <span className="setting-label">{setting.label}</span>
-            <div className="setting-control">
-              {setting.type === 'boolean' && (
-                <Switch
-                  checked={setting.value as boolean}
-                  onChange={(checked) => handleChange(setting.id, checked)}
-                  label={setting.label}
-                />
-              )}
-              {setting.type === 'select' && (
-                <select
-                  className="setting-select"
-                  value={setting.value as string}
-                  onChange={(e) => handleChange(setting.id, e.target.value)}
+        <SettingRow key={setting.id} label={setting.label} description={setting.description}>
+          <div
+            className="ns-segmented"
+            role="radiogroup"
+            aria-label={setting.label}
+            onKeyDown={(e) => handleSegmentKey(setting, e)}
+          >
+            {setting.options?.map((opt) => {
+              const checked = opt.value === setting.value
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={checked}
+                  tabIndex={checked ? 0 : -1}
+                  className="ns-segment"
+                  onClick={() => handleChange(setting.id, opt.value)}
                 >
-                  {setting.options?.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {setting.type === 'number' && (
-                <input
-                  type="number"
-                  className="setting-input setting-input-number"
-                  value={numberDrafts[setting.id] ?? (setting.value as number)}
-                  min={setting.min}
-                  max={setting.max}
-                  step={setting.step}
-                  onChange={(e) => handleNumberInput(setting, e.target.value)}
-                  onBlur={() => handleNumberBlur(setting)}
-                />
-              )}
-            </div>
+                  {opt.label}
+                </button>
+              )
+            })}
           </div>
-          <div className="setting-description">{setting.description}</div>
-        </div>
+        </SettingRow>
       )
     }
 
-    // For string inputs, put input below
-    return (
-      <div key={setting.id} className="setting-item">
-        <div className="setting-label">{setting.label}</div>
-        <div className="setting-description">{setting.description}</div>
-        <div className="setting-control-block">
-          <input
-            type="text"
-            className="setting-input"
+    if (setting.type === 'boolean') {
+      return (
+        <SettingRow key={setting.id} label={setting.label} description={setting.description}>
+          <Switch
+            checked={setting.value as boolean}
+            onChange={(checked) => handleChange(setting.id, checked)}
+            label={setting.label}
+          />
+        </SettingRow>
+      )
+    }
+
+    if (setting.type === 'select') {
+      return (
+        <SettingRow key={setting.id} label={setting.label} description={setting.description}>
+          <select aria-label={setting.label}
+            className="ns-select setting-select-field"
             value={setting.value as string}
             onChange={(e) => handleChange(setting.id, e.target.value)}
+          >
+            {setting.options?.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </SettingRow>
+      )
+    }
+
+    if (setting.type === 'number') {
+      return (
+        <SettingRow key={setting.id} label={setting.label} description={setting.description}>
+          <input aria-label={setting.label}
+            type="number"
+            className="ns-input setting-input-number"
+            value={numberDrafts[setting.id] ?? (setting.value as number)}
+            min={setting.min}
+            max={setting.max}
+            step={setting.step}
+            onChange={(e) => handleNumberInput(setting, e.target.value)}
+            onBlur={() => handleNumberBlur(setting)}
           />
-        </div>
-      </div>
+        </SettingRow>
+      )
+    }
+
+    return (
+      <SettingRow key={setting.id} label={setting.label} description={setting.description} stacked>
+        <input data-ai-fill="off" aria-label={setting.label}
+          type="text"
+          className="ns-input"
+          value={setting.value as string}
+          onChange={(e) => handleChange(setting.id, e.target.value)}
+        />
+      </SettingRow>
     )
   }
 
@@ -554,68 +621,52 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
       {/* Main content area */}
       <div className="settings-main">
         <div className="settings-search">
-          <input
-            type="search"
-            placeholder="Search all settings..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="settings-search-input"
-          />
+          <SearchField value={search} onChange={setSearch} placeholder="Search all settings..." />
         </div>
+
+        {/* One page container for every tab: padding, width and section gap. */}
+        <div className="settings-content">
 
         {/* General settings tab */}
         {activeTab === 'general' && (
           <>
-            <div className="settings-content">
-              {Object.keys(groupedSettings).length === 0 ? (
-                <div className="settings-empty">No settings found</div>
-              ) : (
-                Object.entries(groupedSettings).map(([category, categorySettings]) => (
-                  <div key={category} className="settings-category">
-                    <h3 className="settings-category-title">{category}</h3>
+            {Object.keys(groupedSettings).length === 0 ? (
+              <p className="form-hint">No settings match your search.</p>
+            ) : (
+              Object.entries(groupedSettings).map(([category, categorySettings]) => (
+                <SettingsSection key={category} title={category}>
+                  <div className="settings-group">
                     {categorySettings.map((setting) => renderSettingItem(setting))}
                   </div>
-                ))
-              )}
+                </SettingsSection>
+              ))
+            )}
 
-              {/* Status Bar Customization */}
-              <div className="settings-category">
-                <h3 className="settings-category-title">Status Bar</h3>
-                <StatusBarSettingsPanel />
-              </div>
+            <StatusBarSettingsPanel />
+            <PanelSettingsPanel />
+            <SettingsHostnames />
 
-              {/* Panel Auto-Hide Behavior */}
-              <div className="settings-category">
-                <h3 className="settings-category-title">Panels</h3>
-                <PanelSettingsPanel />
-              </div>
-
-              {/* Hostname Display */}
-              <div className="settings-category">
-                <SettingsHostnames />
-              </div>
-
-              {/* Onboarding — re-open the first-run setup wizard on demand */}
-              <div className="settings-category">
-                <h3 className="settings-category-title">Onboarding</h3>
+            <SettingsSection
+              title="Onboarding"
+              description="Walk through AI provider setup, NetBox, and the core concepts again. Also available from the command palette → “Setup Wizard”."
+              actions={
                 <button
-                  className="btn-secondary"
+                  className="ns-btn ns-btn--small"
                   onClick={() => window.dispatchEvent(new CustomEvent('netstacks:open-setup-wizard'))}
                 >
                   Re-run Setup Wizard
                 </button>
-                <p className="settings-note">
-                  Walk through AI provider setup, NetBox, and the core concepts again.
-                  (Also available from the command palette → “Setup Wizard”.)
-                </p>
-              </div>
+              }
+            />
 
-              {/* Reset — last in the tab so it doesn't get clicked by
-                  mistake before users see what's available to tweak. */}
-              <div className="settings-category">
-                <h3 className="settings-category-title">Reset</h3>
+            {/* Reset — last in the tab so it doesn't get clicked by
+                mistake before users see what's available to tweak. */}
+            <SettingsSection
+              title="Reset"
+              description="Restore every General-tab setting to its default."
+              actions={
                 <button
-                  className="btn-danger"
+                  className="ns-btn ns-btn--small ns-btn--danger"
                   onClick={async () => {
                     const ok = await confirmDialog({
                       title: 'Reset all general settings?',
@@ -627,16 +678,16 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
                     // Everything the confirm text promises: useSettings
                     // (font, terminal), the app theme, status bar, panels.
                     resetSettings()
-                    setAppTheme('dark')
-                    setAppThemeState('dark')
+                    setAppTheme('system')
+                    setAppThemeState('system')
                     saveStatusBarSettings(DEFAULT_STATUS_BAR_SETTINGS)
                     resetPanelSettings()
                   }}
                 >
                   Reset to defaults…
                 </button>
-              </div>
-            </div>
+              }
+            />
           </>
         )}
 
@@ -750,77 +801,52 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
 
         {/* Enterprise tab — visible in both modes */}
         {activeTab === 'enterprise' && (
-          <div className="settings-content">
-            {isEnterprise ? (
-              <div className="settings-category">
-                <h3 className="settings-category-title">Enterprise Controller</h3>
-                <div className="settings-account-info" style={{ marginBottom: '16px' }}>
-                  <div className="settings-account-row">
-                    <span className="settings-account-label">Status</span>
-                    <span className="settings-account-value" style={{ color: '#4caf50' }}>Connected</span>
-                  </div>
-                </div>
-                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.6' }}>
-                  You are connected to a NetStacks Controller. Your team's devices, credentials, and configurations are managed centrally.
-                  To switch controllers or return to standalone mode, update the URL below and restart the app.
-                </p>
-                <SettingsConnection />
-              </div>
-            ) : (
-              <>
-                <div className="settings-category">
-                  <h3 className="settings-category-title">NetStacks Enterprise</h3>
-                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.7', marginBottom: '20px' }}>
-                    <p style={{ marginBottom: '12px' }}>
-                      NetStacks Terminal is free and open source. When your team is ready to scale, the <strong style={{ color: 'var(--text-primary)' }}>NetStacks Enterprise Controller</strong> adds:
-                    </p>
-                    <ul style={{ paddingLeft: '20px', margin: '0 0 16px 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <li>Centralized device inventory and credential management</li>
-                      <li>Role-based access control (RBAC) and audit logging</li>
-                      <li>Shared network topologies and documentation</li>
-                      <li>Method of Procedure (MOP) workflows and change management</li>
-                      <li>Service stacks and scheduled automation</li>
-                      <li>Shared AI prompts and team knowledge base</li>
-                    </ul>
-                    <a
-                      href="https://netstacks.net"
-                      onClick={async (e) => {
-                        e.preventDefault()
-                        try {
-                          const { open } = await import('@tauri-apps/plugin-shell')
-                          await open('https://netstacks.net')
-                        } catch {
-                          window.open('https://netstacks.net', '_blank', 'noopener,noreferrer')
-                        }
-                      }}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        color: 'var(--accent)',
-                        textDecoration: 'none',
-                        fontWeight: 500,
-                        fontSize: '13px',
-                      }}
-                    >
-                      Learn more at netstacks.net
-                      <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
-                        <path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/>
-                        <path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/>
-                      </svg>
-                    </a>
-                  </div>
-                </div>
-                <div className="settings-category">
-                  <h3 className="settings-category-title">Connect to a Controller</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
-                    If your team has a NetStacks Controller deployed, enter its URL below. The app will restart in enterprise mode.
-                  </p>
-                  <SettingsConnection />
-                </div>
-              </>
-            )}
-          </div>
+          isEnterprise ? (
+            <SettingsConnection />
+          ) : (
+            <>
+              <SettingsSection
+                title="NetStacks Enterprise"
+                description="NetStacks Terminal is free and open source. When your team is ready to scale, the NetStacks Enterprise Controller adds:"
+                actions={
+                  <a
+                    href="https://netstacks.net"
+                    className="settings-enterprise-link"
+                    onClick={async (e) => {
+                      e.preventDefault()
+                      try {
+                        const { open } = await import('@tauri-apps/plugin-shell')
+                        await open('https://netstacks.net')
+                      } catch {
+                        window.open('https://netstacks.net', '_blank', 'noopener,noreferrer')
+                      }
+                    }}
+                  >
+                    Learn more at netstacks.net
+                    <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden>
+                      <path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/>
+                      <path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/>
+                    </svg>
+                  </a>
+                }
+              >
+                <ul className="settings-enterprise-features">
+                  <li>Centralized device inventory and credential management</li>
+                  <li>Role-based access control (RBAC) and audit logging</li>
+                  <li>Shared network topologies and documentation</li>
+                  <li>Method of Procedure (MOP) workflows and change management</li>
+                  <li>Service stacks and scheduled automation</li>
+                  <li>Shared AI prompts and team knowledge base</li>
+                </ul>
+              </SettingsSection>
+              <SettingsConnection
+                help={{
+                  topic: 'connecting to a Controller',
+                  prompt: 'Explain what connecting NetStacks to an Enterprise Controller changes: shared sessions and profiles, controller-side AI and config backups, SSO login, which local features are disabled, what happens to my local data, and how to switch back to standalone. Then walk me through connecting (URL, TLS/certificate trust) and what to check if it fails.',
+                }}
+              />
+            </>
+          )
         )}
 
         {/* Account settings tab (Enterprise mode only) — TERM-01 Account home:
@@ -828,49 +854,32 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
             My Credentials + SSH Certificates). Pure IA: each section renders the
             same component it did when it was a standalone tab. */}
         {activeTab === 'account' && isEnterprise && (
-          <div className="settings-content">
+          <>
             {/* Section 1 — Account info */}
-            <div className="settings-category">
-              <h3 className="settings-category-title">Your Account</h3>
-              <div className="settings-account-info">
-                {user && (
-                  <>
-                    <div className="settings-account-row">
-                      <span className="settings-account-label">Username</span>
-                      <span className="settings-account-value">{user.username}</span>
-                    </div>
-                    <div className="settings-account-row">
-                      <span className="settings-account-label">Auth Provider</span>
-                      <span className="settings-account-value">{user.auth_provider}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="settings-account-actions">
-                <button
-                  className="settings-logout-btn"
-                  onClick={() => logout()}
-                >
-                  Sign Out
-                </button>
-              </div>
-            </div>
+            <SettingsSection
+              title="Your Account"
+              actions={<button className="ns-btn ns-btn--small ns-btn--danger" onClick={() => logout()}>Sign Out</button>}
+            >
+              {user && (
+                <div className="settings-group">
+                  <SettingRow label="Username"><span>{user.username}</span></SettingRow>
+                  <SettingRow label="Auth Provider"><span>{user.auth_provider}</span></SettingRow>
+                </div>
+              )}
+            </SettingsSection>
 
             {/* Section 2 — My Profiles (profile-centric auth from the controller).
                 Profiles are the central auth object in enterprise mode; the
                 default profile is what connections use. */}
-            <div className="settings-category">
-              <h3 className="settings-category-title">My Profiles</h3>
-              <EnterpriseProfilesTab />
-            </div>
+            <EnterpriseProfilesTab />
 
             {/* Section 3 — SSH Certificates */}
-            <div className="settings-category">
-              <h3 className="settings-category-title">SSH Certificate Authentication</h3>
+            <SettingsSection title="SSH Certificate Authentication">
               <SshCertSettings />
-            </div>
-          </div>
+            </SettingsSection>
+          </>
         )}
+        </div>
       </div>
     </div>
   )
@@ -887,31 +896,22 @@ function SshCertSettings() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <div className="settings-account-info">Loading...</div>
+  if (loading) return <p className="form-hint">Loading…</p>
 
   return (
-    <div className="settings-account-info">
-      <div className="settings-account-row">
-        <span className="settings-account-label">Status</span>
-        <span className="settings-account-value">
-          {certStatus?.valid ? 'Valid' : 'Not available'}
-        </span>
-      </div>
+    <div className="settings-group">
+      <SettingRow label="Status">
+        <span>{certStatus?.valid ? 'Valid' : 'Not available'}</span>
+      </SettingRow>
       {certStatus?.expires_at && (
-        <div className="settings-account-row">
-          <span className="settings-account-label">Expires</span>
-          <span className="settings-account-value">
-            {new Date(certStatus.expires_at).toLocaleString()}
-          </span>
-        </div>
+        <SettingRow label="Expires">
+          <span>{new Date(certStatus.expires_at).toLocaleString()}</span>
+        </SettingRow>
       )}
       {certStatus?.public_key_fingerprint && (
-        <div className="settings-account-row">
-          <span className="settings-account-label">Public Key</span>
-          <span className="settings-account-value" style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
-            {certStatus.public_key_fingerprint}
-          </span>
-        </div>
+        <SettingRow label="Public Key">
+          <span className="settings-item-mono">{certStatus.public_key_fingerprint}</span>
+        </SettingRow>
       )}
     </div>
   )

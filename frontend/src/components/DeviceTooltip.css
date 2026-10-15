@@ -5,9 +5,9 @@
 .device-tooltip {
   position: fixed;
   z-index: var(--z-popover);
-  background: var(--bg-secondary, #1e1e1e);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
   padding: 8px 12px;
   font-size: 12px;
   max-width: 250px;
@@ -19,7 +19,7 @@
 
 .device-tooltip-name {
   font-weight: 600;
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
   margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -27,7 +27,7 @@
 }
 
 .device-tooltip-description {
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
   margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -35,7 +35,7 @@
 }
 
 .device-tooltip-uptime {
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
   font-size: 11px;
 }
 
@@ -47,16 +47,16 @@
 }
 
 .device-tooltip-resource {
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
 }
 
 .device-tooltip-no-data {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted);
   font-size: 11px;
 }
 
 .device-tooltip-hint {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted);
   font-size: 10px;
   font-style: italic;
   margin-top: 2px;
@@ -76,38 +76,38 @@
   border-radius: 3px;
   font-size: 10px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--color-text-on-accent);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 
 .device-tooltip-ip {
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
   font-size: 11px;
-  font-family: monospace;
+  font-family: var(--font-family-mono);
 }
 
 .device-tooltip-asn {
-  color: #4a9eff;
+  color: var(--color-text-accent);
   font-size: 11px;
   margin-bottom: 2px;
 }
 
 .device-tooltip-whois {
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
   font-size: 11px;
   margin-bottom: 2px;
 }
 
 .device-tooltip-interface {
-  color: #4ec9b0;
+  color: var(--color-success);
   font-size: 11px;
-  font-family: monospace;
+  font-family: var(--font-family-mono);
   margin-bottom: 2px;
 }
 
 .device-tooltip-dns {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted);
   font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
@@ -116,6 +116,6 @@
 }
 
 .device-tooltip-site {
-  color: var(--text-secondary, #a0a0a0);
+  color: var(--text-secondary);
   font-size: 11px;
 }

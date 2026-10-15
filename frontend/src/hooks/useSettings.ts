@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { TransformPreset } from '../lib/clipTransforms';
 import { DEFAULT_DISABLED_TOOLS } from '../lib/agentTools';
+import type { PermissionMode } from '../lib/aiModes';
+import { getPlatform } from '../utils/platform';
 
 // AI provider type (matches api/ai.ts)
 export type AiProviderType = 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'litellm' | 'custom';
@@ -15,6 +17,11 @@ export interface AppSettings {
   // above: the terminal wants a monospace face and a larger default than
   // the 13 px chrome (NS-TERM-11). A per-session font still overrides these.
   'terminal.fontSize': number;
+  // Monaco editors' text size.
+  'editor.fontSize': number;
+  // View → Zoom: steps added to the effective terminal and editor font sizes
+  // (0 = Actual Size). See commands/zoom.ts.
+  'view.zoomStep': number;
   'terminal.fontFamily': string;
   'terminal.defaultTheme': string;
   'terminal.copyOnSelect': boolean;
@@ -42,8 +49,11 @@ export interface AppSettings {
   'guard.enabled': boolean;
   'guard.mode': 'dry-run' | 'enforce';
   'terminal.fontWeight': string;
-  // Liquid-glass (translucent/blurred) chrome, modals, popovers & AI panels.
+  // Translucent/blurred chrome, modals, popovers & AI panels (Windows/Linux;
+  // macOS uses native vibrancy instead).
   'ui.glassEffects': boolean;
+  // macOS: sidebar views as a source list instead of the icon activity bar.
+  'ui.macSourceList': boolean;
   'terminal.lineNumbers': boolean;
   // Show a small popup with vendor info on hovered MAC addresses and
   // reverse-DNS results on hovered IP addresses. Same lookups the right-
@@ -66,9 +76,8 @@ export interface AppSettings {
   'ai.overlord.provider': AiProviderType | null;
   'ai.overlord.model': string | null;
 
-  // AI Tools - list of disabled tool names (global fallback)
-  'ai.disabledTools': string[];
-  // Per-agent-type disabled tools (overrides global when set)
+  // AI Tools — per-agent-type disabled tool names. A disabled tool is neither
+  // offered to nor executable by that agent type (lib/aiPermissions).
   'ai.disabledTools.autopilot': string[];
   'ai.disabledTools.overlord': string[];
   // Default-off tools already pushed into the per-mode lists above, so a
@@ -76,6 +85,11 @@ export interface AppSettings {
   'ai.disabledTools.seeded': string[];
   // Bash deny list — extra commands to block (added to built-in deny list)
   'ai.bash.deniedCommands': string[];
+  // Per-agent-type permission mode: ask = approve every tool call, auto =
+  // approve only calls that change state, yolo ("Go Nuts") = approve nothing.
+  // Deny rules apply in every mode (lib/aiPermissions).
+  'ai.permissionMode.autopilot': PermissionMode;
+  'ai.permissionMode.overlord': PermissionMode;
 
   // AI Context Management - limit conversation history to prevent context overflow
   'ai.maxConversationMessages': number;
@@ -151,14 +165,19 @@ export interface AppSettings {
   // checking is always on; per-session opt-in is the only escape hatch.
 }
 
-const defaultSettings: AppSettings = {
+export const defaultSettings: AppSettings = {
   // Appearance
-  fontSize: 13,
-  fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif",
+  // Fluent body text is 14px; macOS/Linux UI text is 13px.
+  fontSize: getPlatform() === 'windows' ? 14 : 13,
+  // '' = System Default: no override, the platform --font-family token applies.
+  fontFamily: '',
 
   // Terminal
   'terminal.fontSize': 14,
-  'terminal.fontFamily': 'Menlo, Monaco, Consolas, monospace',
+  'editor.fontSize': getPlatform() === 'windows' ? 14 : 13,
+  'view.zoomStep': 0,
+  // '' = System Default: the platform monospace token (--font-family-mono).
+  'terminal.fontFamily': '',
   'terminal.defaultTheme': 'default',
   'terminal.copyOnSelect': false,
   'terminal.middleClickPaste': true,
@@ -174,6 +193,7 @@ const defaultSettings: AppSettings = {
   'guard.mode': 'dry-run',
   'terminal.fontWeight': 'normal',
   'ui.glassEffects': true,
+  'ui.macSourceList': true,
   'terminal.lineNumbers': false,
   'terminal.hoverLookups': true,
   'terminal.enrichment.hoverEnabled': true,
@@ -191,11 +211,12 @@ const defaultSettings: AppSettings = {
   'ai.overlord.model': null,
 
   // AI Tools - enabled by default except the registry's default-off tools
-  'ai.disabledTools': [],
   'ai.disabledTools.autopilot': [...DEFAULT_DISABLED_TOOLS],
   'ai.disabledTools.overlord': ['run_bash', ...DEFAULT_DISABLED_TOOLS],
   'ai.disabledTools.seeded': [...DEFAULT_DISABLED_TOOLS],
   'ai.bash.deniedCommands': [],
+  'ai.permissionMode.autopilot': 'auto',
+  'ai.permissionMode.overlord': 'ask',
 
   // AI Context Management - 0 means unlimited
   'ai.maxConversationMessages': 20,
@@ -250,7 +271,7 @@ const defaultSettings: AppSettings = {
   // (AUDIT FIX REMOTE-002) ssh.hostKeyChecking removed — see above.
 };
 
-const STORAGE_KEY = 'netstacks-settings';
+export const STORAGE_KEY = 'netstacks-settings';
 
 // Custom event for cross-component settings sync
 export const SETTINGS_CHANGED_EVENT = 'netstacks:settingsChanged';
@@ -274,6 +295,11 @@ function migrateSettings(stored: Record<string, unknown>): Record<string, unknow
   if ('ai.agent.provider' in stored && stored['ai.agent.provider']) {
     delete stored['ai.agent.provider'];
     delete stored['ai.agent.model'];
+  }
+  // "System Default" used to be stored as a literal font stack; it is now ''
+  // so the platform --font-family token applies.
+  if (stored.fontFamily === "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif") {
+    stored.fontFamily = '';
   }
   return stored;
 }

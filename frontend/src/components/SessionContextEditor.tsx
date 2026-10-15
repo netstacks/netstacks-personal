@@ -1,22 +1,28 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useSessionContext } from '../hooks/useSessionContext';
 import type { SessionContext } from '../types/sessionContext';
 import './SessionContextEditor.css';
 import AITabInput from './AITabInput';
 
+import DialogFooter from './DialogFooter';
 interface SessionContextEditorProps {
   /** Standalone / session-keyed target. Provide exactly one of sessionId/deviceId. */
   sessionId?: string;
   /** Enterprise / device-keyed target (Controller device id). */
   deviceId?: string;
   currentUser: string; // For author field
+  /** Entry to show expanded (and scrolled into view) when the editor opens. */
+  initialExpandedId?: string;
 }
 
-export default function SessionContextEditor({ sessionId, deviceId, currentUser }: SessionContextEditorProps): React.ReactElement {
+export default function SessionContextEditor({ sessionId, deviceId, currentUser, initialExpandedId }: SessionContextEditorProps): React.ReactElement {
   const { contexts, loading, error, addContext, updateContext, deleteContext } = useSessionContext({ sessionId, deviceId });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId ?? null);
+  const scrollIntoView = useCallback((el: HTMLDivElement | null) => {
+    el?.scrollIntoView({ block: 'nearest' });
+  }, []);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -113,7 +119,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser 
           Team knowledge about this device. Add troubleshooting notes, known issues, and helpful commands.
         </p>
         {!showAddForm && (
-          <button className="add-context-btn" onClick={() => setShowAddForm(true)}>
+          <button className="ns-btn ns-btn--primary" onClick={() => setShowAddForm(true)}>
             + Add Context
           </button>
         )}
@@ -184,7 +190,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser 
 
           <div className="form-group">
             <label>Ticket Reference</label>
-            <input
+            <input data-ai-fill="off" className="ns-input"
               type="text"
               value={formData.ticket_ref}
               onChange={(e) => updateField('ticket_ref', e.target.value)}
@@ -192,16 +198,11 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser 
             />
           </div>
 
-          <div className="form-actions">
-            <button className="btn-secondary" onClick={resetForm}>Cancel</button>
-            <button
-              className="btn-primary"
-              onClick={() => editingId ? handleUpdate(editingId) : handleAdd()}
-              disabled={!formData.issue.trim()}
-            >
-              {editingId ? 'Save Changes' : 'Add Context'}
-            </button>
-          </div>
+          <DialogFooter
+            primary={{ label: editingId ? 'Save Changes' : 'Add Context', onClick: () => editingId ? handleUpdate(editingId) : handleAdd(), disabled: !formData.issue.trim() }}
+            onCancel={resetForm}
+            inline
+          />
         </div>
       )}
 
@@ -223,7 +224,11 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser 
           const hasDetails = ctx.root_cause || ctx.resolution || ctx.commands;
 
           return (
-            <div key={ctx.id} className={`context-entry ${isExpanded ? 'expanded' : ''}`}>
+            <div
+              key={ctx.id}
+              ref={ctx.id === initialExpandedId ? scrollIntoView : undefined}
+              className={`context-entry ${isExpanded ? 'expanded' : ''}`}
+            >
               <div
                 className="context-entry-header"
                 onClick={() => hasDetails && toggleExpand(ctx.id)}
@@ -271,14 +276,14 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser 
                   )}
 
                   <div className="context-entry-actions">
-                    <button className="btn-small" onClick={() => startEdit(ctx)}>
+                    <button className="ns-btn ns-btn--small" onClick={() => startEdit(ctx)}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                         <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                         <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                       </svg>
                       Edit
                     </button>
-                    <button className="btn-small btn-danger" onClick={() => handleDelete(ctx.id)}>
+                    <button className="ns-btn ns-btn--small ns-btn--danger" onClick={() => handleDelete(ctx.id)}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                         <polyline points="3 6 5 6 21 6" />
                         <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />

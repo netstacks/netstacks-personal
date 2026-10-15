@@ -20,6 +20,7 @@ import AITabInput from './AITabInput'
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter'
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip'
 interface BackupHistoryTabProps {
   deviceId: string
   deviceName: string
@@ -480,20 +481,19 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
             <span className="backup-count">{filteredBackups.length}</span>
           </div>
           <div className="backup-sidebar-actions">
-            <button
-              className="backup-btn backup-btn-collect"
+            <Tooltip label="Pull running config from device (CLI + Structured)"><button
+              className="ns-btn ns-btn--small ns-btn--primary"
               onClick={handleCollect}
               disabled={collecting}
-              title="Pull running config from device (CLI + Structured)"
             >
               {collecting ? 'Pulling...' : 'Pull New'}
-            </button>
+            </button></Tooltip>
             {compareVersions.size === 2 && (
-              <button className="backup-btn backup-btn-compare" onClick={handleCompare} disabled={loadingDiff}>
+              <button className="ns-btn ns-btn--small ns-btn--primary" onClick={handleCompare} disabled={loadingDiff}>
                 Compare
               </button>
             )}
-            <button className="backup-btn backup-btn-refresh" onClick={fetchBackups} disabled={loading}>
+            <button className="ns-btn ns-btn--small" onClick={fetchBackups} disabled={loading}>
               Refresh
             </button>
           </div>
@@ -501,44 +501,45 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
 
         {/* Filter tabs */}
         <div className="backup-filter-tabs">
-          <button
-            className={`backup-filter-tab ${filterTab === 'all' ? 'active' : ''}`}
-            onClick={() => setFilterTab('all')}
-          >
-            All <span className="backup-filter-count">({filterCounts.all})</span>
-          </button>
-          <button
-            className={`backup-filter-tab ${filterTab === 'cli' ? 'active' : ''}`}
-            onClick={() => setFilterTab('cli')}
-          >
-            CLI <span className="backup-filter-count">({filterCounts.cli})</span>
-          </button>
-          <button
-            className={`backup-filter-tab ${filterTab === 'structured' ? 'active' : ''}`}
-            onClick={() => setFilterTab('structured')}
-          >
-            Structured <span className="backup-filter-count">({filterCounts.structured})</span>
-          </button>
+          <div className="ns-segmented">
+            <button
+              className={`ns-segment ${filterTab === 'all' ? 'active' : ''}`}
+              onClick={() => setFilterTab('all')}
+            >
+              All <span className="backup-filter-count">({filterCounts.all})</span>
+            </button>
+            <button
+              className={`ns-segment ${filterTab === 'cli' ? 'active' : ''}`}
+              onClick={() => setFilterTab('cli')}
+            >
+              CLI <span className="backup-filter-count">({filterCounts.cli})</span>
+            </button>
+            <button
+              className={`ns-segment ${filterTab === 'structured' ? 'active' : ''}`}
+              onClick={() => setFilterTab('structured')}
+            >
+              Structured <span className="backup-filter-count">({filterCounts.structured})</span>
+            </button>
+          </div>
         </div>
 
         {/* Timeline search — search across ALL backups */}
         <div className="backup-timeline-search">
-          <input
+          <input data-ai-fill="off"
             type="text"
-            className="backup-timeline-input"
+            className="ns-input backup-timeline-input"
             placeholder="Track config element across backups..."
             value={timelineQuery}
             onChange={(e) => setTimelineQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleTimelineSearch() }}
           />
-          <button
-            className="backup-btn"
+          <Tooltip label="Find when this config was added, changed, or removed"><button
+            className="ns-btn ns-btn--small"
             onClick={handleTimelineSearch}
             disabled={loadingTimeline || !timelineQuery.trim()}
-            title="Find when this config was added, changed, or removed"
           >
             Track
-          </button>
+          </button></Tooltip>
         </div>
 
         {collectMessage && <div className="backup-collect-success">{collectMessage}</div>}
@@ -561,7 +562,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
                   onClick={() => handleSelectBackup(backup)}
                 >
                   <div className="backup-item-check">
-                    <input
+                    <input aria-label={`Compare version ${backup.version}`}
                       type="checkbox"
                       checked={compareVersions.has(backup.version)}
                       onChange={(e) => { e.stopPropagation(); handleToggleCompare(backup.version) }}
@@ -616,7 +617,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
               <div className="backup-content-meta">
                 <span>{timelineResults.filter(t => t.present).length}/{timelineResults.length} backups contain this</span>
               </div>
-              <button className="backup-btn" onClick={() => setViewMode('config')}>
+              <button className="ns-btn ns-btn--small" onClick={() => setViewMode('config')}>
                 Close Timeline
               </button>
             </div>
@@ -671,7 +672,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
                 <span className="diff-stat-add">+{diffResult.additions ?? 0}</span>
                 <span className="diff-stat-del">-{diffResult.deletions ?? 0}</span>
               </div>
-              <button className="backup-btn" onClick={() => setViewMode('config')}>
+              <button className="ns-btn ns-btn--small" onClick={() => setViewMode('config')}>
                 Close Diff
               </button>
             </div>
@@ -698,7 +699,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
             <div className="backup-content-header">
               <div className="backup-content-title">
                 {formatName(deviceName)} — {formatDate(selectedConfig.created_at)}
-                {draftDirty && <span className="backup-draft-badge" title="Local edits are not saved — config-text changes are a future change-control feature">Local draft — not saved</span>}
+                {draftDirty && <Tooltip label="Local edits are not saved — config-text changes are a future change-control feature"><span className="backup-draft-badge">Local draft — not saved</span></Tooltip>}
               </div>
               <div className="backup-content-meta">
                 <span>{selectedConfig.line_count} lines</span>
@@ -706,21 +707,19 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
                 <span className="backup-lang-badge">{editorLanguage}</span>
               </div>
               <div className="backup-content-actions">
-                <button
-                  className={`backup-btn ${notesOpen ? 'backup-btn-active' : ''}`}
+                <Tooltip label="Operator notes for this backup (tribal knowledge, AI-readable)"><button
+                  className={`ns-btn ns-btn--small ${notesOpen ? 'ns-btn--primary' : ''}`}
                   onClick={() => setNotesOpen(v => !v)}
-                  title="Operator notes for this backup (tribal knowledge, AI-readable)"
                 >
                   {selectedConfig.notes ? 'Notes •' : 'Notes'}
-                </button>
-                <button
-                  className="backup-btn"
+                </button></Tooltip>
+                <Tooltip label="Search config" shortcut="Cmd+F"><button
+                  className="ns-btn ns-btn--small"
                   onClick={() => editorRef.current?.getAction('actions.find')?.run()}
-                  title="Search config (Ctrl+F)"
                 >
                   Search
-                </button>
-                <button className="backup-btn" onClick={handleCopy}>
+                </button></Tooltip>
+                <button className="ns-btn ns-btn--small" onClick={handleCopy}>
                   {copied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
@@ -734,7 +733,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
                     {notesStatus === 'saving' && <span className="status-saving">Saving...</span>}
                     {notesStatus === 'saved' && <span className="status-saved">Saved</span>}
                     {notesStatus === 'error' && <span className="status-unsaved">Save failed</span>}
-                    <button className="backup-btn" onClick={handleSaveNotes} disabled={notesStatus === 'saving'}>
+                    <button className="ns-btn ns-btn--small" onClick={handleSaveNotes} disabled={notesStatus === 'saving'}>
                       Save Notes
                     </button>
                   </div>
@@ -795,8 +794,8 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
             {overlord.hasPendingEdit && (
               <div className="overlord-accept-bar">
                 <span>AI edit applied — review the highlighted changes</span>
-                <button className="overlord-accept-btn" onClick={overlord.accept}>Accept</button>
-                <button className="overlord-reject-btn" onClick={overlord.reject}>Reject</button>
+                <button className="ns-btn ns-btn--small ns-btn--primary" onClick={overlord.accept}>Accept</button>
+                <button className="ns-btn ns-btn--small" onClick={overlord.reject}>Reject</button>
               </div>
             )}
           </>

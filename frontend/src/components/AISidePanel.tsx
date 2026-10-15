@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type PointerEvent as ReactPointerEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { copyToClipboard } from '../lib/clipboard'
 import './AISidePanel.css'
-import { useShortcut } from '../hooks/useKeyboard'
+import { useBinding } from '../hooks/useKeyboard'
 import MarkdownViewer from './MarkdownViewer'
 import ContextMenu from './ContextMenu'
 import type { MenuItem } from './ContextMenu'
@@ -12,8 +13,8 @@ import type { TopologyAICallbacks } from '../lib/topologyAITools'
 import type { LiveContextDeps } from '../lib/aiLiveContext'
 import { useAgentTasks } from '../hooks/useAgentTasks'
 import { listAiConversations, getAiConversation, createAiConversation, updateAiConversation, deleteAiConversation, type AiConversation, type AiConversationSummary } from '../api/aiConversations'
-import type { PermissionMode } from '../api/agent'
-import { type AgentType, AGENT_TYPES, PERMISSION_MODES } from '../lib/aiModes'
+import { type AgentType, type PermissionMode, AGENT_TYPES, PERMISSION_MODES, PERMISSION_MODE_SETTING } from '../lib/aiModes'
+import AIApprovalCard from './AIApprovalCard'
 import { useModeNames } from '../hooks/useModeNames'
 import type { TabProtocol } from '../api/sessions'
 import type { CliFlavor } from '../api/sessions'
@@ -34,6 +35,8 @@ import type { NetBoxNeighbor } from '../api/netbox'
 
 // Re-export for App.tsx
 import { logger } from '../lib/logger'
+import Tooltip from './Tooltip'
+import ModalFrame from './ModalFrame'
 export type { AgentMessage }
 
 // localStorage pointer to the conversation to resume when the panel reopens.
@@ -105,8 +108,6 @@ interface AISidePanelProps {
   onTopologyDeviceUpdated?: (topologyId: string) => void
   /** Topology AI tool callbacks for the active topology (query/analyze/modify). */
   topologyCallbacks?: TopologyAICallbacks
-  /** When false (default), AI structural topology edits are withheld. */
-  allowStructuralTopologyEdits?: boolean
   /** MOP creation callback */
   onCreateMop?: (params: CreateMopParams) => Promise<CreateMopResult>
   /** External prompt to send (e.g., from AI Discover button) - increment counter to re-trigger same prompt */
@@ -150,6 +151,8 @@ interface AISidePanelProps {
   onPromptCapture?: (prompt: string) => void
   /** Open the Quick Prompts editor (Settings → Prompts). */
   onManagePrompts?: () => void
+  /** Right-edge dock slot the collapsed panel's tab renders into (panel variant). */
+  edgeTabTarget?: HTMLElement | null
 }
 
 type AgentState = 'idle' | 'thinking' | 'executing' | 'waiting_approval' | 'error'
@@ -206,7 +209,6 @@ const AISidePanel = ({
   onNetBoxImportTopology,
   onTopologyDeviceUpdated,
   topologyCallbacks,
-  allowStructuralTopologyEdits,
   onCreateMop,
   externalPrompt,
   onTroubleshootingCapture,
@@ -228,8 +230,9 @@ const AISidePanel = ({
   onDockToPanel,
   onPromptCapture,
   onManagePrompts,
+  edgeTabTarget,
 }: AISidePanelProps) => {
-  const aiChatShortcut = useShortcut('aiChat')
+  const aiChatBinding = useBinding('aiChat')
   // Full-window chat-session tab vs docked side panel.
   const isTab = variant === 'tab'
   const assistantName = useAssistantName()
@@ -238,7 +241,6 @@ const AISidePanel = ({
   const [isResizing, setIsResizing] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isPinned, setIsPinned] = useState(defaultPinned)
-  const [aiTabY, setAiTabY] = useState(100) // vertical position of collapsed AI tab
 
   // Quick Actions: default to the compact inset chip; expand shows the grid,
   // collapse returns to the chip (persisted).
@@ -268,38 +270,18 @@ const AISidePanel = ({
 
   // Unified AI state
   const [input, setInput] = useState('')
-  // Large-prompt editor bubble (the expand icon opens it; movable + resizable).
+  // Large-prompt editor (the expand icon opens it; a movable, resizable dialog).
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
-  const [pePos, setPePos] = useState<{ x: number; y: number } | null>(null)
-  const peDrag = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null)
-  const openPromptEditor = () => {
-    setPePos(prev => prev ?? {
-      x: Math.max(20, (window.innerWidth - 720) / 2),
-      y: Math.max(20, (window.innerHeight - 480) / 2),
-    })
-    setPromptEditorOpen(true)
-  }
-  const onPeHeadDown = (e: ReactPointerEvent) => {
-    if (!pePos) return
-    peDrag.current = { sx: e.clientX, sy: e.clientY, ox: pePos.x, oy: pePos.y }
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  }
-  const onPeHeadMove = (e: ReactPointerEvent) => {
-    if (!peDrag.current) return
-    const { sx, sy, ox, oy } = peDrag.current
-    setPePos({ x: ox + (e.clientX - sx), y: oy + (e.clientY - sy) })
-  }
-  const onPeHeadUp = (e: ReactPointerEvent) => {
-    peDrag.current = null
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* ignore */ }
-  }
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('auto')
+  const openPromptEditor = () => setPromptEditorOpen(true)
   const [selectedSession, setSelectedSession] = useState<string>('')
   const [agentType, setAgentType] = useState<AgentType>('autopilot')
   const modeNames = useModeNames()
 
   // Get default provider from settings
-  const { settings: appSettings } = useSettings()
+  const { settings: appSettings, updateSetting } = useSettings()
+  // The picker shows and edits the agent type's permission-mode setting
+  // (the same one Settings → AI edits); useAIAgent reads it from there.
+  const permissionMode = appSettings[PERMISSION_MODE_SETTING[agentType]]
 
   // Provider/Model selection (two separate dropdowns)
   const [selectedProvider, setSelectedProvider] = useState<AiProviderType>('anthropic')
@@ -536,7 +518,6 @@ const AISidePanel = ({
     liveContextDeps,
     onOpenSession,
     onOpenConsole,
-    permissionMode,
     // Pass selected provider/model to the hook
     provider: selectedProvider,
     model: defaultModel,
@@ -563,7 +544,6 @@ const AISidePanel = ({
     onTopologyDeviceUpdated,
     // Topology AI tools for the active topology (Phase 27-07)
     topologyCallbacks,
-    allowStructuralTopologyEdits,
     // Active session context — tells the AI which session is focused
     activeSessionId: selectedSession,
     activeSessionName: availableSessions.find(s => s.id === selectedSession)?.name,
@@ -1132,7 +1112,7 @@ const AISidePanel = ({
       items.push({
         id: 'copy-selection',
         label: 'Copy',
-        shortcut: '\u2318C',
+        shortcut: 'Cmd+C',
         action: () => { void copyToClipboard(selection, { source: 'ai' }) }
       })
     }
@@ -1160,43 +1140,16 @@ const AISidePanel = ({
 
   return (
     <>
-      {/* Collapsed tab view — draggable vertically (docked panel only) */}
-      {isOpen && isCollapsed && !isTab && (
-        <div
-          className="ai-side-panel-tab"
-          style={{ top: aiTabY }}
-          onClick={() => setIsCollapsed(false)}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            const startY = e.clientY
-            const startTop = aiTabY
-            const onMove = (me: MouseEvent) => {
-              const newY = Math.max(40, Math.min(window.innerHeight - 60, startTop + me.clientY - startY))
-              setAiTabY(newY)
-            }
-            const onUp = () => {
-              document.removeEventListener('mousemove', onMove)
-              document.removeEventListener('mouseup', onUp)
-            }
-            document.addEventListener('mousemove', onMove)
-            document.addEventListener('mouseup', onUp)
-          }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="18" height="18">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-          <span>AI</span>
-          {agentState !== 'idle' && (
-            <span className={`ai-side-panel-tab-status ${agentState}`} />
-          )}
+      {/* Collapsed panel: a tab in the right-edge dock (docked panel only) */}
+      {isOpen && isCollapsed && !isTab && edgeTabTarget && createPortal(
+        <button type="button" className="panel-tab" onClick={() => setIsCollapsed(false)} aria-label={`${assistantName} chat`}>
+          AI
+          {agentState !== 'idle' && <span className={`panel-tab-status ${agentState}`} />}
           {displayMessages.length > 1 && (
-            <span className="ai-side-panel-tab-badge">
-              {displayMessages.length - 1}
-            </span>
+            <span className="panel-tab-badge">{displayMessages.length - 1}</span>
           )}
-        </div>
+        </button>,
+        edgeTabTarget,
       )}
 
       <div
@@ -1221,11 +1174,11 @@ const AISidePanel = ({
           <div className="ai-history-dropdown" onMouseDown={e => e.stopPropagation()}>
             <div className="ai-history-dropdown-header">
               <span>Chat history</span>
-              <button className="ai-side-panel-btn" onClick={() => setShowHistory(false)} title="Close">
+              <Tooltip label="Close"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => setShowHistory(false)} aria-label="Close">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
-              </button>
+              </button></Tooltip>
             </div>
             {conversations.length === 0 ? (
               <div className="ai-history-empty">No saved conversations yet.</div>
@@ -1241,16 +1194,16 @@ const AISidePanel = ({
                       <span className="ai-history-item-title">{c.title || 'Untitled'}</span>
                       <span className="ai-history-item-time">{new Date(c.updated_at).toLocaleString()}</span>
                     </div>
-                    <button
+                    <Tooltip label="Delete conversation"><button
                       className="ai-history-item-del"
                       onClick={(e) => handleDeleteConversation(c.id, e)}
-                      title="Delete conversation"
+                      aria-label="Delete conversation"
                     >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                         <polyline points="3 6 5 6 21 6" />
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                       </svg>
-                    </button>
+                    </button></Tooltip>
                   </div>
                 ))}
               </div>
@@ -1273,93 +1226,93 @@ const AISidePanel = ({
         </div>
         {/* Token Usage Display */}
         {tokenUsage.requestCount > 0 && (
-          <div className="ai-side-panel-token-usage" title={`In: ${tokenUsage.inputTokens.toLocaleString()} | Out: ${tokenUsage.outputTokens.toLocaleString()} | Requests: ${tokenUsage.requestCount}`}>
+          <Tooltip label={`In: ${tokenUsage.inputTokens.toLocaleString()} | Out: ${tokenUsage.outputTokens.toLocaleString()} | Requests: ${tokenUsage.requestCount}`}><div className="ai-side-panel-token-usage">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
             </svg>
             <span className="ai-token-count">{tokenUsage.totalTokens.toLocaleString()}</span>
-            <button
-              className="ai-token-reset"
+            <Tooltip label="Reset token counter"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={resetTokenUsage}
-              title="Reset token counter"
+              aria-label="Reset token counter"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
                 <polyline points="23 4 23 10 17 10" />
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
               </svg>
-            </button>
-          </div>
+            </button></Tooltip>
+          </div></Tooltip>
         )}
         <div className="ai-side-panel-actions">
           {displayMessages.length > 1 && (
             <>
-              <button
-                className="ai-side-panel-btn"
+              <Tooltip label="Promote to background task"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={() => setShowPromoteDialog(true)}
-                title="Promote to background task"
+                aria-label="Promote to background task"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="17 8 12 3 7 8" />
                   <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
-              </button>
-              <button
-                className="ai-side-panel-btn"
+              </button></Tooltip>
+              <Tooltip label="Chat history"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={handleToggleHistory}
-                title="Chat history"
+                aria-label="Chat history"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                   <circle cx="12" cy="12" r="9" />
                   <polyline points="12 7 12 12 15 14" />
                 </svg>
-              </button>
-              <button
-                className="ai-side-panel-btn"
+              </button></Tooltip>
+              <Tooltip label="New chat"><button
+                className="ns-btn ns-btn--ghost ns-icon-btn"
                 onClick={handleNewChat}
-                title="New chat"
+                aria-label="New chat"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-              </button>
+              </button></Tooltip>
             </>
           )}
           {/* Dock the chat tab back into the side panel (tab variant only) */}
           {isTab && onDockToPanel && (
-            <button className="ai-side-panel-btn" onClick={onDockToPanel} title="Dock to side panel">
+            <Tooltip label="Dock to side panel"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onDockToPanel} aria-label="Dock to side panel">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <line x1="14" y1="4" x2="14" y2="20" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
           {/* Pop the chat tab out into its own window (tab variant only) */}
           {isTab && onPopOut && (
-            <button className="ai-side-panel-btn" onClick={onPopOut} title="Pop out into its own window">
+            <Tooltip label="Pop out into its own window"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onPopOut} aria-label="Pop out into its own window">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                 <path d="M14 4h6v6" />
                 <path d="M20 4l-8 8" />
                 <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
           {/* Open-as-tab button (docked panel only — tab mode is already full) */}
           {!isTab && (
-            <button className="ai-side-panel-btn" onClick={handlePopOut} title="Open as a full chat tab">
+            <Tooltip label="Open as a full chat tab"><button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handlePopOut} aria-label="Open as a full chat tab">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                 <polyline points="15 3 21 3 21 9" />
                 <polyline points="9 21 3 21 3 15" />
                 <line x1="21" y1="3" x2="14" y2="10" />
                 <line x1="3" y1="21" x2="10" y2="14" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
           {!isTab && (
-            <button
-              className={`ai-side-panel-btn ${isPinned ? 'pinned' : ''}`}
+            <Tooltip label={isPinned ? 'Unpin (auto-collapse)' : 'Pin (stay open)'}><button
+              className={`ns-btn ns-btn--ghost ns-icon-btn ${isPinned ? 'active' : ''}`}
               onClick={() => {
                 // P1-2: persist via savePanelSettings so the value
                 // survives reload. Previously only local state flipped.
@@ -1367,87 +1320,85 @@ const AISidePanel = ({
                 setIsPinned(next)
                 savePanelSettings({ ...loadPanelSettings(), aiPanelPinned: next })
               }}
-              title={isPinned ? 'Unpin (auto-collapse)' : 'Pin (stay open)'}
+              aria-label={isPinned ? 'Unpin (auto-collapse)' : 'Pin (stay open)'}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                 <path d="M12 17v5" />
                 <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4.76z" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
           {!isTab && (
-            <button
-              className="ai-side-panel-btn"
+            <Tooltip label="Collapse (Esc)"><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
               onClick={() => setIsCollapsed(true)}
-              title="Collapse (Esc)"
+              aria-label="Collapse (Esc)"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
                 <polyline points="13 17 18 12 13 7" />
                 <polyline points="6 17 11 12 6 7" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
-          <button
-            className="ai-side-panel-btn"
+          <Tooltip label="Close" shortcut={aiChatBinding}><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
             onClick={onClose}
-            title={`Close (${aiChatShortcut})`}
+            aria-label="Close"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </button></Tooltip>
         </div>
       </div>
 
       {/* Quick Actions — compact inset chip by default; expand shows the grid,
           collapse returns to the chip. */}
       {!quickActionsExpanded ? (
-        <button
+        <Tooltip label="Show quick actions"><button
           className="ai-side-panel-quick-actions-restore"
           onClick={toggleQuickActions}
-          title="Show quick actions"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           {scriptContext ? 'Script Overlord' : 'Quick Actions'}
-        </button>
+        </button></Tooltip>
       ) : (
       <div className="ai-side-panel-quick-actions" data-testid="ai-quick-actions">
         <div className="ai-side-panel-quick-actions-header">
-          <button
+          <Tooltip label="Collapse quick actions"><button
             className="ai-side-panel-quick-actions-label"
             onClick={toggleQuickActions}
-            title="Collapse quick actions"
           >
             <svg className="ai-qa-chevron open" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="11" height="11">
               <polyline points="6 9 12 15 18 9" />
             </svg>
             {scriptContext ? 'Script Overlord' : 'Quick Actions'}
-          </button>
+          </button></Tooltip>
           {!scriptContext && onManagePrompts && (
-            <button
+            <Tooltip label="Edit quick prompts"><button
               className="ai-side-panel-quick-actions-manage"
               style={{ marginLeft: 'auto' }}
               onClick={onManagePrompts}
-              title="Edit quick prompts"
+              aria-label="Edit quick prompts"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                 <path d="M12 20h9" />
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
               </svg>
-            </button>
+            </button></Tooltip>
           )}
-          <button
+          <Tooltip label="Collapse quick actions"><button
             className="ai-side-panel-quick-actions-dismiss"
             onClick={toggleQuickActions}
-            title="Collapse quick actions"
+            aria-label="Collapse quick actions"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </button></Tooltip>
         </div>
         <div className="ai-side-panel-quick-actions-grid">
           {scriptContext ? (
@@ -1522,18 +1473,16 @@ const AISidePanel = ({
             ))
           ) : favoritePrompts.length > 0 ? (
             favoritePrompts.slice(0, 8).map(p => (
-              <button
-                key={p.id}
+              <Tooltip key={p.id} label={p.prompt}><button
                 className="ai-side-panel-quick-action"
                 onClick={() => handleQuickAction(p.prompt)}
                 disabled={isAgentBusy}
-                title={p.prompt}
               >
                 <svg viewBox="0 0 24 24" fill={p.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" width="14" height="14">
                   <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                 </svg>
                 <span>{p.name}</span>
-              </button>
+              </button></Tooltip>
             ))
           ) : (
             <button
@@ -1593,7 +1542,7 @@ const AISidePanel = ({
                         {codeBlocks.map((code, i) => (
                           <button
                             key={i}
-                            className="ai-side-panel-apply-code-btn"
+                            className="ns-btn ns-btn--small ns-btn--primary"
                             onClick={() => scriptContext.onApplyCode(code)}
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
@@ -1630,7 +1579,7 @@ const AISidePanel = ({
               const output = (msg.output || '').trim()
               return (
                 <details className={`ai-side-panel-command-result${failed ? ' failed' : ''}`} open={failed}>
-                  <summary className={`ai-side-panel-command-inline${failed ? ' failed' : ''}`} title={failed ? 'Tool call failed — click for details' : 'Click to show the result'}>
+                  <Tooltip label={failed ? 'Tool call failed — click for details' : 'Click to show the result'}><summary className={`ai-side-panel-command-inline${failed ? ' failed' : ''}`}>
                     {failed ? (
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
                         <circle cx="12" cy="12" r="10" />
@@ -1645,7 +1594,7 @@ const AISidePanel = ({
                     )}
                     {msg.command && <code>{msg.command}</code>}
                     {msg.sessionName && <span className="ai-cmd-session">{msg.sessionName}</span>}
-                  </summary>
+                  </summary></Tooltip>
                   {output && (
                     <pre className="ai-side-panel-command-output">{output.length > 4000 ? `${output.slice(0, 4000)}\n… (${output.length} chars)` : output}</pre>
                   )}
@@ -1665,43 +1614,7 @@ const AISidePanel = ({
           </div>
         ))}
 
-        {/* Pending Approval */}
-        {pendingCommands.length > 0 && (
-          <div className="ai-side-panel-pending">
-            <div className="ai-side-panel-pending-header">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              <span>Approval Required</span>
-              <span className="ai-side-panel-pending-count">({pendingCommands.length})</span>
-            </div>
-            <div className="ai-side-panel-pending-commands">
-              {pendingCommands.map(cmd => (
-                <div key={cmd.id} className="ai-side-panel-pending-command">
-                  <div className="ai-side-panel-pending-session">{cmd.sessionName}</div>
-                  <code className="ai-side-panel-pending-code">{cmd.command}</code>
-                </div>
-              ))}
-            </div>
-            <div className="ai-side-panel-pending-buttons">
-              <button className="ai-side-panel-pending-btn approve" onClick={approveCommands}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                Approve{pendingCommands.length > 1 ? ' All' : ''}
-              </button>
-              <button className="ai-side-panel-pending-btn reject" onClick={rejectCommands}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-                Reject
-              </button>
-            </div>
-          </div>
-        )}
+        <AIApprovalCard pending={pendingCommands} onApprove={approveCommands} onReject={rejectCommands} />
 
         {/* Thinking dots — only before the reply starts streaming (so it's
             never shown alongside the streaming cursor). */}
@@ -1720,7 +1633,7 @@ const AISidePanel = ({
       <div className="ai-input-container">
         <form onSubmit={handleSubmit}>
           {/* Text Input */}
-          <textarea
+          <textarea data-ai-fill="off"
             ref={inputRef}
             className="ai-input-textarea" data-testid="ai-input"
             placeholder={isAgentBusy ? 'Agent is working...' : 'Describe what to troubleshoot…'}
@@ -1735,17 +1648,17 @@ const AISidePanel = ({
             disabled={isAgentBusy}
             rows={isTab ? 2 : 1}
           />
-          <button
+          <Tooltip label="Expand to edit a large prompt"><button
             type="button"
             className="ai-input-expand"
             onClick={openPromptEditor}
-            title="Expand to edit a large prompt"
+            aria-label="Expand to edit a large prompt"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
               <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
               <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
             </svg>
-          </button>
+          </button></Tooltip>
 
           {/* Bottom Bar */}
           <div className="ai-input-bottom-bar">
@@ -1753,20 +1666,15 @@ const AISidePanel = ({
             <div className="ai-input-selectors">
               {/* Agent Type */}
               <div className="ai-text-selector">
-                <select
+                <Tooltip label={AGENT_TYPES[agentType].description}><select aria-label="Agent mode"
                   value={agentType}
-                  onChange={e => {
-                    const type = e.target.value as AgentType
-                    setAgentType(type)
-                    setPermissionMode(AGENT_TYPES[type].defaultPermissionMode)
-                  }}
+                  onChange={e => setAgentType(e.target.value as AgentType)}
                   disabled={isAgentBusy}
-                  title={AGENT_TYPES[agentType].description}
                 >
                   {Object.values(AGENT_TYPES).map(at => (
                     <option key={at.id} value={at.id}>{modeNames[at.id]}</option>
                   ))}
-                </select>
+                </select></Tooltip>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
@@ -1774,7 +1682,7 @@ const AISidePanel = ({
 
               {/* Provider */}
               <div className="ai-text-selector provider-selector">
-                <select
+                <select aria-label="AI provider"
                   value={selectedProvider}
                   onChange={e => setSelectedProvider(e.target.value as AiProviderType)}
                   disabled={isAgentBusy}
@@ -1808,29 +1716,28 @@ const AISidePanel = ({
 
               {/* Permission Mode */}
               <div className={`ai-text-selector mode-selector${permissionMode === 'yolo' ? ' yolo-active' : ''}`}>
-                <select
+                <Tooltip label={PERMISSION_MODES[permissionMode].description}><select aria-label="Permission mode"
                   value={permissionMode}
-                  onChange={e => setPermissionMode(e.target.value as PermissionMode)}
+                  onChange={e => updateSetting(PERMISSION_MODE_SETTING[agentType], e.target.value as PermissionMode)}
                   disabled={isAgentBusy}
-                  title={PERMISSION_MODES[permissionMode].description}
                 >
                   {(Object.entries(PERMISSION_MODES) as [PermissionMode, { label: string }][]).map(([key, pm]) => (
                     <option key={key} value={key}>{pm.label}</option>
                   ))}
-                </select>
+                </select></Tooltip>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </div>
 
               {/* Session */}
-              <div className="ai-icon-selector" title={availableSessions.find(s => s.id === selectedSession)?.name || 'Select session'}>
+              <Tooltip label={availableSessions.find(s => s.id === selectedSession)?.name || 'Select session'}><div className="ai-icon-selector">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                   <rect x="2" y="3" width="20" height="14" rx="2" />
                   <path d="M8 21h8" />
                   <path d="M12 17v4" />
                 </svg>
-                <select
+                <select aria-label="Target session"
                   value={selectedSession}
                   onChange={e => setSelectedSession(e.target.value)}
                   disabled={isAgentBusy}
@@ -1845,33 +1752,33 @@ const AISidePanel = ({
                     ))
                   )}
                 </select>
-              </div>
+              </div></Tooltip>
             </div>
 
             {/* Right: Send or Stop */}
             {isAgentBusy ? (
-              <button
+              <Tooltip label="Stop generating"><button
                 type="button"
                 className="ai-send-btn ai-stop-btn" data-testid="ai-send"
                 onClick={stopAgent}
-                title="Stop generating"
+                aria-label="Stop generating"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
-              </button>
+              </button></Tooltip>
             ) : (
-              <button
+              <Tooltip label="Send (Enter)"><button
                 type="submit"
                 className="ai-send-btn"
                 disabled={!input.trim()}
-                title="Send (Enter)"
+                aria-label="Send (Enter)"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
                   <path d="M22 2L11 13" />
                   <path d="M22 2L15 22L11 13L2 9L22 2Z" />
                 </svg>
-              </button>
+              </button></Tooltip>
             )}
           </div>
         </form>
@@ -1880,57 +1787,45 @@ const AISidePanel = ({
 
     {/* Large-prompt editor bubble */}
     {promptEditorOpen && (
-      <div className="ai-prompt-editor-overlay" onClick={() => setPromptEditorOpen(false)}>
-        <div
-          className="ai-prompt-editor"
-          onClick={e => e.stopPropagation()}
-          style={pePos ? { left: pePos.x, top: pePos.y } : undefined}
-        >
-          <div
-            className="ai-prompt-editor-head"
-            onPointerDown={onPeHeadDown}
-            onPointerMove={onPeHeadMove}
-            onPointerUp={onPeHeadUp}
+      <ModalFrame id="ai-prompt-editor" onDismiss={() => setPromptEditorOpen(false)} className="ai-prompt-editor" label="Edit prompt">
+        <div className="ai-prompt-editor-head">
+          <span>Edit prompt</span>
+          <Tooltip label="Close"><button
+            className="ns-btn ns-btn--ghost ns-icon-btn"
+            onClick={() => setPromptEditorOpen(false)}
+            aria-label="Close"
           >
-            <span>Edit prompt</span>
-            <button
-              className="ai-prompt-editor-close"
-              onPointerDown={e => e.stopPropagation()}
-              onClick={() => setPromptEditorOpen(false)}
-              title="Close"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <textarea
-            className="ai-prompt-editor-textarea"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Write or paste a long prompt…"
-            autoFocus
-            onKeyDown={e => {
-              if ((e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
-                e.preventDefault()
-                setPromptEditorOpen(false)
-                handleSubmit()
-              }
-            }}
-          />
-          <div className="ai-prompt-editor-actions">
-            <span className="ai-prompt-editor-hint">⌘/Ctrl+Enter to send</span>
-            <button className="ai-prompt-editor-btn" onClick={() => setPromptEditorOpen(false)}>Done</button>
-            <button
-              className="ai-prompt-editor-btn primary"
-              disabled={!input.trim() || isAgentBusy}
-              onClick={() => { setPromptEditorOpen(false); handleSubmit() }}
-            >
-              Send
-            </button>
-          </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button></Tooltip>
         </div>
-      </div>
+        <textarea data-ai-fill="off"
+          className="ai-prompt-editor-textarea"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="Write or paste a long prompt…"
+          autoFocus
+          onKeyDown={e => {
+            if ((e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+              e.preventDefault()
+              setPromptEditorOpen(false)
+              handleSubmit()
+            }
+          }}
+        />
+        <div className="ai-prompt-editor-actions">
+          <span className="ai-prompt-editor-hint">⌘/Ctrl+Enter to send</span>
+          <button className="ns-btn" onClick={() => setPromptEditorOpen(false)}>Done</button>
+          <button
+            className="ns-btn ns-btn--primary"
+            disabled={!input.trim() || isAgentBusy}
+            onClick={() => { setPromptEditorOpen(false); handleSubmit() }}
+          >
+            Send
+          </button>
+        </div>
+      </ModalFrame>
     )}
 
     {/* Promote to Background Task Dialog */}

@@ -12,6 +12,8 @@ import { showToast } from './Toast';
 import { downloadFile } from '../lib/formatters';
 
 import { getErrorMessage } from '../api/errors'
+import Tooltip from './Tooltip';
+import ModalFrame from './ModalFrame';
 interface DocumentViewerProps {
   document: Document;
   onClose: () => void;
@@ -287,7 +289,7 @@ function DocumentViewer({ document, onClose, onDocumentUpdate }: DocumentViewerP
     if (isEditing) {
       return (
         <div className="edit-viewer">
-          <textarea
+          <textarea data-ai-fill="off" aria-label="Document content"
             className="edit-textarea"
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
@@ -317,171 +319,162 @@ function DocumentViewer({ document, onClose, onDocumentUpdate }: DocumentViewerP
   };
 
   return (
-    <div className="document-viewer-overlay" onClick={onClose}>
-      <div className="document-viewer" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="document-viewer-header">
-          <div className="document-viewer-title">
-            <span className="document-viewer-name" title={document.name}>
-              {document.name}
-            </span>
-            <span className={`document-viewer-badge ${document.category}`}>
-              {document.category}
-            </span>
-            <span className={`document-viewer-badge content-type ${getContentTypeBadge(document.content_type).className}`}>
-              {getContentTypeBadge(document.content_type).label}
-            </span>
-            {isEditing && (
-              <span className="document-viewer-badge editing">Editing</span>
-            )}
-          </div>
-          {isEditable && (
-            <button
-              className={`document-viewer-header-btn ${isEditing ? 'active' : ''}`}
-              onClick={handleEditToggle}
-              title={isEditing ? 'Cancel Edit' : 'Edit Document'}
-              disabled={!!selectedVersion}
-            >
-              {isEditing ? Icons.cancel : Icons.edit}
-            </button>
+    <ModalFrame id="document-viewer" onDismiss={onClose} className="document-viewer" label="Document">
+      {/* Header */}
+      <div className="document-viewer-header">
+        <div className="document-viewer-title">
+          <span className="document-viewer-name" title={document.name}>
+            {document.name}
+          </span>
+          <span className={`document-viewer-badge ${document.category}`}>
+            {document.category}
+          </span>
+          <span className={`document-viewer-badge content-type ${getContentTypeBadge(document.content_type).className}`}>
+            {getContentTypeBadge(document.content_type).label}
+          </span>
+          {isEditing && (
+            <span className="document-viewer-badge editing">Editing</span>
           )}
-          <button
-            className={`document-viewer-header-btn ${showHistory ? 'active' : ''}`}
-            onClick={handleShowHistory}
-            title="Version History"
-            disabled={isEditing}
-          >
-            {Icons.history}
-          </button>
-          <button
-            className="document-viewer-close"
-            onClick={onClose}
-            title="Close"
-          >
-            {Icons.close}
-          </button>
         </div>
+        {isEditable && (
+          <Tooltip label={isEditing ? 'Cancel Edit' : 'Edit Document'}><button aria-label={isEditing ? 'Cancel Edit' : 'Edit Document'}
+            className={`ns-btn ns-btn--ghost ns-icon-btn ${isEditing ? 'active' : ''}`}
+            onClick={handleEditToggle}
+            disabled={!!selectedVersion}
+          >
+            {isEditing ? Icons.cancel : Icons.edit}
+          </button></Tooltip>
+        )}
+        <Tooltip label="Version History"><button
+          className={`ns-btn ns-btn--ghost ns-icon-btn ${showHistory ? 'active' : ''}`}
+          onClick={handleShowHistory}
+          aria-label="Version History"
+          disabled={isEditing}
+        >
+          {Icons.history}
+        </button></Tooltip>
+        <Tooltip label="Close"><button
+          className="ns-btn ns-btn--ghost ns-icon-btn"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          {Icons.close}
+        </button></Tooltip>
+      </div>
 
-        {/* Main content area with optional history sidebar */}
-        <div className={`document-viewer-body ${showHistory ? 'with-history' : ''}`}>
-          {/* Content */}
-          <div className="document-viewer-content">
-            {selectedVersion ? (
-              <div className="version-preview">
-                <div className="version-preview-header">
-                  <button
-                    className="version-preview-back"
-                    onClick={() => setSelectedVersion(null)}
-                    title="Back to list"
-                  >
-                    {Icons.back}
-                    <span>Back</span>
-                  </button>
-                  <span className="version-preview-label">
-                    Preview: {formatRelativeTime(selectedVersion.created_at)}
-                  </span>
-                  <button
-                    className="version-preview-restore"
-                    onClick={handleRestoreVersion}
-                    disabled={restoringVersion}
-                    title="Restore this version"
-                  >
-                    {Icons.restore}
-                    <span>{restoringVersion ? 'Restoring...' : 'Restore'}</span>
-                  </button>
-                </div>
-                <div className="version-preview-content">
-                  {renderContent(selectedVersion.content)}
-                </div>
+      {/* Main content area with optional history sidebar */}
+      <div className={`document-viewer-body ${showHistory ? 'with-history' : ''}`}>
+        {/* Content */}
+        <div className="document-viewer-content">
+          {selectedVersion ? (
+            <div className="version-preview">
+              <div className="version-preview-header">
+                <Tooltip label="Back to list"><button
+                  className="ns-btn ns-btn--ghost"
+                  onClick={() => setSelectedVersion(null)}
+                >
+                  {Icons.back}
+                  <span>Back</span>
+                </button></Tooltip>
+                <span className="version-preview-label">
+                  Preview: {formatRelativeTime(selectedVersion.created_at)}
+                </span>
+                <Tooltip label="Restore this version"><button
+                  className="ns-btn ns-btn--primary"
+                  onClick={handleRestoreVersion}
+                  disabled={restoringVersion}
+                >
+                  {Icons.restore}
+                  <span>{restoringVersion ? 'Restoring...' : 'Restore'}</span>
+                </button></Tooltip>
               </div>
-            ) : (
-              renderContent()
-            )}
-          </div>
-
-          {/* History sidebar */}
-          {showHistory && (
-            <div className="document-viewer-history">
-              <div className="history-header">
-                <h3>Version History</h3>
-              </div>
-              <div className="history-list">
-                {loadingVersions ? (
-                  <div className="history-loading">Loading versions...</div>
-                ) : versions.length === 0 ? (
-                  <div className="history-empty">No previous versions</div>
-                ) : (
-                  versions.map((version) => (
-                    <button
-                      key={version.id}
-                      className={`history-item ${
-                        selectedVersion?.id === version.id ? 'selected' : ''
-                      } ${loadingVersion ? 'loading' : ''}`}
-                      onClick={() => handleSelectVersion(version)}
-                      disabled={loadingVersion}
-                    >
-                      <span className="history-item-time">
-                        {formatRelativeTime(version.created_at)}
-                      </span>
-                      <span className="history-item-date">
-                        {new Date(version.created_at).toLocaleString()}
-                      </span>
-                    </button>
-                  ))
-                )}
+              <div className="version-preview-content">
+                {renderContent(selectedVersion.content)}
               </div>
             </div>
+          ) : (
+            renderContent()
           )}
         </div>
 
-        {/* Actions - changes based on edit mode */}
-        {!selectedVersion && (
-          <div className="document-viewer-actions">
-            {isEditing ? (
-              <>
-                <button
-                  className="document-viewer-btn primary"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  title="Save changes"
-                >
-                  {Icons.save}
-                  <span>{isSaving ? 'Saving...' : 'Save'}</span>
-                </button>
-                <button
-                  className="document-viewer-btn"
-                  onClick={handleCancelEdit}
-                  disabled={isSaving}
-                  title="Cancel editing"
-                >
-                  {Icons.cancel}
-                  <span>Cancel</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="document-viewer-btn"
-                  onClick={handleDownload}
-                  title="Download file"
-                >
-                  {Icons.download}
-                  <span>Download</span>
-                </button>
-                <button
-                  className="document-viewer-btn danger"
-                  onClick={handleDelete}
-                  title="Delete document"
-                >
-                  {Icons.trash}
-                  <span>Delete</span>
-                </button>
-              </>
-            )}
+        {/* History sidebar */}
+        {showHistory && (
+          <div className="document-viewer-history">
+            <div className="history-header">
+              <h3>Version History</h3>
+            </div>
+            <div className="history-list">
+              {loadingVersions ? (
+                <div className="history-loading">Loading versions...</div>
+              ) : versions.length === 0 ? (
+                <div className="history-empty">No previous versions</div>
+              ) : (
+                versions.map((version) => (
+                  <button
+                    key={version.id}
+                    className={`history-item ${
+                      selectedVersion?.id === version.id ? 'selected' : ''
+                    } ${loadingVersion ? 'loading' : ''}`}
+                    onClick={() => handleSelectVersion(version)}
+                    disabled={loadingVersion}
+                  >
+                    <span className="history-item-time">
+                      {formatRelativeTime(version.created_at)}
+                    </span>
+                    <span className="history-item-date">
+                      {new Date(version.created_at).toLocaleString()}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         )}
       </div>
-    </div>
+
+      {/* Actions - changes based on edit mode */}
+      {!selectedVersion && (
+        <div className="document-viewer-actions">
+          {isEditing ? (
+            <>
+              <Tooltip label="Save changes"><button
+                className="ns-btn ns-btn--primary"
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {Icons.save}
+                <span>{isSaving ? 'Saving...' : 'Save'}</span>
+              </button></Tooltip>
+              <Tooltip label="Cancel editing"><button
+                className="ns-btn"
+                onClick={handleCancelEdit}
+                disabled={isSaving}
+              >
+                {Icons.cancel}
+                <span>Cancel</span>
+              </button></Tooltip>
+            </>
+          ) : (
+            <>
+              <Tooltip label="Download file"><button
+                className="ns-btn"
+                onClick={handleDownload}
+              >
+                {Icons.download}
+                <span>Download</span>
+              </button></Tooltip>
+              <Tooltip label="Delete document"><button
+                className="ns-btn ns-btn--danger"
+                onClick={handleDelete}
+              >
+                {Icons.trash}
+                <span>Delete</span>
+              </button></Tooltip>
+            </>
+          )}
+        </div>
+      )}
+    </ModalFrame>
   );
 }
 

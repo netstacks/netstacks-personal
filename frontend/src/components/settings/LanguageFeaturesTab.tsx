@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { listPlugins, type LspPluginListItem } from '../../lsp/installationApi';
 import { LspPluginRow } from './LspPluginRow';
 import { AddCustomPluginDialog } from './AddCustomPluginDialog';
+import SettingsSection from './SettingsSection';
 
 export function LanguageFeaturesTab() {
   const [plugins, setPlugins] = useState<LspPluginListItem[]>([]);
@@ -25,39 +26,33 @@ export function LanguageFeaturesTab() {
 
   useEffect(() => { refresh(); }, []);
 
-  if (loading) return <div>Loading plugins…</div>;
-  if (error) return <div style={{ color: 'red' }}>Failed to load: {error}</div>;
-
   // Built-ins first (sorted), then user-added
   const builtIns = plugins.filter((p) => p.source === 'built-in').sort((a, b) => a.displayName.localeCompare(b.displayName));
   const userAdded = plugins.filter((p) => p.source === 'user-added').sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   return (
-    <div className="language-features-tab">
-      <p className="settings-description">
-        Configure LSP language servers for syntax intelligence in Monaco editors.
-      </p>
-      <div className="lsp-plugin-list">
-        {builtIns.length > 0 && (
-          <>
-            <h4>Built-in</h4>
-            {builtIns.map((p) => (
-              <LspPluginRow key={p.id} plugin={p} onChanged={refresh} onEdit={() => setEditingId(p.id)} />
-            ))}
-          </>
-        )}
-        {userAdded.length > 0 && (
-          <>
-            <h4>Custom</h4>
-            {userAdded.map((p) => (
-              <LspPluginRow key={p.id} plugin={p} onChanged={refresh} onEdit={() => setEditingId(p.id)} />
-            ))}
-          </>
-        )}
-        <div className="lsp-plugin-list__add">
-          <button onClick={() => setShowAddDialog(true)}>+ Add Language Server</button>
+    <SettingsSection
+      title="Language Servers"
+      description="LSP language servers that give the Monaco editors syntax intelligence."
+      help={{
+        topic: 'language servers',
+        prompt: `Help me set up language servers (LSP) for the NetStacks editors. Installed: ${plugins.length ? plugins.map(p => `${p.displayName} (${p.language}, ${p.installStatus})`).join(', ') : 'none'}. Explain what an LSP gives the Monaco editors, built-in vs custom servers, the command/args a custom server needs (stdio), and how to test one — e.g. adding a YAML or Bash language server.`,
+      }}
+      actions={<button className="ns-btn ns-btn--small" onClick={() => setShowAddDialog(true)}>+ Add language server</button>}
+    >
+      {loading ? (
+        <p className="form-hint">Loading plugins…</p>
+      ) : error ? (
+        <p className="settings-error">Failed to load: {error}</p>
+      ) : plugins.length === 0 ? (
+        <p className="form-hint">No language servers yet.</p>
+      ) : (
+        <div className="settings-group">
+          {[...builtIns, ...userAdded].map((p) => (
+            <LspPluginRow key={p.id} plugin={p} onChanged={refresh} onEdit={() => setEditingId(p.id)} />
+          ))}
         </div>
-      </div>
+      )}
 
       {(showAddDialog || editingId) && (
         <AddCustomPluginDialog
@@ -66,6 +61,6 @@ export function LanguageFeaturesTab() {
           onSaved={() => { setShowAddDialog(false); setEditingId(null); refresh(); }}
         />
       )}
-    </div>
+    </SettingsSection>
   );
 }

@@ -1,6 +1,14 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, cleanup, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
+import { ASK_AI_HELP_EVENT, type AskAiHelpDetail } from './components/AskAiHelp'
+import { __resetPlatformForTests } from './utils/platform'
+
+function renderApp() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}><App /></QueryClientProvider>)
+}
 
 // Mock the API client module so render() doesn't blow up at mount time.
 //
@@ -52,13 +60,54 @@ describe('App', () => {
   it('renders without crashing', () => {
     // This is a smoke test to verify the test infrastructure works
     // More comprehensive tests can be added later
-    const { container } = render(<App />)
+    const { container } = renderApp()
     expect(container).toBeInTheDocument()
   })
 
   it('renders a non-empty component', () => {
-    const { container } = render(<App />)
+    const { container } = renderApp()
     // Verify the component renders something (not empty)
     expect(container.firstChild).toBeTruthy()
+  })
+})
+
+describe('App sidebar navigation per platform', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    __resetPlatformForTests()
+  })
+
+  function renderOn(platform: 'macos' | 'windows') {
+    vi.stubGlobal('location', { ...window.location, search: `?platform=${platform}` })
+    __resetPlatformForTests()
+    return renderApp()
+  }
+
+  it('Windows keeps the icon activity bar', () => {
+    renderOn('windows')
+    expect(screen.getByTestId('activity-bar')).toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: 'Navigate' })).toBeNull()
+  })
+
+  it('macOS shows the source list instead of the activity bar', () => {
+    renderOn('macos')
+    expect(screen.queryByTestId('activity-bar')).toBeNull()
+    expect(screen.getByRole('listbox', { name: 'Navigate' })).toBeInTheDocument()
+    expect(screen.getByTestId('nav-sessions')).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
+describe('App contextual Ask AI', () => {
+  afterEach(() => cleanup())
+
+  it('opens the floating AI pop-over when an Ask AI button fires', async () => {
+    // jsdom has no layout; the pop-over scrolls its transcript as it renders.
+    Element.prototype.scrollIntoView = vi.fn()
+    renderApp()
+    expect(screen.queryByPlaceholderText('Ask AI...')).toBeNull()
+    const detail: AskAiHelpDetail = { prompt: 'Explain token matchers', position: { x: 100, y: 100 } }
+    act(() => { window.dispatchEvent(new CustomEvent(ASK_AI_HELP_EVENT, { detail })) })
+    expect(await screen.findByPlaceholderText('Ask AI...')).toBeInTheDocument()
   })
 })

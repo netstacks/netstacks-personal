@@ -18,7 +18,8 @@ import { useMovableRect, type Rect } from '../hooks/useMovableRect'
 import ScratchpadEditor, { saveScratchpadContent, scratchpadTarget } from './ScratchpadEditor'
 import type { WorkspaceConfig } from '../types/workspace'
 import './Scratchpad.css'
-import { useShortcut } from '../hooks/useKeyboard'
+import { useBinding } from '../hooks/useKeyboard'
+import Tooltip from './Tooltip'
 
 interface ScratchpadProps {
   minimized: boolean
@@ -49,7 +50,7 @@ function defaultRect(vw: number, vh: number): Rect {
 }
 
 export default function Scratchpad(props: ScratchpadProps) {
-  const saveShortcut = useShortcut('saveDocument')
+  const saveBinding = useBinding('saveDocument')
   const {
     minimized, maximized, onMinimize, onToggleMaximize, onPopToTab, onClose, activeWorkspace,
   } = props
@@ -112,55 +113,50 @@ export default function Scratchpad(props: ScratchpadProps) {
       aria-label="Scratchpad"
       style={panelStyle}
     >
-      <div
+      <Tooltip label={maximized ? 'Double-click to minimize' : 'Drag to move · double-click to minimize'}><div
         className="scratchpad-header"
         onMouseDown={onHeaderMouseDown}
         onDoubleClick={onHeaderDoubleClick}
-        title={maximized ? 'Double-click to minimize' : 'Drag to move · double-click to minimize'}
       >
         <div className="scratchpad-title">
           <span>Scratchpad</span>
-          <span className="scratchpad-target" title="Save destination">→ {target}</span>
+          <Tooltip label="Save destination"><span className="scratchpad-target">→ {target}</span></Tooltip>
         </div>
         <div className="scratchpad-actions">
-          <button
-            className="scratchpad-btn scratchpad-btn-primary"
+          <Tooltip label="Save" shortcut={saveBinding}><button
+            className="ns-btn ns-btn--small ns-btn--primary"
             onClick={() => { void handleSaveClick() }}
             disabled={saving}
-            title={`Save (${saveShortcut})`}
           >
             {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button
-            className="scratchpad-btn"
+          </button></Tooltip>
+          <Tooltip label="Open in a new tab"><button
+            className="ns-btn ns-btn--small"
             onClick={() => onPopToTab(content)}
-            title="Open in a new tab"
           >
             Pop to Tab
-          </button>
-          <button
-            className="scratchpad-btn"
+          </button></Tooltip>
+          <Tooltip label={maximized ? 'Restore' : 'Maximize'}><button
+            className="ns-btn ns-btn--small"
             onClick={onToggleMaximize}
-            title={maximized ? 'Restore' : 'Maximize'}
+            aria-label={maximized ? 'Restore' : 'Maximize'}
           >
             {maximized ? '❐' : '▢'}
-          </button>
-          <button
-            className="scratchpad-btn"
+          </button></Tooltip>
+          <Tooltip label="Minimize to status bar"><button aria-label="Minimize to status bar"
+            className="ns-btn ns-btn--small"
             onClick={onMinimize}
-            title="Minimize to status bar"
           >
             —
-          </button>
-          <button
-            className="scratchpad-btn"
+          </button></Tooltip>
+          <Tooltip label="Close (Esc) — discards unsaved content"><button aria-label="Close (Esc) — discards unsaved content"
+            className="ns-btn ns-btn--small"
             onClick={onClose}
-            title="Close (Esc) — discards unsaved content"
           >
             ✕
-          </button>
+          </button></Tooltip>
         </div>
-      </div>
+      </div></Tooltip>
       <div className="scratchpad-body">
         <ScratchpadEditor
           initialValue={content}
@@ -170,11 +166,10 @@ export default function Scratchpad(props: ScratchpadProps) {
         />
       </div>
       {!maximized && (
-        <div
+        <Tooltip label="Drag to resize"><div
           className="scratchpad-resize-handle"
           onMouseDown={onResizeMouseDown}
-          title="Drag to resize"
-        />
+        /></Tooltip>
       )}
     </div>
   )
