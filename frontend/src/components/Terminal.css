@@ -140,10 +140,11 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(var(--color-error-rgb), 0.2);
-  border: 1px solid rgba(var(--color-error-rgb), 0.4);
+  /* Logging is informational (accent); recording keeps the red "live" look. */
+  background: var(--color-accent-tint-20);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.4);
   border-radius: 12px;
-  color: var(--color-error);
+  color: var(--color-text-accent);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.5px;
