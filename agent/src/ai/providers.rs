@@ -358,6 +358,15 @@ pub enum AgentContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
+    /// Extended thinking block — present when model uses extended thinking (e.g. Vertex).
+    /// Ignored during processing; never forwarded to the frontend.
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+        #[serde(default)]
+        signature: String,
+    },
 }
 
 /// Token usage from AI provider
@@ -612,6 +621,14 @@ pub enum ContentBlock {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
+    },
+    /// Extended thinking block — ignored, never sent to the tool loop.
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+        #[serde(default)]
+        signature: String,
     },
 }
 
@@ -988,20 +1005,21 @@ impl AiProvider for AnthropicProvider {
                     AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
                         blocks
                             .into_iter()
-                            .map(|b| match b {
-                                AgentContentBlock::Text { text } => ContentBlock::Text { text },
+                            .filter_map(|b| match b {
+                                AgentContentBlock::Text { text } => Some(ContentBlock::Text { text }),
                                 AgentContentBlock::ToolUse { id, name, input } => {
-                                    ContentBlock::ToolUse { id, name, input }
+                                    Some(ContentBlock::ToolUse { id, name, input })
                                 }
                                 AgentContentBlock::ToolResult {
                                     tool_use_id,
                                     content,
                                     is_error,
-                                } => ContentBlock::ToolResult {
+                                } => Some(ContentBlock::ToolResult {
                                     tool_use_id,
                                     content,
                                     is_error,
-                                },
+                                }),
+                                AgentContentBlock::Thinking { .. } => None,
                             })
                             .collect(),
                     ),
@@ -1057,20 +1075,21 @@ impl AiProvider for AnthropicProvider {
         let content: Vec<AgentContentBlock> = api_response
             .content
             .into_iter()
-            .map(|b| match b {
-                ContentBlock::Text { text } => AgentContentBlock::Text { text },
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(AgentContentBlock::Text { text }),
                 ContentBlock::ToolUse { id, name, input } => {
-                    AgentContentBlock::ToolUse { id, name, input }
+                    Some(AgentContentBlock::ToolUse { id, name, input })
                 }
                 ContentBlock::ToolResult {
                     tool_use_id,
                     content,
                     is_error,
-                } => AgentContentBlock::ToolResult {
+                } => Some(AgentContentBlock::ToolResult {
                     tool_use_id,
                     content,
                     is_error,
-                },
+                }),
+                ContentBlock::Thinking { .. } => None,
             })
             .collect();
 
@@ -1105,17 +1124,17 @@ impl AiProvider for AnthropicProvider {
                     AgentContent::Text(text) => serde_json::Value::String(text),
                     AgentContent::Blocks(blocks) => serde_json::json!(blocks
                         .into_iter()
-                        .map(|b| match b {
-                            AgentContentBlock::Text { text } => serde_json::json!({
+                        .filter_map(|b| match b {
+                            AgentContentBlock::Text { text } => Some(serde_json::json!({
                                 "type": "text",
                                 "text": text,
-                            }),
-                            AgentContentBlock::ToolUse { id, name, input } => serde_json::json!({
+                            })),
+                            AgentContentBlock::ToolUse { id, name, input } => Some(serde_json::json!({
                                 "type": "tool_use",
                                 "id": id,
                                 "name": name,
                                 "input": input,
-                            }),
+                            })),
                             AgentContentBlock::ToolResult {
                                 tool_use_id,
                                 content,
@@ -1131,8 +1150,9 @@ impl AiProvider for AnthropicProvider {
                                         .unwrap()
                                         .insert("is_error".to_string(), serde_json::json!(err));
                                 }
-                                v
+                                Some(v)
                             }
+                            AgentContentBlock::Thinking { .. } => None,
                         })
                         .collect::<Vec<_>>()),
                 };
@@ -2100,6 +2120,7 @@ impl OpenAIProvider {
                                     },
                                 });
                             }
+                            AgentContentBlock::Thinking { .. } => {}
                         }
                     }
                     if !parts.is_empty() {
@@ -2326,7 +2347,7 @@ impl OpenAIProvider {
                     AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
                         blocks
                             .into_iter()
-                            .map(agent_block_to_anthropic_block)
+                            .filter_map(agent_block_to_anthropic_block)
                             .collect(),
                     ),
                 };
@@ -2373,7 +2394,7 @@ impl OpenAIProvider {
         let content: Vec<AgentContentBlock> = api_response
             .content
             .into_iter()
-            .map(anthropic_block_to_agent_block)
+            .filter_map(anthropic_block_to_agent_block)
             .collect();
 
         let usage = Some(TokenUsage {
@@ -2411,7 +2432,7 @@ impl OpenAIProvider {
                     AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
                         blocks
                             .into_iter()
-                            .map(agent_block_to_anthropic_block)
+                            .filter_map(agent_block_to_anthropic_block)
                             .collect(),
                     ),
                 };
@@ -2658,6 +2679,7 @@ impl OpenAIProvider {
                                     },
                                 });
                             }
+                            AgentContentBlock::Thinking { .. } => {}
                         }
                     }
                     if !parts.is_empty() {
@@ -2859,37 +2881,39 @@ impl OpenAIProvider {
 
 /// Translate one of our generic agent content blocks into the wire-format
 /// content block used by both native Anthropic and Anthropic-on-Vertex.
-fn agent_block_to_anthropic_block(b: AgentContentBlock) -> ContentBlock {
+fn agent_block_to_anthropic_block(b: AgentContentBlock) -> Option<ContentBlock> {
     match b {
-        AgentContentBlock::Text { text } => ContentBlock::Text { text },
-        AgentContentBlock::ToolUse { id, name, input } => ContentBlock::ToolUse { id, name, input },
+        AgentContentBlock::Text { text } => Some(ContentBlock::Text { text }),
+        AgentContentBlock::ToolUse { id, name, input } => Some(ContentBlock::ToolUse { id, name, input }),
         AgentContentBlock::ToolResult {
             tool_use_id,
             content,
             is_error,
-        } => ContentBlock::ToolResult {
+        } => Some(ContentBlock::ToolResult {
             tool_use_id,
             content,
             is_error,
-        },
+        }),
+        AgentContentBlock::Thinking { .. } => None,
     }
 }
 
 /// Inverse of `agent_block_to_anthropic_block` — used when turning an
 /// Anthropic API response into our generic `AgentResponse`.
-fn anthropic_block_to_agent_block(b: ContentBlock) -> AgentContentBlock {
+fn anthropic_block_to_agent_block(b: ContentBlock) -> Option<AgentContentBlock> {
     match b {
-        ContentBlock::Text { text } => AgentContentBlock::Text { text },
-        ContentBlock::ToolUse { id, name, input } => AgentContentBlock::ToolUse { id, name, input },
+        ContentBlock::Text { text } => Some(AgentContentBlock::Text { text }),
+        ContentBlock::ToolUse { id, name, input } => Some(AgentContentBlock::ToolUse { id, name, input }),
         ContentBlock::ToolResult {
             tool_use_id,
             content,
             is_error,
-        } => AgentContentBlock::ToolResult {
+        } => Some(AgentContentBlock::ToolResult {
             tool_use_id,
             content,
             is_error,
-        },
+        }),
+        ContentBlock::Thinking { .. } => None,
     }
 }
 
@@ -2961,6 +2985,7 @@ fn agent_messages_to_openai_compat(
                                 tool_call_id: Some(tool_use_id),
                             });
                         }
+                        AgentContentBlock::Thinking { .. } => {}
                     }
                 }
             }
@@ -3398,6 +3423,7 @@ impl AiProvider for OpenAIProvider {
                                     tool_call_id: Some(tool_use_id),
                                 });
                             }
+                            AgentContentBlock::Thinking { .. } => {}
                         }
                     }
                 }
@@ -3849,6 +3875,7 @@ impl OllamaProvider {
                                     tool_call_id: Some(tool_use_id.clone()),
                                 });
                             }
+                            AgentContentBlock::Thinking { .. } => {}
                         }
                     }
                 }
@@ -4253,6 +4280,7 @@ impl AiProvider for OpenRouterProvider {
                                     tool_call_id: Some(tool_use_id),
                                 });
                             }
+                            AgentContentBlock::Thinking { .. } => {}
                         }
                     }
                 }
@@ -4657,6 +4685,7 @@ impl AiProvider for LiteLLMProvider {
                                     tool_call_id: Some(tool_use_id),
                                 });
                             }
+                            AgentContentBlock::Thinking { .. } => {}
                         }
                     }
                 }

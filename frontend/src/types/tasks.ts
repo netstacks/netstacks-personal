@@ -64,7 +64,7 @@ export interface TaskMessage {
   task_id: string;
   seq: number;
   iteration: number;
-  kind: 'thought' | 'command' | 'tool_result' | 'error' | 'status';
+  kind: 'thought' | 'command' | 'tool_result' | 'error' | 'status' | 'thinking';
   tool_name: string | null;
   content: string;
   created_at: string;

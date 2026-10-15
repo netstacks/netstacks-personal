@@ -178,20 +178,34 @@
   user-select: none;
 }
 
-/* ── Kind accents (icon tint + title color + edge) ── */
-.aa-thought .aa-ico { background: var(--color-accent-tint-15); color: var(--color-accent); }
+/* ── Kind accents (icon tint + title color + left-edge + body) ── */
+.aa-thought .aa-ico   { background: var(--color-accent-tint-15); color: var(--color-accent); }
 .aa-thought .aa-title { color: var(--color-accent); }
 
-.aa-command .aa-ico { background: rgba(var(--color-warning-rgb), 0.16); color: var(--color-warning); }
+.aa-command .aa-ico   { background: rgba(var(--color-warning-rgb), 0.16); color: var(--color-warning); }
 .aa-command .aa-title { color: var(--color-warning); }
+/* Make command cards visually distinct — left accent + warm-tinted background */
+.aa-command.aa-card {
+  border-left: 3px solid rgba(var(--color-warning-rgb), 0.55);
+  background: rgba(var(--color-warning-rgb), 0.05);
+}
+.aa-command .aa-code {
+  background: rgba(var(--color-warning-rgb), 0.08);
+  border-color: rgba(var(--color-warning-rgb), 0.22);
+  color: var(--color-text);
+}
 
-.aa-tool_result .aa-ico { background: rgba(var(--color-success-rgb), 0.16); color: var(--color-success); }
+.aa-tool_result .aa-ico   { background: rgba(var(--color-success-rgb), 0.16); color: var(--color-success); }
 .aa-tool_result .aa-title { color: var(--color-success); }
 
-.aa-error .aa-ico { background: rgba(var(--color-error-rgb), 0.16); color: var(--color-error); }
+.aa-error .aa-ico   { background: rgba(var(--color-error-rgb), 0.16); color: var(--color-error); }
 .aa-error .aa-title { color: var(--color-error); }
-.aa-error .aa-card { border-color: rgba(var(--color-error-rgb), 0.28); }
-.aa-error .aa-code { color: var(--color-error); }
+/* Both classes on same element — use combined selector (no space) */
+.aa-error.aa-card   { border-color: rgba(var(--color-error-rgb), 0.28); }
+.aa-error .aa-code  { color: var(--color-error); }
 
-.aa-status .aa-ico { background: var(--color-fill); color: var(--color-text-tertiary); }
+.aa-thinking .aa-ico   { background: var(--color-accent-tint-15); color: var(--color-accent); }
+.aa-thinking .aa-title { color: var(--color-accent); opacity: 0.75; }
+
+.aa-status .aa-ico   { background: var(--color-fill); color: var(--color-text-tertiary); }
 .aa-status .aa-title { color: var(--color-text-tertiary); }

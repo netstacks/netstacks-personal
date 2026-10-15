@@ -1652,6 +1652,16 @@ export default function AISettingsTab() {
             />
           </SettingRow>
           <SettingRow
+            label="Show AI Reasoning"
+            description="Display the AI's internal chain-of-thought as a 'thinking' step in the agent glass-box view. Only visible when the active model returns extended thinking blocks (e.g. Claude on Vertex with extended thinking enabled). Has no effect on models that don't support it."
+          >
+            <Switch
+              checked={!!settings['ai.showThinking']}
+              onChange={(v) => updateSetting('ai.showThinking', v)}
+              label="Show AI Reasoning"
+            />
+          </SettingRow>
+          <SettingRow
             label={'Contextual "Ask AI" help'}
             description={'Show small "Ask AI" buttons on the complex setup areas (integrations, enrichment, profiles, jump hosts, tunnels, AI permissions, MOPs, …). Opens a pop-over where the AI explains the feature and helps you set it up.'}
           >

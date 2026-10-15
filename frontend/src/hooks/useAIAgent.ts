@@ -2018,6 +2018,47 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         }
       }
 
+      case 'propose_integration': {
+        const intType = String(input.type ?? '').trim();
+        const intName = String(input.name ?? '').trim();
+        const intResource = String(input.api_resource ?? '').trim();
+        try {
+          const resources = await listApiResources();
+          const res = resources.find(r => r.id === intResource) || resources.find(r => r.name.toLowerCase() === intResource.toLowerCase());
+          window.dispatchEvent(new CustomEvent('netstacks:prefill-integration', {
+            detail: { type: intType, name: intName, api_resource_id: res?.id ?? '', api_resource_name: res?.name ?? intResource },
+          }));
+          return {
+            content: `Opened the ${intType === 'librenms' ? 'LibreNMS' : 'NetStacks-Crawler'} source form pre-filled with name "${intName}" and API Resource "${res?.name ?? intResource}". Ask the user to review and click Add to save it.`,
+            is_error: false,
+          };
+        } catch (err) {
+          return { content: `Could not open the integration form: ${getErrorMessage(err)}`, is_error: true };
+        }
+      }
+
+      case 'create_integration_source': {
+        const intType = String(input.type ?? '').trim();
+        const intName = String(input.name ?? '').trim();
+        const intResource = String(input.api_resource ?? '').trim();
+        try {
+          const resources = await listApiResources();
+          const res = resources.find(r => r.id === intResource) || resources.find(r => r.name.toLowerCase() === intResource.toLowerCase());
+          if (!res) {
+            return { content: `No API Resource "${intResource}". Use list_api_resources to see what's available, or propose_api_resource to create one.`, is_error: true };
+          }
+          window.dispatchEvent(new CustomEvent('netstacks:ai-create-integration', {
+            detail: { type: intType, name: intName, api_resource_id: res.id, api_resource_name: res.name },
+          }));
+          return {
+            content: `Showing the user an approval card to create a ${intType === 'librenms' ? 'LibreNMS' : 'NetStacks-Crawler'} source named "${intName}" using resource "${res.name}". Waiting for user to approve.`,
+            is_error: false,
+          };
+        } catch (err) {
+          return { content: `Failed: ${getErrorMessage(err)}`, is_error: true };
+        }
+      }
+
       // Bundled NetStacks usage docs (how the app works)
       case 'search_netstacks_docs': {
         try {

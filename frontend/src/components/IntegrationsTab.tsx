@@ -29,7 +29,9 @@ import NetBoxSourceDialog from './NetBoxSourceDialog';
 import NetBoxImportDialog from './NetBoxImportDialog';
 import SmtpSettingsSection from './SmtpSettingsSection';
 import SecureCRTImportDialog from './SecureCRTImportDialog';
-import ApiResourcePicker from './ApiResourcePicker';
+import ApiResourcePicker from './ApiResourcePicker'
+import { listApiResources } from '../api/quickActions'
+import type { ApiResource } from '../types/quickAction';
 import { downloadFile } from '../lib/formatters';
 import { importSessions, type ExportData } from '../api/sessions';
 import { showToast } from './Toast';
@@ -54,6 +56,9 @@ const Icons = {
 };
 
 export default function IntegrationsTab() {
+  const [apiResources, setApiResources] = useState<ApiResource[]>([])
+  const resourceName = (id: string) => apiResources.find(r => r.id === id)?.name ?? id
+
   // NetBox state
   const [sources, setSources] = useState<NetBoxSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +85,10 @@ export default function IntegrationsTab() {
   const [libreForm, setLibreForm] = useState({ name: '', api_resource_id: '' });
   const libreSubmit = useSubmitting();
 
+  // AI-proposed integration approval
+  const [aiIntegrationProposal, setAiIntegrationProposal] = useState<{ type: string; name: string; api_resource_id: string; api_resource_name: string } | null>(null);
+  const [aiIntegrationApproving, setAiIntegrationApproving] = useState(false);
+
   // NetStacksCrawler state — full CRUD (backend supports PUT)
   const [netstacksCrawlerSources, setNetStacksCrawlerSources] = useState<NetStacksCrawlerSource[]>([]);
   const [netstacksCrawlerEditingId, setNetStacksCrawlerEditingId] = useState<string | 'new' | null>(null);
@@ -98,7 +107,28 @@ export default function IntegrationsTab() {
 
   // Fetch sources on mount
   useEffect(() => {
+    const onPrefillIntegration = (e: Event) => {
+      const d = (e as CustomEvent<{ type: string; name: string; api_resource_id: string; api_resource_name: string }>).detail;
+      if (d.type === 'librenms') {
+        setLibreForm({ name: d.name, api_resource_id: d.api_resource_id });
+        setLibreEditingId('new');
+      } else if (d.type === 'crawler') {
+        setNetStacksCrawlerForm({ name: d.name, api_resource_id: d.api_resource_id });
+        setNetStacksCrawlerEditingId('new');
+      }
+    };
+    const onAiCreateIntegration = (e: Event) => {
+      const d = (e as CustomEvent<{ type: string; name: string; api_resource_id: string; api_resource_name: string }>).detail;
+      setAiIntegrationProposal(d);
+    };
+    window.addEventListener('netstacks:prefill-integration', onPrefillIntegration);
+    window.addEventListener('netstacks:ai-create-integration', onAiCreateIntegration);
+    listApiResources().then(setApiResources).catch(() => {});
     void Promise.all([fetchSources(), fetchLibreSources(), fetchNetStacksCrawlerSources()]);
+    return () => {
+      window.removeEventListener('netstacks:prefill-integration', onPrefillIntegration);
+      window.removeEventListener('netstacks:ai-create-integration', onAiCreateIntegration);
+    };
     if (backupSupported()) {
       void getDbInfo().then(info => {
         setDbInfo(info);
@@ -325,6 +355,28 @@ export default function IntegrationsTab() {
       }
     } catch (err) {
       showToast(getErrorMessage(err, 'Test failed'), 'error');
+    }
+  };
+
+  const handleAiIntegrationApprove = async () => {
+    if (!aiIntegrationProposal) return;
+    setAiIntegrationApproving(true);
+    try {
+      const { type, name, api_resource_id } = aiIntegrationProposal;
+      if (type === 'librenms') {
+        await createLibreNmsSource(name, api_resource_id);
+        await fetchLibreSources();
+        showToast('LibreNMS source created', 'success');
+      } else if (type === 'crawler') {
+        await createNetStacksCrawlerSource({ name, api_resource_id });
+        await fetchNetStacksCrawlerSources();
+        showToast('Crawler source created', 'success');
+      }
+      setAiIntegrationProposal(null);
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Create failed'), 'error');
+    } finally {
+      setAiIntegrationApproving(false);
     }
   };
 
@@ -567,6 +619,26 @@ export default function IntegrationsTab() {
 
   return (
     <>
+      {aiIntegrationProposal && (
+        <div className="ai-integration-proposal">
+          <div className="ai-integration-proposal-icon">✦</div>
+          <div className="ai-integration-proposal-body">
+            <div className="ai-integration-proposal-title">
+              AI wants to create a {aiIntegrationProposal.type === 'librenms' ? 'LibreNMS' : 'NetStacks-Crawler'} source
+            </div>
+            <div className="ai-integration-proposal-details">
+              <span><strong>Name:</strong> {aiIntegrationProposal.name}</span>
+              <span><strong>API Resource:</strong> {aiIntegrationProposal.api_resource_name}</span>
+            </div>
+          </div>
+          <div className="ai-integration-proposal-actions">
+            <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => setAiIntegrationProposal(null)} disabled={aiIntegrationApproving}>Dismiss</button>
+            <button className="ns-btn ns-btn--small ns-btn--primary" onClick={handleAiIntegrationApprove} disabled={aiIntegrationApproving}>
+              {aiIntegrationApproving ? 'Creating…' : 'Approve & Create'}
+            </button>
+          </div>
+        </div>
+      )}
       <p className="form-hint">
         Integrations connect NetStacks to external systems. Each source uses an{' '}
         <strong>API Resource</strong> (Settings&nbsp;→&nbsp;API&nbsp;Resources) for its URL and
@@ -600,7 +672,7 @@ export default function IntegrationsTab() {
                 title={source.name}
                 meta={
                   <>
-                    <span>Resource: {source.api_resource_id}</span>
+                    <span>Resource: {resourceName(source.api_resource_id)}</span>
                     <span>{formatLastSync(source.last_sync_at)}</span>
                   </>
                 }
@@ -626,7 +698,7 @@ export default function IntegrationsTab() {
         help={{
           topic: 'LibreNMS sources',
           prompt: `Help me connect LibreNMS to NetStacks. I have ${libreSources.length} LibreNMS source(s)${libreSources.length ? ` (${libreSources.map(src => src.name).join(', ')})` : ''}. `
-            + 'Walk me through creating the LibreNMS API Resource (base URL = my LibreNMS URL, auth = api-key header X-Auth-Token, test path /api/v0/system; list_api_resources shows what I have, propose_api_resource can open the form), then adding the source, and what it gives me in topology discovery and link utilization.',
+            + 'Walk me through it: use list_api_resources to check what API Resources I have. If none exists for LibreNMS, use propose_api_resource to open a pre-filled form (base URL = my LibreNMS URL, auth = api-key header X-Auth-Token, test path /api/v0/system). Once the resource exists, use propose_integration (type librenms) to open the source form pre-filled, or create_integration_source to create it directly with my approval. Explain what LibreNMS gives me in topology discovery and link utilization.',
         }}
         actions={libreEditingId === null && (
           <button className="ns-btn ns-btn--small" onClick={openLibreNmsAdd}>+ Add LibreNMS source</button>
@@ -669,7 +741,7 @@ export default function IntegrationsTab() {
               <SettingsItem
                 key={s.id}
                 title={s.name}
-                meta={<span>Resource: {s.api_resource_id}</span>}
+                meta={<span>Resource: {resourceName(s.api_resource_id)}</span>}
                 actions={
                   <>
                     <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleLibreTest(s)}>Test</button>
@@ -692,7 +764,7 @@ export default function IntegrationsTab() {
         help={{
           topic: 'NetStacks-Crawler sources',
           prompt: `Help me set up the NetStacks-Crawler integration. I have ${netstacksCrawlerSources.length} Crawler source(s)${netstacksCrawlerSources.length ? ` (${netstacksCrawlerSources.map(src => src.name).join(', ')})` : ''}. `
-            + "Explain that it is NetStacks' UI over Netdisco's REST API (/api/v1), then walk me through the API Resource for my Netdisco instance (base URL = Netdisco host, basic or api-key auth, test path api/v1/device; propose_api_resource can open the form) and adding the Crawler source.",
+            + "Explain that it is NetStacks' UI over Netdisco's REST API (/api/v1). Use list_api_resources to check what I have. If needed, use propose_api_resource to open a pre-filled form (base URL = Netdisco host, basic or api-key auth, test path api/v1/device). Once the resource exists, use propose_integration (type crawler) to open the source form pre-filled, or create_integration_source to create it with my approval.",
         }}
         actions={netstacksCrawlerEditingId === null && (
           <button className="ns-btn ns-btn--small" onClick={openNetStacksCrawlerAdd}>+ Add Crawler source</button>
@@ -739,7 +811,7 @@ export default function IntegrationsTab() {
               <SettingsItem
                 key={s.id}
                 title={s.name}
-                meta={<span>Resource: {s.api_resource_id}</span>}
+                meta={<span>Resource: {resourceName(s.api_resource_id)}</span>}
                 actions={
                   <>
                     <button className="ns-btn ns-btn--small ns-btn--ghost" onClick={() => handleNetStacksCrawlerTest(s)}>Test</button>

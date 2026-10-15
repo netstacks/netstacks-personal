@@ -223,6 +223,19 @@ pub(crate) async fn load_agent_config(provider: &Arc<dyn DataProvider>) -> Agent
 
 /// Read a plain-string setting (unwrapping the `{value: ...}` shape), returning
 /// None when unset/empty so callers can fall back to a default.
+async fn load_setting_bool(provider: &Arc<dyn DataProvider>, key: &str, default: bool) -> bool {
+    match provider.get_setting(key).await {
+        Ok(value) if !value.is_null() => {
+            let inner = value
+                .as_object()
+                .and_then(|o| o.get("value").cloned())
+                .unwrap_or(value);
+            inner.as_bool().unwrap_or(default)
+        }
+        _ => default,
+    }
+}
+
 async fn load_setting_string(provider: &Arc<dyn DataProvider>, key: &str) -> Option<String> {
     match provider.get_setting(key).await {
         Ok(value) if !value.is_null() => {
@@ -340,6 +353,7 @@ pub async fn execute_react_loop_with_agent(
     // Append the non-interactive operating guide so every agent (default or
     // user-declared) understands how to reach the user + use its tools. Editable
     // in Settings → Prompts; falls back to the built-in default.
+    let show_thinking = load_setting_bool(&data_provider, "ai.showThinking", false).await;
     let operating_guide = load_setting_string(&data_provider, "ai.agent_operating_guide")
         .await
         .unwrap_or_else(|| DEFAULT_AGENT_OPERATING_GUIDE.to_string());
@@ -602,6 +616,11 @@ pub async fn execute_react_loop_with_agent(
                 AgentContentBlock::ToolResult { .. } => {
                     // Shouldn't appear in AI response, but handle gracefully
                     assistant_blocks.push(block);
+                }
+                AgentContentBlock::Thinking { thinking, .. } => {
+                    if show_thinking && !thinking.is_empty() {
+                        record_step(store, broadcaster, task_id, iteration as i32, "thinking", None, thinking, progress).await;
+                    }
                 }
             }
         }

@@ -27,6 +27,7 @@ export default function ApiResourcePicker({ value, onChange, label = 'API Resour
   const [resources, setResources] = useState<ApiResource[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
 
   const fetchResources = async () => {
     setLoading(true)
@@ -48,6 +49,13 @@ export default function ApiResourcePicker({ value, onChange, label = 'API Resour
     setDialogOpen(false)
     fetchResources().then(() => {
       onChange(newResource.id)
+    })
+  }
+
+  const handleEditSaved = (updated: ApiResource) => {
+    setEditDialogOpen(false)
+    fetchResources().then(() => {
+      onChange(updated.id)
     })
   }
 
@@ -74,6 +82,15 @@ export default function ApiResourcePicker({ value, onChange, label = 'API Resour
               </option>
             ))}
           </select>
+          {selectedResource && (
+            <Tooltip label="Edit this API resource"><button
+              type="button"
+              className="ns-btn ns-btn--small"
+              onClick={() => setEditDialogOpen(true)}
+            >
+              Edit
+            </button></Tooltip>
+          )}
           <Tooltip label="Create new API resource"><button
             type="button"
             className="ns-btn ns-btn--small"
@@ -98,6 +115,14 @@ export default function ApiResourcePicker({ value, onChange, label = 'API Resour
           mode="create"
           onClose={() => setDialogOpen(false)}
           onSaved={handleDialogSaved}
+        />
+      )}
+      {editDialogOpen && selectedResource && (
+        <ApiResourceDialog
+          resource={selectedResource}
+          mode="edit"
+          onClose={() => setEditDialogOpen(false)}
+          onSaved={handleEditSaved}
         />
       )}
     </div>

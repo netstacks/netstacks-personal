@@ -316,12 +316,18 @@ export default function ApiResourceDialog({
     setStepTesting(index)
     try {
       let result: AuthStepTestResult
-      if (resource?.id) {
-        // Saved resource: hit the per-id endpoint (uses stored creds + config)
-        result = await testAuthFlowStep(resource.id, index)
+      const savedSteps = resource?.auth_flow ?? []
+      const stepIsSaved =
+        resource?.id &&
+        index < savedSteps.length &&
+        JSON.stringify(savedSteps[index]) === JSON.stringify(authFlow[index])
+      if (stepIsSaved) {
+        // Step exists on the server unchanged — use stored creds + config.
+        result = await testAuthFlowStep(resource!.id, index)
       } else {
-        // Unsaved / in-progress edit: send the current form state inline so
-        // the user can iterate on a step without first saving the resource.
+        // New or modified step — send current form state inline.
+        // Credentials must be entered in the form; stored creds can't be used
+        // until the resource is saved.
         const credsPayload =
           authUsername || authPassword || authToken
             ? {

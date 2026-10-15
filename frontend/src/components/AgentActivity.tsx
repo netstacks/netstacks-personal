@@ -14,6 +14,7 @@ type StepKind = TaskMessage['kind'];
 
 const KIND_TITLE: Record<StepKind, string> = {
   thought: 'Thinking',
+  thinking: 'Extended Reasoning',
   command: 'Command',
   tool_result: 'Result',
   error: 'Error',
@@ -35,6 +36,14 @@ function KindIcon({ kind }: { kind: StepKind }) {
       return (
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7z" />
+        </svg>
+      );
+    case 'thinking':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M9.5 2a6.5 6.5 0 0 1 5 10.6A5 5 0 1 1 7 17.4" />
+          <circle cx="9.5" cy="19" r="2" />
+          <path d="M14.5 4a3 3 0 0 1 0 6" />
         </svg>
       );
     case 'command':
@@ -141,6 +150,8 @@ export default function AgentActivity({ steps, live, fill }: { steps: TaskMessag
                   <div className="aa-body">
                     <pre className="aa-code">{step.content}</pre>
                   </div>
+                ) : step.kind === 'thinking' ? (
+                  <div className="aa-body aa-text" style={{ opacity: 0.8, fontStyle: 'italic' }}>{step.content}</div>
                 ) : (
                   <div className="aa-body aa-text">{step.content}</div>
                 )

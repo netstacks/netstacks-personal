@@ -462,6 +462,32 @@ export const AGENT_TOOLS: AgentTool[] = [
     }
   },
   {
+    name: 'propose_integration',
+    description: 'Open a NetStacks integration source form pre-filled so the user can review and save it. Use after the API Resource is configured. Supported types: librenms (pulls device topology/port stats), crawler (pulls L2 neighbor data from Netdisco). After the user saves, list_api_resources confirms it exists.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['librenms', 'crawler'], description: 'Integration type to create' },
+        name: { type: 'string', description: 'Suggested name for the source, e.g. "Prod LibreNMS"' },
+        api_resource: { type: 'string', description: 'API Resource name or id to bind to this source (from list_api_resources)' },
+      },
+      required: ['type', 'name', 'api_resource']
+    }
+  },
+  {
+    name: 'create_integration_source',
+    description: 'Create a NetStacks integration source after the user approves. Shows the user a confirmation card with the full details before writing anything. Use propose_integration first to let the user see the form — use this only when they have confirmed they want the source created automatically.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['librenms', 'crawler'], description: 'Integration type' },
+        name: { type: 'string', description: 'Source name' },
+        api_resource: { type: 'string', description: 'API Resource name or id (from list_api_resources)' },
+      },
+      required: ['type', 'name', 'api_resource']
+    }
+  },
+  {
     name: 'onboard_devices',
     description: 'Collect devices from a configured API Resource (e.g. a CMDB) and onboard them as ready-to-connect sessions, assigning a default credential profile. Fetches the endpoint, maps fields you specify to session name + host, and creates the sessions. Tell the user how many devices you are about to onboard before calling it. Use call_api_resource first to inspect the response shape and pick the right field names.',
     parameters: {
@@ -1844,6 +1870,8 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   { name: 'list_api_resources', category: 'api-resources', description: 'List configured API Resources', shortDescription: 'List API Resources', effect: 'read' },
   { name: 'call_api_resource', category: 'api-resources', description: 'Send a request to a configured API Resource (GET/HEAD/OPTIONS count as reads)', shortDescription: 'Call API Resource', effect: 'http' },
   { name: 'propose_api_resource', category: 'api-resources', description: 'Open a pre-filled API Resource dialog for the user to complete and save', shortDescription: 'Propose API Resource', effect: 'read' },
+  { name: 'propose_integration', category: 'api-resources', description: 'Open an integration source form pre-filled (LibreNMS or Crawler)', shortDescription: 'Propose integration', effect: 'read' },
+  { name: 'create_integration_source', category: 'api-resources', description: 'Create an integration source with user approval', shortDescription: 'Create integration', effect: 'write' },
   { name: 'onboard_devices', category: 'api-resources', description: 'Create sessions from the device list an API Resource returns', shortDescription: 'Onboard devices', effect: 'write' },
 
   // UI Navigation Tools
@@ -1985,7 +2013,7 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
   }
 
   // Always include the generic API-access tools (call any configured API Resource)
-  const apiResourceTools = ['list_api_resources', 'call_api_resource', 'propose_api_resource', 'onboard_devices'];
+  const apiResourceTools = ['list_api_resources', 'call_api_resource', 'propose_api_resource', 'propose_integration', 'create_integration_source', 'onboard_devices'];
   for (const name of apiResourceTools) {
     const tool = AGENT_TOOLS.find(t => t.name === name);
     if (tool) tools.push(tool);
