@@ -1,4 +1,5 @@
 // Utilities for extracting and managing template variables in Quick Actions
+import { userScopedKey } from './userScope'
 
 /** Built-in variable names that are resolved by the backend (never prompted for) */
 const BUILT_IN_VARS = new Set(['username', 'password'])
@@ -33,10 +34,12 @@ export function extractActionVariables(
 
 const STORAGE_KEY_PREFIX = 'qa-vars-'
 
-/** Get last-used variable values for an action */
+/** Get last-used variable values for an action (the signed-in user's, in enterprise) */
 export function getRememberedValues(actionId: string): Record<string, string> {
+  const key = userScopedKey(`${STORAGE_KEY_PREFIX}${actionId}`)
+  if (!key) return {}
   try {
-    const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${actionId}`)
+    const raw = localStorage.getItem(key)
     return raw ? JSON.parse(raw) : {}
   } catch {
     return {}
@@ -45,8 +48,10 @@ export function getRememberedValues(actionId: string): Record<string, string> {
 
 /** Save variable values for an action */
 export function rememberValues(actionId: string, values: Record<string, string>): void {
+  const key = userScopedKey(`${STORAGE_KEY_PREFIX}${actionId}`)
+  if (!key) return
   try {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}${actionId}`, JSON.stringify(values))
+    localStorage.setItem(key, JSON.stringify(values))
   } catch {
     // ignore quota errors
   }

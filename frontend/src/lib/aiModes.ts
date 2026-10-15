@@ -266,21 +266,22 @@ export function getSystemPrompt(
   const agentPrompt = (override && override.trim()) ? override : buildAgentPrompt(opts)
   const addendum = isEnterprise ? ENTERPRISE_ADDENDUM : STANDALONE_ADDENDUM
 
-  return `${NETSTACKS_IDENTITY}\n\n${agentPrompt}${addendum}${getModeBlock(agentType)}${LIVE_CONTEXT_RULES}`
+  return `${NETSTACKS_IDENTITY}\n\n${agentPrompt}${addendum}${getModeBlock(agentType, isEnterprise)}${LIVE_CONTEXT_RULES}`
 }
 
 /**
  * Mode-awareness block, computed from the CURRENT user configuration (custom
  * mode names, permission mode, whether run_bash is enabled per mode) so the LLM knows which mode
  * it's in and can guide the user to the other mode when it lacks the local shell.
+ * Enterprise has no local shell in any mode (run_bash runs on the local agent).
  */
-function getModeBlock(agentType: AgentType): string {
+function getModeBlock(agentType: AgentType, isEnterprise: boolean): string {
   if (!AGENT_TYPES[agentType]) return '' // unknown/legacy agent type — no mode block
   const other: AgentType = agentType === 'autopilot' ? 'overlord' : 'autopilot'
   const thisName = getModeName(agentType)
   const otherName = getModeName(other)
-  const hasBashHere = bashEnabledFor(agentType)
-  const hasBashOther = bashEnabledFor(other)
+  const hasBashHere = !isEnterprise && bashEnabledFor(agentType)
+  const hasBashOther = !isEnterprise && bashEnabledFor(other)
   const permission = PERMISSION_MODES[getPermissionMode(agentType)]
 
   const lines: string[] = [
@@ -291,7 +292,9 @@ function getModeBlock(agentType: AgentType): string {
       : `- You do NOT have the local shell (run_bash) in this mode.`,
     `- Calling external HTTP APIs does not require the shell — use API/integration tools when available.`,
   ]
-  if (!hasBashHere) {
+  if (isEnterprise) {
+    lines.push(`- There is no local shell when NetStacks is connected to a Controller; if a task needs one, say so rather than pretending you can run shell commands.`)
+  } else if (!hasBashHere) {
     lines.push(
       hasBashOther
         ? `- If a task genuinely needs the local shell (a local script, or curl against something with no API), tell the user to switch to the "${otherName}" mode, which has it. Do not pretend you can run shell commands here.`

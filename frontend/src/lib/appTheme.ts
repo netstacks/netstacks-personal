@@ -1,5 +1,8 @@
 // App-wide theme. Persisted in localStorage so every window (main app,
-// popouts, shared views) applies it in main.tsx before first paint.
+// popouts, shared views) applies it in main.tsx before first paint. That copy
+// is this device's last-applied theme; in enterprise the user's choice also
+// follows them via the Controller (lib/userPreferences), which re-applies it
+// after login.
 // <html data-theme> always carries the resolved value ('dark' | 'light');
 // 'light-deep' adds data-theme-variant="deep" (the anchored "Slate Mist" palette).
 
@@ -9,6 +12,9 @@ type ResolvedTheme = 'dark' | 'light'
 const STORAGE_KEY = 'netstacks.appTheme'
 const APP_THEMES: readonly AppTheme[] = ['system', 'light', 'light-deep', 'dark']
 
+/** Follow the OS. */
+export const DEFAULT_APP_THEME: AppTheme = 'system'
+
 export function isAppTheme(value: unknown): value is AppTheme {
   return APP_THEMES.includes(value as AppTheme)
 }
@@ -16,7 +22,7 @@ export function isAppTheme(value: unknown): value is AppTheme {
 /** Read the persisted app theme (defaults to following the OS). */
 export function getAppTheme(): AppTheme {
   const stored = localStorage.getItem(STORAGE_KEY)
-  return isAppTheme(stored) ? stored : 'system'
+  return isAppTheme(stored) ? stored : DEFAULT_APP_THEME
 }
 
 export function resolveTheme(theme: AppTheme, systemPrefersDark: boolean): ResolvedTheme {
@@ -61,8 +67,17 @@ export function setNativeTheme(theme: ResolvedTheme): void {
   render()
 }
 
+const themeListeners = new Set<(theme: AppTheme) => void>()
+
+/** Called after every setAppTheme; returns the unsubscribe. */
+export function subscribeAppTheme(listener: (theme: AppTheme) => void): () => void {
+  themeListeners.add(listener)
+  return () => themeListeners.delete(listener)
+}
+
 /** Persist + apply a theme in one step. */
 export function setAppTheme(theme: AppTheme): void {
   localStorage.setItem(STORAGE_KEY, theme)
   applyAppTheme(theme)
+  themeListeners.forEach(listener => listener(theme))
 }

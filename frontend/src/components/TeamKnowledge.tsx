@@ -8,6 +8,7 @@ import './TeamKnowledge.css'
 export const ANNOUNCE_MS = 2000
 
 interface TeamKnowledgeProps {
+  /** `/sessions/:id/context` key for the terminal (api/sessionContext sessionContextKey). */
   sessionId: string
   /** Set when the active terminal (re)connects: announce its knowledge once. */
   announceAt?: number
@@ -36,7 +37,8 @@ function Entry({ context }: { context: SessionContext }) {
  * Team Knowledge for the active terminal's session: a tab in the right-edge
  * dock (shown while the session has saved context). On connect a compact card
  * announces the newest entry, then folds back into the tab; the tab opens the
- * full list. Entries open the session's Context settings or seed the AI.
+ * full list. Entries open the session's Context settings (enterprise: the
+ * device's or session definition's Context) or seed the AI.
  */
 export default function TeamKnowledge({ sessionId, announceAt, onAnnounced, onOpenEntry, onAskAI }: TeamKnowledgeProps) {
   const { contexts, refresh } = useSessionContext({ sessionId })

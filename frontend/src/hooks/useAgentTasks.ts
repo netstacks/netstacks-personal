@@ -15,6 +15,7 @@ import { getClient, getCurrentMode } from '../api/client';
 import * as tasksApi from '../api/tasks';
 import { listAgentExecutions } from '../api/agentDefinitions';
 import { saveTaskResultToDoc } from '../lib/taskExport';
+import { useUserScopeStore } from '../lib/userScope';
 import type {
   AgentTask,
   TaskStatus,
@@ -183,6 +184,15 @@ let moduleSubscriberCount = 0;
 let moduleShouldStay = false; // false = intentional disconnect, don't reconnect
 let modulePollInterval: ReturnType<typeof setInterval> | null = null;
 
+// Enterprise: a change of user (or signing out) drops the previous user's
+// task list; the poller fills it again for whoever is signed in.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope === prev.scope) return;
+  const store = useAgentTasksStore.getState();
+  store.setTasks([]);
+  store.setRunningCount(0);
+});
+
 function moduleConnect(): void {
   if (checkIsEnterprise()) {
     // Enterprise mode uses REST polling — Controller doesn't expose /ws/tasks.
@@ -190,6 +200,8 @@ function moduleConnect(): void {
     if (!modulePollInterval) {
       let consecutiveErrors = 0;
       const pollTasks = async () => {
+        // Executions belong to the signed-in user; none while signed out.
+        if (!useUserScopeStore.getState().scope) return;
         try {
           const response = await listAgentExecutions({ limit: 50 });
           const s = useAgentTasksStore.getState();

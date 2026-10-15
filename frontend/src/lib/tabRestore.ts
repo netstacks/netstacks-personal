@@ -2,11 +2,12 @@
 // reference), their order, the active tab and the popout windows are
 // snapshotted to localStorage, then resolved against live data on the next
 // launch. Nothing here opens a connection: restored terminals always come back
-// disconnected and wait for the user.
+// disconnected and wait for the user. In enterprise the snapshot is per
+// Controller and user (lib/userScope).
 import { listSessions, hasConsoleAccess, sessionTerminalSettings, type Session, type SessionTerminalSettings, type TabProtocol } from '../api/sessions'
 import { listProfiles } from '../api/profiles'
-import { listEnterpriseSessionDefinitions } from '../api/enterpriseSessions'
-import { listEnterpriseDevices } from '../api/enterpriseDevices'
+import { getSessionDefinition } from '../api/enterpriseSessions'
+import { getEnterpriseDevice } from '../api/enterpriseDevices'
 import { getDocument, type Document } from '../api/docs'
 import { getTopology } from '../api/topology'
 import { getScript, type Script } from '../api/scripts'
@@ -14,6 +15,8 @@ import { parseApiError } from '../api/errors'
 import type { Topology } from '../types/topology'
 import type { CliFlavor } from '../types/enrichment'
 import type { DeviceSummary } from '../types/enterpriseDevice'
+import type { EnterpriseSession } from '../types/enterpriseSession'
+import { userScopedKey } from './userScope'
 
 const STORAGE_KEY = 'netstacks-open-tabs'
 /** Device-anchored enterprise tabs carry `device-<deviceId>` as their session definition id. */
@@ -180,12 +183,16 @@ export function parseTabSnapshot(raw: string | null): TabSnapshot | null {
   }
 }
 
+/** The signed-in user's snapshot; null when there is none (or no user yet in enterprise). */
 export function readTabSnapshot(): TabSnapshot | null {
-  return parseTabSnapshot(localStorage.getItem(STORAGE_KEY))
+  const key = userScopedKey(STORAGE_KEY)
+  return key ? parseTabSnapshot(localStorage.getItem(key)) : null
 }
 
+/** No-op until an enterprise user is signed in. */
 export function writeTabSnapshot(snapshot: TabSnapshot): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+  const key = userScopedKey(STORAGE_KEY)
+  if (key) localStorage.setItem(key, JSON.stringify(snapshot))
 }
 
 export type ResolvedTerminal =
@@ -226,16 +233,7 @@ async function lookup<T>(what: string, load: () => Promise<T>): Promise<T | null
   }
 }
 
-async function listAllEnterpriseDevices(): Promise<DeviceSummary[]> {
-  const devices: DeviceSummary[] = []
-  for (;;) {
-    const page = await listEnterpriseDevices({ limit: 1000, offset: devices.length })
-    devices.push(...page.items)
-    if (page.items.length === 0 || devices.length >= page.total) return devices
-  }
-}
-
-/** Loads only the lists the snapshot's terminals reference, then resolves each terminal against them. */
+/** Loads only what the snapshot's terminals reference, then resolves each terminal against it. */
 async function terminalResolver(
   terminals: TerminalSnapshot[],
   isEnterprise: boolean,
@@ -255,18 +253,20 @@ async function terminalResolver(
     }
   }
 
-  const definitionIds = terminals.flatMap(t => t.type === 'enterprise-terminal' ? [t.definitionId] : [])
-  const needsDevices = definitionIds.some(id => id.startsWith(DEVICE_DEFINITION_PREFIX))
-  const needsDefinitions = definitionIds.some(id => !id.startsWith(DEVICE_DEFINITION_PREFIX))
-  const [definitions, devices] = await Promise.all([
-    needsDefinitions ? lookup('session definitions', async () => (await listEnterpriseSessionDefinitions()).items) : null,
-    needsDevices ? lookup('devices', listAllEnterpriseDevices) : null,
-  ])
+  // Each referenced definition / device is fetched by id (a device by
+  // GET /devices/browse/:id), so restore costs one request per tab, never a
+  // walk of the whole inventory.
+  const definitionIds = [...new Set(terminals.flatMap(t => t.type === 'enterprise-terminal' ? [t.definitionId] : []))]
+  const targets = new Map<string, EnterpriseSession | DeviceSummary>()
+  await Promise.all(definitionIds.map(async (id) => {
+    const target = id.startsWith(DEVICE_DEFINITION_PREFIX)
+      ? await lookup(`device ${id}`, () => getEnterpriseDevice(id.slice(DEVICE_DEFINITION_PREFIX.length)))
+      : await lookup(`session definition ${id}`, () => getSessionDefinition(id))
+    if (target) targets.set(id, target)
+  }))
   return (t) => {
     if (t.type !== 'enterprise-terminal') return null
-    const target = t.definitionId.startsWith(DEVICE_DEFINITION_PREFIX)
-      ? devices?.find(d => `${DEVICE_DEFINITION_PREFIX}${d.id}` === t.definitionId)
-      : definitions?.find(d => d.id === t.definitionId)
+    const target = targets.get(t.definitionId)
     if (!target) return null
     return {
       type: 'enterprise-terminal',

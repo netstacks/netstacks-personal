@@ -5,7 +5,6 @@ import { setAuthStateGetter } from '../api/controllerClient';
 import { getCurrentMode } from '../api/client';
 import { useCapabilitiesStore } from './capabilitiesStore';
 
-import { logger } from '../lib/logger'
 import { getErrorMessage } from '../api/errors'
 /**
  * Auth store for Enterprise mode authentication.
@@ -34,23 +33,13 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
 
         try {
-          // Get agent's public key for cert auto-signing
-          // Only attempt in Tauri (sidecar managed by Tauri); in Vite dev the
-          // proxy targets the sidecar which isn't running in enterprise mode.
-          let publicKey: string | undefined;
           const mode = getCurrentMode();
-          if (mode === 'enterprise' && window.__TAURI_INTERNALS__) {
-            try {
-              publicKey = await import('../api/cert').then(m => m.getCertPublicKey());
-            } catch {
-              // Agent not running or cert manager not initialized
-            }
-          }
-
+          // No `public_key`: it came from the local agent's cert manager, and
+          // no local agent runs in enterprise mode (the Controller is the SSH
+          // egress), so there is no client key for the Controller to sign.
           const response = await authApi.login({
             username: email,
             password,
-            public_key: publicKey,
             client_type: 'terminal',
           });
 
@@ -71,27 +60,9 @@ export const useAuthStore = create<AuthState>()(
             error: null,
           });
 
-          // Store SSH certificate if returned (enterprise mode).
-          //
-          // Cert lifecycle note: certs are provisioned ONCE here at login
-          // and not refreshed afterwards. The sidecar exits in enterprise
-          // mode (the controller is the replacement, not a partner), so
-          // post-login renewal would have to be a controller-side flow —
-          // not the sidecar-routed /cert/* calls that the now-removed
-          // `useCertRenewal` hook previously attempted. If post-login
-          // renewal is ever needed, design it against the controller API.
+          // Store SSH certificate info if returned (StatusBar display).
           if (mode === 'enterprise' && response.ssh_certificate) {
-            // Store cert info in auth store for StatusBar display
             set({ certInfo: response.ssh_certificate });
-
-            // Also try to store on sidecar if available (Tauri only)
-            if (window.__TAURI_INTERNALS__) {
-              try {
-                await import('../api/cert').then(m => m.storeCertificate(response.ssh_certificate!));
-              } catch (err) {
-                logger.debug('[authStore] Sidecar cert storage skipped:', err);
-              }
-            }
           }
 
           // Fetch capabilities after successful login (enterprise mode)

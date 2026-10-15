@@ -1021,37 +1021,3 @@ body[data-tab-dragging="true"] .tab:not(.dragging) {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.save-layout-dialog {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
-  padding: 20px;
-  min-width: 320px;
-  max-width: 400px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-}
-
-.save-layout-dialog h3 {
-  margin: 0 0 8px 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.save-layout-dialog-description {
-  margin: 0 0 16px 0;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-}
-
-.save-layout-dialog-input {
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.save-layout-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}

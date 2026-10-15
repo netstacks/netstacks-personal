@@ -2,18 +2,17 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import './EnterpriseDevicePanel.css';
 import SearchField from './SearchField';
-import { listEnterpriseDevices, updateEnterpriseDevice, type DeviceSummary } from '../api/enterpriseDevices';
+import { listEnterpriseDevices, type DeviceSummary } from '../api/enterpriseDevices';
 import ContextMenu, { type MenuItem } from './ContextMenu';
-import DeviceMemoryEditor from './DeviceMemoryEditor';
-import SessionContextEditor from './SessionContextEditor';
-import { useAuthStore } from '../stores/authStore';
+import EnterpriseDeviceEditDialog from './EnterpriseDeviceEditDialog';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 // Icons
 import { getErrorMessage } from '../api/errors'
-import DialogFooter from './DialogFooter';
 import Tooltip from './Tooltip';
-import ModalFrame from './ModalFrame';
+import { userScopedKey } from '../lib/userScope';
+const FAVORITES_KEY = 'enterprise-device-favorites';
+
 const Icons = {
   refresh: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -76,26 +75,13 @@ export default function EnterpriseDevicePanel({
 
   // Edit device state
   const [editDevice, setEditDevice] = useState<DeviceSummary | null>(null);
-  const [editForm, setEditForm] = useState<{
-    name: string;
-    host: string;
-    port: number;
-    device_type: string;
-    description: string;
-    site: string;
-    manufacturer: string;
-    model: string;
-  }>({ name: '', host: '', port: 22, device_type: '', description: '', site: '', manufacturer: '', model: '' });
-  const [editSaving, setEditSaving] = useState(false);
-  const [editTab, setEditTab] = useState<'properties' | 'memory' | 'context'>('properties');
 
-  // Current user — author for device-memory entries created from this panel.
-  const currentUser = useAuthStore((s) => s.user)?.username ?? 'Unknown';
-
-  // Favorites stored in localStorage
+  // Favorites stored in localStorage, per signed-in user (lib/userScope)
   const [favoriteDeviceIds, setFavoriteDeviceIds] = useState<Set<string>>(() => {
+    const key = userScopedKey(FAVORITES_KEY);
+    if (!key) return new Set();
     try {
-      const stored = localStorage.getItem('enterprise-device-favorites');
+      const stored = localStorage.getItem(key);
       return stored ? new Set(JSON.parse(stored)) : new Set();
     } catch {
       return new Set();
@@ -113,7 +99,8 @@ export default function EnterpriseDevicePanel({
       } else {
         next.add(deviceId);
       }
-      localStorage.setItem('enterprise-device-favorites', JSON.stringify([...next]));
+      const key = userScopedKey(FAVORITES_KEY);
+      if (key) localStorage.setItem(key, JSON.stringify([...next]));
       return next;
     });
   };
@@ -124,37 +111,6 @@ export default function EnterpriseDevicePanel({
   const favoriteDevices = useMemo(() => {
     return devices.filter(d => favoriteDeviceIds.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
   }, [devices, favoriteDeviceIds]);
-
-  // Open edit device dialog
-  const handleEditDevice = (device: DeviceSummary) => {
-    setEditDevice(device);
-    setEditTab('properties');
-    setEditForm({
-      name: device.name,
-      host: device.host,
-      port: device.port,
-      device_type: device.device_type,
-      description: '',
-      site: device.site || '',
-      manufacturer: device.manufacturer || '',
-      model: device.model || '',
-    });
-  };
-
-  // Save device edits
-  const handleSaveEdit = async () => {
-    if (!editDevice) return;
-    setEditSaving(true);
-    try {
-      await updateEnterpriseDevice(editDevice.id, editForm);
-      setEditDevice(null);
-      fetchDevices(); // Refresh the device list
-    } catch (err) {
-      console.error('Failed to update device:', err);
-    } finally {
-      setEditSaving(false);
-    }
-  };
 
   // Fetch devices on mount
   const fetchDevices = async () => {
@@ -178,7 +134,7 @@ export default function EnterpriseDevicePanel({
     { id: 'connect', label: 'Connect', action: () => onDeviceConnect(device) },
     { id: 'favorite', label: isFavorite(device.id) ? 'Remove from Favorites' : 'Add to Favorites', action: () => toggleFavorite(device.id) },
     { id: 'edit-divider', label: '', divider: true, action: () => {} },
-    { id: 'edit', label: 'Edit Device', action: () => handleEditDevice(device) },
+    { id: 'edit', label: 'Edit Device', action: () => setEditDevice(device) },
     ...(onViewLatestBackup || onOpenBackupHistory ? [{ id: 'backup-divider', label: '', divider: true, action: () => {} }] : []),
     ...(onViewLatestBackup ? [{ id: 'latest-backup', label: 'View Latest Backup', action: () => onViewLatestBackup(device) }] : []),
     ...(onOpenBackupHistory ? [{ id: 'backup-history', label: 'Backup History', action: () => onOpenBackupHistory(device) }] : []),
@@ -438,96 +394,8 @@ export default function EnterpriseDevicePanel({
         onClose={() => setContextMenu(null)}
       />
 
-      {/* Edit Device Dialog */}
       {editDevice && (
-        <ModalFrame id="enterprise-device-edit" className="device-edit-dialog" label="Edit Device">
-          <div className="device-edit-header">
-            <h3>Edit Device</h3>
-            <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={() => setEditDevice(null)}>&times;</button>
-          </div>
-          <div className="ns-segmented">
-            <button
-              className={`ns-segment ${editTab === 'properties' ? 'active' : ''}`}
-              onClick={() => setEditTab('properties')}
-            >
-              Properties
-            </button>
-            <button
-              className={`ns-segment ${editTab === 'memory' ? 'active' : ''}`}
-              onClick={() => setEditTab('memory')}
-            >
-              Device Memory
-            </button>
-            <button
-              className={`ns-segment ${editTab === 'context' ? 'active' : ''}`}
-              onClick={() => setEditTab('context')}
-            >
-              Context
-            </button>
-          </div>
-          {editTab === 'properties' && (
-            <>
-          <div className="device-edit-form">
-            <div className="device-edit-field">
-              <label>Name</label>
-              <input data-ai-fill="off" aria-label="Name" className="ns-input" value={editForm.name} onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))} />
-            </div>
-            <div className="device-edit-row">
-              <div className="device-edit-field">
-                <label>Host</label>
-                <input data-ai-fill="off" aria-label="Host" className="ns-input" value={editForm.host} onChange={(e) => setEditForm(prev => ({ ...prev, host: e.target.value }))} />
-              </div>
-              <div className="device-edit-field" style={{ maxWidth: 80 }}>
-                <label>Port</label>
-                <input aria-label="Port" className="ns-input"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  step={1}
-                  value={editForm.port}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
-                />
-              </div>
-            </div>
-            <div className="device-edit-field">
-              <label>Device Type</label>
-              <input data-ai-fill="off" aria-label="Device Type" className="ns-input" value={editForm.device_type} onChange={(e) => setEditForm(prev => ({ ...prev, device_type: e.target.value }))} />
-            </div>
-            <div className="device-edit-row">
-              <div className="device-edit-field">
-                <label>Site</label>
-                <input data-ai-fill="off" aria-label="Site" className="ns-input" value={editForm.site} onChange={(e) => setEditForm(prev => ({ ...prev, site: e.target.value }))} />
-              </div>
-            </div>
-            <div className="device-edit-row">
-              <div className="device-edit-field">
-                <label>Manufacturer</label>
-                <input data-ai-fill="off" aria-label="Manufacturer" className="ns-input" value={editForm.manufacturer} onChange={(e) => setEditForm(prev => ({ ...prev, manufacturer: e.target.value }))} />
-              </div>
-              <div className="device-edit-field">
-                <label>Model</label>
-                <input data-ai-fill="off" aria-label="Model" className="ns-input" value={editForm.model} onChange={(e) => setEditForm(prev => ({ ...prev, model: e.target.value }))} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter
-            primary={{ label: editSaving ? 'Saving...' : 'Save', onClick: handleSaveEdit, disabled: editSaving }}
-            onCancel={() => setEditDevice(null)}
-            cancelDisabled={editSaving}
-          />
-            </>
-          )}
-          {editTab === 'memory' && (
-            <div className="device-edit-memory">
-              <DeviceMemoryEditor deviceId={editDevice.id} currentUser={currentUser} />
-            </div>
-          )}
-          {editTab === 'context' && (
-            <div className="device-edit-memory">
-              <SessionContextEditor deviceId={editDevice.id} currentUser={currentUser} />
-            </div>
-          )}
-        </ModalFrame>
+        <EnterpriseDeviceEditDialog device={editDevice} onClose={() => setEditDevice(null)} onSaved={fetchDevices} />
       )}
     </div>
   );

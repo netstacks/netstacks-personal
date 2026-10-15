@@ -69,7 +69,37 @@ export interface UseEnterpriseSSHOptions {
   onReconnectFailed?: () => void;
   /** Called when an error message is received from server */
   onError?: (message: string) => void;
+  /**
+   * Called once, instead of onError and onDisconnected, when the Controller
+   * refuses the connection for a reason a retry can't fix (access denied,
+   * authentication failure, unknown device…). No reconnection follows.
+   */
+  onRefused: (message: string) => void;
 }
+
+// What the Controller's /ws/ssh sends before closing when it refuses a
+// connection (controller/crates/api/src/ws/handler.rs send_error; it closes
+// without a close code, so the message is all there is). These are settled by
+// an administrator or the user, never by retrying. Everything else — dropped
+// sockets, "Device lookup failed", "Connection failed: <host>:<port> - timeout"
+// — may pass, so it is retried.
+const PERMANENT_REFUSALS: readonly RegExp[] = [
+  /authentication (failed|token)/i, // JWT missing/invalid; device SSH auth ("Connection failed: Authentication failed: …")
+  /access denied|forbidden|unauthorized|permission/i,
+  /not found|no device matches|missing target host/i,
+  /no profile assigned|no default connection profile|no ssh credential/i,
+  /key error|credential decryption failed/i,
+  /maximum concurrent sessions/i,
+];
+
+/** True when a Controller error message refuses the connection for good. */
+export function isPermanentRefusal(message: string): boolean {
+  return PERMANENT_REFUSALS.some((re) => re.test(message));
+}
+
+// "Resume failed: …" — the reconnect token is no longer usable (window
+// expired, session gone); the next attempt connects afresh without it.
+const RESUME_FAILED = /^resume failed/i;
 
 export interface UseEnterpriseSSHReturn {
   /** Send terminal input data to server */
@@ -118,6 +148,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
     onReconnecting,
     onReconnectFailed,
     onError,
+    onRefused,
   } = options;
 
   // State
@@ -133,6 +164,8 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
   const manualDisconnectRef = useRef(false);
   const lastPongRef = useRef<number>(Date.now());
   const reconnectAttemptRef = useRef(0);
+  // The Controller's permanent refusal of the current attempt, if any.
+  const refusalRef = useRef<string | null>(null);
 
   // Stable callback refs to avoid re-creating connect on every render
   const onDataRef = useRef(onData);
@@ -141,12 +174,14 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
   const onReconnectingRef = useRef(onReconnecting);
   const onReconnectFailedRef = useRef(onReconnectFailed);
   const onErrorRef = useRef(onError);
+  const onRefusedRef = useRef(onRefused);
   onDataRef.current = onData;
   onConnectedRef.current = onConnected;
   onDisconnectedRef.current = onDisconnected;
   onReconnectingRef.current = onReconnecting;
   onReconnectFailedRef.current = onReconnectFailed;
   onErrorRef.current = onError;
+  onRefusedRef.current = onRefused;
 
   // cols/rows are used only for initial connection URL params — resizes are sent
   // separately via sendResize. We don't want col/row changes to trigger reconnects.
@@ -256,6 +291,7 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
       logger.log('[useEnterpriseSSH] Connecting to:', wsUrl.replace(/token=[^&]+/, 'token=***'));
 
       setStatus('connecting');
+      refusalRef.current = null;
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer'; // CRITICAL: Required for binary protocol
@@ -351,7 +387,12 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
             case WsMessageType.Error: {
               const errorMsg = payloadAsText(msg.payload);
               console.error('[useEnterpriseSSH] Server error:', errorMsg);
-              if (onErrorRef.current) {
+              if (RESUME_FAILED.test(errorMsg)) {
+                reconnectTokenRef.current = null;
+              } else if (isPermanentRefusal(errorMsg)) {
+                // Reported once the server closes the socket (right after).
+                refusalRef.current = errorMsg;
+              } else if (onErrorRef.current) {
                 onErrorRef.current(errorMsg);
               }
               break;
@@ -389,6 +430,15 @@ export function useEnterpriseSSH(options: UseEnterpriseSSHOptions): UseEnterpris
         if (manualDisconnectRef.current) {
           setStatus('disconnected');
           onDisconnectedRef.current('Manual disconnect');
+          return;
+        }
+
+        // Refused for good: retrying would only repeat the refusal.
+        const refusal = refusalRef.current;
+        if (refusal) {
+          reconnectTokenRef.current = null;
+          setStatus('error');
+          onRefusedRef.current(refusal);
           return;
         }
 

@@ -1,4 +1,3 @@
-import AITabInput from './components/AITabInput'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { copyToClipboard, readClipboardText } from './lib/clipboard'
 import { useClipStore } from './stores/clipStore'
@@ -79,7 +78,9 @@ import AIProgressPanel, { type AIProgressLog } from './components/AIProgressPane
 import SessionSettingsDialog, { type SessionSettingsTab } from './components/SessionSettingsDialog'
 import EdgeDock from './components/EdgeDock'
 import TeamKnowledge from './components/TeamKnowledge'
+import EnterpriseContextDialog from './components/EnterpriseContextDialog'
 import type { SessionContext } from './types/sessionContext'
+import { sessionContextKey } from './api/sessionContext'
 import ShareSessionDialog from './components/ShareSessionDialog'
 import StatusBar from './components/StatusBar'
 import QuickCallVariablesDialog, { extractCallVariables } from './components/QuickCallVariablesDialog'
@@ -145,7 +146,8 @@ import { useSettings, getSettings } from './hooks/useSettings'
 import { nextZoomStep } from './commands/zoom'
 import { useMode } from './hooks/useMode'
 import { useCapabilitiesStore } from './stores/capabilitiesStore'
-import { useAuthStore } from './stores/authStore'
+import { whenSettingsTab } from './lib/settingsTabs'
+import { desktopChrome } from './lib/nativeWindow'
 import type { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import {
   createTabSnapshot,
@@ -160,7 +162,6 @@ import {
   type SnapshotPopout,
 } from './lib/tabRestore'
 import { EnrichmentProvider } from './contexts/EnrichmentContext'
-import { AuthProvider } from './components/auth/AuthProvider'
 import TroubleshootingDialog from './components/TroubleshootingDialog'
 import DeviceEditDialog from './components/DeviceEditDialog'
 import WorkspaceTab from './components/workspace/WorkspaceTab'
@@ -192,8 +193,6 @@ import { logger } from './lib/logger'
 import Tooltip from './components/Tooltip'
 import ModalFrame from './components/ModalFrame'
 const isTauri = '__TAURI_INTERNALS__' in window
-// UI-mock runs render the desktop title bar so it can be screenshot-tested in a browser.
-const hasDesktopChrome = isTauri || import.meta.env.VITE_UI_MOCK === '1'
 
 // Tab type discriminator
 type TabType = 'terminal' | 'document' | 'topology' | 'device-detail' | 'link-detail' | 'mop' | 'sftp-editor' | 'script' | 'api-response' | 'api-request' | 'settings' | 'incident-detail' | 'alert-detail' | 'stack-detail' | 'backup-history' | 'config-template' | 'config-stack' | 'config-instance' | 'config-deployment' | 'workspace' | 'scratchpad' | 'agent-run' | 'ai-chat'
@@ -370,6 +369,8 @@ const TAB_PERSIST_DEBOUNCE_MS = 300
 
 const TERMINAL_POPOUT_SIZE = { width: 800, height: 600, minWidth: 400, minHeight: 300 }
 const CHAT_POPOUT_SIZE = { width: 480, height: 720, minWidth: 360, minHeight: 420 }
+/** Browser build: how often an open popout window is checked for being closed. */
+const BROWSER_POPOUT_POLL_MS = 1000
 
 /** URL params a popout terminal window opens with (read by PopoutTerminal). */
 function popoutTerminalParams(tab: Tab): URLSearchParams {
@@ -408,6 +409,17 @@ async function createPopoutWindow(
     ...bounds,
     decorations: true,
   })
+}
+
+/** Browser build: the URL a popout window loads (the web client may be served under /terminal/). */
+function browserPopoutUrl(params: URLSearchParams): string {
+  const basePath = window.location.pathname.startsWith('/terminal') ? '/terminal/' : '/'
+  return `${window.location.origin}${basePath}?${params.toString()}`
+}
+
+/** Browser build: window.open features for a popout of this size. */
+function browserPopoutFeatures(size: typeof TERMINAL_POPOUT_SIZE): string {
+  return `width=${size.width},height=${size.height}`
 }
 
 // Type guard helpers
@@ -753,6 +765,8 @@ function AppContent() {
   }, [])
   // Team Knowledge: the last terminal (re)connect, announced once when its tab is active.
   const [knowledgeAnnounce, setKnowledgeAnnounce] = useState<{ tabId: string; at: number } | null>(null)
+  // Enterprise: the Team Knowledge entry opened from the dock (see EnterpriseContextDialog).
+  const [enterpriseContextEntry, setEnterpriseContextEntry] = useState<{ context: SessionContext; sessionKey: string; sessionName: string } | null>(null)
   const [edgeDockSlot, setEdgeDockSlot] = useState<HTMLDivElement | null>(null)
   const handleAskAIAboutContext = useCallback((ctx: SessionContext, deviceName: string) => {
     handleAskAISeed(
@@ -1038,14 +1052,65 @@ function AppContent() {
     popout.once('tauri://error', (e) => console.error('[popout] Failed to reopen window:', e))
   }, [trackPopout])
 
-  // Restore once the app can resolve what the snapshot references: standalone
-  // renders behind the vault unlock; enterprise renders App under the login
-  // screen, so it waits for login and the Controller's capabilities.
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const tabRestoreReady = capabilitiesLoaded && (!isEnterprise || isAuthenticated)
+  // Browser build: a popout is a plain window. It stays in the snapshot while
+  // open and leaves it once closed — polled, since a closing window fires
+  // nothing its opener can rely on.
+  const browserPopupsRef = useRef(new Map<string, Window>())
+  const trackBrowserPopout = useCallback((popup: Window, entry: SnapshotPopout) => {
+    popoutsRef.current.set(entry.label, entry)
+    browserPopupsRef.current.set(entry.label, popup)
+    schedulePersistTabs()
+    const timer = window.setInterval(() => {
+      if (!popup.closed) return
+      window.clearInterval(timer)
+      popoutsRef.current.delete(entry.label)
+      browserPopupsRef.current.delete(entry.label)
+      schedulePersistTabs()
+    }, BROWSER_POPOUT_POLL_MS)
+  }, [schedulePersistTabs])
+
+  // The app unmounts when an enterprise user signs out (it mounts per signed-in
+  // user): save their open tabs for their next sign-in, then close their popout
+  // windows so none of their sessions stay on screen.
+  useEffect(() => {
+    const popouts = popoutsRef.current
+    const browserPopups = browserPopupsRef.current
+    return () => {
+      persistTabs()
+      tabsRestoredRef.current = false
+      const labels = [...popouts.keys()]
+      if (isTauri && labels.length > 0) {
+        void import('@tauri-apps/api/webviewWindow').then(({ WebviewWindow }) => {
+          for (const label of labels) void WebviewWindow.getByLabel(label).then(win => win?.close())
+        })
+      }
+      for (const popup of browserPopups.values()) popup.close()
+    }
+  }, [persistTabs])
+
+  // Browser build: a popout still open from before a reload is adopted as-is
+  // (loading it again would drop its session); otherwise a new window opens.
+  // Returns false when the browser blocks the window (no user gesture).
+  const reopenBrowserPopout = useCallback((p: ResolvedPopout): boolean => {
+    const chat = p.kind === 'chat'
+    const popup = window.open('', p.label, browserPopoutFeatures(chat ? CHAT_POPOUT_SIZE : TERMINAL_POPOUT_SIZE))
+    if (!popup) return false
+    if (popup.location.href === 'about:blank') {
+      const params = chat ? new URLSearchParams({ popout: 'chat', title: p.title }) : popoutTerminalParams(restoredTab(p.terminal))
+      popup.location.href = browserPopoutUrl(params)
+    }
+    trackBrowserPopout(popup, chat ? p : { kind: 'terminal', label: p.label, tab: p.tab })
+    return true
+  }, [trackBrowserPopout])
+
+  // Standalone split view state (Phase 25: fluid split - independent of groups)
+  const [splitTabs, setSplitTabs] = useState<string[]>([])
 
   useEffect(() => {
-    if (!tabRestoreReady || tabRestoreStartedRef.current) return
+    // Restore once the app can resolve what the snapshot references. (In
+    // enterprise the app mounts only once a user is signed in, so the
+    // snapshot read is that user's.)
+    if (!capabilitiesLoaded || tabRestoreStartedRef.current) return
     tabRestoreStartedRef.current = true
     const snapshot = readTabSnapshot()
     if (!snapshot) {
@@ -1055,33 +1120,35 @@ function AppContent() {
     resolveTabSnapshot(snapshot, { isEnterprise, canDocs, canTopology })
       .then((resolved) => {
         const restored = resolved.tabs.map(restoredTab)
+        if (isTauri) {
+          for (const popout of resolved.popouts) {
+            reopenPopout(popout).catch((err) => console.error('[popout] Failed to reopen window:', err))
+          }
+        } else {
+          // A browser may refuse to open windows outside a user gesture: a
+          // popped-out terminal it refuses comes back as a tab instead. (A
+          // popped-out chat's conversation stays reachable from the AI panel.)
+          for (const popout of resolved.popouts) {
+            if (!reopenBrowserPopout(popout) && popout.kind === 'terminal') restored.push(restoredTab(popout.terminal))
+          }
+        }
         const documents = resolved.tabs.flatMap(t => t.type === 'document' ? [[t.document.id, t.document] as const] : [])
         setDocumentCache(prev => ({ ...prev, ...Object.fromEntries(documents) }))
         // Tabs opened while the restore was in flight stay, after the restored ones.
         setTabs(prev => [...restored.filter(t => !prev.some(p => p.id === t.id)), ...prev])
         setActiveTabId(prev => prev ?? resolved.activeTabId)
-        if (isTauri) {
-          for (const popout of resolved.popouts) {
-            reopenPopout(popout).catch((err) => console.error('[popout] Failed to reopen window:', err))
-          }
-        }
       })
       .catch((err) => console.error('[tabRestore] Failed to restore tabs:', err))
       .finally(() => {
         tabsRestoredRef.current = true
         schedulePersistTabs()
       })
-  }, [tabRestoreReady, isEnterprise, canDocs, canTopology, reopenPopout, schedulePersistTabs])
+  }, [capabilitiesLoaded, isEnterprise, canDocs, canTopology, reopenPopout, reopenBrowserPopout, schedulePersistTabs])
 
   // Tab context menu state
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [contextMenuTabId, setContextMenuTabId] = useState<string | null>(null)
   const [tabGroups, setTabGroups] = useState<TabGroup[]>([])
-
-  // Save layout dialog state (Phase 25)
-  const [saveLayoutDialogOpen, setSaveLayoutDialogOpen] = useState(false)
-  const [saveLayoutGroupId, setSaveLayoutGroupId] = useState<string | null>(null)
-  const [layoutNameInput, setLayoutNameInput] = useState('')
 
   // Split pane resize state (Phase 25: resizable split views)
   const [splitPaneSizes, setSplitPaneSizes] = useState<Record<string, number[]>>({})
@@ -1113,8 +1180,6 @@ function AppContent() {
   // Tab bar reorder drop target
   const [tabReorderDropTarget, setTabReorderDropTarget] = useState<{ tabId: string; side: 'before' | 'after' } | null>(null)
 
-  // Standalone split view state (Phase 25: fluid split - independent of groups)
-  const [splitTabs, setSplitTabs] = useState<string[]>([])
   // Layout types: horizontal (side-by-side), vertical (stacked),
   // '2-top-1-bottom' (2 on top row, 1 spanning bottom), '1-top-2-bottom' (1 spanning top, 2 on bottom)
   const [splitLayout, setSplitLayout] = useState<'horizontal' | 'vertical' | '2-top-1-bottom' | '1-top-2-bottom'>('horizontal')
@@ -1229,7 +1294,8 @@ function AppContent() {
   // Keyboard shortcuts hook (shared store — Settings edits apply live)
   const keyboard = useKeyboard()
   // The agent copy is the profile's source of truth for custom bindings.
-  useEffect(() => { void loadKeybindingsFromBackend() }, [])
+  // Enterprise loads the signed-in user's bindings on sign-in (hooks/useKeyboard).
+  useEffect(() => { if (!isEnterprise) void loadKeybindingsFromBackend() }, [isEnterprise])
 
   // Tab multi-selection (Phase 25)
   const {
@@ -2300,13 +2366,16 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
         showToast('Failed to pop out chat', 'error')
       })
     } catch {
-      const basePath = window.location.pathname.startsWith('/terminal') ? '/terminal/' : '/'
-      const url = `${window.location.origin}${basePath}?${params.toString()}`
-      const popup = window.open(url, `popout-${tab.id}`, 'width=480,height=720')
-      if (popup) dropTab()
-      else showToast('Pop-up blocked — please allow pop-ups for this site', 'warning')
+      const label = `popout-${tab.id}`
+      const popup = window.open(browserPopoutUrl(params), label, browserPopoutFeatures(CHAT_POPOUT_SIZE))
+      if (popup) {
+        dropTab()
+        trackBrowserPopout(popup, { kind: 'chat', label, title: tab.title })
+      } else {
+        showToast('Pop-up blocked — please allow pop-ups for this site', 'warning')
+      }
     }
-  }, [tabs, activeTabId, trackPopout])
+  }, [tabs, activeTabId, trackPopout, trackBrowserPopout])
 
   // Continue a finished agent run as a chat — IN THE SAME TAB. Converts the
   // static agent-run tab into a live chat session (reusing the AI chat engine),
@@ -3612,21 +3681,22 @@ def main(command: str = "show version"):
       })
     } catch {
       // Browser fallback — open in new tab/window
-      const basePath = window.location.pathname.startsWith('/terminal') ? '/terminal/' : '/'
-      const url = `${window.location.origin}${basePath}?${params.toString()}`
-      const popup = window.open(url, `popout-${tab.id}`, 'width=800,height=600')
+      const label = `popout-${tab.id}`
+      const popup = window.open(browserPopoutUrl(params), label, browserPopoutFeatures(TERMINAL_POPOUT_SIZE))
       if (popup) {
         setTabs(prev => prev.filter(t => t.id !== tabId))
         if (activeTabId === tabId) {
           const remaining = tabs.filter(t => t.id !== tabId)
           setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null)
         }
+        const snapshot = snapshotTerminal(tab)
+        if (snapshot) trackBrowserPopout(popup, { kind: 'terminal', label, tab: snapshot })
       } else {
         showToast('Pop-up blocked — please allow pop-ups for this site', 'warning')
       }
     }
     closeContextMenu()
-  }, [tabs, activeTabId, closeContextMenu, trackPopout])
+  }, [tabs, activeTabId, closeContextMenu, trackPopout, trackBrowserPopout])
 
   const duplicateTab = useCallback((id: string) => {
     const tab = tabs.find(t => t.id === id)
@@ -3797,56 +3867,6 @@ def main(command: str = "show version"):
       },
     })
   }, [selectedTabIds, tabGroups, clearTabSelection])
-
-  // Confirm and save layout to database (Phase 25)
-  const handleSaveLayoutConfirm = useCallback(async () => {
-    if (!saveLayoutGroupId || !layoutNameInput.trim()) return
-
-    const group = tabGroups.find(g => g.id === saveLayoutGroupId)
-    if (!group) return
-
-    // Build mixed-type tabs array (Phase 25: supports terminal, topology, document tabs)
-    const layoutTabs: LayoutTab[] = []
-    const sessionIds: string[] = [] // Legacy field for backward compatibility
-
-    for (const tabId of group.tabIds) {
-      const tab = tabs.find(t => t.id === tabId)
-      if (!tab) continue
-
-      if (isTerminalTab(tab) && tab.sessionId) {
-        layoutTabs.push({
-          type: 'terminal',
-          sessionId: tab.sessionId,
-        })
-        sessionIds.push(tab.sessionId) // Also populate legacy field
-      } else if (isTopologyTab(tab) && tab.topologyId) {
-        layoutTabs.push({
-          type: 'topology',
-          topologyId: tab.topologyId,
-        })
-      } else if (isDocumentTab(tab) && tab.documentId) {
-        layoutTabs.push({
-          type: 'document',
-          documentId: tab.documentId,
-          documentName: tab.title,
-        })
-      }
-    }
-
-    try {
-      await createLayout({
-        name: layoutNameInput.trim(),
-        sessionIds, // Legacy: for backward compatibility
-        tabs: layoutTabs.length > 0 ? layoutTabs : undefined, // New: mixed tab types
-        orientation: group.orientation,
-      })
-      setSaveLayoutDialogOpen(false)
-      setSaveLayoutGroupId(null)
-      setLayoutNameInput('')
-    } catch (err) {
-      console.error('Failed to save layout:', err)
-    }
-  }, [saveLayoutGroupId, layoutNameInput, tabGroups, tabs])
 
   // Handle "Restore Layout" from GroupsPanel (Phase 25)
   const handleRestoreLayout = useCallback(async (layout: Layout, opts?: { ignoreOpenTabs?: boolean }) => {
@@ -4237,6 +4257,8 @@ def main(command: str = "show version"):
   const [chipSessionsById, setChipSessionsById] = useState<Map<string, Session>>(new Map());
 
   useEffect(() => {
+    // Saved groups (and their chips) are standalone-only.
+    if (isEnterprise) return;
     let cancelled = false;
     listSessions()
       .then((all) => {
@@ -4249,7 +4271,7 @@ def main(command: str = "show version"):
     return () => {
       cancelled = true;
     };
-  }, [groupsRefreshKey]);
+  }, [groupsRefreshKey, isEnterprise]);
 
   const getTabTitleForChip = useCallback(
     (idOrSessionId: string) => {
@@ -4273,6 +4295,8 @@ def main(command: str = "show version"):
   const [allGroups, setAllGroups] = useState<Group[]>([]);
 
   useEffect(() => {
+    // The Controller has no /groups.
+    if (isEnterprise) return;
     let cancelled = false;
     import('./api/groups').then((m) =>
       m
@@ -4285,7 +4309,7 @@ def main(command: str = "show version"):
     return () => {
       cancelled = true;
     };
-  }, [groupsRefreshKey]);
+  }, [groupsRefreshKey, isEnterprise]);
 
   const openTabRefs = useMemo(
     () =>
@@ -5341,6 +5365,7 @@ def main(command: str = "show version"):
       name: device.name,
       host: device.host,
       port: device.port,
+      device_id: device.id,
       description: `Device: ${device.device_type}${device.site ? ` (${device.site})` : ''}`,
       cli_flavor: 'auto',
       tags: [],
@@ -5649,12 +5674,14 @@ def main(command: str = "show version"):
       shortcut: formatShortcut(keyboard.getBinding('aiChat')),
       action: () => setAiChatOpen(true)
     },
-    {
+    // The wizard configures the local agent's AI + integrations; in
+    // enterprise those are managed on the Controller.
+    ...(isEnterprise ? [] : [{
       id: 'setup-wizard',
       label: 'Setup Wizard',
       category: 'General',
       action: () => setWizardOpen(true)
-    },
+    }]),
     {
       id: 'ai-overlay',
       label: 'AI: Open Chat Tab',
@@ -6228,7 +6255,8 @@ def main(command: str = "show version"):
     keyboard.registerAction('findInTerminal', openTerminalFind)
     keyboard.registerAction('aiOverlay', handleOpenAIChatTab)
     keyboard.registerAction('groupSelectedTabs', handleGroupSelectedTabs)
-    keyboard.registerAction('saveTabsAsGroup', () => { void handleSaveCurrentAsGroup() })
+    // Saved groups live in the local agent; the Controller has no /groups.
+    if (!isEnterprise) keyboard.registerAction('saveTabsAsGroup', () => { void handleSaveCurrentAsGroup() })
     // Quick Look shortcuts
     keyboard.registerAction('quickLookNotes', () => showDocsCategory('notes'))
     keyboard.registerAction('quickLookTemplates', () => showDocsCategory('templates'))
@@ -6294,7 +6322,7 @@ def main(command: str = "show version"):
       keyboard.unregisterAction('saveTerminalOutput')
       keyboard.unregisterAction('runScript')
     }
-  }, [keyboard, createTerminal, closeTerminal, activeTabId, tabs, selectedSessionIds, handleBulkConnect, handleSaveActiveDocument, handleOpenAIChatFromTerminal, isTroubleshootingActive, reconnectActiveTerminal, openTerminalFind, handleOpenAIChatTab, handleGroupSelectedTabs, handleSaveCurrentAsGroup, showDocsCategory])
+  }, [keyboard, createTerminal, closeTerminal, activeTabId, tabs, selectedSessionIds, handleBulkConnect, handleSaveActiveDocument, handleOpenAIChatFromTerminal, isTroubleshootingActive, reconnectActiveTerminal, openTerminalFind, handleOpenAIChatTab, handleGroupSelectedTabs, handleSaveCurrentAsGroup, showDocsCategory, isEnterprise])
 
   // ── Native menu commands ──────────────────────────────────────────
   // Every native-menu item is registered here as a Command so the
@@ -6540,7 +6568,7 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'tools.snippets', label: 'Snippets…', category: 'tools',
-    when: (ctx) => !ctx.isEnterprise,
+    when: whenSettingsTab('snippets'),
     run: () => openSettingsTab('snippets'),
   })
   useCommand({
@@ -6549,26 +6577,28 @@ def main(command: str = "show version"):
   })
   useCommand({
     id: 'tools.vault', label: 'Credential Vault…', category: 'tools',
-    when: (ctx) => !ctx.isEnterprise,
+    when: whenSettingsTab('security'),
     run: () => openSettingsTab('security'),
   })
   useCommand({
     id: 'tools.recordings', label: 'Recordings…', category: 'tools',
-    when: (ctx) => !ctx.isEnterprise,
+    when: whenSettingsTab('recordings'),
     run: () => openSettingsTab('recordings'),
   })
   useCommand({
     id: 'tools.layouts', label: 'Saved Layouts…', category: 'tools',
-    when: (ctx) => !ctx.isEnterprise,
+    when: whenSettingsTab('layouts'),
     run: () => openSettingsTab('layouts'),
   })
   useCommand({
     id: 'tools.session-logs', label: 'Session Logs…', category: 'tools',
-    when: (ctx) => !ctx.isEnterprise,
+    when: whenSettingsTab('sessionLogs'),
     run: () => openSettingsTab('sessionLogs'),
   })
   useCommand({
     id: 'tools.host-keys', label: 'Trusted Host Keys…', category: 'tools',
+    // The Controller only has /host-keys/prompts, not the trusted-key list.
+    when: whenSettingsTab('hostKeys'),
     run: () => openSettingsTab('hostKeys'),
   })
   useCommand({
@@ -7463,7 +7493,12 @@ def main(command: str = "show version"):
       {sidebarPinned ? Icons.pin : Icons.pinOff}
     </button></Tooltip>
   )
-  const useMacSourceList = platform === 'macos' && appSettings['ui.macSourceList']
+  // The browser build has no title bar or app menu (lib/nativeWindow).
+  const hasDesktopChrome = desktopChrome()
+  // The macOS source list leaves Settings to the app menu (⌘,), as native
+  // macOS apps do. The browser build has no app menu, so it keeps the
+  // activity bar and its always-present Settings button.
+  const useMacSourceList = hasDesktopChrome && platform === 'macos' && appSettings['ui.macSourceList']
 
   const splitMenuItems = (tabId: string): MenuItem[] => {
     const index = splitTabs.indexOf(tabId)
@@ -7494,10 +7529,16 @@ def main(command: str = "show version"):
         })),
       })
     }
+    // Saved layouts and discovery from saved sessions need the local agent
+    // (the Controller has no /layouts and its tabs carry no saved session).
+    if (!isEnterprise) {
+      items.push({ id: 'split-save-layout', label: 'Save as Layout', action: () => { void handleSaveSplitAsLayout() } })
+    }
+    items.push({ id: 'split-create-group', label: 'Create Group from Split', action: () => handleCreateGroupFromSplit() })
+    if (!isEnterprise) {
+      items.push({ id: 'split-group-discover', label: 'Create Group & Discover Topology', action: () => { void handleCreateGroupAndDiscover() } })
+    }
     items.push(
-      { id: 'split-save-layout', label: 'Save as Layout', action: () => { void handleSaveSplitAsLayout() } },
-      { id: 'split-create-group', label: 'Create Group from Split', action: () => handleCreateGroupFromSplit() },
-      { id: 'split-group-discover', label: 'Create Group & Discover Topology', action: () => { void handleCreateGroupAndDiscover() } },
       {
         id: 'split-multi-send',
         label: allMultiSend ? 'Disable Multi-Send on All' : 'Enable Multi-Send on All',
@@ -7522,8 +7563,7 @@ def main(command: str = "show version"):
 
 
   return (
-    <AuthProvider>
-      <div className="app" onContextMenu={handleGlobalContextMenu}>
+    <div className="app" onContextMenu={handleGlobalContextMenu}>
         {/* CommandRegistry ↔ native menu bridge. Mounted at the root so
             it stays alive for the whole session. Doesn't render anything. */}
         <MenuBridge />
@@ -8421,8 +8461,9 @@ def main(command: str = "show version"):
         <EdgeDock slotRef={setEdgeDockSlot}>
           {(() => {
             const activeTab = tabs.find(t => t.id === activeTabId)
-            if (isEnterprise || !activeTab || !isTerminalTab(activeTab) || !activeTab.sessionId) return null
-            const sessionId = activeTab.sessionId
+            if (!activeTab || !isTerminalTab(activeTab)) return null
+            const sessionId = sessionContextKey(activeTab, isEnterprise)
+            if (!sessionId) return null
             return (
               <TeamKnowledge
                 key={sessionId}
@@ -8430,6 +8471,10 @@ def main(command: str = "show version"):
                 announceAt={knowledgeAnnounce?.tabId === activeTab.id ? knowledgeAnnounce.at : undefined}
                 onAnnounced={() => setKnowledgeAnnounce(null)}
                 onOpenEntry={async (ctx) => {
+                  if (isEnterprise) {
+                    setEnterpriseContextEntry({ context: ctx, sessionKey: sessionId, sessionName: activeTab.title })
+                    return
+                  }
                   try {
                     setSessionSettingsTarget({ tab: 'context', contextId: ctx.id })
                     setSessionSettingsSession(await getSession(sessionId))
@@ -8443,6 +8488,15 @@ def main(command: str = "show version"):
             )
           })()}
         </EdgeDock>
+        {enterpriseContextEntry && (
+          <EnterpriseContextDialog
+            context={enterpriseContextEntry.context}
+            sessionKey={enterpriseContextEntry.sessionKey}
+            sessionName={enterpriseContextEntry.sessionName}
+            onClose={() => setEnterpriseContextEntry(null)}
+            onError={(message) => showToast(message, 'error')}
+          />
+        )}
 
         {/* Hot Edge Zones - invisible trigger areas at window edges */}
         {hotEdgesEnabled && !sidebarOpen && (
@@ -8666,45 +8720,6 @@ def main(command: str = "show version"):
           }
         }}
       />
-
-      {/* Save Layout Dialog (Phase 25) */}
-      {saveLayoutDialogOpen && (
-        <ModalFrame id="save-layout" onDismiss={() => setSaveLayoutDialogOpen(false)} className="save-layout-dialog" label="Save Layout">
-          <h3>Save Layout</h3>
-          <p className="save-layout-dialog-description">
-            Save this group configuration as a layout to restore later.
-          </p>
-          <AITabInput
-            className="save-layout-dialog-input"
-            placeholder="Layout name"
-            value={layoutNameInput}
-            onChange={e => setLayoutNameInput(e.target.value)}
-            aiField="layout name"
-            aiPlaceholder="Short name for a saved layout of terminal tabs"
-            aiContext={{ tabs: (tabGroups.find(g => g.id === saveLayoutGroupId)?.tabIds ?? []).map(id => tabs.find(t => t.id === id)?.title).filter(Boolean).join(', ') }}
-            onAIValue={setLayoutNameInput}
-            onKeyDown={e => {
-              if (e.key === 'Enter') handleSaveLayoutConfirm()
-            }}
-            autoFocus
-          />
-          <div className="save-layout-dialog-actions">
-            <button
-              className="ns-btn"
-              onClick={() => setSaveLayoutDialogOpen(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="ns-btn ns-btn--primary"
-              onClick={handleSaveLayoutConfirm}
-              disabled={!layoutNameInput.trim()}
-            >
-              Save
-            </button>
-          </div>
-        </ModalFrame>
-      )}
 
       {/* Tab Context Menu */}
       {contextMenuTabId && (
@@ -9148,12 +9163,15 @@ def main(command: str = "show version"):
       {/* Confirmation dialog host (imperative API: confirmDialog({...})) */}
       <ConfirmDialogHost />
 
-      {/* First-run onboarding wizard (SP2) */}
-      <OnboardingWizard
-        isOpen={wizardOpen}
-        onClose={handleWizardClose}
-        onOpenIntegrations={handleWizardOpenIntegrations}
-      />
+      {/* First-run onboarding wizard (SP2) — standalone only: it writes AI
+          and integration config to the local agent. */}
+      {!isEnterprise && (
+        <OnboardingWizard
+          isOpen={wizardOpen}
+          onClose={handleWizardClose}
+          onOpenIntegrations={handleWizardOpenIntegrations}
+        />
+      )}
 
       {/* AI-proposed API Resource (SP5-C) — user enters the secret + saves */}
       {prefillApiResource && (
@@ -9171,7 +9189,6 @@ def main(command: str = "show version"):
       {/* Auto-update checker (Tauri only) */}
       {isTauri && <UpdateChecker />}
       </div>
-    </AuthProvider>
   )
 }
 

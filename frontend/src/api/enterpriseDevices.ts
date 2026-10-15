@@ -16,6 +16,17 @@ export async function listEnterpriseDevices(
   return res.data;
 }
 
+/**
+ * One Controller device by id (GET /devices/browse/:id — same org-wide read
+ * as the browse list). The endpoint wraps the device row with status/site
+ * aggregates; only the device is returned here.
+ */
+export async function getEnterpriseDevice(deviceId: string): Promise<DeviceSummary> {
+  const client = getClient();
+  const res = await client.http.get<{ device: DeviceSummary }>(`/devices/browse/${deviceId}`);
+  return res.data.device;
+}
+
 export interface UpdateDeviceParams {
   name?: string;
   host?: string;

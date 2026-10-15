@@ -14,7 +14,7 @@ import { snmpTryInterfaceStats, type SnmpInterfaceStatsResponse } from '../api/s
 import { getCurrentMode } from '../api/client';
 import { formatRate } from '../utils/formatRate';
 import { saveEnrichmentToDoc } from '../lib/enrichmentExport';
-import { sendChatMessage, AiNotConfiguredError, type ChatMessage } from '../api/ai';
+import { sendChatMessage, AiNotConfiguredError, aiNotConfiguredMessage, type ChatMessage } from '../api/ai';
 import { resolveProvider } from '../lib/aiProviderResolver';
 import './LinkDetailTab.css';
 import Tooltip from './Tooltip'
@@ -1061,7 +1061,7 @@ export default function LinkDetailTab({
       }
     } catch (err) {
       if (err instanceof AiNotConfiguredError) {
-        setSaveMessage({ type: 'error', text: 'AI not configured — add API key in Settings > AI' });
+        setSaveMessage({ type: 'error', text: aiNotConfiguredMessage() });
       } else {
         setSaveMessage({ type: 'error', text: getErrorMessage(err, 'AI generation failed') });
       }

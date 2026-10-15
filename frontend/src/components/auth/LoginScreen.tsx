@@ -104,7 +104,7 @@ export function LoginScreen() {
           <div className="form-field">
             <label htmlFor="email">Username</label>
             <input data-ai-fill="off"
-              className="ns-input"
+              className="ns-input ns-input--large"
               id="email"
               type="text"
               value={email}
@@ -125,12 +125,13 @@ export function LoginScreen() {
               placeholder="Enter your password"
               required
               autoComplete="current-password"
+              large
             />
           </div>
 
           <button
             type="submit"
-            className="ns-btn ns-btn--primary login-button"
+            className="ns-btn ns-btn--large ns-btn--primary"
             disabled={isLoading || !email || !password}
           >
             {isLoading ? (

@@ -4,6 +4,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 const put = vi.fn(async () => ({ data: null }))
 vi.mock('../../api/client', () => ({
   getClient: () => ({ mode: 'standalone', http: { put } }),
+  getCurrentMode: () => 'standalone',
 }))
 
 import { startAiSettingsMirror } from '../aiSettingsMirror'

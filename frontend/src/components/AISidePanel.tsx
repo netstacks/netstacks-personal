@@ -20,7 +20,7 @@ import type { TabProtocol } from '../api/sessions'
 import type { CliFlavor } from '../api/sessions'
 import type { Document, DocumentCategory } from '../api/docs'
 import type { SessionContextEntry, AiProviderType } from '../api/ai'
-import { hasAiApiKey, checkOllamaStatus, fetchOllamaModels, getAiStatus, getAiConfig, getAiProviderOverrides, getOllamaBaseUrl } from '../api/ai'
+import { hasAiApiKey, checkOllamaStatus, fetchOllamaModels, getAiStatus, getAiConfig, getAiProviderOverrides, getOllamaBaseUrl, aiNotConfiguredMessage } from '../api/ai'
 import { getCurrentMode } from '../api/client'
 import { useSettings } from '../hooks/useSettings'
 import { loadPanelSettings, savePanelSettings } from '../api/panelSettings'
@@ -37,10 +37,25 @@ import type { NetBoxNeighbor } from '../api/netbox'
 import { logger } from '../lib/logger'
 import Tooltip from './Tooltip'
 import ModalFrame from './ModalFrame'
+import { userScopedKey } from '../lib/userScope'
 export type { AgentMessage }
 
 // localStorage pointer to the conversation to resume when the panel reopens.
 const LAST_CONVO_KEY = 'netstacks.ai.panel.lastConversationId'
+
+// The chat to resume is the signed-in user's (lib/userScope); none while
+// nobody is signed in.
+function readLastConversationId(): string | null {
+  const key = userScopedKey(LAST_CONVO_KEY)
+  return key ? localStorage.getItem(key) : null
+}
+
+function writeLastConversationId(id: string | null): void {
+  const key = userScopedKey(LAST_CONVO_KEY)
+  if (!key) return
+  if (id) localStorage.setItem(key, id)
+  else localStorage.removeItem(key)
+}
 
 // Quick Actions collapse/dismiss preferences (persist across sessions).
 const QA_EXPANDED_KEY = 'netstacks.ai.quickActions.expanded'
@@ -570,11 +585,11 @@ const AISidePanel = ({
   // panel seed was provided). Loads its messages into the agent hook via `seed`.
   useEffect(() => {
     if (initialMessages && initialMessages.length) return
-    const lastId = localStorage.getItem(LAST_CONVO_KEY)
+    const lastId = readLastConversationId()
     if (!lastId) return
     getAiConversation(lastId)
       .then(conv => { setSeed(conv.messages); switchChat(conv.id) })
-      .catch(() => localStorage.removeItem(LAST_CONVO_KEY))
+      .catch(() => writeLastConversationId(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -606,7 +621,7 @@ const AISidePanel = ({
             const created = await pending
             if (chatGenRef.current !== gen) return // user switched chats meanwhile
             setConversationId(created.id)
-            localStorage.setItem(LAST_CONVO_KEY, created.id)
+            writeLastConversationId(created.id)
           } finally {
             if (createInFlightRef.current === pending) createInFlightRef.current = null
           }
@@ -632,7 +647,7 @@ const AISidePanel = ({
     setSeed(undefined)
     switchChat(null)
     setShowHistory(false)
-    localStorage.removeItem(LAST_CONVO_KEY)
+    writeLastConversationId(null)
   }, [clearMessages, stopAgent, switchChat])
 
   const handleToggleHistory = useCallback(async () => {
@@ -650,7 +665,7 @@ const AISidePanel = ({
       stopAgent()
       setSeed(conv.messages)
       switchChat(conv.id)
-      localStorage.setItem(LAST_CONVO_KEY, conv.id)
+      writeLastConversationId(conv.id)
       setShowHistory(false)
     } catch { /* ignore */ }
   }, [stopAgent, switchChat])
@@ -671,7 +686,9 @@ const AISidePanel = ({
         id: 'system-welcome',
         type: 'system',
         content: !anyProviderConfigured
-          ? 'No AI provider is configured yet. Open Settings → AI (Ctrl+,) to add a provider and model, then come back here.'
+          ? (isEnterprise
+            ? aiNotConfiguredMessage()
+            : 'No AI provider is configured yet. Open Settings → AI (Ctrl+,) to add a provider and model, then come back here.')
           : onboardingNeeded
             ? 'Welcome! I\'d like to get to know how you work so I can be more helpful. Type "hi" or anything to start a quick setup conversation.'
             : `${assistantName} ready. Ask a question or use a quick action below.`,
@@ -699,7 +716,7 @@ const AISidePanel = ({
         exitCode: msg.exitCode,
       }
     })
-  }, [agentMessages, onboardingNeeded, assistantName, anyProviderConfigured])
+  }, [agentMessages, onboardingNeeded, assistantName, anyProviderConfigured, isEnterprise])
 
   // Report the chat's first user prompt once, so the host can show it on the
   // tab's hover tooltip (helps tell many chat tabs apart).

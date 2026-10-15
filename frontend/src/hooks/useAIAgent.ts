@@ -18,7 +18,8 @@ import { shareInFlight } from '../lib/inflight';
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { getAvailableTools, type AgentTool, NAVIGABLE_SETTINGS_TABS } from '../lib/agentTools';
+import { getAvailableTools, type AgentTool } from '../lib/agentTools';
+import { aiNavigableSettingsTabs } from '../lib/settingsTabs';
 import { getSettings, useSettings } from './useSettings';
 import { resolveCommandList, resolveToolPermission, permissionContext, DEVICE_COMMAND_TOOLS } from '../lib/aiPermissions';
 import { parseAiCommandArray } from '../lib/aiJson';
@@ -66,10 +67,10 @@ import { listProfiles } from '../api/profiles';
 import { listEnterpriseSessionDefinitions, listUserFolders as apiListUserFolders } from '../api/enterpriseSessions';
 import { getCurrentMode } from '../api/client';
 import { parseApiError, getErrorMessage } from '../api/errors';
-import { useCapabilitiesStore } from '../stores/capabilitiesStore';
+import { featureEnabled, useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { useAuthStore } from '../stores/authStore';
 import { getSystemPrompt as getSystemPromptFn, type AgentType } from '../lib/aiModes';
-import { getTopologyPrompt, DEFAULT_TOPOLOGY_PROMPT, getAllModePrompts, checkAiCommands, getServerToolSchemas, execServerTool, getAiConfigModeStatus } from '../api/ai';
+import { getTopologyPrompt, DEFAULT_TOPOLOGY_PROMPT, getAllModePrompts, checkAiCommands, getServerToolSchemas, execServerTool, getAiConfigModeStatus, aiNotConfiguredReason, aiHttpErrorMessage } from '../api/ai';
 import type { Document, DocumentCategory } from '../api/docs';
 import { listMcpServers, executeMcpTool, type McpServer } from '../api/mcp';
 import { createTask, getTask } from '../api/tasks';
@@ -185,6 +186,24 @@ export interface AgentSession {
   savedSessionId?: string;
   /** `console` = OOB console tab; run_command refuses these, run_console_command requires them */
   protocol?: TabProtocol;
+}
+
+/**
+ * Why commands typed into a live session were refused because /ai/command-check
+ * could not be asked. Never a reason to send them anyway.
+ */
+function commandCheckFailure(err: unknown): string {
+  const backend = getCurrentMode() === 'enterprise' ? 'the Controller' : 'the local agent';
+  const { status } = parseApiError(err);
+  if (status === 404 || status === 501) {
+    return getCurrentMode() === 'enterprise'
+      ? 'The Controller doesn\'t support AI command checks; update the Controller. Refusing to run on the live session.'
+      : 'The local agent doesn\'t support AI command checks; update NetStacks. Refusing to run on the live session.';
+  }
+  if (status === undefined) {
+    return `Could not reach ${backend} to check the command; refusing to run on the live session: ${getErrorMessage(err)}`;
+  }
+  return `Could not verify command safety; refusing to run on the live session: ${getErrorMessage(err)}`;
 }
 
 /** Match a tool's `session_id` against a tab id or its saved session id. */
@@ -961,6 +980,12 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
   // Build available tools based on what callbacks are provided
   const isEnterprise = getCurrentMode() === 'enterprise';
+  // Settings tabs the AI may open — the tabs this mode has (lib/settingsTabs).
+  const capabilities = useCapabilitiesStore((s) => s.capabilities);
+  const navigableSettingsTabs = useMemo(
+    () => aiNavigableSettingsTabs({ isEnterprise, hasFeature: (name) => featureEnabled(capabilities, name) }),
+    [isEnterprise, capabilities],
+  );
   const baseTools = useMemo(() => {
     const disabledTools: string[] = JSON.parse(disabledToolsKey);
     return getAvailableTools({
@@ -979,7 +1004,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       hasRemoteFiles: aiTerminalMode,
       hasBackupAnalysis: isEnterprise,
       hasUINavigation: !!(onNavigateToBackup || onNavigateToDevice || onNavigateToMop || onNavigateToTopology),
-      hasSettingsNavigation: !!onNavigateToSettings,
+      settingsTabs: onNavigateToSettings ? navigableSettingsTabs : undefined,
       isEnterprise,
     }, disabledTools);
   }, [
@@ -991,7 +1016,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     onNetBoxGetNeighbors, onNetBoxImportTopology,
     onCreateMop, mcpServers.length, aiTerminalMode, isEnterprise, disabledToolsKey,
     onNavigateToBackup, onNavigateToDevice, onNavigateToMop, onNavigateToTopology, onNavigateToSettings,
-    libreNmsSources.length, netstacksCrawlerSources.length,
+    navigableSettingsTabs, libreNmsSources.length, netstacksCrawlerSources.length,
   ]);
 
   useEffect(() => {
@@ -1085,12 +1110,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         topoTools = topoTools.filter(t => !STRUCTURAL_TOPOLOGY_TOOLS.has(t.name));
       }
     }
+    // Controller server tools have AI Tools rows too; a disabled one is not offered.
+    const disabledTools: string[] = JSON.parse(disabledToolsKey);
     return [
       ...(topologyCallbacks ? [...baseTools, ...topoTools] : baseTools),
       ...mcpTools,
-      ...serverTools,
+      ...serverTools.filter(t => !disabledTools.includes(t.name)),
     ];
-  }, [aiToolsEnabled, baseTools, mcpTools, serverTools, topologyCallbacks, allowStructuralTopologyEdits]);
+  }, [aiToolsEnabled, baseTools, mcpTools, serverTools, topologyCallbacks, allowStructuralTopologyEdits, disabledToolsKey]);
 
   // Names of the tools actually offered to the model this turn. `executeTool`
   // refuses anything else so a disabled tool (filtered from the schema only)
@@ -1164,33 +1191,23 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       }
 
       // Read-only enforcement for the PTY path. `run_command` writes straight
-      // to the open terminal, bypassing the backend SSH CommandFilter, so we
-      // ask the backend's authoritative, config-mode-aware gate to vet every
-      // command before touching the live device. (Client-side filtering was
-      // removed in EXEC-002 to avoid a stale local flag; this restores the
-      // check server-side instead.) Fail CLOSED — never run if we can't verify.
-      //
-      // Enterprise mode governs config-mode + enforcement on the Controller,
-      // so the local /ai/command-check isn't the authority there; skip it.
-      const isEnterpriseMode = useCapabilitiesStore.getState().isEnterprise?.() ?? false;
-      if (!isEnterpriseMode) {
-        try {
-          const verdict = await checkAiCommands(commands);
-          if (!verdict.allowed) {
-            return {
-              content:
-                `Command rejected by read-only filter: ${verdict.reason ?? 'not permitted'} — ` +
-                `\`${verdict.rejected_command ?? ''}\`. ` +
-                `Enable AI Config Mode to allow configuration changes.`,
-              is_error: true,
-            };
-          }
-        } catch (err) {
+      // to the open terminal, bypassing the backend SSH CommandFilter, so the
+      // backend's authoritative, config-mode-aware gate (the sidecar's or the
+      // Controller's /ai/command-check) vets every command before it touches
+      // the live device. Fail CLOSED — never run if we can't verify.
+      try {
+        const verdict = await checkAiCommands(commands);
+        if (!verdict.allowed) {
           return {
-            content: `Could not verify command safety; refusing to run on the live session: ${getErrorMessage(err)}`,
+            content:
+              `Command rejected by read-only filter: ${verdict.reason ?? 'not permitted'} — ` +
+              `\`${verdict.rejected_command ?? ''}\`. ` +
+              `Enable AI Config Mode to allow configuration changes.`,
             is_error: true,
           };
         }
+      } catch (err) {
+        return { content: commandCheckFailure(err), is_error: true };
       }
 
       // Disable paging for AI-executed commands so output doesn't block.
@@ -3121,8 +3138,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
 
       case 'navigate_to_settings': {
         const tab = input.tab as string | undefined;
-        if (tab && !(NAVIGABLE_SETTINGS_TABS as readonly string[]).includes(tab)) {
-          return { content: `Unknown settings tab "${tab}". Valid tabs: ${NAVIGABLE_SETTINGS_TABS.join(', ')}`, is_error: true };
+        if (tab && !(navigableSettingsTabs as readonly string[]).includes(tab)) {
+          return { content: `Unknown settings tab "${tab}". Valid tabs: ${navigableSettingsTabs.join(', ')}`, is_error: true };
         }
         if (onNavigateToSettingsRef.current) {
           onNavigateToSettingsRef.current(tab);
@@ -3135,7 +3152,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         // Server-side controller tools (KAG graph + RAG) — execution is delegated
         // to the controller, which runs them org-scoped with RBAC + sanitization.
         if (serverToolNamesRef.current.has(toolName)) {
-          return await execServerTool(toolName, input);
+          return await execServerTool(toolName, input, agentTypeRef.current);
         }
         // Check if it's a topology tool (Phase 27-07)
         if (isTopologyTool(toolName) && topologyCallbacks) {
@@ -3217,10 +3234,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       ));
     };
 
-    // Config Mode is sidecar state and only matters to device command tools;
-    // in enterprise the Controller enforces read-only device commands itself.
-    const enterprise = useCapabilitiesStore.getState().isEnterprise?.() ?? false;
-    const configMode = !enterprise && toolUses.some(t => DEVICE_COMMAND_TOOLS.has(t.name))
+    // Config Mode is backend state (the sidecar, or the Controller in
+    // enterprise) and only matters to device command tools. Fails closed.
+    const enterprise = getCurrentMode() === 'enterprise';
+    const configMode = toolUses.some(t => DEVICE_COMMAND_TOOLS.has(t.name))
       ? await getAiConfigModeStatus().then(status => status.enabled, () => false)
       : false;
     const ctx = permissionContext(settings, agentType, {
@@ -3383,9 +3400,10 @@ Guidelines:
     } catch (err: unknown) {
       const parsed = parseApiError(err);
       if (parsed.code === 'NOT_CONFIGURED' || parsed.status === 503) {
-        // Prefer the backend's specific reason (no API key / vault locked / no
-        // model) over the generic message so config problems are self-diagnosing.
-        throw new Error(parsed.error || 'AI is not configured. Open Settings and configure an AI provider.');
+        throw new Error(aiNotConfiguredReason(parsed.error));
+      }
+      if (parsed.status === 429 || parsed.status === 502) {
+        throw new Error(aiHttpErrorMessage(parsed.status, parsed.error, ''));
       }
       if (parsed.error) {
         throw new Error(`AI provider error (${parsed.status ?? 'unknown'}): ${parsed.error}`);
@@ -3533,7 +3551,10 @@ Guidelines:
         parsedBody = null;
       }
       if (parsedBody?.code === 'NOT_CONFIGURED' || response.status === 503) {
-        throw new Error(parsedBody?.error || 'AI is not configured. Open Settings and configure an AI provider.');
+        throw new Error(aiNotConfiguredReason(parsedBody?.error));
+      }
+      if (response.status === 429 || response.status === 502) {
+        throw new Error(aiHttpErrorMessage(response.status, parsedBody?.error, ''));
       }
       throw new Error(
         `AI provider error (${response.status}): ${parsedBody?.error || rawBody || 'Unknown error'}`

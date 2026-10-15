@@ -13,6 +13,9 @@ import {
 } from '../api/enterpriseProfiles'
 import type { AccessibleProfile } from '../types/enterpriseProfile'
 import { useAuthStore } from '../stores/authStore'
+import { useCapabilitiesStore } from '../stores/capabilitiesStore'
+import { parseApiError } from '../api/errors'
+import { showToast } from './Toast'
 import { PasswordInput } from './PasswordInput'
 import './EnterpriseProfilesTab.css'
 import SettingsSection from './settings/SettingsSection'
@@ -40,6 +43,20 @@ interface SecretFormState {
   secret: string
   host: string
   port: string
+}
+
+/**
+ * A failed profile change. The Controller refuses (403) changes to shared and
+ * service profiles from non-admins — say why in a toast; anything else shows
+ * inline as before.
+ */
+function reportProfileChangeFailure(action: string, err: unknown, setError: (message: string) => void): void {
+  const { status, error } = parseApiError(err)
+  if (status === 403) {
+    showToast(`${action}: ${error || 'you do not have permission to change this profile'}`, 'error')
+    return
+  }
+  setError(action)
 }
 
 const emptySecretForm: SecretFormState = {
@@ -79,6 +96,11 @@ export default function EnterpriseProfilesTab() {
   const [submitting, setSubmitting] = useState(false)
 
   const selected = profiles.find((p) => p.id === selectedId) ?? null
+  // Shared and service profiles are changed by administrators only (the
+  // Controller refuses anyone else), so their edit controls are offered to
+  // admins alone.
+  const isAdmin = useCapabilitiesStore((s) => s.hasPermission('system.manage'))
+  const canEditSelected = selected !== null && (selected.profile_type === 'personal' || isAdmin)
 
   const fetchProfiles = useCallback(async () => {
     if (!userId) { setLoading(false); return }
@@ -158,8 +180,8 @@ export default function EnterpriseProfilesTab() {
       })
       setShowAddSecret(false); setForm(emptySecretForm); setSuccess('Auth method added')
       await fetchSecrets(selectedId)
-    } catch {
-      setError('Failed to add auth method')
+    } catch (err) {
+      reportProfileChangeFailure('Failed to add auth method', err, setError)
     } finally { setSubmitting(false) }
   }
 
@@ -170,8 +192,8 @@ export default function EnterpriseProfilesTab() {
       await deleteProfileSecret(selectedId, deletingSecret.id)
       setDeletingSecret(null); setSuccess('Auth method removed')
       await fetchSecrets(selectedId)
-    } catch {
-      setError('Failed to remove auth method')
+    } catch (err) {
+      reportProfileChangeFailure('Failed to remove auth method', err, setError)
     } finally { setSubmitting(false) }
   }
 
@@ -261,7 +283,8 @@ export default function EnterpriseProfilesTab() {
       {selected && (
         <SettingsSection
           title={`Auth methods — ${selected.name}`}
-          actions={!showAddSecret && (
+          description={canEditSelected ? undefined : `A ${selected.profile_type} profile — an administrator manages its auth methods.`}
+          actions={canEditSelected && !showAddSecret && (
             <button
               className="ns-btn ns-btn--small"
               onClick={() => { setForm(emptySecretForm); setShowAddSecret(true) }}
@@ -270,7 +293,7 @@ export default function EnterpriseProfilesTab() {
             </button>
           )}
         >
-          {showAddSecret && (
+          {canEditSelected && showAddSecret && (
             <form ref={addSecretFormRef} className="settings-form" onSubmit={handleAddSecret}>
               <h4 className="settings-form-title">Add auth method</h4>
               <div className="settings-form-row">
@@ -329,7 +352,7 @@ export default function EnterpriseProfilesTab() {
                   actions={
                     <>
                       <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => { setRevealReason(''); setRevealed(null); setRevealingSecret(s) }}>Reveal</button>
-                      <button className="ns-btn ns-btn--ghost ns-btn--danger ns-btn--small" onClick={() => setDeletingSecret(s)}>Delete</button>
+                      {canEditSelected && <button className="ns-btn ns-btn--ghost ns-btn--danger ns-btn--small" onClick={() => setDeletingSecret(s)}>Delete</button>}
                     </>
                   }
                 />

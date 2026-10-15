@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { getClient, getCurrentMode } from '../api/client'
 import { getPlatform } from '../utils/platform'
+import { userScopedKey, useUserScopeStore } from '../lib/userScope'
 
 // Action identifiers for all keyboard shortcuts
 export type KeyboardAction =
@@ -65,6 +66,8 @@ export interface KeyboardActionInfo {
   label: string
   category: KeyboardCategory
   defaultBinding: PlatformKeybinding
+  /** Backed by the local agent only (e.g. saved groups); not offered in enterprise. */
+  standaloneOnly?: boolean
 }
 
 /** `mac: Cmd+X` / `windows: Ctrl+X` — the shape almost every default takes. */
@@ -116,8 +119,8 @@ export const DEFAULT_KEYBINDINGS: Record<KeyboardAction, PlatformKeybinding> = {
   saveTabsAsGroup: both('Shift+D'),
 }
 
-const action = (id: KeyboardAction, label: string, category: KeyboardCategory): KeyboardActionInfo =>
-  ({ id, label, category, defaultBinding: DEFAULT_KEYBINDINGS[id] })
+const action = (id: KeyboardAction, label: string, category: KeyboardCategory, opts: { standaloneOnly?: boolean } = {}): KeyboardActionInfo =>
+  ({ id, label, category, defaultBinding: DEFAULT_KEYBINDINGS[id], ...opts })
 
 /** Action metadata for UI display, in the order the Keyboard settings page shows them. */
 export const KEYBOARD_ACTIONS: KeyboardActionInfo[] = [
@@ -141,7 +144,8 @@ export const KEYBOARD_ACTIONS: KeyboardActionInfo[] = [
   action('closeAllTabs', 'Close All Tabs', 'Navigation'),
   action('reopenClosedTab', 'Reopen Closed Tab', 'Navigation'),
   action('groupSelectedTabs', 'Group Selected Tabs', 'Navigation'),
-  action('saveTabsAsGroup', 'Save Tabs as Group', 'Navigation'),
+  // Saved groups live in the local agent; the Controller has no /groups.
+  action('saveTabsAsGroup', 'Save Tabs as Group', 'Navigation', { standaloneOnly: true }),
 
   // View
   action('settings', 'Open Settings', 'View'),
@@ -439,9 +443,13 @@ function sanitizeCustomBindings(raw: unknown): CustomKeybindings {
   return out
 }
 
+// Enterprise keeps a cache per signed-in user (lib/userScope); with nobody
+// signed in there is no cache and the defaults apply.
 function readStoredBindings(): CustomKeybindings {
+  const key = userScopedKey(STORAGE_KEY)
+  if (!key) return {}
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const stored = localStorage.getItem(key)
     return stored ? sanitizeCustomBindings(JSON.parse(stored)) : {}
   } catch (err) {
     console.error('Failed to load keybindings from localStorage:', err)
@@ -456,9 +464,10 @@ let bindingsSnapshot: Keybindings = { ...DEFAULT_KEYBINDINGS, ...customBindings 
 function commitBindings(next: CustomKeybindings, persist: boolean): void {
   customBindings = next
   bindingsSnapshot = { ...DEFAULT_KEYBINDINGS, ...next }
-  if (persist) {
+  const key = userScopedKey(STORAGE_KEY)
+  if (persist && key) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      localStorage.setItem(key, JSON.stringify(next))
     } catch (err) {
       console.error('Failed to save keybindings to localStorage:', err)
     }
@@ -470,9 +479,18 @@ function commitBindings(next: CustomKeybindings, persist: boolean): void {
 // writes the same localStorage key — pick it up without a restart.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key === STORAGE_KEY) commitBindings(readStoredBindings(), false)
+    if (e.key !== null && e.key === userScopedKey(STORAGE_KEY)) commitBindings(readStoredBindings(), false)
   })
 }
+
+// Enterprise: bindings belong to the signed-in user. A sign-in (or a change of
+// user) switches to that user's cache, then loads their Controller copy;
+// signing out drops back to the defaults.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope === prev.scope) return
+  commitBindings(readStoredBindings(), false)
+  if (state.scope) void loadKeybindingsFromBackend()
+})
 
 export function subscribeKeybindings(listener: () => void): () => void {
   listeners.add(listener)

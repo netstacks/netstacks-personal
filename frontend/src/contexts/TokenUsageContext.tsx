@@ -6,6 +6,7 @@
  */
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { userScopedKey } from '../lib/userScope'
 
 // Provider types (matches backend)
 export type AiProviderType = 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'litellm' | 'custom'
@@ -46,6 +47,8 @@ interface TokenUsageContextValue {
   getProviderUsage: (provider: AiProviderType) => ProviderUsage
 }
 
+// Per user in enterprise (lib/userScope). The provider mounts with the
+// signed-in user (see AppShell), so it reads and writes that user's copy.
 const STORAGE_KEY = 'netstacks_token_usage'
 
 // Create empty provider usage
@@ -77,8 +80,10 @@ const createInitialUsage = (): GlobalTokenUsage => ({
 
 // Load usage from localStorage
 const loadUsage = (): GlobalTokenUsage => {
+  const key = userScopedKey(STORAGE_KEY)
+  if (!key) return createInitialUsage()
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const stored = localStorage.getItem(key)
     if (stored) {
       const parsed = JSON.parse(stored) as GlobalTokenUsage
       // Ensure all providers exist (in case new providers added)
@@ -101,8 +106,10 @@ const loadUsage = (): GlobalTokenUsage => {
 
 // Save usage to localStorage
 const saveUsage = (usage: GlobalTokenUsage): void => {
+  const key = userScopedKey(STORAGE_KEY)
+  if (!key) return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(usage))
+    localStorage.setItem(key, JSON.stringify(usage))
   } catch (err) {
     console.error('Failed to save token usage to localStorage:', err)
   }
@@ -130,7 +137,7 @@ export function TokenUsageProvider({ children }: { children: ReactNode }) {
   // Storage event fires in every OTHER window when one writes.
   useEffect(() => {
     const handler = (e: StorageEvent) => {
-      if (e.key !== STORAGE_KEY || e.newValue === null) return
+      if (e.key === null || e.key !== userScopedKey(STORAGE_KEY) || e.newValue === null) return
       try {
         const parsed = JSON.parse(e.newValue) as GlobalTokenUsage
         suppressNextStorageEvent.current = true

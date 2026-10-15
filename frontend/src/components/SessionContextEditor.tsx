@@ -1,8 +1,12 @@
 import { useCallback, useState } from 'react';
 import { useSessionContext } from '../hooks/useSessionContext';
+import { useMode } from '../hooks/useMode';
+import { useCapabilitiesStore } from '../stores/capabilitiesStore';
+import { getErrorMessage, parseApiError } from '../api/errors';
 import type { SessionContext } from '../types/sessionContext';
 import './SessionContextEditor.css';
 import AITabInput from './AITabInput';
+import { showToast } from './Toast';
 
 import DialogFooter from './DialogFooter';
 interface SessionContextEditorProps {
@@ -10,13 +14,21 @@ interface SessionContextEditorProps {
   sessionId?: string;
   /** Enterprise / device-keyed target (Controller device id). */
   deviceId?: string;
-  currentUser: string; // For author field
+  /** For the author field; in enterprise, the signed-in username (the Controller's author). */
+  currentUser: string;
   /** Entry to show expanded (and scrolled into view) when the editor opens. */
   initialExpandedId?: string;
 }
 
 export default function SessionContextEditor({ sessionId, deviceId, currentUser, initialExpandedId }: SessionContextEditorProps): React.ReactElement {
   const { contexts, loading, error, addContext, updateContext, deleteContext } = useSessionContext({ sessionId, deviceId });
+  // Enterprise: adding needs `devices.manage`; editing or deleting an entry
+  // needs to be its author or an org admin (`system.manage`). The Controller
+  // enforces both (403); standalone has no such limits.
+  const { isEnterprise } = useMode();
+  const canAdd = useCapabilitiesStore((s) => !isEnterprise || s.hasPermission('devices.manage'));
+  const isOrgAdmin = useCapabilitiesStore((s) => isEnterprise && s.hasPermission('system.manage'));
+  const canModify = (ctx: SessionContext) => !isEnterprise || isOrgAdmin || ctx.author === currentUser;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId ?? null);
@@ -44,6 +56,15 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser,
     setShowAddForm(false);
   };
 
+  /** A refused save, as a toast: a 403 says who may do it; anything else, why it failed. */
+  const reportFailure = (err: unknown, action: 'add' | 'update' | 'delete', forbidden: string) => {
+    console.error(`Failed to ${action} context:`, err);
+    showToast(
+      parseApiError(err).status === 403 ? forbidden : getErrorMessage(err, `Failed to ${action} context`),
+      'error',
+    );
+  };
+
   const handleAdd = async () => {
     try {
       await addContext({
@@ -52,7 +73,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser,
       });
       resetForm();
     } catch (err) {
-      console.error('Failed to add context:', err);
+      reportFailure(err, 'add', 'You need permission to manage devices to add Team Knowledge.');
     }
   };
 
@@ -61,7 +82,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser,
       await updateContext(id, formData);
       resetForm();
     } catch (err) {
-      console.error('Failed to update context:', err);
+      reportFailure(err, 'update', 'Only the author or an administrator can edit this entry.');
     }
   };
 
@@ -69,7 +90,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser,
     try {
       await deleteContext(id);
     } catch (err) {
-      console.error('Failed to delete context:', err);
+      reportFailure(err, 'delete', 'Only the author or an administrator can delete this entry.');
     }
   };
 
@@ -118,7 +139,7 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser,
         <p className="context-description">
           Team knowledge about this device. Add troubleshooting notes, known issues, and helpful commands.
         </p>
-        {!showAddForm && (
+        {!showAddForm && canAdd && (
           <button className="ns-btn ns-btn--primary" onClick={() => setShowAddForm(true)}>
             + Add Context
           </button>
@@ -275,22 +296,24 @@ export default function SessionContextEditor({ sessionId, deviceId, currentUser,
                     </div>
                   )}
 
-                  <div className="context-entry-actions">
-                    <button className="ns-btn ns-btn--small" onClick={() => startEdit(ctx)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                      Edit
-                    </button>
-                    <button className="ns-btn ns-btn--small ns-btn--danger" onClick={() => handleDelete(ctx.id)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                      </svg>
-                      Delete
-                    </button>
-                  </div>
+                  {canModify(ctx) && (
+                    <div className="context-entry-actions">
+                      <button className="ns-btn ns-btn--small" onClick={() => startEdit(ctx)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        Edit
+                      </button>
+                      <button className="ns-btn ns-btn--small ns-btn--danger" onClick={() => handleDelete(ctx.id)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                        </svg>
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

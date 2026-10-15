@@ -6,6 +6,7 @@ import { getErrorMessage } from '../api/errors'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { HighlightRule } from '../api/highlightRules'
 import { getEffectiveHighlightRules, listHighlightRules } from '../api/highlightRules'
+import { useUserScopeStore } from '../lib/userScope'
 
 interface UseHighlightRulesOptions {
   /** Session ID for session-specific rules (undefined = global only) */
@@ -37,6 +38,11 @@ interface RulesCache {
 }
 
 const rulesCache = new Map<string, RulesCache>()
+
+// Enterprise: the rules are the signed-in user's.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope !== prev.scope) rulesCache.clear()
+})
 
 function getCacheKey(sessionId: string | undefined): string {
   return sessionId || '__global__'

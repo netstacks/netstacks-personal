@@ -11,6 +11,7 @@ import {
 } from '../api/tunnels'
 
 import { getErrorMessage } from '../api/errors'
+import { useUserScopeStore } from '../lib/userScope'
 export const SESSION_TUNNEL_PREFIX = 'session:';
 
 interface TunnelState {
@@ -144,3 +145,9 @@ export const useTunnelStore = create<TunnelState>((set, get) => ({
     return get().tunnels.filter(t => t.status === 'failed').length
   },
 }))
+
+// Enterprise: what the previous user could see goes on sign-out (or a change
+// of user); the app's polling fills the list again for whoever signs in.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope !== prev.scope) useTunnelStore.setState({ tunnels: [], error: null })
+})

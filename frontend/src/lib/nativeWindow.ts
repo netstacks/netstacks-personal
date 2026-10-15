@@ -1,4 +1,5 @@
-// Native-window glue that only runs under Tauri (callers check isTauri()).
+// Native-window glue that only runs under Tauri (callers check isTauri()),
+// except followWindowFocus, which also serves the browser build.
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow, type Theme } from '@tauri-apps/api/window'
 import { getAppTheme, setNativeTheme } from './appTheme'
@@ -6,6 +7,15 @@ import { getPlatform } from '../utils/platform'
 
 export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window
+}
+
+/**
+ * The desktop window chrome is present: the title bar and, on macOS, the app
+ * menu (where Settings lives). The browser build has neither. UI-mock runs
+ * render the chrome so it can be screenshot-tested in a browser.
+ */
+export function desktopChrome(): boolean {
+  return isTauri() || import.meta.env.VITE_UI_MOCK === '1'
 }
 
 /** Let the native window theme drive 'system' resolution (more prompt than WKWebView's media query). */
@@ -68,10 +78,20 @@ export async function applyWindowMaterial(): Promise<void> {
   }
 }
 
-/** <html data-window-focused> drives the inactive-window look (e.g. neutral selection on macOS). */
+/**
+ * <html data-window-focused> drives the inactive-window look (e.g. neutral
+ * selection on macOS). Under Tauri it follows the native window; in the
+ * browser (controller /terminal/) it follows the page's window focus.
+ */
 export async function followWindowFocus(): Promise<void> {
-  const win = getCurrentWindow()
   const setFocused = (focused: boolean) => { document.documentElement.dataset.windowFocused = String(focused) }
+  if (!isTauri()) {
+    setFocused(document.hasFocus())
+    window.addEventListener('focus', () => setFocused(true))
+    window.addEventListener('blur', () => setFocused(false))
+    return
+  }
+  const win = getCurrentWindow()
   setFocused(await win.isFocused())
   await win.onFocusChanged(({ payload }) => setFocused(payload))
 }

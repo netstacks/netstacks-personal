@@ -86,14 +86,25 @@ function ScriptsPanel({ onOpenScript, onNewScript, onAIGenerate }: ScriptsPanelP
     }
   };
 
-  const scriptMenuItems = (scriptId: string): MenuItem[] => [
-    { id: 'edit', label: 'Edit Script', icon: Icons.script, action: () => {
-      const script = scripts.find(s => s.id === scriptId);
-      if (script) void handleOpenScript(script);
-    } },
-    { id: 'delete-divider', label: '', divider: true, action: () => {} },
-    { id: 'delete', label: 'Delete Script', icon: Icons.trash, danger: true, action: () => { void handleDelete(scriptId); } },
-  ];
+  const scriptMenuItems = (scriptId: string): MenuItem[] => {
+    const script = scripts.find(s => s.id === scriptId);
+    // The Controller refuses PUT/DELETE without can_edit; the standalone agent omits it.
+    const editable = script?.can_edit !== false;
+    return [
+      { id: 'edit', label: editable ? 'Edit Script' : 'View Script', icon: Icons.script, action: () => {
+        if (script) void handleOpenScript(script);
+      } },
+      { id: 'delete-divider', label: '', divider: true, action: () => {} },
+      {
+        id: 'delete',
+        label: editable ? 'Delete Script' : 'Delete Script (owner or administrator only)',
+        icon: Icons.trash,
+        danger: true,
+        disabled: !editable,
+        action: () => { void handleDelete(scriptId); },
+      },
+    ];
+  };
 
   const handleDelete = async (scriptId: string) => {
     setContextMenu(null);

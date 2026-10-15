@@ -119,9 +119,18 @@ describe('resolveToolPermission — deny rules', () => {
     expect(decide('run_command', { session_id: 's1', commands: ['show running-config', 'show system commit'] })).toBe('allow')
   })
 
-  it('leaves device-command enforcement to the Controller in enterprise, but still asks for writes in Auto', () => {
-    expect(decide('run_command', { session_id: 's1', command: 'configure terminal' }, { enterprise: true })).toBe('ask')
-    expect(decide('run_command', { session_id: 's1', command: 'show version' }, { enterprise: true })).toBe('allow')
+  it('keeps the read-only rule for the typing tools in enterprise (the Controller does not filter the PTY)', () => {
+    for (const tool of ['run_command', 'run_console_command']) {
+      expect(decide(tool, { session_id: 's1', command: 'configure terminal' }, { enterprise: true, mode: 'yolo' })).toBe('deny')
+      expect(decide(tool, { session_id: 's1', command: 'show running-config' }, { enterprise: true, mode: 'yolo' })).toBe('allow')
+      expect(decide(tool, { session_id: 's1', command: 'configure terminal' }, { enterprise: true, mode: 'yolo', configMode: true })).toBe('allow')
+      expect(decide(tool, { session_id: 's1', command: 'configure terminal' }, { enterprise: true, mode: 'auto', configMode: true })).toBe('ask')
+    }
+  })
+
+  it('leaves ai_ssh_execute to the Controller\'s CommandFilter in enterprise, but still asks for writes in Auto', () => {
+    expect(decide('ai_ssh_execute', { session_id: 's1', command: 'configure terminal' }, { enterprise: true })).toBe('ask')
+    expect(decide('ai_ssh_execute', { session_id: 's1', command: 'show version' }, { enterprise: true })).toBe('allow')
   })
 
   it('runs set_session_cli_flavor without approval in Auto (it only records the detected platform)', () => {

@@ -14,6 +14,7 @@ import {
   isMac,
 } from '../hooks/useKeyboard'
 import SearchField from './SearchField'
+import { useMode } from '../hooks/useMode'
 import './KeyboardSettings.css'
 
 import DialogFooter from './DialogFooter'
@@ -25,6 +26,7 @@ interface KeyboardSettingsProps {
 }
 
 export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
+  const { isEnterprise } = useMode()
   const [search, setSearch] = useState('')
   const [editingAction, setEditingAction] = useState<KeyboardAction | null>(null)
   const [pendingBinding, setPendingBinding] = useState<string>('')
@@ -34,17 +36,18 @@ export default function KeyboardSettings({ keyboard }: KeyboardSettingsProps) {
 
   // Filter actions by search (label, category, or the current chord)
   const filteredActions = useMemo(() => {
-    if (!search.trim()) return KEYBOARD_ACTIONS
+    const modeActions = isEnterprise ? KEYBOARD_ACTIONS.filter(a => !a.standaloneOnly) : KEYBOARD_ACTIONS
+    if (!search.trim()) return modeActions
 
     const searchLower = search.toLowerCase()
-    return KEYBOARD_ACTIONS.filter(
+    return modeActions.filter(
       a =>
         a.label.toLowerCase().includes(searchLower) ||
         a.category.toLowerCase().includes(searchLower) ||
         keyboard.getBinding(a.id).toLowerCase().includes(searchLower) ||
         formatShortcut(keyboard.getBinding(a.id)).toLowerCase().includes(searchLower)
     )
-  }, [search, keyboard])
+  }, [search, keyboard, isEnterprise])
 
   // Every category is listed, so no action can be hidden by the grouping.
   const groupedActions = useMemo(() => {

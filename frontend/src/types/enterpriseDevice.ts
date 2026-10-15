@@ -8,6 +8,7 @@ export interface DeviceSummary {
   org_id: string;
   name: string;
   host: string;
+  /** SSH port: the device profile's ssh_port (22 when unset). */
   port: number;
   device_type: string;
   manufacturer: string | null;

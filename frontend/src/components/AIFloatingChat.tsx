@@ -4,6 +4,7 @@ import type { CliFlavor } from '../types/enrichment'
 import { useAIAgent, type AgentMessage } from '../hooks/useAIAgent'
 import type { TopologyAICallbacks } from '../lib/topologyAITools'
 import { useAssistantName } from '../stores/assistantName'
+import { useMode } from '../hooks/useMode'
 import { fetchOllamaModels, type AiProviderType, getAiConfig } from '../api/ai'
 import { resolveProvider } from '../lib/aiProviderResolver'
 import type { AiContext } from '../api/ai'
@@ -50,7 +51,7 @@ interface AIFloatingChatProps {
   topologyCallbacks?: TopologyAICallbacks
   /** When set, auto-send this prompt on open (contextual Ask-AI help). */
   initialPrompt?: string
-  /** Opens a Settings tab (the AI's navigate_to_settings tool, and "Open AI Settings" on errors). */
+  /** Opens a Settings tab (the AI's navigate_to_settings tool, and "Open AI Settings" on errors in standalone). */
   onNavigateToSettings?: (tab?: string) => void
   // Callback to continue conversation in full panel
   onContinueInPanel?: (messages: AgentMessage[], context?: AiContext) => void
@@ -83,6 +84,9 @@ const AIFloatingChat = ({
   onContinueInPanel,
 }: AIFloatingChatProps) => {
   const assistantName = useAssistantName()
+  // Enterprise providers live on the Controller (an administrator sets them up
+  // in its Admin UI), so there is no local AI setup to send the user to.
+  const { isEnterprise } = useMode()
   const [input, setInput] = useState('')
 
   // Provider/Model state (initialized from settings)
@@ -309,7 +313,7 @@ const AIFloatingChat = ({
       return (
         <div key={msg.id} className="ai-floating-chat-error">
           {msg.content}
-          {onNavigateToSettings && (
+          {onNavigateToSettings && !isEnterprise && (
             <button type="button" className="ns-btn ns-btn--small" onClick={() => onNavigateToSettings('ai')}>
               Open AI Settings
             </button>

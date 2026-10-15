@@ -5,7 +5,35 @@ import type {
   NewSessionContext,
   UpdateSessionContext,
 } from '../types/sessionContext';
-import { getClient } from './client';
+import { getClient, getCurrentMode } from './client';
+
+type NewContextBody = Omit<NewSessionContext, 'session_id'>;
+
+/**
+ * The Controller records the signed-in user as an entry's author and ignores
+ * any `author` sent, so enterprise doesn't send one; the local agent stores
+ * what it is given.
+ */
+function contextBody(context: NewContextBody, enterprise: boolean): Partial<NewContextBody> {
+  if (!enterprise) return context;
+  const { author: _author, ...rest } = context;
+  return rest;
+}
+
+/**
+ * The key a terminal tab's Team Knowledge is listed under
+ * (`/sessions/:key/context`). Standalone: the saved session's id. Enterprise:
+ * the tab's Controller target — a session-definition UUID, or `device-<uuid>`
+ * for a device tab; the Controller resolves a definition linked to a device to
+ * that device, so both share one set of entries. Undefined for a tab with no
+ * saved target (quick connect).
+ */
+export function sessionContextKey(
+  tab: { sessionId?: string; enterpriseSessionDefinitionId?: string },
+  enterprise: boolean
+): string | undefined {
+  return enterprise ? tab.enterpriseSessionDefinitionId : tab.sessionId;
+}
 
 /**
  * List all context entries for a session.
@@ -35,10 +63,10 @@ export async function listSessionContextForDevice(
  */
 export async function createSessionContextForDevice(
   deviceId: string,
-  context: Omit<NewSessionContext, 'session_id'>
+  context: NewContextBody
 ): Promise<SessionContext> {
   const { data } = await getClient().http.post(`/devices/${deviceId}/context`, {
-    ...context,
+    ...contextBody(context, true),
     session_id: `device-${deviceId}`,
   });
   return data;
@@ -58,10 +86,10 @@ export async function getContext(contextId: string): Promise<SessionContext> {
  */
 export async function createSessionContext(
   sessionId: string,
-  context: Omit<NewSessionContext, 'session_id'>
+  context: NewContextBody
 ): Promise<SessionContext> {
   const { data } = await getClient().http.post(`/sessions/${sessionId}/context`, {
-    ...context,
+    ...contextBody(context, getCurrentMode() === 'enterprise'),
     session_id: sessionId,
   });
   return data;

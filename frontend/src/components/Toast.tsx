@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import './Toast.css'
+import { useUserScopeStore } from '../lib/userScope'
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning'
 
@@ -65,6 +66,14 @@ const MAX_TOASTS = 5
 function notifyListeners() {
   listeners.forEach(listener => listener([...toasts]))
 }
+
+// Enterprise: one user's notifications are not shown to the next — signing out
+// (or a change of user) drops them.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope === prev.scope || toasts.length === 0) return
+  toasts = []
+  notifyListeners()
+})
 
 /**
  * Show a toast notification.

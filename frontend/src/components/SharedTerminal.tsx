@@ -5,6 +5,9 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import './SharedTerminal.css';
 import { openExternalUrl } from '../lib/openExternal';
+import { getSettings } from '../hooks/useSettings';
+import { zoomedFontSize } from '../commands/zoom';
+import { platformMonoFont } from '../utils/fonts';
 
 // WsMessage binary protocol types (matches controller's ws::protocol)
 const MSG_TYPE_DATA = 0x01;
@@ -82,11 +85,13 @@ export default function SharedTerminal({ token, controllerUrl }: SharedTerminalP
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    // Create xterm instance
+    // Same terminal font as the app's own terminals (Terminal.tsx): the
+    // terminal size/face settings, '' face = the platform monospace token.
+    const settings = getSettings();
     const xterm = new XTerm({
       cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Menlo, Monaco, Consolas, monospace',
+      fontSize: zoomedFontSize(settings['terminal.fontSize'], settings['view.zoomStep']),
+      fontFamily: settings['terminal.fontFamily'] || platformMonoFont(),
       theme: {
         background: '#1e1e1e',
         foreground: '#cccccc',

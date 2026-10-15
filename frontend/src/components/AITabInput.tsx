@@ -33,7 +33,8 @@
  */
 
 import { forwardRef, useRef, useState, useCallback, useEffect } from 'react';
-import { sendChatMessage, AiNotConfiguredError } from '../api/ai';
+import { sendChatMessage, AiNotConfiguredError, describeAiError } from '../api/ai';
+import { showToast } from './Toast';
 import { logger } from '../lib/logger';
 import { NETSTACKS_CONCEPTS_PRIMER } from '../lib/aiModes';
 import { getFormAiContext } from '../lib/aiFormContext';
@@ -132,10 +133,15 @@ Generate a smart, concise value for this field that is correct for NetStacks. Re
         }
       } catch (err) {
         if (err instanceof AiNotConfiguredError) {
+          // Say once who sets AI up (the user in standalone, an administrator
+          // on the Controller in enterprise); the badge then reads "AI not set up".
           setAiConfigured(false);
+          showToast(describeAiError(err, 'AI is not configured'), 'error');
         } else if (!abort.signal.aborted) {
-          // Not a config problem and not our own abort — don't swallow it.
+          // Not a config problem and not our own abort — say why (provider
+          // error, token budget used up, …) rather than doing nothing.
           logger.warn(`[AITabInput] generate failed for "${aiField}":`, err);
+          showToast(describeAiError(err, 'AI could not fill this field'), 'error');
         }
       } finally {
         if (!abort.signal.aborted) {

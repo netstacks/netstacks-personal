@@ -6,6 +6,8 @@ export interface EnterpriseSession {
   name: string;
   host: string;
   port: number;
+  /** The Controller device this definition is linked to, if any. */
+  device_id: string | null;
   description: string | null;
   profile_override_id: string | null;
   cli_flavor: string;
@@ -20,6 +22,8 @@ export interface CreateEnterpriseSession {
   name: string;
   host: string;
   port?: number;
+  /** Link to a Controller device. */
+  device_id?: string | null;
   description?: string | null;
   profile_override_id?: string | null;
   cli_flavor?: string;
@@ -30,6 +34,8 @@ export interface UpdateEnterpriseSession {
   name?: string;
   host?: string;
   port?: number;
+  /** Omit to keep the link, null to unlink, an id to link to that device. */
+  device_id?: string | null;
   description?: string | null;
   profile_override_id?: string | null;
   cli_flavor?: string;

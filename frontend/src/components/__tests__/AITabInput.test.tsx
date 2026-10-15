@@ -7,7 +7,10 @@ const ai = vi.hoisted(() => ({ AiNotConfiguredError: class AiNotConfiguredError 
 vi.mock('../../api/ai', () => ({
   sendChatMessage: (...args: unknown[]) => sendChatMessage(...args),
   AiNotConfiguredError: ai.AiNotConfiguredError,
+  describeAiError: (err: Error) => err.message,
 }))
+const showToast = vi.hoisted(() => vi.fn())
+vi.mock('../Toast', () => ({ showToast }))
 vi.mock('../../lib/aiModes', () => ({ NETSTACKS_CONCEPTS_PRIMER: 'PRIMER' }))
 
 import AITabInput from '../AITabInput'
@@ -16,6 +19,20 @@ import { registerFormAiContext } from '../../lib/aiFormContext'
 describe('AITabInput — Tab-to-generate + handler composition', () => {
   beforeEach(() => {
     sendChatMessage.mockReset()
+  })
+
+  it('says why when the AI request fails (e.g. token budget used up)', async () => {
+    sendChatMessage.mockRejectedValue(new Error('Your AI token budget is used up: limit 100000. Try again later, or ask your administrator to raise it.'))
+    render(<AITabInput value="" onChange={() => {}} aiField="command" onAIValue={() => {}} />)
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Tab' })
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/token budget is used up/), 'error'))
+  })
+
+  it('says who sets AI up when it is not configured', async () => {
+    sendChatMessage.mockRejectedValue(new ai.AiNotConfiguredError('AI not configured. Ask your administrator to set up an AI provider on the Controller (Admin UI → AI → LLM Providers).'))
+    render(<AITabInput value="" onChange={() => {}} aiField="command" onAIValue={() => {}} />)
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Tab' })
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/Ask your administrator to set up an AI provider/), 'error'))
   })
 
   it('generates a value on Tab when the field is empty', async () => {

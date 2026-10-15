@@ -5,6 +5,13 @@ import App from './App'
 import { ASK_AI_HELP_EVENT, type AskAiHelpDetail } from './components/AskAiHelp'
 import { __resetPlatformForTests } from './utils/platform'
 
+// Desktop app (title bar + native menu) vs the browser build; jsdom is neither.
+const chrome = vi.hoisted(() => ({ desktop: false }))
+vi.mock('./lib/nativeWindow', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./lib/nativeWindow')>(),
+  desktopChrome: () => chrome.desktop,
+}))
+
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={client}><App /></QueryClientProvider>)
@@ -76,6 +83,7 @@ describe('App sidebar navigation per platform', () => {
     cleanup()
     vi.unstubAllGlobals()
     __resetPlatformForTests()
+    chrome.desktop = false
   })
 
   function renderOn(platform: 'macos' | 'windows') {
@@ -91,10 +99,18 @@ describe('App sidebar navigation per platform', () => {
   })
 
   it('macOS shows the source list instead of the activity bar', () => {
+    chrome.desktop = true
     renderOn('macos')
     expect(screen.queryByTestId('activity-bar')).toBeNull()
     expect(screen.getByRole('listbox', { name: 'Navigate' })).toBeInTheDocument()
     expect(screen.getByTestId('nav-sessions')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('macOS in the browser keeps the activity bar, so Settings stays reachable without the app menu', () => {
+    renderOn('macos')
+    expect(screen.queryByRole('listbox', { name: 'Navigate' })).toBeNull()
+    expect(screen.getByTestId('activity-bar')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-settings')).toBeInTheDocument()
   })
 })
 

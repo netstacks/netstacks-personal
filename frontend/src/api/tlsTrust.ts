@@ -6,6 +6,7 @@
  */
 
 import axios from 'axios';
+import { isTauri } from '../lib/nativeWindow';
 
 /** CA certificate info from the Controller */
 export interface CaCertificateInfo {
@@ -19,15 +20,16 @@ export interface CaCertificateInfo {
  * Uses a plain HTTP request (not the authenticated client) since
  * this is needed before TLS trust is established.
  *
- * Tries HTTPS first, falls back to HTTP if TLS fails.
+ * Tries HTTPS first, then plain HTTP (the desktop app reaches a Controller
+ * whose TLS isn't trusted yet that way). The browser build skips plain HTTP to
+ * another origin: the browser blocks it (mixed content / CORS) every time.
  */
 export async function fetchCaCertificateInfo(controllerUrl: string): Promise<CaCertificateInfo | null> {
-  // Try HTTPS version of the URL first
   const httpsUrl = controllerUrl.replace(/^http:/, 'https:');
   const httpUrl = controllerUrl.replace(/^https:/, 'http:');
+  const candidates = isTauri() || sameOrigin(httpUrl) ? [httpsUrl, httpUrl] : [httpsUrl];
 
-  // Try fetching from HTTP (works when TLS isn't trusted yet)
-  for (const baseUrl of [httpUrl, httpsUrl]) {
+  for (const baseUrl of candidates) {
     try {
       const res = await axios.get(`${baseUrl}/api/tls/ca-certificate/info`, {
         timeout: 5000,
@@ -41,6 +43,14 @@ export async function fetchCaCertificateInfo(controllerUrl: string): Promise<CaC
   }
 
   return null;
+}
+
+function sameOrigin(url: string): boolean {
+  try {
+    return new URL(url).origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 /**

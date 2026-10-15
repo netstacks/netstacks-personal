@@ -4,6 +4,7 @@
 
 import { getClient } from './client';
 import { getCurrentMode } from './client';
+import { userScopedKey } from '../lib/userScope';
 
 /**
  * Highlight rule for keyword highlighting in terminal output
@@ -93,9 +94,12 @@ function isEnterpriseMode(): boolean {
   return getCurrentMode() === 'enterprise';
 }
 
+// Per signed-in user (lib/userScope): none while nobody is signed in.
 function loadLocalRules(): HighlightRule[] {
+  const key = userScopedKey(STORAGE_KEY);
+  if (!key) return [];
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(key);
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
@@ -103,7 +107,9 @@ function loadLocalRules(): HighlightRule[] {
 }
 
 function saveLocalRules(rules: HighlightRule[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
+  const key = userScopedKey(STORAGE_KEY);
+  if (!key) throw new Error('Sign in to save highlight rules');
+  localStorage.setItem(key, JSON.stringify(rules));
 }
 
 function generateId(): string {

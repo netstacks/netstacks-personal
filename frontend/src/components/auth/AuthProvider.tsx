@@ -8,6 +8,7 @@ import { LoginScreen } from './LoginScreen';
 import { IdleWarningDialog } from './IdleWarningDialog';
 import { NetworkStatusBanner } from '../NetworkStatusBanner';
 import { getErrorMessage } from '../../api/errors'
+import { loadUserPreferences, releaseUserPreferences } from '../../lib/userPreferences'
 import DialogFooter from '../DialogFooter';
 import './LoginScreen.css'; // For auth-loading styles
 
@@ -35,6 +36,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Remount the app when the active organization changes (see authStore.switchOrg)
   const sessionEpoch = useAuthStore(state => state.sessionEpoch);
   const isLoading = useAuthStore(state => state.isLoading);
+  const userId = useAuthStore(state => state.user?.id ?? null);
+  // The user whose preferences (settings + theme) are loaded; the app renders
+  // only once they are, so it never shows another user's or default settings.
+  const [preferencesUserId, setPreferencesUserId] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [trustingCert, setTrustingCert] = useState(false);
@@ -211,6 +216,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     retryConnection();
   }, [isInitialized, isEnterprise, retryConnection]);
 
+  // Enterprise: load the signed-in user's preferences from the Controller;
+  // drop them on sign-out.
+  useEffect(() => {
+    if (!isEnterprise || !controllerUrl) return;
+    if (!userId) {
+      releaseUserPreferences();
+      return;
+    }
+    let cancelled = false;
+    void loadUserPreferences(controllerUrl, userId).then(() => {
+      if (!cancelled) setPreferencesUserId(userId);
+    });
+    return () => { cancelled = true; };
+  }, [isEnterprise, controllerUrl, userId]);
+
   // Not initialized yet - show loading
   if (!isInitialized) {
     return (
@@ -362,6 +382,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Enterprise mode - not authenticated
   if (!isAuthenticated) {
     return <LoginScreen />;
+  }
+
+  // Enterprise mode - signed in, preferences still loading
+  if (!userId || preferencesUserId !== userId) {
+    return (
+      <div className="auth-loading">
+        <div className="auth-loading-spinner" />
+        <p>Loading your settings...</p>
+      </div>
+    );
   }
 
   // Enterprise mode - authenticated

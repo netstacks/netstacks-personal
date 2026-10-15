@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { listQuickPrompts, type QuickPrompt } from '../api/quickPrompts';
+import { useUserScopeStore } from '../lib/userScope';
 
 interface QuickPromptsState {
   prompts: QuickPrompt[];
@@ -36,7 +37,13 @@ export const useQuickPromptsStore = create<QuickPromptsState>((set, get) => ({
   },
 }));
 
-/** The Quick Prompts (favorites first). Auto-loads once. */
+// Enterprise: the prompts are the signed-in user's; a different user (or
+// signing out) loads again through the hook below.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope !== prev.scope) useQuickPromptsStore.setState({ prompts: [], loaded: false });
+});
+
+/** The Quick Prompts (favorites first). Auto-loads once per user. */
 export function useQuickPrompts(): QuickPrompt[] {
   const prompts = useQuickPromptsStore((s) => s.prompts);
   const loaded = useQuickPromptsStore((s) => s.loaded);

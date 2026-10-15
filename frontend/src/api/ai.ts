@@ -588,11 +588,9 @@ export async function sendChatMessage(
     if (axios.isAxiosError(err) && err.response) {
       const data = err.response.data || {};
       if (err.response.status === 503 || data.code === 'NOT_CONFIGURED') {
-        throw new AiNotConfiguredError(
-          data.error || 'AI not configured. Add your API key in Settings > AI to enable AI features.'
-        );
+        throw new AiNotConfiguredError(aiNotConfiguredReason(data.error));
       }
-      throw new Error(data.error || 'Failed to get AI response');
+      throw new Error(aiHttpErrorMessage(err.response.status, data.error, 'Failed to get AI response'));
     }
     throw new Error('Failed to get AI response');
   }
@@ -606,15 +604,51 @@ export class AiNotConfiguredError extends Error {
   }
 }
 
-/** One wording for every "no provider yet" banner. */
-export const AI_NOT_CONFIGURED_MESSAGE = 'AI not configured. Add your API key in Settings > AI.';
+/**
+ * One wording for every "no provider yet" banner. Standalone users add their
+ * own key; in enterprise the providers live on the Controller and only an
+ * administrator can set them up (Admin UI → AI → LLM Providers).
+ */
+export function aiNotConfiguredMessage(): string {
+  return getCurrentMode() === 'enterprise'
+    ? 'AI not configured. Ask your administrator to set up an AI provider on the Controller (Admin UI → AI → LLM Providers).'
+    : 'AI not configured. Add your API key in Settings > AI.';
+}
+
+/**
+ * Message for a NOT_CONFIGURED refusal carrying the backend's `error`.
+ * Standalone prefers the sidecar's specific reason (no API key / vault locked
+ * / no model) so config problems are self-diagnosing. Enterprise always uses
+ * the shared wording: the Controller's text speaks to whoever can open its
+ * Admin UI, and the terminal user usually can't.
+ */
+export function aiNotConfiguredReason(serverError: string | undefined): string {
+  if (getCurrentMode() === 'enterprise') return aiNotConfiguredMessage();
+  return serverError || aiNotConfiguredMessage();
+}
+
+/**
+ * Message for an AI request the backend refused with `{ error }`. The
+ * Controller answers an upstream provider failure with 502 and an exhausted
+ * token budget with 429; anything else carries its own `error` (or `fallback`).
+ */
+export function aiHttpErrorMessage(status: number | undefined, error: string | undefined, fallback: string): string {
+  const reason = error ? `: ${error}` : '';
+  if (status === 429) {
+    return getCurrentMode() === 'enterprise'
+      ? `Your AI token budget is used up${reason}. Try again later, or ask your administrator to raise it.`
+      : `AI request limit reached${reason}. Try again later.`;
+  }
+  if (status === 502) return `The AI provider returned an error${reason}. Try again in a moment.`;
+  return error || fallback;
+}
 
 /**
  * User-facing message for a failed AI call: the shared not-configured
  * wording, otherwise the error's own message (or `fallback`).
  */
 export function describeAiError(err: unknown, fallback: string): string {
-  if (err instanceof AiNotConfiguredError) return AI_NOT_CONFIGURED_MESSAGE;
+  if (err instanceof AiNotConfiguredError) return aiNotConfiguredMessage();
   if (err instanceof Error && err.message) return err.message;
   if (typeof err === 'string' && err) return err;
   return fallback;
@@ -720,11 +754,9 @@ export async function analyzeHighlights(
     if (axios.isAxiosError(err) && err.response) {
       const data = err.response.data || {};
       if (err.response.status === 503 || data.code === 'NOT_CONFIGURED') {
-        throw new AiNotConfiguredError(
-          data.error || 'AI not configured. Add your API key in Settings > AI to enable AI features.'
-        );
+        throw new AiNotConfiguredError(aiNotConfiguredReason(data.error));
       }
-      throw new Error(data.error || 'Failed to analyze highlights');
+      throw new Error(aiHttpErrorMessage(err.response.status, data.error, 'Failed to analyze highlights'));
     }
     throw new Error('Failed to analyze highlights');
   }
@@ -1539,21 +1571,30 @@ export async function getServerToolSchemas(): Promise<ServerToolSchema[]> {
   return (data?.tools ?? []) as ServerToolSchema[];
 }
 
-/** Execute a server-side AI tool on the controller (org-scoped, RBAC-checked). */
+/**
+ * Execute a server-side AI tool on the controller (org-scoped, RBAC-checked).
+ * The Controller applies the user's AI permissions (`ai.permissions`) for the
+ * calling agent type and answers a refused call with 403 and its reason.
+ */
 export async function execServerTool(
   name: string,
   args: Record<string, unknown>,
+  agentType: AgentType,
 ): Promise<{ content: string; is_error: boolean }> {
   try {
     const { data } = await getClient().http.post('/ai/tool-exec', {
       tool_name: name,
       arguments: args,
+      agent_type: agentType,
     });
     if (data?.success) {
       return { content: data.result ?? '', is_error: false };
     }
     return { content: data?.error ?? 'Tool execution failed', is_error: true };
   } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 403) {
+      return { content: `Not permitted by the Controller: ${getErrorMessage(e, 'this tool is not allowed for this agent type')}`, is_error: true };
+    }
     return { content: `Server tool error: ${getErrorMessage(e)}`, is_error: true };
   }
 }

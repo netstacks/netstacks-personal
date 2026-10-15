@@ -24,7 +24,6 @@ import {
   DEFAULT_SANITIZATION_CONFIG,
   type AiConfig,
   type AiProviderType,
-  type AiAgentConfig,
   type SanitizationConfig,
   type CustomPattern,
   type SanitizationTestResult,
@@ -37,10 +36,10 @@ import {
   type ProviderModel,
   getAiApiKey,
 } from '../api/ai';
-import { useSettings, type AiProviderType as SettingsProviderType } from '../hooks/useSettings';
+import { useSettings, type AppSettings, type AiProviderType as SettingsProviderType } from '../hooks/useSettings';
 import { useMode } from '../hooks/useMode';
 import { useTokenUsage, type AiProviderType as TokenProviderType } from '../contexts/TokenUsageContext';
-import { TOOL_REGISTRY, TOOL_CATEGORIES, type ToolCategory } from '../lib/agentTools';
+import { toolRegistryFor, TOOL_CATEGORIES, type ToolCategory } from '../lib/agentTools';
 import { PERMISSION_MODES, PERMISSION_MODE_SETTING, type PermissionMode } from '../lib/aiModes';
 import McpServersSection from './McpServersSection';
 import SettingsSection from './settings/SettingsSection';
@@ -145,6 +144,10 @@ export default function AISettingsTab() {
   // Enterprise mode detection
   const { isEnterprise } = useMode();
   const hasAiTools = useCapabilitiesStore((s) => s.hasFeature)('local_ai_tools');
+  // Enterprise redaction rules are the org's (/admin/sanitization/config,
+  // admin-only): only an org admin reads and edits them here. Standalone
+  // edits this machine's own rules.
+  const canManageRedaction = useCapabilitiesStore((s) => !isEnterprise || s.hasPermission('system.manage'));
 
   // App settings for default provider and highlighting toggles
   const { settings, updateSetting } = useSettings();
@@ -374,58 +377,48 @@ export default function AISettingsTab() {
   // Load initial configuration
   useEffect(() => {
     loadAllProviderStatus();
-    loadSanitizationConfig();
   }, []);
 
-  // Sync agent settings to backend when they change
   useEffect(() => {
-    const syncAgentConfig = async () => {
-      const agentConfig: AiAgentConfig = {
-        // Provider is never a per-toolset override — the agent inherits the
-        // single default provider. Only an optional model may differ.
-        provider: null,
-        model: settings['ai.agent.model'],
-        temperature: settings['ai.agent.temperature'],
-        max_tokens: settings['ai.agent.maxTokens'],
-        max_iterations: settings['ai.agent.maxIterations'],
-        system_prompt: settings['ai.agent.systemPrompt'],
-      };
-      try {
-        await setAiAgentConfig(agentConfig);
-      } catch (err) {
-        console.error('Failed to sync agent config to backend:', err);
-      }
-    };
-    // Only sync after initial load
-    if (!loading) {
-      syncAgentConfig();
-    }
-  }, [
-    loading,
-    settings['ai.agent.model'],
-    settings['ai.agent.temperature'],
-    settings['ai.agent.maxTokens'],
-    settings['ai.agent.maxIterations'],
-    settings['ai.agent.systemPrompt'],
-  ]);
-
-  const loadSanitizationConfig = async () => {
-    try {
-      setSanitizationLoading(true);
-      const config = await getSanitizationConfig();
+    if (!canManageRedaction) return;
+    let cancelled = false;
+    setSanitizationLoading(true);
+    getSanitizationConfig()
       // Ensure custom_patterns and allowlist always have arrays (controller may omit them)
-      setSanitizationConfigState({
+      .then((config) => ({
         ...DEFAULT_SANITIZATION_CONFIG,
         ...config,
         custom_patterns: config.custom_patterns || [],
         allowlist: config.allowlist || [],
+      }))
+      // getSanitizationConfig already maps "nothing saved yet" (404) to the defaults
+      .catch(() => ({ ...DEFAULT_SANITIZATION_CONFIG }))
+      .then((config) => {
+        if (cancelled) return;
+        setSanitizationConfigState(config);
+        setSanitizationLoading(false);
       });
-    } catch {
-      // Silently use defaults — getSanitizationConfig already handles 404s
-      setSanitizationConfigState({ ...DEFAULT_SANITIZATION_CONFIG });
-    } finally {
-      setSanitizationLoading(false);
-    }
+    return () => { cancelled = true; };
+  }, [canManageRedaction]);
+
+  // Agent settings also live in the backend's ai.agent_config. Written when
+  // the user changes one here — never on opening the tab.
+  type AgentSettingKey = 'ai.agent.model' | 'ai.agent.temperature' | 'ai.agent.maxTokens' | 'ai.agent.maxIterations';
+  const updateAgentSetting = <K extends AgentSettingKey>(key: K, value: AppSettings[K]) => {
+    updateSetting(key, value);
+    const next = { ...settings, [key]: value };
+    setAiAgentConfig({
+      // Provider is never a per-toolset override — the agent inherits the
+      // single default provider. Only an optional model may differ.
+      provider: null,
+      model: next['ai.agent.model'],
+      temperature: next['ai.agent.temperature'],
+      max_tokens: next['ai.agent.maxTokens'],
+      max_iterations: next['ai.agent.maxIterations'],
+      system_prompt: next['ai.agent.systemPrompt'],
+    }).catch((err: unknown) => {
+      console.error('Failed to sync agent config to backend:', err);
+    });
   };
 
   const saveSanitizationConfig = async (config: SanitizationConfig) => {
@@ -705,7 +698,12 @@ export default function AISettingsTab() {
   const getDisabledForAgent = (at: 'autopilot' | 'overlord'): string[] =>
     (settings[disabledToolsKeyFor(at)] as string[]) || [];
 
-  const disabledTools = getDisabledForAgent(toolsAgentType);
+  // The tools that exist in this mode (run_bash is standalone-only; the
+  // Controller's server tools are enterprise-only).
+  const toolRegistry = toolRegistryFor(isEnterprise ? 'enterprise' : 'standalone');
+  const toolCategories = (Object.keys(TOOL_CATEGORIES) as ToolCategory[])
+    .filter(category => toolRegistry.some(t => t.category === category));
+  const disabledTools = getDisabledForAgent(toolsAgentType).filter(name => toolRegistry.some(t => t.name === name));
   const isToolEnabled = (toolName: string) => !disabledTools.includes(toolName);
 
   const toggleTool = (toolName: string) => {
@@ -719,7 +717,7 @@ export default function AISettingsTab() {
   };
 
   const toggleCategoryTools = (category: ToolCategory, enable: boolean) => {
-    const categoryTools = TOOL_REGISTRY.filter(t => t.category === category).map(t => t.name);
+    const categoryTools = toolRegistry.filter(t => t.category === category).map(t => t.name);
     const key = disabledToolsKeyFor(toolsAgentType);
     const current = getDisabledForAgent(toolsAgentType);
     if (enable) {
@@ -736,7 +734,7 @@ export default function AISettingsTab() {
   };
 
   const getCategoryEnabledCount = (category: ToolCategory) => {
-    const categoryTools = TOOL_REGISTRY.filter(t => t.category === category);
+    const categoryTools = toolRegistry.filter(t => t.category === category);
     const enabledCount = categoryTools.filter(t => isToolEnabled(t.name)).length;
     return { enabled: enabledCount, total: categoryTools.length };
   };
@@ -792,8 +790,10 @@ export default function AISettingsTab() {
     setModelsLoading(prev => ({ ...prev, [providerType]: false }));
   }, [baseUrls, verifySSL, apiFormat]);
 
-  // Auto-fetch models when a provider card expands (Task 5)
+  // Auto-fetch models when a provider card expands (Task 5). Enterprise has no
+  // local provider cards — the Controller manages the providers.
   useEffect(() => {
+    if (isEnterprise) return;
     for (const type of expandedProviders) {
       const p = type as AiProviderType;
       if (p === 'custom') continue; // custom uses a single freeform model field, no live picker
@@ -803,7 +803,7 @@ export default function AISettingsTab() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expandedProviders]);
+  }, [expandedProviders, isEnterprise]);
 
   // Remove a model from a provider's list
   const removeProviderModel = (providerType: AiProviderType, model: string) => {
@@ -1827,7 +1827,7 @@ export default function AISettingsTab() {
               aria-label="Agent model override"
               value={settings['ai.agent.model'] || ''}
               placeholder="Use default model"
-              onChange={(e) => updateSetting('ai.agent.model', e.target.value || null)}
+              onChange={(e) => updateAgentSetting('ai.agent.model', e.target.value || null)}
               className="ns-input ai-agent-select"
             />
           </SettingRow>
@@ -1839,7 +1839,7 @@ export default function AISettingsTab() {
                 max="1"
                 step="0.1"
                 value={settings['ai.agent.temperature']}
-                onChange={(e) => updateSetting('ai.agent.temperature', parseFloat(e.target.value))}
+                onChange={(e) => updateAgentSetting('ai.agent.temperature', parseFloat(e.target.value))}
                 className="ai-agent-slider"
               />
               <span className="ai-agent-slider-value">{settings['ai.agent.temperature'].toFixed(1)}</span>
@@ -1852,7 +1852,7 @@ export default function AISettingsTab() {
               max="32000"
               step="256"
               value={settings['ai.agent.maxTokens']}
-              onChange={(e) => updateSetting('ai.agent.maxTokens', parseInt(e.target.value) || 4096)}
+              onChange={(e) => updateAgentSetting('ai.agent.maxTokens', parseInt(e.target.value) || 4096)}
               className="ns-input ai-agent-number-input"
             />
           </SettingRow>
@@ -1862,7 +1862,7 @@ export default function AISettingsTab() {
               min="1"
               max="50"
               value={settings['ai.agent.maxIterations']}
-              onChange={(e) => updateSetting('ai.agent.maxIterations', parseInt(e.target.value) || 15)}
+              onChange={(e) => updateAgentSetting('ai.agent.maxIterations', parseInt(e.target.value) || 15)}
               className="ns-input ai-agent-number-input"
             />
           </SettingRow>
@@ -1948,12 +1948,12 @@ export default function AISettingsTab() {
         description="Each agent type has its own permission mode and tool configuration. A disabled tool is never offered to or run by that agent type."
         help={{
           topic: 'AI permissions and tools',
-          prompt: `Help me configure AI permissions in NetStacks. Auto Pilot is in ${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING.autopilot]].label} mode and Overlord in ${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING.overlord]].label} mode; ${disabledTools.length} of ${TOOL_REGISTRY.length} tools are disabled for ${toolsAgentType === 'autopilot' ? 'Auto Pilot' : 'Overlord'}. `
-            + 'Explain Ask (approve every call), Auto (approve only writes) and Go Nuts (approve nothing), what always stays blocked (disabled tools, the bash deny list, config commands without Config Mode, file writes without Terminal Mode), which tools count as writes, and recommend settings for day-to-day troubleshooting vs change windows.',
+          prompt: `Help me configure AI permissions in NetStacks. Auto Pilot is in ${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING.autopilot]].label} mode and Overlord in ${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING.overlord]].label} mode; ${disabledTools.length} of ${toolRegistry.length} tools are disabled for ${toolsAgentType === 'autopilot' ? 'Auto Pilot' : 'Overlord'}. `
+            + `Explain Ask (approve every call), Auto (approve only writes) and Go Nuts (approve nothing), what always stays blocked (disabled tools, ${isEnterprise ? '' : 'the bash deny list, '}config commands without Config Mode, file writes without Terminal Mode), which tools count as writes, and recommend settings for day-to-day troubleshooting vs change windows.`,
         }}
         actions={
           <span className="settings-badge">
-            {TOOL_REGISTRY.length - disabledTools.length} / {TOOL_REGISTRY.length} enabled
+            {toolRegistry.length - disabledTools.length} / {toolRegistry.length} enabled
           </span>
         }
       >
@@ -1975,7 +1975,7 @@ export default function AISettingsTab() {
           {/* Permission mode — the AI panel's mode picker edits this same setting */}
           <SettingRow
             label="Permission mode"
-            description={`${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING[toolsAgentType]]].description}. In every mode, disabled tools, the bash deny list, AI Terminal Mode, AI Config Mode and the topology edit switch still apply.`}
+            description={`${PERMISSION_MODES[settings[PERMISSION_MODE_SETTING[toolsAgentType]]].description}. In every mode, disabled tools, ${isEnterprise ? '' : 'the bash deny list, '}AI Terminal Mode, AI Config Mode and the topology edit switch still apply.`}
           >
             <select
               aria-label="Permission mode"
@@ -2010,9 +2010,9 @@ export default function AISettingsTab() {
         </div>
 
         <div className="settings-group">
-          {(Object.keys(TOOL_CATEGORIES) as ToolCategory[]).map((category) => {
+          {toolCategories.map((category) => {
             const categoryInfo = TOOL_CATEGORIES[category];
-            const categoryTools = TOOL_REGISTRY.filter(t => t.category === category);
+            const categoryTools = toolRegistry.filter(t => t.category === category);
             const isExpanded = expandedToolCategories.has(category);
             const { enabled, total } = getCategoryEnabledCount(category);
             const allEnabled = enabled === total;
@@ -2073,6 +2073,8 @@ export default function AISettingsTab() {
 
       </SettingsSection>
 
+      {/* run_bash is standalone-only (the local agent's /ai/bash-execute). */}
+      {!isEnterprise && (
       <SettingsSection
         title="Bash Command Deny List"
         description="Commands blocked from AI bash execution, on top of the built-in deny list (rm, sudo, kill, shutdown, chmod, …)."
@@ -2122,6 +2124,7 @@ export default function AISettingsTab() {
           </p>
         )}
       </SettingsSection>
+      )}
       </>
       )}
 
@@ -2167,7 +2170,7 @@ export default function AISettingsTab() {
         title="AI Data Security"
         description="Credentials, secrets and network identifiers are scrubbed from data before it reaches external AI providers. 19 mandatory credential patterns are always active."
       >
-        {sanitizationLoading ? (
+        {canManageRedaction && sanitizationLoading ? (
           <p className="form-hint">Loading sanitization settings…</p>
         ) : (
           <div className="settings-group">
@@ -2198,11 +2201,17 @@ export default function AISettingsTab() {
                 </ol>
               )}
             </SettingRow>
+            {!canManageRedaction && (
+              <SettingRow
+                label="Organization redaction rules"
+                description="Redaction rules are managed by your administrator."
+              />
+            )}
           </div>
         )}
       </SettingsSection>
 
-      {!sanitizationLoading && (
+      {canManageRedaction && !sanitizationLoading && (
         <>
           <SettingsSection title="Optional Redaction" description="Extra identifiers to scrub before data leaves this machine.">
             <div className="settings-group">
@@ -2319,43 +2328,47 @@ export default function AISettingsTab() {
               </div>
             </div>
           </SettingsSection>
-
-          <SettingsSection
-            title="Test Sanitization"
-            description="Paste text to see exactly what would be sent to the AI provider."
-            actions={
-              <button
-                className="ns-btn ns-btn--small"
-                onClick={handleTestSanitization}
-                disabled={testRunning || !testInput.trim()}
-              >
-                {testRunning ? 'Testing...' : 'Test'}
-              </button>
-            }
-          >
-            <AITabInput
-              as="textarea"
-              className="settings-code"
-              aria-label="Text to test"
-              placeholder="e.g. enable secret 5 $1$abc$xyz"
-              value={testInput}
-              onChange={(e) => setTestInput(e.target.value)}
-              rows={4}
-              aiField="sample device output to test redaction"
-              aiPlaceholder="A few lines of realistic network-device config containing fake secrets (passwords, SNMP communities, keys) to test the redaction rules"
-              onAIValue={setTestInput}
-            />
-            {testResult && (
-              <div className="sanitization-test-result">
-                <p className="form-hint">
-                  {testResult.redaction_count} redaction{testResult.redaction_count !== 1 ? 's' : ''}
-                  {testResult.pattern_names.length > 0 && ` · Matched: ${testResult.pattern_names.join(', ')}`}
-                </p>
-                <pre className="sanitization-test-output">{testResult.sanitized}</pre>
-              </div>
-            )}
-          </SettingsSection>
         </>
+      )}
+
+      {/* Anyone can see what their organization's (or this machine's) rules
+          redact; /ai/sanitization/test applies them server-side. */}
+      {!(canManageRedaction && sanitizationLoading) && (
+        <SettingsSection
+          title="Test Sanitization"
+          description="Paste text to see exactly what would be sent to the AI provider."
+          actions={
+            <button
+              className="ns-btn ns-btn--small"
+              onClick={handleTestSanitization}
+              disabled={testRunning || !testInput.trim()}
+            >
+              {testRunning ? 'Testing...' : 'Test'}
+            </button>
+          }
+        >
+          <AITabInput
+            as="textarea"
+            className="settings-code"
+            aria-label="Text to test"
+            placeholder="e.g. enable secret 5 $1$abc$xyz"
+            value={testInput}
+            onChange={(e) => setTestInput(e.target.value)}
+            rows={4}
+            aiField="sample device output to test redaction"
+            aiPlaceholder="A few lines of realistic network-device config containing fake secrets (passwords, SNMP communities, keys) to test the redaction rules"
+            onAIValue={setTestInput}
+          />
+          {testResult && (
+            <div className="sanitization-test-result">
+              <p className="form-hint">
+                {testResult.redaction_count} redaction{testResult.redaction_count !== 1 ? 's' : ''}
+                {testResult.pattern_names.length > 0 && ` · Matched: ${testResult.pattern_names.join(', ')}`}
+              </p>
+              <pre className="sanitization-test-output">{testResult.sanitized}</pre>
+            </div>
+          )}
+        </SettingsSection>
       )}
     </>
   );

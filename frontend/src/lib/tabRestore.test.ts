@@ -6,16 +6,16 @@ vi.mock('../api/sessions', async () => {
   return { ...actual, listSessions: vi.fn() }
 })
 vi.mock('../api/profiles', () => ({ listProfiles: vi.fn() }))
-vi.mock('../api/enterpriseSessions', () => ({ listEnterpriseSessionDefinitions: vi.fn() }))
-vi.mock('../api/enterpriseDevices', () => ({ listEnterpriseDevices: vi.fn() }))
+vi.mock('../api/enterpriseSessions', () => ({ getSessionDefinition: vi.fn() }))
+vi.mock('../api/enterpriseDevices', () => ({ getEnterpriseDevice: vi.fn() }))
 vi.mock('../api/docs', () => ({ getDocument: vi.fn() }))
 vi.mock('../api/topology', () => ({ getTopology: vi.fn() }))
 vi.mock('../api/scripts', () => ({ getScript: vi.fn() }))
 
 import { listSessions } from '../api/sessions'
 import { listProfiles } from '../api/profiles'
-import { listEnterpriseSessionDefinitions } from '../api/enterpriseSessions'
-import { listEnterpriseDevices } from '../api/enterpriseDevices'
+import { getSessionDefinition } from '../api/enterpriseSessions'
+import { getEnterpriseDevice } from '../api/enterpriseDevices'
 import { getDocument } from '../api/docs'
 import { getTopology } from '../api/topology'
 import { getScript } from '../api/scripts'
@@ -241,16 +241,14 @@ describe('resolveTabSnapshot', () => {
     expect(getTopology).not.toHaveBeenCalled()
   })
 
-  it('resolves enterprise terminals against session definitions and devices, never local sessions', async () => {
-    vi.mocked(listEnterpriseSessionDefinitions).mockResolvedValue({
-      items: [{ id: 'def-1', name: 'core-sw1', host: '10.0.0.1', port: 22, cli_flavor: 'cisco-ios' } as never],
-      total: 1,
+  it('resolves enterprise terminals by fetching each session definition / device by id, never local sessions', async () => {
+    vi.mocked(getSessionDefinition).mockImplementation(async (id) => {
+      if (id === 'def-1') return { id: 'def-1', name: 'core-sw1', host: '10.0.0.1', port: 22, cli_flavor: 'cisco-ios' } as never
+      throw notFound()
     })
-    vi.mocked(listEnterpriseDevices).mockResolvedValue({
-      items: [{ id: 'dev-1', name: 'edge-r1', host: '10.0.0.2', port: 2222 } as never],
-      total: 1,
-      limit: 1000,
-      offset: 0,
+    vi.mocked(getEnterpriseDevice).mockImplementation(async (id) => {
+      if (id === 'dev-1') return { id: 'dev-1', name: 'edge-r1', host: '10.0.0.2', port: 2222 } as never
+      throw notFound()
     })
 
     const resolved = await resolveTabSnapshot({
@@ -265,6 +263,9 @@ describe('resolveTabSnapshot', () => {
     }, { isEnterprise: true, canDocs: true, canTopology: true })
 
     expect(listSessions).not.toHaveBeenCalled()
+    // One request per referenced definition / device (GET /devices/browse/:id), no inventory walk.
+    expect(vi.mocked(getEnterpriseDevice).mock.calls).toEqual([['dev-1']])
+    expect(vi.mocked(getSessionDefinition).mock.calls.map(([id]) => id).sort()).toEqual(['def-1', 'def-deleted'])
     expect(resolved.tabs).toEqual([
       { type: 'enterprise-terminal', id: 'ent-1', definitionId: 'def-1', profileId: 'prof-1', title: 'core-sw1', cliFlavor: 'cisco-ios', host: '10.0.0.1', port: 22 },
       { type: 'enterprise-terminal', id: 'ent-2', definitionId: 'device-dev-1', profileId: '', title: 'edge-r1', cliFlavor: 'auto', host: '10.0.0.2', port: 2222 },

@@ -15,6 +15,7 @@ import { settingInt } from '../lib/clipTransforms'
 import { getCurrentMode } from '../api/client'
 import { logger } from '../lib/logger'
 import * as api from '../api/clips'
+import { useUserScopeStore } from '../lib/userScope'
 
 /** Copy-on-select fires on every mouseup; identical text within this window is one clip. */
 const DEDUPE_WINDOW_MS = 2000
@@ -142,3 +143,9 @@ export const useClipStore = create<ClipState>((set, get) => ({
     }
   },
 }))
+
+// Enterprise: history is memory-only and belongs to the signed-in user —
+// signing out (or a change of user) drops it.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope !== prev.scope) useClipStore.setState({ clips: [], loaded: false })
+})

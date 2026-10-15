@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { sftpConnect, sftpDisconnect } from '../api/sftp'
 import type { CliFlavor } from '../api/sessions'
 import { resolveSftpStartPath } from '../lib/sftpStartPaths'
+import { useUserScopeStore } from '../lib/userScope'
 
 import { getErrorMessage } from '../api/errors'
 export interface SftpConnection {
@@ -142,3 +143,9 @@ export const useSftpStore = create<SftpState>((set, get) => ({
     return resolveSftpStartPath(conn.sftpStartPath, conn.cliFlavor, conn.homeDir)
   },
 }))
+
+// Enterprise: SFTP connections belong to the signed-in user's sessions, which
+// close when they sign out (or a different user signs in).
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope !== prev.scope) useSftpStore.setState({ connections: [], activeConnectionId: null, panelVisible: false })
+})

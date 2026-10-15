@@ -3,6 +3,7 @@ import type { TransformPreset } from '../lib/clipTransforms';
 import { DEFAULT_DISABLED_TOOLS } from '../lib/agentTools';
 import type { PermissionMode } from '../lib/aiModes';
 import { getPlatform } from '../utils/platform';
+import { userScopedKey } from '../lib/userScope';
 
 // AI provider type (matches api/ai.ts)
 export type AiProviderType = 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'litellm' | 'custom';
@@ -271,6 +272,10 @@ export const defaultSettings: AppSettings = {
   // (AUDIT FIX REMOTE-002) ssh.hostKeyChecking removed — see above.
 };
 
+/**
+ * localStorage key of the settings blob. In enterprise it is a per-user cache
+ * (lib/userScope) of the copy lib/userPreferences keeps on the Controller.
+ */
 export const STORAGE_KEY = 'netstacks-settings';
 
 // Custom event for cross-component settings sync
@@ -340,13 +345,18 @@ export function seedDefaultDisabledTools(settings: AppSettings): AppSettings {
   };
 }
 
+/** A stored settings object (any age, possibly partial) as current AppSettings. */
+export function normalizeSettings(stored: Record<string, unknown>): AppSettings {
+  return seedDefaultDisabledTools(coerceNumericSettings({ ...defaultSettings, ...migrateSettings(stored) }));
+}
+
+/** The signed-in user's stored settings; defaults when there are none (or no user yet in enterprise). */
 function loadSettings(): AppSettings {
+  const key = userScopedKey(STORAGE_KEY);
+  if (!key) return defaultSettings;
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = migrateSettings(JSON.parse(stored));
-      return seedDefaultDisabledTools(coerceNumericSettings({ ...defaultSettings, ...parsed }));
-    }
+    const stored = localStorage.getItem(key);
+    if (stored) return normalizeSettings(JSON.parse(stored));
   } catch (e) {
     console.warn('Failed to load settings:', e);
   }
@@ -356,7 +366,8 @@ function loadSettings(): AppSettings {
 function saveSettings(settings: AppSettings): void {
   try {
     globalSettings = settings; // Keep singleton in sync for getSettings() callers
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    const key = userScopedKey(STORAGE_KEY);
+    if (key) localStorage.setItem(key, JSON.stringify(settings));
     // Notify other hook instances. Deferred to a microtask because saveSettings
     // is called from inside a setState updater — dispatching synchronously makes
     // listeners setState during another component's render (React warns and the
@@ -389,7 +400,7 @@ export function useSettings() {
   // wrote — the browser storage event fires in every OTHER window.
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key !== STORAGE_KEY) return;
+      if (e.key === null || e.key !== userScopedKey(STORAGE_KEY)) return;
       if (e.newValue === null) {
         setSettings(defaultSettings);
         globalSettings = defaultSettings;
@@ -432,14 +443,21 @@ export function useSettings() {
   };
 }
 
-// Singleton for non-hook access
-let globalSettings: AppSettings = loadSettings();
+// Singleton for non-hook access. Loaded on first use, not at import: which
+// stored copy applies depends on the app mode and, in enterprise, the user.
+let globalSettings: AppSettings | null = null;
 
 export function getSettings(): AppSettings {
+  globalSettings ??= loadSettings();
   return globalSettings;
 }
 
 export function setGlobalSettings(settings: AppSettings): void {
   globalSettings = settings;
   saveSettings(settings);
+}
+
+/** Re-read the stored settings after the signed-in user changed, and tell every hook instance. */
+export function reloadSettings(): void {
+  setGlobalSettings(loadSettings());
 }

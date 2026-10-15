@@ -40,7 +40,12 @@ export interface PermissionContext {
   terminalMode: boolean
   /** Server-side AI Config Mode — lets device tools run non-read-only commands */
   configMode: boolean
-  /** Enterprise: the Controller enforces read-only device commands, so the local deny rule is skipped */
+  /**
+   * Enterprise: the Controller's /ai/ssh-execute runs its own CommandFilter, so
+   * the local deny rule is skipped for ai_ssh_execute. The typing tools
+   * (run_command, run_console_command) write straight into the session's PTY,
+   * which the Controller does not filter, so they keep the local rule.
+   */
   enterprise: boolean
   /** `mcp:<server>:<tool>` names enabled in Settings → AI → MCP Servers */
   enabledMcpTools: ReadonlySet<string>
@@ -67,12 +72,17 @@ export function permissionContext(
 /** Tools that run commands on a network device; non-read-only needs AI Config Mode. */
 export const DEVICE_COMMAND_TOOLS: ReadonlySet<string> = new Set(['run_command', 'run_console_command', 'ai_ssh_execute'])
 
+/** Device command tools whose commands the backend filters itself in enterprise (see PermissionContext.enterprise). */
+const SERVER_FILTERED_IN_ENTERPRISE: ReadonlySet<string> = new Set(['ai_ssh_execute'])
+
 /** Remote file tools; they need AI Terminal Mode. */
 const FILE_WRITE_TOOLS: ReadonlySet<string> = new Set(['write_file', 'edit_file', 'patch_file'])
 
-/** Controller (enterprise) server tools that only read; every other one counts as a write. */
+/**
+ * Controller config-backup tools that only read. The graph/knowledge server
+ * tools have registry rows; any other unlisted controller tool counts as a write.
+ */
 const CONTROLLER_READ_TOOLS: ReadonlySet<string> = new Set([
-  'graph_node', 'graph_neighbors', 'graph_impact', 'graph_path', 'search_knowledge',
   'search_config_backups', 'get_device_config', 'investigate_config_change',
 ])
 
@@ -189,7 +199,7 @@ function denyReason(tool: string, input: Record<string, unknown>, ctx: Permissio
   if (tool === 'run_bash') {
     return bashDenyReason(resolveCommandList(input), ctx.bashDeniedCommands)
   }
-  if (DEVICE_COMMAND_TOOLS.has(tool) && !ctx.configMode && !ctx.enterprise) {
+  if (DEVICE_COMMAND_TOOLS.has(tool) && !ctx.configMode && !(ctx.enterprise && SERVER_FILTERED_IN_ENTERPRISE.has(tool))) {
     const offender = firstNonReadOnly(resolveCommandList(input), checkDeviceCommand)
     if (offender) {
       return `\`${offender.command}\` is not read-only (${offender.reason}). Enable AI Config Mode in Settings → AI to allow configuration commands.`

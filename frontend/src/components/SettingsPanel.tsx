@@ -33,15 +33,18 @@ import { confirmDialog } from './ConfirmDialog'
 import { TERMINAL_THEMES } from '../lib/terminalThemes'
 import { getAppTheme, setAppTheme, type AppTheme } from '../lib/appTheme'
 import { getPlatform, type Platform } from '../utils/platform'
+import { desktopChrome } from '../lib/nativeWindow'
 import { useMode } from '../hooks/useMode'
 import { useAuthStore } from '../stores/authStore'
-import { useCapabilitiesStore } from '../stores/capabilitiesStore'
+import { featureEnabled, useCapabilitiesStore } from '../stores/capabilitiesStore'
+import type { FeatureName } from '../types/capabilities'
 import { getCertStatus, type CertStatus } from '../api/cert'
 import SettingsConnection from './SettingsConnection'
 import SettingsSection from './settings/SettingsSection'
 import SettingRow from './settings/SettingRow'
 import SettingsTunnels from './SettingsTunnels'
 import Switch from './Switch'
+import { availableSettingsTabs, settingsTabsMatching } from '../lib/settingsTabs'
 import { DEFAULT_STATUS_BAR_SETTINGS, saveStatusBarSettings } from '../api/statusBarSettings'
 import { resetPanelSettings } from '../api/panelSettings'
 
@@ -61,6 +64,8 @@ interface Setting {
   step?: number
   /** Only shown on these platforms (default: all). */
   platforms?: Platform[]
+  /** Only shown in the desktop app (lib/nativeWindow desktopChrome), not the browser build. */
+  desktopOnly?: boolean
 }
 
 export type { SettingsTab } from '../types/settingsTab'
@@ -70,38 +75,6 @@ interface SettingsPanelProps {
   onSettingChange?: (id: string, value: unknown) => void
   initialTab?: SettingsTab
 }
-
-// Tab keyword registry for cross-tab search
-const TAB_SEARCH_INDEX: { tab: SettingsTab; label: string; keywords: string[] }[] = [
-  { tab: 'general', label: 'General', keywords: ['font', 'size', 'family', 'theme', 'terminal', 'editor', 'copy', 'select', 'appearance', 'status bar', 'panels', 'weight', 'ssh', 'host key', 'known hosts'] },
-  { tab: 'ai', label: 'AI', keywords: ['ai', 'provider', 'anthropic', 'openai', 'ollama', 'openrouter', 'litellm', 'model', 'mcp', 'server', 'tools', 'agent', 'highlighting', 'token', 'sanitization', 'sanitize', 'suggestions', 'autocomplete', 'next step', 'enabled providers', 'config changes', 'configuration changes'] },
-  { tab: 'aiEngineer', label: 'AI Engineer', keywords: ['ai engineer', 'profile', 'personality', 'behavior', 'vendor', 'autonomy', 'onboarding', 'safety rules', 'troubleshooting', 'verbosity'] },
-  { tab: 'prompts', label: 'Prompts', keywords: ['prompt', 'custom prompt', 'system prompt'] },
-  { tab: 'snippets', label: 'Snippets', keywords: ['snippet', 'text expansion', 'shortcut'] },
-  { tab: 'customCommands', label: 'Custom Actions', keywords: ['custom command', 'custom action', 'alias', 'macro', 'script'] },
-  { tab: 'keyboard', label: 'Keyboard', keywords: ['keyboard', 'shortcut', 'keybinding', 'hotkey', 'key'] },
-  { tab: 'mappedKeys', label: 'Mapped Keys', keywords: ['mapped key', 'key mapping', 'remap'] },
-  { tab: 'profiles', label: 'Profiles', keywords: ['profile', 'connection', 'ssh', 'telnet'] },
-  { tab: 'jumpHosts', label: 'Jump Hosts', keywords: ['jump host', 'bastion', 'proxy', 'hop'] },
-  { tab: 'tunnels', label: 'Tunnels', keywords: ['tunnel', 'ssh tunnel', 'port forward', 'socks', 'proxy'] },
-  { tab: 'highlighting', label: 'Highlighting', keywords: ['highlight', 'color', 'pattern', 'regex', 'rule'] },
-  { tab: 'enrichment', label: 'Enrichment', keywords: ['enrichment', 'hover', 'popover', 'matcher', 'source', 'netbox', 'crawler', 'oui', 'dns', 'interface', 'mac', 'ip', 'vendor'] },
-  { tab: 'documents', label: 'Documents', keywords: ['document', 'docs', 'save', 'category', 'folder', 'enrichment', 'markdown', 'snapshot', 'backup', 'mop', 'troubleshooting', 'auto-save', 'where', 'location'] },
-  { tab: 'security', label: 'Security', keywords: ['security', 'vault', 'credential', 'password', 'encryption'] },
-  { tab: 'hostKeys', label: 'Trusted Hosts', keywords: ['host key', 'known hosts', 'ssh', 'tofu', 'trust', 'fingerprint', 'revoke', 'mitm'] },
-  { tab: 'recordings', label: 'Recordings', keywords: ['recording', 'asciicast', 'session', 'capture', 'playback', 'replay'] },
-  { tab: 'layouts', label: 'Layouts', keywords: ['layout', 'tab', 'split', 'arrangement', 'saved'] },
-  { tab: 'sessionLogs', label: 'Session Logs', keywords: ['log', 'session', 'capture', 'output', 'transcript'] },
-  { tab: 'integrations', label: 'Integrations', keywords: ['integration', 'netbox', 'netstacksCrawler', 'librenms'] },
-  { tab: 'troubleshooting', label: 'Troubleshooting', keywords: ['troubleshoot', 'recording', 'session', 'capture'] },
-  { tab: 'clipboard', label: 'Clipboard', keywords: ['clipboard', 'clip', 'history', 'paste', 'copy', 'preset', 'transform', 'crlf', 'line ending'] },
-  { tab: 'enterprise', label: 'Enterprise', keywords: ['enterprise', 'controller', 'team', 'url', 'connect', 'tls', 'certificate', 'netstacks'] },
-  // Account consolidates personal auth: account info + My Credentials + SSH
-  // Certificates now live as sections under this single tab (TERM-01), so the
-  // credential/cert keywords route here instead of to standalone tabs.
-  { tab: 'account', label: 'Account', keywords: ['account', 'controller', 'username', 'sign out', 'logout', 'credential', 'password', 'secret', 'ssh', 'certificate', 'cert', 'ca', 'public key'] },
-  { tab: 'workspaces', label: 'Workspaces', keywords: ['workspace', 'git', 'accounts', 'github', 'gitlab', 'ai', 'tool', 'auto-launch', 'terminal', 'explorer', 'default'] },
-]
 
 // Default settings configuration - only includes settings that are actually functional
 const defaultSettings: Setting[] = [
@@ -271,6 +244,8 @@ const defaultSettings: Setting[] = [
     type: 'boolean',
     value: true,
     platforms: ['macos'],
+    // The browser build always uses the activity bar (it has no app menu for Settings).
+    desktopOnly: true,
   },
   {
     id: 'terminal.lineNumbers',
@@ -333,7 +308,13 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
   const { isEnterprise } = useMode()
   const user = useAuthStore(state => state.user)
   const logout = useAuthStore(state => state.logout)
-  const hasFeature = useCapabilitiesStore((s) => s.hasFeature)
+  const capabilities = useCapabilitiesStore((s) => s.capabilities)
+  // Tabs this mode has. A tab asked for that isn't one of them (a command,
+  // the AI, a stale initialTab) shows General instead of a body whose
+  // backend the mode lacks.
+  const tabAvailability = { isEnterprise, hasFeature: (name: FeatureName) => featureEnabled(capabilities, name) }
+  const availableTabs = availableSettingsTabs(tabAvailability)
+  const shownTab: SettingsTab = availableTabs.some(e => e.tab === activeTab) ? activeTab : 'general'
 
   // Use the persisted settings hook
   const { settings: appSettings, updateSetting, resetSettings } = useSettings()
@@ -346,7 +327,7 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
   // second copy in local state — a copy went stale the moment anything else
   // (Reset, a popout window) wrote to useSettings (NS-SET-2).
   const settings = useMemo<Setting[]>(() =>
-    defaultSettings.filter(s => !s.platforms || s.platforms.includes(getPlatform())).map(s => ({
+    defaultSettings.filter(s => (!s.platforms || s.platforms.includes(getPlatform())) && (!s.desktopOnly || desktopChrome())).map(s => ({
       ...s,
       value: s.id === 'ui.appTheme'
         ? appTheme
@@ -383,27 +364,14 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
     return groups
   }, [filteredSettings])
 
-  // Cross-tab search: find which tabs match the current search query
-  const matchingTabs = useMemo(() => {
-    if (!search.trim()) return null
-    const q = search.toLowerCase()
-    const matched = new Set<SettingsTab>()
-    for (const entry of TAB_SEARCH_INDEX) {
-      if (
-        entry.label.toLowerCase().includes(q) ||
-        entry.keywords.some(kw => kw.includes(q))
-      ) {
-        matched.add(entry.tab)
-      }
-    }
-    return matched
-  }, [search])
+  // Cross-tab search over the tabs this mode has (lib/settingsTabs).
+  const matchingTabs = settingsTabsMatching(search, tabAvailability)
 
   // Auto-navigate to first matching tab when search changes. Adjusted
   // during render rather than in an effect (guarded — only fires while
   // the active tab is outside the match set, then immediately stabilizes).
   if (matchingTabs && matchingTabs.size > 0 && !matchingTabs.has(activeTab)) {
-    const first = TAB_SEARCH_INDEX.find(e => matchingTabs.has(e.tab))
+    const first = availableTabs.find(e => matchingTabs.has(e.tab))
     if (first) setActiveTab(first.tab)
   }
 
@@ -554,68 +522,9 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
     <div className="settings-panel">
       {/* Sidebar navigation */}
       <div className="settings-sidebar">
-        <SettingsNavItem tab="general" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>General</SettingsNavItem>
-        <SettingsNavItem tab="ai" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>AI</SettingsNavItem>
-        <SettingsNavItem tab="aiEngineer" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>AI Engineer</SettingsNavItem>
-        {hasFeature('local_custom_prompts') && (
-        <SettingsNavItem tab="prompts" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Prompts</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="snippets" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Snippets</SettingsNavItem>
-        )}
-        {hasFeature('local_integrations') && (
-        <SettingsNavItem tab="customCommands" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Custom Actions</SettingsNavItem>
-        )}
-        <SettingsNavItem tab="keyboard" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Keyboard</SettingsNavItem>
-        <SettingsNavItem tab="mappedKeys" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Mapped Keys</SettingsNavItem>
-        {!isEnterprise && (
-          <SettingsNavItem tab="profiles" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Profiles</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="jumpHosts" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Jump Hosts</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="tunnels" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Tunnels</SettingsNavItem>
-        )}
-        <SettingsNavItem tab="highlighting" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Highlighting</SettingsNavItem>
-        {/* Enrichment works in both modes — the controller implements the
-            enrichment subsystem (matchers/sources/runtime) at parity with the agent. */}
-        <SettingsNavItem tab="enrichment" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Enrichment</SettingsNavItem>
-        {/* Documents auto-save targets work in both modes (client-side category resolution). */}
-        <SettingsNavItem tab="documents" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Documents</SettingsNavItem>
-        {!isEnterprise && (
-          <SettingsNavItem tab="security" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Security</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="hostKeys" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Trusted Hosts</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="recordings" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Recordings</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="layouts" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Layouts</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="sessionLogs" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Session Logs</SettingsNavItem>
-        )}
-        {!isEnterprise && (
-          <SettingsNavItem tab="workspaces" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Workspaces</SettingsNavItem>
-        )}
-        {!isEnterprise && hasFeature('local_integrations') && (
-          <SettingsNavItem tab="integrations" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Integrations</SettingsNavItem>
-        )}
-        {/* Troubleshooting recorder settings are localStorage-only (no controller
-            backing), and its sibling local-recording tabs (Recordings, Session
-            Logs) are already standalone-only — hide it in enterprise too. */}
-        {!isEnterprise && hasFeature('local_session_recording') && (
-        <SettingsNavItem tab="troubleshooting" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Troubleshooting</SettingsNavItem>
-        )}
-        {/* Clipboard history + paste hygiene — both modes (memory-only history in enterprise). */}
-        <SettingsNavItem tab="clipboard" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Clipboard</SettingsNavItem>
-        <SettingsNavItem tab="enterprise" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Enterprise</SettingsNavItem>
-        {isEnterprise && (
-          <SettingsNavItem tab="account" activeTab={activeTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>Account</SettingsNavItem>
-        )}
+        {availableTabs.map(entry => (
+          <SettingsNavItem key={entry.tab} tab={entry.tab} activeTab={shownTab} setActiveTab={setActiveTab} matchingTabs={matchingTabs}>{entry.label}</SettingsNavItem>
+        ))}
       </div>
 
       {/* Main content area */}
@@ -628,7 +537,7 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
         <div className="settings-content">
 
         {/* General settings tab */}
-        {activeTab === 'general' && (
+        {shownTab === 'general' && (
           <>
             {Object.keys(groupedSettings).length === 0 ? (
               <p className="form-hint">No settings match your search.</p>
@@ -646,18 +555,22 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
             <PanelSettingsPanel />
             <SettingsHostnames />
 
-            <SettingsSection
-              title="Onboarding"
-              description="Walk through AI provider setup, NetBox, and the core concepts again. Also available from the command palette → “Setup Wizard”."
-              actions={
-                <button
-                  className="ns-btn ns-btn--small"
-                  onClick={() => window.dispatchEvent(new CustomEvent('netstacks:open-setup-wizard'))}
-                >
-                  Re-run Setup Wizard
-                </button>
-              }
-            />
+            {/* The setup wizard configures the local agent's AI and
+                integrations; the Controller manages those in enterprise. */}
+            {!isEnterprise && (
+              <SettingsSection
+                title="Onboarding"
+                description="Walk through AI provider setup, NetBox, and the core concepts again. Also available from the command palette → “Setup Wizard”."
+                actions={
+                  <button
+                    className="ns-btn ns-btn--small"
+                    onClick={() => window.dispatchEvent(new CustomEvent('netstacks:open-setup-wizard'))}
+                  >
+                    Re-run Setup Wizard
+                  </button>
+                }
+              />
+            )}
 
             {/* Reset — last in the tab so it doesn't get clicked by
                 mistake before users see what's available to tweak. */}
@@ -692,115 +605,110 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
         )}
 
         {/* AI settings tab */}
-        {activeTab === 'ai' && (
+        {shownTab === 'ai' && (
           <AISettingsTab />
         )}
 
         {/* AI Engineer Profile tab */}
-        {activeTab === 'aiEngineer' && (
+        {shownTab === 'aiEngineer' && (
           isEnterprise ? <EnterpriseProfileSelector /> : <AIEngineerSettingsTab />
         )}
 
         {/* Prompts settings tab */}
-        {activeTab === 'prompts' && (
+        {shownTab === 'prompts' && (
           <PromptsSettingsTab />
         )}
 
         {/* Snippets settings tab */}
-        {activeTab === 'snippets' && (
+        {shownTab === 'snippets' && (
           <SnippetsSettingsTab />
         )}
 
-        {activeTab === 'customCommands' && (
+        {shownTab === 'customCommands' && (
           <CustomCommandsSettingsTab />
         )}
 
         {/* Keyboard settings tab */}
-        {activeTab === 'keyboard' && (
+        {shownTab === 'keyboard' && (
           <KeyboardSettings keyboard={keyboard} />
         )}
 
         {/* Mapped Keys settings tab */}
-        {activeTab === 'mappedKeys' && (
+        {shownTab === 'mappedKeys' && (
           <SettingsMappedKeys />
         )}
 
         {/* Profiles settings tab */}
-        {activeTab === 'profiles' && (
+        {shownTab === 'profiles' && (
           <ProfilesTab />
         )}
 
         {/* Jump Hosts settings tab */}
-        {activeTab === 'jumpHosts' && (
+        {shownTab === 'jumpHosts' && (
           <JumpHostsTab />
         )}
 
         {/* Tunnels settings tab */}
-        {activeTab === 'tunnels' && (
+        {shownTab === 'tunnels' && (
           <SettingsTunnels />
         )}
 
         {/* Highlighting settings tab */}
-        {activeTab === 'highlighting' && (
+        {shownTab === 'highlighting' && (
           <SettingsHighlighting />
         )}
 
-        {activeTab === 'enrichment' && (
+        {shownTab === 'enrichment' && (
           <SettingsEnrichment />
         )}
 
-        {activeTab === 'documents' && (
+        {shownTab === 'documents' && (
           <SettingsDocuments />
         )}
 
         {/* Security settings tab */}
-        {activeTab === 'security' && (
+        {shownTab === 'security' && (
           <VaultSettings />
         )}
 
         {/* Trusted Hosts (SSH known_hosts) tab */}
-        {activeTab === 'hostKeys' && (
+        {shownTab === 'hostKeys' && (
           <HostKeysTab />
         )}
 
         {/* Recordings library */}
-        {activeTab === 'layouts' && (
+        {shownTab === 'layouts' && (
           <LayoutsTab />
         )}
-        {activeTab === 'sessionLogs' && (
+        {shownTab === 'sessionLogs' && (
           <SessionLogsTab />
         )}
-        {activeTab === 'recordings' && (
+        {shownTab === 'recordings' && (
           <RecordingsTab />
         )}
 
         {/* Workspaces settings tab */}
-        {/* The nav item for this tab is gated at :534 ({!isEnterprise && …}),
-            but the BODY was not — so the tab stayed reachable in enterprise
-            through the settings search index, and with it
-            WorkspaceSettingsTab's /settings/workspace-defaults GET/PUT, which
-            hit the admin-only global settings route (S1). */}
-        {activeTab === 'workspaces' && !isEnterprise && (
+        {shownTab === 'workspaces' && (
           <WorkspaceSettingsTab />
         )}
 
         {/* Integrations settings tab */}
-        {activeTab === 'integrations' && (
+        {shownTab === 'integrations' && (
           <IntegrationsTab />
         )}
 
         {/* Troubleshooting settings tab */}
-        {activeTab === 'troubleshooting' && (
+        {shownTab === 'troubleshooting' && (
           <SettingsTroubleshooting />
         )}
 
         {/* Clipboard history + paste hygiene */}
-        {activeTab === 'clipboard' && (
+        {shownTab === 'clipboard' && (
           <ClipboardSettingsTab />
         )}
 
         {/* Enterprise tab — visible in both modes */}
-        {activeTab === 'enterprise' && (
+        {shownTab === 'enterprise' && (
           isEnterprise ? (
             <SettingsConnection />
           ) : (
@@ -853,7 +761,7 @@ export default function SettingsPanel({ onSettingChange, initialTab }: SettingsP
             consolidates personal auth as stacked sections (account info +
             My Credentials + SSH Certificates). Pure IA: each section renders the
             same component it did when it was a standalone tab. */}
-        {activeTab === 'account' && isEnterprise && (
+        {shownTab === 'account' && (
           <>
             {/* Section 1 — Account info */}
             <SettingsSection

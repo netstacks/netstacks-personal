@@ -7,6 +7,7 @@ import type {
   PluginTerminalPanelInfo,
 } from '../types/capabilities';
 import { getClient } from '../api/client';
+import { useUserScopeStore } from '../lib/userScope';
 
 import { getErrorMessage } from '../api/errors'
 /**
@@ -56,6 +57,11 @@ const STANDALONE_CAPABILITIES: CapabilitiesResponse = {
     { name: 'local_sftp', enabled: true },
   ],
 };
+
+/** Whether `capabilities` enables a feature (false before they load). */
+export function featureEnabled(capabilities: CapabilitiesResponse | null, name: FeatureName): boolean {
+  return capabilities?.features.find((f) => f.name === name)?.enabled ?? false;
+}
 
 /**
  * Capabilities store for enterprise feature discovery.
@@ -134,13 +140,7 @@ export const useCapabilitiesStore = create<CapabilitiesState>((set, get) => ({
   /**
    * Check if a feature is enabled.
    */
-  hasFeature: (name: FeatureName) => {
-    const { capabilities } = get();
-    if (!capabilities) return false;
-
-    const feature = capabilities.features.find((f) => f.name === name);
-    return feature?.enabled ?? false;
-  },
+  hasFeature: (name: FeatureName) => featureEnabled(get().capabilities, name),
 
   /**
    * Check if the user has a specific RBAC permission.
@@ -296,3 +296,10 @@ export function useCapability(featureName: FeatureName): CapabilityCheck {
 
   return { enabled };
 }
+
+// Enterprise: capabilities and permissions are the signed-in user's. Signing
+// out drops them so the next user's app never starts from them; their sign-in
+// fetches their own (authStore).
+useUserScopeStore.subscribe((state, prev) => {
+  if (prev.scope && !state.scope) useCapabilitiesStore.setState({ capabilities: null, permissions: [], error: null });
+});

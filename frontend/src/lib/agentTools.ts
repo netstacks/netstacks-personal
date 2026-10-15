@@ -2,6 +2,7 @@
 // Follows Claude's tool-use pattern for structured function calling
 
 import type { SettingsTab } from '../types/settingsTab';
+import type { AppMode } from '../types/config';
 
 /**
  * Tool definition for AI model (Claude tool-use schema)
@@ -1405,28 +1406,22 @@ const navigateToTopologyToolDefinition: AgentTool = {
 }
 
 /**
- * Settings tabs the AI may open. Typed against `SettingsTab` so a renamed or
- * removed tab fails to compile here instead of silently breaking the tool
- * description (NS-AI-39). Enterprise-only tabs (`enterprise`, `account`) are
- * left out on purpose.
+ * navigate_to_settings, offering the Settings tabs this mode has
+ * (lib/settingsTabs aiNavigableSettingsTabs) so the AI never opens a tab whose
+ * backend the mode lacks.
  */
-export const NAVIGABLE_SETTINGS_TABS = [
-  'general', 'ai', 'aiEngineer', 'prompts', 'snippets', 'customCommands',
-  'keyboard', 'mappedKeys', 'profiles', 'jumpHosts', 'tunnels', 'highlighting', 'enrichment',
-  'documents', 'security', 'hostKeys', 'recordings', 'layouts', 'sessionLogs', 'integrations',
-  'troubleshooting', 'clipboard', 'workspaces',
-] as const satisfies readonly SettingsTab[];
-
-const navigateToSettingsToolDefinition: AgentTool = {
-  name: 'navigate_to_settings',
-  description: `Open the Settings panel in the UI, optionally to a specific tab. Available tabs: ${NAVIGABLE_SETTINGS_TABS.join(', ')}. Tab meanings: ai = providers/keys/models/tools, aiEngineer = the AI's profile/personality, prompts = editable system prompts, customCommands = terminal right-click actions, mappedKeys = keyboard→command macros, profiles = credential profiles, hostKeys = trusted SSH host keys, enrichment = hover lookups, documents = auto-save locations, integrations = NetBox/LibreNMS/Crawler sources, clipboard = clipboard history retention and paste-hygiene presets. API Resources and saved API requests (Quick Calls) are NOT in Settings — they live in the API section of the Workspaces sidebar (activity bar → Workspaces).`,
-  parameters: {
-    type: 'object',
-    properties: {
-      tab: { type: 'string', enum: [...NAVIGABLE_SETTINGS_TABS], description: 'Settings tab to open' },
+function navigateToSettingsTool(tabs: readonly SettingsTab[]): AgentTool {
+  return {
+    name: 'navigate_to_settings',
+    description: `Open the Settings panel in the UI, optionally to a specific tab. Available tabs: ${tabs.join(', ')}. Tab meanings: ai = providers/keys/models/tools, aiEngineer = the AI's profile/personality, prompts = editable system prompts, customCommands = terminal right-click actions, mappedKeys = keyboard→command macros, profiles = credential profiles, hostKeys = trusted SSH host keys, enrichment = hover lookups, documents = auto-save locations, integrations = NetBox/LibreNMS/Crawler sources, clipboard = clipboard history retention and paste-hygiene presets (meanings of tabs not listed as available don't apply). API Resources and saved API requests (Quick Calls) are NOT in Settings — they live in the API section of the Workspaces sidebar (activity bar → Workspaces).`,
+    parameters: {
+      type: 'object',
+      properties: {
+        tab: { type: 'string', enum: [...tabs], description: 'Settings tab to open' },
+      },
+      required: [],
     },
-    required: [],
-  },
+  }
 }
 
 // navigate_to_backup is intentionally NOT here — the config-backup tab it opens
@@ -1642,7 +1637,8 @@ export type ToolCategory =
   | 'bash'
   | 'console'
   | 'api-resources'
-  | 'navigation';
+  | 'navigation'
+  | 'controller';
 
 /**
  * What a tool call does, for the permission resolver (lib/aiPermissions):
@@ -1665,6 +1661,8 @@ export interface ToolRegistryEntry {
   /** Disabled for every mode until the user turns it on (seeded once into
    *  `ai.disabledTools.*`; see useSettings). */
   defaultDisabled?: boolean;
+  /** Only exists in this app mode (absent = both). */
+  mode?: AppMode;
 }
 
 /**
@@ -1733,7 +1731,7 @@ export const TOOL_CATEGORIES: Record<ToolCategory, { label: string; description:
   },
   'bash': {
     label: 'Bash / Shell',
-    description: 'Execute bash commands on the local system (or jumpbox in enterprise mode). Dangerous commands are blocked by a configurable deny list.',
+    description: 'Execute bash commands on the local system. Dangerous commands are blocked by a configurable deny list.',
   },
   'console': {
     label: 'OOB Console',
@@ -1746,6 +1744,10 @@ export const TOOL_CATEGORIES: Record<ToolCategory, { label: string; description:
   'navigation': {
     label: 'UI Navigation',
     description: 'Open app views (device, MOP, topology, backups, settings) and terminal sessions',
+  },
+  'controller': {
+    label: 'Controller Knowledge & Graph',
+    description: 'Search the Controller\'s knowledge base and query the live network graph. These run on the Controller.',
   },
 };
 
@@ -1761,8 +1763,8 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   { name: 'set_session_cli_flavor', category: 'core', description: 'Record detected CLI platform (Cisco/Juniper/Linux/etc.) so subsequent commands use the right paging strategy', shortDescription: 'Set CLI flavor', effect: 'read' },
   { name: 'recommend_config', category: 'core', description: 'Generate configuration recommendations', shortDescription: 'Recommend config', effect: 'read' },
 
-  // Bash Tools
-  { name: 'run_bash', category: 'bash', description: 'Execute bash commands on the local system', shortDescription: 'Run bash', effect: 'command' },
+  // Bash Tools — the local agent's /ai/bash-execute; the Controller has none.
+  { name: 'run_bash', category: 'bash', description: 'Execute bash commands on the local system', shortDescription: 'Run bash', effect: 'command', mode: 'standalone' },
 
   // OOB Console Tools — default off; see TOOL_CATEGORIES.console
   { name: 'open_console', category: 'console', description: 'Open a session\'s out-of-band console tab via its terminal server', shortDescription: 'Open console', effect: 'write', defaultDisabled: true },
@@ -1856,7 +1858,21 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   { name: 'write_file', category: 'remote-files', description: 'Create or overwrite a file on a remote server', shortDescription: 'Write file', effect: 'write' },
   { name: 'edit_file', category: 'remote-files', description: 'Find and replace text in a remote file', shortDescription: 'Edit file', effect: 'write' },
   { name: 'patch_file', category: 'remote-files', description: 'Apply sed substitution to a remote file', shortDescription: 'Patch file', effect: 'write' },
+
+  // Controller server tools (GET /ai/tools/schemas, run via /ai/tool-exec).
+  // The Controller only executes its read-only `graph` and `knowledge`
+  // categories from the terminal (routes/terminal_ai.rs SERVER_TOOL_CATEGORIES).
+  { name: 'search_knowledge', category: 'controller', description: 'Search the knowledge base for documentation, runbooks and past incidents', shortDescription: 'Search knowledge', effect: 'read', mode: 'enterprise' },
+  { name: 'graph_node', category: 'controller', description: 'Look up a node in the network knowledge graph and its live connections', shortDescription: 'Graph node', effect: 'read', mode: 'enterprise' },
+  { name: 'graph_neighbors', category: 'controller', description: 'Find nodes within N hops of a node in the live network graph', shortDescription: 'Graph neighbors', effect: 'read', mode: 'enterprise' },
+  { name: 'graph_impact', category: 'controller', description: 'Estimate the blast radius of a node failure', shortDescription: 'Graph impact', effect: 'read', mode: 'enterprise' },
+  { name: 'graph_path', category: 'controller', description: 'Find the shortest path between two nodes in the live network graph', shortDescription: 'Graph path', effect: 'read', mode: 'enterprise' },
 ];
+
+/** The registry rows that exist in an app mode (the AI Tools settings list). */
+export function toolRegistryFor(mode: AppMode): ToolRegistryEntry[] {
+  return TOOL_REGISTRY.filter((t) => !t.mode || t.mode === mode);
+}
 
 /** Tools that start disabled in every mode until the user enables them. */
 export const DEFAULT_DISABLED_TOOLS: readonly string[] = TOOL_REGISTRY
@@ -1920,8 +1936,8 @@ export interface ToolAvailability {
   /** Enterprise: backup tools come from the controller's server-tool schemas, not from here. */
   hasBackupAnalysis?: boolean;
   hasUINavigation?: boolean;
-  /** navigate_to_settings — offered wherever the host can open a Settings tab. */
-  hasSettingsNavigation?: boolean;
+  /** navigate_to_settings — offered, with these tabs, wherever the host can open a Settings tab. */
+  settingsTabs?: readonly SettingsTab[];
   // Enterprise mode flag — disables tools that require the local sidecar
   isEnterprise?: boolean;
 }
@@ -1954,9 +1970,12 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
   if (recommendTool) tools.push(recommendTool);
 
   // Bash tool — allocated per agent type through `ai.disabledTools.<agentType>`
-  // (off for Overlord by default), like every other tool
-  const bashTool = AGENT_TOOLS.find(t => t.name === 'run_bash');
-  if (bashTool) tools.push(bashTool);
+  // (off for Overlord by default), like every other tool. It runs on the local
+  // agent (/ai/bash-execute), which enterprise does not have.
+  if (!availability.isEnterprise) {
+    const bashTool = AGENT_TOOLS.find(t => t.name === 'run_bash');
+    if (bashTool) tools.push(bashTool);
+  }
 
   // Always include document tools (read and write)
   const docTools = ['list_documents', 'read_document', 'search_documents', 'save_document'];
@@ -2052,8 +2071,8 @@ export function getAvailableTools(availability: ToolAvailability, disabledTools:
     }
   }
 
-  if (availability.hasSettingsNavigation) {
-    tools.push(navigateToSettingsToolDefinition);
+  if (availability.settingsTabs) {
+    tools.push(navigateToSettingsTool(availability.settingsTabs));
   }
 
   // Filter out disabled tools

@@ -31,7 +31,7 @@ import { getCurrentMode } from '../api/client';
 import { formatRate } from '../utils/formatRate';
 import { saveEnrichmentToDoc } from '../lib/enrichmentExport';
 import { formatDuration } from '../lib/formatters';
-import { sendChatMessage, AiNotConfiguredError, type ChatMessage } from '../api/ai';
+import { sendChatMessage, AiNotConfiguredError, aiNotConfiguredMessage, type ChatMessage } from '../api/ai';
 import { resolveProvider } from '../lib/aiProviderResolver';
 import { listNetBoxSources, getNetBoxSourceConnection } from '../api/netboxSources';
 import { fetchDeviceByName, getNetBoxDeviceRole, type NetBoxDevice } from '../api/netbox';
@@ -1499,7 +1499,7 @@ export default function DeviceDetailTab({
       }
     } catch (err) {
       if (err instanceof AiNotConfiguredError) {
-        setSaveMessage({ type: 'error', text: 'AI not configured — add API key in Settings > AI' });
+        setSaveMessage({ type: 'error', text: aiNotConfiguredMessage() });
       } else {
         setSaveMessage({ type: 'error', text: getErrorMessage(err, 'AI generation failed') });
       }

@@ -4,6 +4,7 @@
 
 import { getClient, getCurrentMode } from './client';
 import { resolveProvider } from '../lib/aiProviderResolver';
+import { AiNotConfiguredError, aiNotConfiguredMessage } from './ai';
 
 export interface Script {
   id: string;
@@ -15,12 +16,16 @@ export interface Script {
   is_own?: boolean;
   created_at: string;
   updated_at: string;
-  /** Provenance — `'user'` (default) or `'ai'`.
-   *  AUDIT FIX (EXEC-014). Standalone-mode only; controller may omit. */
+  /** Provenance — `'user'` (default) or `'ai'`. AUDIT FIX (EXEC-014).
+   *  The Controller sends it as `created_by_role`; see fromController(). */
   created_by?: 'user' | 'ai';
   /** Approval flag for AI-authored scripts. False means the user must call
    *  approveScript() before runScript() will be accepted by the backend. */
   approved?: boolean;
+  /** Controller only: whether this user may edit/delete the script (own
+   *  scripts, plus shared ones for `system.manage` admins). The standalone
+   *  agent omits it — every local script is the user's own. */
+  can_edit?: boolean;
 }
 
 export interface NewScript {
@@ -103,6 +108,39 @@ export type ScriptStreamEvent =
 
 // === Controller (Enterprise) types ===
 
+/** Script as the Controller serialises it (routes/scripts.rs ScriptResponse). */
+interface ControllerScript {
+  id: string;
+  name: string;
+  content: string;
+  last_run_at: string | null;
+  shared: boolean;
+  owner_name: string | null;
+  is_own: boolean;
+  can_edit: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by_role: string;
+  approved: boolean;
+}
+
+function fromController(s: ControllerScript): Script {
+  return {
+    id: s.id,
+    name: s.name,
+    content: s.content,
+    last_run_at: s.last_run_at,
+    shared: s.shared,
+    owner_name: s.owner_name,
+    is_own: s.is_own,
+    can_edit: s.can_edit,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+    created_by: s.created_by_role === 'ai' ? 'ai' : 'user',
+    approved: s.approved,
+  };
+}
+
 interface ControllerExecution {
   id: string;
   script_id: string;
@@ -117,16 +155,22 @@ function isEnterprise(): boolean {
   return getCurrentMode() === 'enterprise';
 }
 
+/** The one place a script response becomes a `Script`: the Controller's shape
+ *  is mapped, the standalone agent's already matches. */
+function toScript(data: unknown): Script {
+  return isEnterprise() ? fromController(data as ControllerScript) : data as Script;
+}
+
 // === Scripts API ===
 
 export async function listScripts(): Promise<Script[]> {
-  const { data } = await getClient().http.get('/scripts');
-  return data;
+  const { data } = await getClient().http.get<unknown[]>('/scripts');
+  return data.map(toScript);
 }
 
 export async function getScript(id: string): Promise<Script> {
   const { data } = await getClient().http.get(`/scripts/${id}`);
-  return data;
+  return toScript(data);
 }
 
 export async function createScript(script: NewScript): Promise<Script> {
@@ -137,7 +181,7 @@ export async function createScript(script: NewScript): Promise<Script> {
         content: script.content,
         shared: script.shared || false,
       });
-      return data;
+      return toScript(data);
     }
 
     const { data } = await getClient().http.post('/scripts', script);
@@ -151,7 +195,7 @@ export async function createScript(script: NewScript): Promise<Script> {
 export async function updateScript(id: string, script: UpdateScript): Promise<Script> {
   try {
     const { data } = await getClient().http.put(`/scripts/${id}`, script);
-    return data;
+    return toScript(data);
   } catch (err: unknown) {
     const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
     throw new Error(axiosErr.response?.data?.error || `Failed to update script (${axiosErr.response?.status})`);
@@ -168,24 +212,6 @@ export async function deleteScript(id: string): Promise<void> {
 }
 
 /**
- * Create a script tagged as AI-authored. Sets `X-NetStacks-AI-Origin: true`
- * so the backend (AUDIT FIX EXEC-014) stores the row with `created_by='ai'`
- * and `approved=false`. The script will be rejected by `runScript()` until
- * the user calls `approveScript()` after reviewing the content.
- */
-export async function createScriptAsAi(script: NewScript): Promise<Script> {
-  try {
-    const { data } = await getClient().http.post('/scripts', script, {
-      headers: { 'X-NetStacks-AI-Origin': 'true' },
-    });
-    return data;
-  } catch (err: unknown) {
-    const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
-    throw new Error(axiosErr.response?.data?.error || `Failed to create AI script (${axiosErr.response?.status})`);
-  }
-}
-
-/**
  * Approve an AI-authored script for execution. The backend audit-logs every
  * approval. Editing the script content via `updateScript()` will revoke
  * approval and require re-review.
@@ -193,7 +219,7 @@ export async function createScriptAsAi(script: NewScript): Promise<Script> {
 export async function approveScript(id: string): Promise<Script> {
   try {
     const { data } = await getClient().http.post(`/scripts/${id}/approve`);
-    return data;
+    return toScript(data);
   } catch (err: unknown) {
     const axiosErr = err as { response?: { data?: { error?: string }; status?: number } };
     throw new Error(axiosErr.response?.data?.error || `Failed to approve script (${axiosErr.response?.status})`);
@@ -406,7 +432,7 @@ export async function generateScript(
 
     // Handle AI not configured specifically
     if (axiosErr.response?.status === 503 || responseData?.code === 'NOT_CONFIGURED') {
-      throw new Error('AI not configured. Add your API key in Settings > AI to enable script generation.');
+      throw new AiNotConfiguredError(aiNotConfiguredMessage());
     }
 
     throw new Error(responseData?.error || 'Failed to generate script');

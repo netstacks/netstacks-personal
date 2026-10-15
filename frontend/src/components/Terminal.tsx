@@ -942,16 +942,20 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     },
     onError: (message) => {
       console.error('[Enterprise SSH] Error:', message)
-      if (terminalRef.current) {
-        // Only a genuine SSH auth rejection gets the credentials hint, and the
-        // server's own text is kept so a host-key / vault / authorization
-        // error is never misreported as a bad device password.
-        if (/authentication failed/i.test(message)) {
-          terminalRef.current.writeln(`\r\n\x1b[31m${message}\x1b[0m\r\n\x1b[31mCheck the session's credentials with your administrator\x1b[0m\r\n`)
-        } else {
-          terminalRef.current.writeln(`\r\n\x1b[31mError: ${message}\x1b[0m\r\n`)
-        }
-      }
+      terminalRef.current?.writeln(`\r\n\x1b[31mError: ${message}\x1b[0m\r\n`)
+    },
+    // The Controller refused the connection for good (no retry follows): one
+    // message, with the server's own text kept so a host-key / vault /
+    // authorization error is never misreported as a bad device password.
+    onRefused: (message) => {
+      console.error('[Enterprise SSH] Refused:', message)
+      isConnectedRef.current = false
+      onStatusChangeRef.current?.('disconnected')
+      setShowReconnectOverlay(false)
+      const hint = /authentication failed/i.test(message)
+        ? "Check the session's credentials with your administrator"
+        : 'Not retrying — reconnect once this is resolved'
+      terminalRef.current?.writeln(`\r\n\x1b[31m${message}\x1b[0m\r\n\x1b[31m${hint}\x1b[0m\r\n`)
     },
   })
   const enterpriseSSH = isEnterpriseMode ? enterpriseSSHHook : null

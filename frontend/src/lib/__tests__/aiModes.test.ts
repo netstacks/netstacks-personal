@@ -78,6 +78,16 @@ describe('permission mode', () => {
     setGlobalSettings({ ...defaultSettings, 'ai.disabledTools.overlord': [] })
     expect(getSystemPrompt('overlord', false)).toContain('You HAVE the local shell')
   })
+
+  it('never offers the local shell in enterprise (run_bash runs on the local agent)', () => {
+    setGlobalSettings({ ...defaultSettings, 'ai.disabledTools.overlord': [] })
+    for (const agentType of ['autopilot', 'overlord'] as const) {
+      const prompt = getSystemPrompt(agentType, true)
+      expect(prompt).toContain('You do NOT have the local shell')
+      expect(prompt).toContain('connected to a Controller')
+      expect(prompt).not.toContain('switch to the')
+    }
+  })
 })
 
 describe('AGENT_PROMPT', () => {

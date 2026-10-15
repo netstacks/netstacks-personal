@@ -21,6 +21,7 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import DialogFooter from './DialogFooter'
 import { isTauri } from '../lib/nativeWindow'
 import ModalFrame from './ModalFrame'
+import { useUserScopeStore } from '../lib/userScope'
 import './ConfirmDialog.css'
 
 export interface ConfirmOptions {
@@ -92,6 +93,17 @@ function resolveCurrent(value: boolean) {
   notifyListeners()
   pending.resolve(value)
 }
+
+// Enterprise: a confirm asked on one user's behalf is never answered by the
+// next — signing out (or a change of user) cancels every pending confirm.
+useUserScopeStore.subscribe((state, prev) => {
+  if (state.scope === prev.scope || !current) return
+  const cancelled = [current, ...queue]
+  current = null
+  queue = []
+  notifyListeners()
+  for (const pending of cancelled) pending.resolve(false)
+})
 
 /** Test seam: drop every pending confirm without resolving. */
 export function resetConfirmQueueForTests() {

@@ -22,13 +22,8 @@ import './index.css';
 import './components/dialog.css';
 import './components/primitives.css';
 import './components/popoverCard.css';
-import App from './App.tsx';
-import VaultUnlockGate from './components/VaultUnlockGate';
-import HostKeyPromptModal from './components/HostKeyPromptModal';
-import InteractionPanel from './components/InteractionPanel';
-import { TokenUsageProvider } from './contexts/TokenUsageContext';
-import { initializeClient } from './api/client';
-import { setSidecarAuthToken, setSidecarPort } from './api/localClient';
+import AppShell from './AppShell';
+import { startClient, usesLocalAgent } from './lib/clientBootstrap';
 import { useCapabilitiesStore } from './stores/capabilitiesStore';
 import { startAiSettingsMirror } from './lib/aiSettingsMirror';
 import PopoutTerminal from './components/PopoutTerminal';
@@ -58,9 +53,9 @@ document.documentElement.dataset.platform = getPlatform();
   }
 }
 
+void followWindowFocus();
 if (isTauri()) {
   void followNativeTheme();
-  void followWindowFocus();
   void applyWindowMaterial();
   syncNativeWindow();
 }
@@ -105,70 +100,9 @@ const queryClient = new QueryClient({
   },
 });
 
-// Bootstrap sidecar auth token and port (shared between main app and popout windows)
-async function bootstrapSidecarToken() {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const { listen } = await import('@tauri-apps/api/event');
-
-    const MAX_ATTEMPTS = 50;
-    const POLL_INTERVAL_MS = 100;
-    let gotToken = false;
-    let gotPort = false;
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      if (!gotToken) {
-        const token = await invoke<string | null>('get_sidecar_token');
-        if (token) {
-          setSidecarAuthToken(token);
-          logger.log('[main] Sidecar auth token retrieved via IPC');
-          gotToken = true;
-        }
-      }
-      if (!gotPort) {
-        const port = await invoke<number | null>('get_sidecar_port');
-        if (port) {
-          setSidecarPort(port);
-          logger.log(`[main] Sidecar port retrieved via IPC: ${port}`);
-          gotPort = true;
-        }
-      }
-      if (gotToken && gotPort) break;
-      if (i < MAX_ATTEMPTS - 1) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      } else {
-        if (!gotToken) console.warn('[main] Sidecar auth token not available after polling, continuing without');
-        if (!gotPort) console.warn('[main] Sidecar port not available after polling, continuing without');
-      }
-    }
-
-    await listen<string>('sidecar-auth-token', (event) => {
-      setSidecarAuthToken(event.payload);
-    });
-    await listen<number>('sidecar-port', (event) => {
-      setSidecarPort(event.payload);
-    });
-  } catch {
-    // Not in Tauri — check URL params for testing (e.g. ?token=xxx&port=8080)
-    const params = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-    if (urlToken) {
-      setSidecarAuthToken(urlToken);
-      logger.log('[main] Auth token loaded from URL parameter (test mode)');
-    }
-    const urlPort = params.get('port');
-    if (urlPort) {
-      setSidecarPort(parseInt(urlPort, 10));
-      logger.log(`[main] Port loaded from URL parameter (test mode): ${urlPort}`);
-    } else {
-      logger.log('[main] Not in Tauri environment, skipping sidecar bootstrap');
-    }
-  }
-}
-
 // Bootstrap a popout terminal window (minimal startup — no full app init)
 async function bootstrapPopout(params: URLSearchParams) {
-  await bootstrapSidecarToken();
-  await initializeClient();
+  await startClient();
 
   // NOTE: StrictMode intentionally double-invokes effects in dev to surface
   // non-idempotent side effects, but every SSH connect / SNMP poll / WS
@@ -183,8 +117,7 @@ async function bootstrapPopout(params: URLSearchParams) {
 
 // Bootstrap a popped-out AI chat window (the floating chat).
 async function bootstrapPopoutChat() {
-  await bootstrapSidecarToken();
-  await initializeClient();
+  await startClient();
   createRoot(document.getElementById('root')!).render(
     <PopoutAIChat />
   );
@@ -192,15 +125,13 @@ async function bootstrapPopoutChat() {
 
 // Bootstrap the full application
 async function bootstrap() {
-  await bootstrapSidecarToken();
-
-  const result = await initializeClient();
+  const result = await startClient();
   logger.log(`[main] App mode: ${result.mode}, requires auth: ${result.requiresAuth}`);
 
-  // In standalone mode, wait for the TLS cert to be installed into the OS trust
+  // On the local agent, wait for its TLS cert to be installed into the OS trust
   // store before making any API calls. Tauri emits 'sidecar-tls-ready' once done.
-  // Enterprise mode skips this — no local agent, no cert to install.
-  if (result.mode === 'standalone') {
+  // Enterprise and remote-agent windows skip this — no local agent, no cert.
+  if (usesLocalAgent(result.mode)) {
     // Skip outside Tauri (dev/test): @tauri-apps/api throws synchronously
     // if window.__TAURI_INTERNALS__ is undefined, and the rejection from
     // listen() inside the Promise executor below is unhandled — it would
@@ -239,17 +170,7 @@ async function bootstrap() {
     <RevealMainWindow />
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <TokenUsageProvider>
-          <VaultUnlockGate>
-            <App />
-            {/* AUDIT FIX (REMOTE-001): always-mounted modal that surfaces
-                pending SSH host-key fingerprint prompts. */}
-            <HostKeyPromptModal />
-            {/* Feature B: queued, kind-switched human-in-the-loop panel for
-                background ReAct tasks (approval + ask_user question). */}
-            <InteractionPanel />
-          </VaultUnlockGate>
-        </TokenUsageProvider>
+        <AppShell />
       </QueryClientProvider>
     </ErrorBoundary>
     </>
