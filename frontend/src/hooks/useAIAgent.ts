@@ -1727,7 +1727,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
           };
         }
         const flavor = rawFlavor as CliFlavor;
-        const session = sessions.find(s => s.id === sessionId);
+        const session = sessions.find(s => sessionMatches(s, sessionId));
         if (!session) {
           return { content: `Session ${sessionId} not found`, is_error: true };
         }
