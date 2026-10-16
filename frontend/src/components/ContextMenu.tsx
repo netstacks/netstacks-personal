@@ -315,7 +315,6 @@ export const getDeviceMenuItems = (
   onFindPath: () => void,
   onFocusTerminal: () => void,
   onOpenAIChat: () => void,
-  onDiscoverNeighbors: () => void,
   onConnect?: () => void,
   onAddToDiscovery?: () => void
 ): MenuItem[] => {
@@ -432,21 +431,6 @@ export const getDeviceMenuItems = (
       ),
       action: onOpenAIChat
     },
-    {
-      id: 'discover-neighbors',
-      label: 'Discover Neighbors',
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="12" cy="12" r="3" />
-          <circle cx="5" cy="6" r="2" />
-          <circle cx="19" cy="6" r="2" />
-          <circle cx="5" cy="18" r="2" />
-          <circle cx="19" cy="18" r="2" />
-          <path d="M9 10l-2-2M15 10l2-2M9 14l-2 2M15 14l2 2" />
-        </svg>
-      ),
-      action: onDiscoverNeighbors
-    },
     ...(onAddToDiscovery ? [{
       id: 'add-to-discovery',
       label: 'Add to Discovery',
@@ -470,7 +454,6 @@ export const getDeviceAIMenuItems = (
   onFindPath: () => void,
   onFocusTerminal: () => void,
   onOpenAIChat: () => void,
-  onDiscoverNeighbors: () => void
 ): MenuItem[] => {
   return [
     {
@@ -548,21 +531,6 @@ export const getDeviceAIMenuItems = (
         </svg>
       ),
       action: onOpenAIChat
-    },
-    {
-      id: 'discover-neighbors',
-      label: 'Discover Neighbors',
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="12" cy="12" r="3" />
-          <circle cx="5" cy="6" r="2" />
-          <circle cx="19" cy="6" r="2" />
-          <circle cx="5" cy="18" r="2" />
-          <circle cx="19" cy="18" r="2" />
-          <path d="M9 10l-2-2M15 10l2-2M9 14l-2 2M15 14l2 2" />
-        </svg>
-      ),
-      action: onDiscoverNeighbors
     },
   ]
 }

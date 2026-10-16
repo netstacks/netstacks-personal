@@ -17,8 +17,6 @@ interface DeviceDetailsOverlayProps {
   onFocusTerminal?: (device: Device) => void;
   /** Open AI chat with device context */
   onOpenAIChat?: (device: Device) => void;
-  /** Trigger AI neighbor discovery */
-  onDiscoverNeighbors?: (device: Device) => void;
   /** Open session for this device */
   onOpenSession?: (device: Device) => void;
   /** Open device in a dedicated tab (for saving to docs) */
@@ -148,7 +146,6 @@ export default function DeviceDetailsOverlay({
   onClose,
   onFocusTerminal,
   onOpenAIChat,
-  onDiscoverNeighbors,
   onOpenSession,
   onOpenInTab,
 }: DeviceDetailsOverlayProps) {
@@ -317,22 +314,6 @@ export default function DeviceDetailsOverlay({
             AI Assistant
           </button>
         )}
-        {onDiscoverNeighbors && (
-          <button
-            className="ns-btn"
-            onClick={() => onDiscoverNeighbors(device)}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="12" r="3" />
-              <circle cx="19" cy="12" r="2" />
-              <circle cx="5" cy="12" r="2" />
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="19" r="2" />
-              <path d="M12 9v-2M12 17v2M15 12h2M7 12h2" />
-            </svg>
-            Discover Neighbors
-          </button>
-        )}
         {onOpenInTab && (
           <button
             className="ns-btn"
@@ -347,8 +328,7 @@ export default function DeviceDetailsOverlay({
       </div>
 
       {/* Interfaces / Neighbors / Statistics sections were permanent placeholders
-          with no data source; removed until real data is wired up (NS-FEAT-27).
-          "Discover Neighbors" above remains the way to enrich this device. */}
+          with no data source; removed until real data is wired up (NS-FEAT-27). */}
     </div>
   );
 }

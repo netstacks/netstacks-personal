@@ -1886,17 +1886,6 @@ function AppContent() {
     setForcePopover({ isOpen: true, position, context: { text, sessionId, sessionName }, options })
   }, [])
 
-  // Discover neighbors for a device - opens AI panel with discovery prompt
-  const handleDiscoverNeighbors = useCallback((device: Device) => {
-    handleDeviceOverlayClose()
-    // Open AI panel with a prompt to discover neighbors for this device
-    setAiExternalPrompt({
-      prompt: `Discover neighbors for device "${device.name}"${device.primaryIp ? ` (${device.primaryIp})` : ''}. Use CDP/LLDP neighbor discovery commands if there's an active terminal session for this device, or query configured integration sources (LibreNMS, NetBox, NetStacks-Crawler) for neighbor information.`,
-      counter: Date.now()
-    })
-    setAiChatOpen(true)
-    setAiExpandTrigger(t => t + 1)
-  }, [])
 
   // AI Discover - enriches topology with device details using external integrations
   // Opens AI side panel so user can see the work happening
@@ -5082,9 +5071,18 @@ def main(command: str = "show version"):
           }
 
           // Net-new neighbor — add it to the topology + register its aliases.
-          // Position in a fan around the source device.
-          const angle = (neighborIndex * 45) * (Math.PI / 180)
-          const radius = 120
+          // Multi-ring spiral so neighbors never collide:
+          //   ring 0 (0-7):  radius 220, 8 slots × 45°
+          //   ring 1 (8-15): radius 380, 8 slots × 45° (offset 22.5° so it nests between ring-0 nodes)
+          //   ring 2 (16+):  radius 540, 8 slots × 45° (offset 0°)
+          const SLOTS = 8
+          const ring = Math.floor(neighborIndex / SLOTS)
+          const slot = neighborIndex % SLOTS
+          const baseRadius = 220
+          const ringSpacing = 160
+          const radius = baseRadius + ring * ringSpacing
+          const angleOffset = ring % 2 === 1 ? 22.5 : 0
+          const angle = ((slot * (360 / SLOTS)) + angleOffset) * (Math.PI / 180)
           const nx = sourceX + Math.cos(angle) * radius
           const ny = sourceY + Math.sin(angle) * radius
 
@@ -8833,7 +8831,6 @@ def main(command: str = "show version"):
         onClose={handleDeviceOverlayClose}
         onFocusTerminal={handleFocusTerminal}
         onOpenAIChat={handleOpenAIChat}
-        onDiscoverNeighbors={handleDiscoverNeighbors}
         onOpenSession={handleOpenDeviceTerminal}
         onOpenInTab={handleOpenDeviceDetailTab}
       />
@@ -8910,11 +8907,6 @@ def main(command: str = "show version"):
           // Open AI Chat
           () => {
             if (deviceContextMenu.device) handleOpenAIChat(deviceContextMenu.device)
-            closeDeviceContextMenu()
-          },
-          // Discover Neighbors
-          () => {
-            if (deviceContextMenu.device) handleDiscoverNeighbors(deviceContextMenu.device)
             closeDeviceContextMenu()
           },
           // Connect (open SSH session to device)
