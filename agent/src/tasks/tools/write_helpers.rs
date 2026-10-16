@@ -6,14 +6,15 @@
 //! their own safe commands.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use base64::Engine as _;
-use sqlx::sqlite::SqlitePool;
 use std::time::Duration;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::ssh::{execute_command_on_session, CommandStatus, SshAuth, SshConfig};
+use crate::providers::DataProvider;
+use crate::ssh::{build_ssh_config_from_session, execute_command_on_session, CommandStatus};
 
 const SHELL_METACHARACTERS: &[char] = &[
     ';', '|', '&', '$', '`', '\n', '\r', '\'', '"', '(', ')', '{', '}',
@@ -22,19 +23,6 @@ const SHELL_METACHARACTERS: &[char] = &[
 /// Maximum file size for edit operations (1 MB).
 pub const MAX_EDIT_FILE_SIZE: usize = 1_048_576;
 
-/// Row from session + profile join query (mirrors SshCommandTool's SessionConfigRow).
-#[derive(Debug, sqlx::FromRow)]
-struct SessionConfigRow {
-    name: String,
-    host: String,
-    port: i32,
-    legacy_ssh: bool,
-    username: String,
-    auth_type: String,
-    password: Option<String>,
-    key_path: Option<String>,
-    key_passphrase: Option<String>,
-}
 
 /// Paths the AI is never allowed to overwrite — system credential stores,
 /// boot/firmware/configuration paths on common network OSes, kernel/proc
@@ -323,7 +311,7 @@ pub fn apply_edit(content: &str, old_text: &str, new_text: &str) -> Result<Strin
 /// filtering.
 ///
 /// # Arguments
-/// * `pool` - SQLite connection pool for looking up session/credential data
+/// * `provider` - Data provider (decrypts vault credentials correctly)
 /// * `session_id` - The session ID to connect to
 /// * `command` - The shell command to execute
 /// * `timeout` - Maximum time to wait for the command to complete
@@ -331,71 +319,42 @@ pub fn apply_edit(content: &str, old_text: &str, new_text: &str) -> Result<Strin
 /// # Returns
 /// The command's stdout output on success, or an error message string.
 pub async fn execute_ssh_for_session(
-    pool: &SqlitePool,
+    provider: &Arc<dyn DataProvider>,
     session_id: &str,
     command: &str,
     timeout: Duration,
 ) -> Result<String, String> {
-    // Look up session + credential profile from SQLite
-    let row: SessionConfigRow = sqlx::query_as(
-        r#"
-        SELECT
-            s.name, s.host, s.port, s.legacy_ssh,
-            p.username, p.auth_type, p.key_path,
-            v.password, v.key_passphrase
-        FROM sessions s
-        JOIN credential_profiles p ON s.profile_id = p.id
-        LEFT JOIN vault_credentials v ON v.profile_id = p.id
-        WHERE s.id = ?
-        "#,
-    )
-    .bind(session_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("DB query failed: {}", e))?
-    .ok_or_else(|| format!("Session '{}' not found or has no profile", session_id))?;
+    let session = provider
+        .get_session(session_id)
+        .await
+        .map_err(|e| format!("Session lookup failed: {}", e))?;
 
-    // Build auth config
-    let auth = match row.auth_type.as_str() {
-        "password" => {
-            let password = row
-                .password
-                .ok_or_else(|| "Password not set in profile - unlock vault first".to_string())?;
-            SshAuth::Password(password)
-        }
-        "key" => {
-            let path = row
-                .key_path
-                .ok_or_else(|| "Key path not set in profile".to_string())?;
-            SshAuth::KeyFile {
-                path,
-                passphrase: row.key_passphrase,
-            }
-        }
-        other => return Err(format!("Unknown auth type: {}", other)),
-    };
+    let profile = provider
+        .get_profile(&session.profile_id)
+        .await
+        .map_err(|e| format!("Profile lookup failed: {}", e))?;
 
-    let config = SshConfig {
-        host: row.host.clone(),
-        port: row.port as u16,
-        username: row.username,
-        auth,
-        legacy_ssh: row.legacy_ssh,
-        skip_keyboard_interactive: false,
-    };
+    let credential = provider
+        .get_profile_credential(&session.profile_id)
+        .await
+        .map_err(|e| format!("Credential lookup failed: {}", e))?;
+
+    let host = session.host.clone();
+    let name = session.name.clone();
+    let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())
+        .map_err(|e| e)?;
 
     info!(
         session_id = %session_id,
-        host = %row.host,
+        host = %host,
         command_len = command.len(),
         "write_helpers: executing SSH command"
     );
 
-    // Execute via the shared SSH execution function
     let result = execute_command_on_session(
         config,
         session_id.to_string(),
-        row.name,
+        name,
         command.to_string(),
         timeout,
     )
@@ -405,17 +364,17 @@ pub async fn execute_ssh_for_session(
         CommandStatus::Success => Ok(result.output),
         CommandStatus::AuthFailed => Err(format!(
             "SSH authentication failed for {}: {}",
-            row.host,
+            host,
             result.error.unwrap_or_default()
         )),
         CommandStatus::Timeout => Err(format!(
             "SSH command timed out after {}s on {}",
             timeout.as_secs(),
-            row.host
+            host
         )),
         CommandStatus::Error | CommandStatus::NotRun => Err(format!(
             "SSH command failed on {}: {}",
-            row.host,
+            host,
             result.error.unwrap_or_default()
         )),
     }

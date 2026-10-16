@@ -110,3 +110,78 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Corner badge — shown when a pending interaction exists but user isn't on the AI tab */
+.interaction-corner-badge {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition: background 0.15s;
+}
+.interaction-corner-badge:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+}
+.interaction-corner-badge.kind-question {
+  border-color: var(--color-accent);
+}
+.interaction-corner-badge.kind-approval {
+  border-color: var(--color-warning);
+}
+
+.interaction-corner-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  flex-shrink: 0;
+  animation: ip-pulse 1.6s ease-in-out infinite;
+}
+.interaction-corner-badge.kind-question .interaction-corner-dot {
+  background: var(--color-accent);
+}
+.interaction-corner-badge.kind-approval .interaction-corner-dot {
+  background: var(--color-warning);
+}
+@keyframes ip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.interaction-corner-label {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.interaction-corner-count {
+  background: var(--color-bg-tertiary);
+  border-radius: 8px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Collapse button inside the full panel (visible when off-AI-tab and panel is open) */
+.interaction-collapse-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.interaction-collapse-btn:hover {
+  color: var(--color-text);
+}

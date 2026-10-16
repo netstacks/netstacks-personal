@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::sqlite::SqlitePool;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
@@ -12,10 +12,11 @@ use super::write_helpers::{
     validate_filepath, MAX_EDIT_FILE_SIZE,
 };
 use super::{Tool, ToolError, ToolOutput};
+use crate::providers::DataProvider;
 
 /// Tool for replacing specific text in a file on a remote server
 pub struct EditFileTool {
-    pool: SqlitePool,
+    provider: Arc<dyn DataProvider>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,8 +28,8 @@ struct EditFileInput {
 }
 
 impl EditFileTool {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(provider: Arc<dyn DataProvider>) -> Self {
+        Self { provider }
     }
 }
 
@@ -91,7 +92,7 @@ impl Tool for EditFileTool {
             build_read_file_command(&filepath).map_err(ToolError::InvalidInput)?;
 
         let content = execute_ssh_for_session(
-            &self.pool,
+            &self.provider,
             &params.session_id,
             &read_cmd,
             Duration::from_secs(30),
@@ -118,7 +119,7 @@ impl Tool for EditFileTool {
             build_write_command(&filepath, &new_content).map_err(ToolError::InvalidInput)?;
 
         execute_ssh_for_session(
-            &self.pool,
+            &self.provider,
             &params.session_id,
             &write_cmd,
             Duration::from_secs(30),

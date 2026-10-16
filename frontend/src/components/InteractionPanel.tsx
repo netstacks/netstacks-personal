@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useMode } from '../hooks/useMode';
+import { useActiveContextStore } from '../commands';
 import {
   listAllPendingInteractions,
   resolveInteraction,
@@ -22,13 +23,19 @@ import {
 } from '../api/taskApprovals';
 import './InteractionPanel.css';
 
+/** Tab types that are the AI interaction surface — show the full panel. */
+const AI_TAB_TYPES = new Set(['agent-run', 'ai-chat']);
+
 const POLL_INTERVAL_MS = 750;
 
 export default function InteractionPanel() {
   const { isEnterprise } = useMode();
+  const activeTabType = useActiveContextStore(s => s.activeTabType);
+  const isAiTab = AI_TAB_TYPES.has(activeTabType ?? '');
   const [queue, setQueue] = useState<PendingInteraction[]>([]);
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -46,6 +53,11 @@ export default function InteractionPanel() {
       if (timer.current) clearInterval(timer.current);
     };
   }, [isEnterprise]);
+
+  // Reset collapsed state when switching to an AI tab so the panel re-expands.
+  useEffect(() => {
+    if (isAiTab) setCollapsed(false);
+  }, [isAiTab]);
 
   const current = queue[0] ?? null;
   if (isEnterprise || !current) return null;
@@ -66,6 +78,26 @@ export default function InteractionPanel() {
     }
   };
 
+  // Off-AI-tab: show only a small corner badge so the user knows something
+  // is waiting without obscuring whatever they're doing.
+  if (!isAiTab || collapsed) {
+    return (
+      <div className="interaction-panel-overlay">
+        <button
+          className={`interaction-corner-badge kind-${current.kind}`}
+          onClick={() => { setCollapsed(false); }}
+          title={`Agent is waiting for your input — ${queue.length} pending`}
+        >
+          <span className="interaction-corner-dot" />
+          <span className="interaction-corner-label">{current.kind}</span>
+          {queue.length > 1 && (
+            <span className="interaction-corner-count">{queue.length}</span>
+          )}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="interaction-panel-overlay">
       <div className="interaction-panel">
@@ -74,6 +106,15 @@ export default function InteractionPanel() {
           <span className="interaction-queue-count">
             {queue.length === 1 ? '1 pending' : `${queue.length} pending`}
           </span>
+          {!isAiTab && (
+            <button
+              className="interaction-collapse-btn"
+              onClick={() => setCollapsed(true)}
+              title="Collapse"
+            >
+              ×
+            </button>
+          )}
         </div>
 
         <div className="interaction-prompt">{current.prompt}</div>

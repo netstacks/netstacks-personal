@@ -3,16 +3,17 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::sqlite::SqlitePool;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
 use super::write_helpers::{build_sed_command, execute_ssh_for_session, validate_filepath};
 use super::{Tool, ToolError, ToolOutput};
+use crate::providers::DataProvider;
 
 /// Tool for applying sed substitutions to a file on a remote server
 pub struct PatchFileTool {
-    pool: SqlitePool,
+    provider: Arc<dyn DataProvider>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,8 +24,8 @@ struct PatchFileInput {
 }
 
 impl PatchFileTool {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(provider: Arc<dyn DataProvider>) -> Self {
+        Self { provider }
     }
 }
 
@@ -83,7 +84,7 @@ impl Tool for PatchFileTool {
             .map_err(ToolError::InvalidInput)?;
 
         execute_ssh_for_session(
-            &self.pool,
+            &self.provider,
             &params.session_id,
             &sed_cmd,
             Duration::from_secs(30),

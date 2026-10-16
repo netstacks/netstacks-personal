@@ -183,7 +183,7 @@ impl AgentTaskExecutor {
 
             // Build tool registry with network tools
             let mut tool_registry = ToolRegistry::new();
-            tool_registry.register(Arc::new(SshCommandTool::new(pool.clone(), config_mode.clone())));
+            tool_registry.register(Arc::new(SshCommandTool::new(provider.clone(), config_mode.clone())));
             tool_registry.register(Arc::new(DeviceQueryTool::new(pool.clone())));
             tool_registry.register(Arc::new(SendEmailTool::new(pool.clone())));
             tool_registry.register(Arc::new(MopPlanTool::new(pool.clone())));
@@ -214,9 +214,9 @@ impl AgentTaskExecutor {
                 super::permissions::PermissionContext::load(&provider, &config_mode).await;
 
             if permissions.terminal_mode {
-                tool_registry.register(Arc::new(WriteFileTool::new(pool.clone())));
-                tool_registry.register(Arc::new(EditFileTool::new(pool.clone())));
-                tool_registry.register(Arc::new(PatchFileTool::new(pool.clone())));
+                tool_registry.register(Arc::new(WriteFileTool::new(provider.clone())));
+                tool_registry.register(Arc::new(EditFileTool::new(provider.clone())));
+                tool_registry.register(Arc::new(PatchFileTool::new(provider.clone())));
                 tracing::info!("AI terminal mode enabled — write tools registered");
             }
 

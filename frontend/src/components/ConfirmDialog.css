@@ -36,6 +36,9 @@
   font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--color-text-primary);
+  /* Long session/file names in the title must not overflow the box */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .confirm-dialog p,
@@ -44,6 +47,9 @@
   font-size: var(--font-size-base);
   color: var(--color-text-primary);
   line-height: 1.5;
+  /* Prevent long file paths / tab names from overflowing the dialog */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .confirm-dialog-warning {

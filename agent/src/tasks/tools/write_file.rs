@@ -3,16 +3,17 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::sqlite::SqlitePool;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
 use super::write_helpers::{build_write_command, execute_ssh_for_session, validate_filepath};
 use super::{Tool, ToolError, ToolOutput};
+use crate::providers::DataProvider;
 
 /// Tool for creating or overwriting a file on a remote server
 pub struct WriteFileTool {
-    pool: SqlitePool,
+    provider: Arc<dyn DataProvider>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,8 +24,8 @@ struct WriteFileInput {
 }
 
 impl WriteFileTool {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(provider: Arc<dyn DataProvider>) -> Self {
+        Self { provider }
     }
 }
 
@@ -83,7 +84,7 @@ impl Tool for WriteFileTool {
             build_write_command(&filepath, &params.content).map_err(ToolError::InvalidInput)?;
 
         execute_ssh_for_session(
-            &self.pool,
+            &self.provider,
             &params.session_id,
             &write_cmd,
             Duration::from_secs(30),

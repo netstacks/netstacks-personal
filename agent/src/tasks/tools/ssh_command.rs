@@ -4,19 +4,20 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::sqlite::SqlitePool;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 
 use super::filter::CommandFilter;
 use super::{Tool, ToolError, ToolOutput};
 use crate::ai::config_mode::{self, ConfigModeHandle};
-use crate::ssh::{execute_command_on_session, CommandStatus, SshAuth, SshConfig};
+use crate::providers::DataProvider;
+use crate::ssh::{build_ssh_config_from_session, execute_command_on_session, CommandStatus, SshConfig};
 
 /// Tool for executing SSH commands on network devices
 pub struct SshCommandTool {
     filter: CommandFilter,
-    pool: SqlitePool,
+    provider: Arc<dyn DataProvider>,
     /// The read-only filter is lifted while AI config mode is active.
     config_mode: ConfigModeHandle,
 }
@@ -61,96 +62,46 @@ impl SshCommandInput {
     }
 }
 
-/// Row from session + profile join query
-#[derive(Debug, sqlx::FromRow)]
-struct SessionConfigRow {
-    name: String,
-    host: String,
-    port: i32,
-    legacy_ssh: bool,
-    username: String,
-    auth_type: String,
-    password: Option<String>,
-    key_path: Option<String>,
-    key_passphrase: Option<String>,
-}
-
 impl SshCommandTool {
-    pub fn new(pool: SqlitePool, config_mode: ConfigModeHandle) -> Self {
+    pub fn new(provider: Arc<dyn DataProvider>, config_mode: ConfigModeHandle) -> Self {
         Self {
             filter: CommandFilter::new(),
-            pool,
+            provider,
             config_mode,
         }
     }
 
-    /// Get session and profile info from database
+    /// Get session config via the provider (properly decrypts vault credentials).
     async fn get_session_config(
         &self,
         session_id: &str,
     ) -> Result<(SshConfig, String, String), ToolError> {
-        // Query session joined with profile and credentials
-        // Note: Credentials are stored encrypted in vault - for now we query what's available
-        // In production, this would need to decrypt via the vault
-        let row: SessionConfigRow = sqlx::query_as(
-            r#"
-            SELECT
-                s.name, s.host, s.port, s.legacy_ssh,
-                p.username, p.auth_type, p.key_path,
-                v.password, v.key_passphrase
-            FROM sessions s
-            JOIN credential_profiles p ON s.profile_id = p.id
-            LEFT JOIN vault_credentials v ON v.profile_id = p.id
-            WHERE s.id = ?
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| ToolError::ExecutionFailed(format!("DB query failed: {}", e)))?
-        .ok_or_else(|| {
-            ToolError::ExecutionFailed(format!(
-                "Session '{}' not found or has no profile",
-                session_id
-            ))
-        })?;
+        let session = self
+            .provider
+            .get_session(session_id)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Session lookup failed: {}", e)))?;
 
-        let auth = match row.auth_type.as_str() {
-            "password" => {
-                let password = row.password.ok_or_else(|| {
-                    ToolError::ExecutionFailed(
-                        "Password not set in profile - unlock vault first".to_string(),
-                    )
-                })?;
-                SshAuth::Password(password)
-            }
-            "key" => {
-                let path = row.key_path.ok_or_else(|| {
-                    ToolError::ExecutionFailed("Key path not set in profile".to_string())
-                })?;
-                SshAuth::KeyFile {
-                    path,
-                    passphrase: row.key_passphrase,
-                }
-            }
-            _ => {
-                return Err(ToolError::ExecutionFailed(format!(
-                    "Unknown auth type: {}",
-                    row.auth_type
-                )))
-            }
-        };
+        let profile = self
+            .provider
+            .get_profile(&session.profile_id)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Profile lookup failed: {}", e)))?;
 
-        let config = SshConfig {
-            host: row.host.clone(),
-            port: row.port as u16,
-            username: row.username,
-            auth,
-            legacy_ssh: row.legacy_ssh,
-            skip_keyboard_interactive: false,
-        };
+        let credential = self
+            .provider
+            .get_profile_credential(&session.profile_id)
+            .await
+            .map_err(|e| {
+                ToolError::ExecutionFailed(format!("Credential lookup failed: {}", e))
+            })?;
 
-        Ok((config, row.name, row.host))
+        let host = session.host.clone();
+        let name = session.name.clone();
+        let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())
+            .map_err(ToolError::ExecutionFailed)?;
+
+        Ok((config, name, host))
     }
 }
 
