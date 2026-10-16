@@ -70,6 +70,7 @@ export interface AppSettings {
   // AI Features
   'ai.inlineSuggestions': boolean;
   'ai.nextStepSuggestions': boolean;
+  'ai.showThinking': boolean;
   'ai.defaultProvider': AiProviderType;
   'ai.enabledProviders': AiProviderType[];
 
@@ -204,6 +205,7 @@ export const defaultSettings: AppSettings = {
   // AI Features
   'ai.inlineSuggestions': true,
   'ai.nextStepSuggestions': true,
+  'ai.showThinking': false,
   'ai.defaultProvider': 'anthropic',
   'ai.enabledProviders': ['anthropic'],
 
