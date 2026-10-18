@@ -2361,6 +2361,24 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     terminal.loadAddon(webLinksAddon)
     terminal.loadAddon(searchAddon)
 
+    // OSC 52 — clipboard write from the remote process.
+    // Tools like `claude` CLI use this to implement in-terminal "press c to copy"
+    // shortcuts (they emit ESC]52;c;<base64>ST). Without a handler xterm discards
+    // the sequence and the copy silently fails.
+    terminal.parser.registerOscHandler(52, (data) => {
+      const semi = data.indexOf(';')
+      if (semi === -1) return false
+      const pd = data.slice(semi + 1)
+      if (!pd || pd === '?') return false // ignore read requests
+      try {
+        const text = atob(pd)
+        void copyToClipboard(text, { source: 'app-copy' })
+      } catch {
+        // malformed base64 — ignore
+      }
+      return true
+    })
+
     // Clipboard paste that works inside the Tauri WebView (WebKitGTK on
     // Linux blocks navigator.clipboard.readText — readClipboardText goes
     // through the clipboard-manager plugin first). Exposed via ref for
