@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import AITabInput from './AITabInput';
 import { useAgentTasks, useAgentTasksStore } from '../hooks/useAgentTasks';
-import { rerunTask, getTaskMessages } from '../api/tasks';
+import { rerunTask, fetchTaskTranscript, taskTranscriptsSupported } from '../api/tasks';
 import { getCurrentMode } from '../api/client';
 import { listAgentDefinitions, createAgentDefinition, updateAgentDefinition, deleteAgentDefinition, runAgentDefinition } from '../api/agentDefinitions';
 import type { AgentDefinition, CreateAgentDefinitionRequest, UpdateAgentDefinitionRequest } from '../api/agentDefinitions';
@@ -54,6 +54,11 @@ function parseTaskResult(raw: string): ParsedTaskResult | null {
 
 // Check if running in enterprise mode (module level for performance)
 const isEnterprise = getCurrentMode() === 'enterprise';
+
+/** The Controller has no delete route for executions, so enterprise "delete"
+ *  only removes the task from this client's list (audit 1.7). */
+const removeTaskLabel = isEnterprise ? 'Remove from list' : 'Delete';
+const removeTaskTooltip = isEnterprise ? 'Remove from list' : 'Delete task';
 
 // Color palette for agent icons
 const AGENT_COLORS = [
@@ -193,11 +198,13 @@ function TaskLogViewer({ task, onClose, onCancel, onDelete, onRerun }: TaskLogVi
   const transcript = useAgentTasksStore((s) => s.transcripts[task.id] ?? EMPTY_TRANSCRIPT);
   const setTranscript = useAgentTasksStore((s) => s.setTranscript);
 
+  const transcriptUnavailable = !taskTranscriptsSupported();
+
   useEffect(() => {
     let cancelled = false;
-    getTaskMessages(task.id, -1)
-      .then((steps) => {
-        if (!cancelled && steps.length > 0) setTranscript(task.id, steps);
+    fetchTaskTranscript(task.id, -1)
+      .then((result) => {
+        if (!cancelled && result.supported && result.steps.length > 0) setTranscript(task.id, result.steps);
       })
       .catch(() => {
         /* transcript is best-effort; ignore fetch errors */
@@ -261,9 +268,9 @@ function TaskLogViewer({ task, onClose, onCancel, onDelete, onRerun }: TaskLogVi
           </div>
         </div>
 
-        {transcript.length > 0 && (
+        {(transcript.length > 0 || transcriptUnavailable) && (
           <div className="task-log-section">
-            <AgentActivity steps={transcript} live={isRunning} />
+            <AgentActivity steps={transcript} live={isRunning} unavailable={transcriptUnavailable} />
           </div>
         )}
 
@@ -371,7 +378,7 @@ function TaskLogViewer({ task, onClose, onCancel, onDelete, onRerun }: TaskLogVi
               onClose();
             }}
           >
-            Delete Task
+            {isEnterprise ? 'Remove from List' : 'Delete Task'}
           </button>
         )}
       </div>
@@ -462,10 +469,10 @@ function TaskItem({ task, isSelected, onSelect, onCancel, onDelete, onRerun, onC
           </button></Tooltip>
         )}
         {isTerminal && (
-          <Tooltip label="Delete task"><button
+          <Tooltip label={removeTaskTooltip}><button
             className="ns-btn ns-btn--ghost ns-btn--danger ns-icon-btn"
             onClick={() => onDelete(task.id)}
-            aria-label="Delete task"
+            aria-label={removeTaskTooltip}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="3 6 5 6 21 6" />
@@ -509,11 +516,6 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
   const contextMenu = useContextMenu();
 
-  // Load agent definitions on mount
-  useEffect(() => {
-    loadAgentDefs();
-  }, []);
-
   const loadAgentDefs = useCallback(async () => {
     try {
       const defs = await listAgentDefinitions();
@@ -521,6 +523,15 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
     } catch (err) {
       console.error('[AgentsPanel] Failed to load agent definitions:', err);
     }
+  }, []);
+
+  // Load agent definitions on mount
+  useEffect(() => {
+    let cancelled = false;
+    listAgentDefinitions()
+      .then((defs) => { if (!cancelled) setAgentDefs(defs); })
+      .catch((err: unknown) => console.error('[AgentsPanel] Failed to load agent definitions:', err));
+    return () => { cancelled = true; };
   }, []);
 
   // Get selected task object
@@ -626,12 +637,18 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
   }, [loadAgentDefs, agentDefs]);
 
   const handleDeleteTaskWithConfirm = useCallback(async (taskId: string) => {
-    const ok = await confirmDialog({
-      title: 'Delete task?',
-      body: 'Delete this task and its result history?',
-      confirmLabel: 'Delete',
-      destructive: true,
-    });
+    const ok = await confirmDialog(isEnterprise
+      ? {
+          title: 'Remove task from list?',
+          body: 'Hide this task from your list on this device. The Controller keeps the execution history.',
+          confirmLabel: 'Remove',
+        }
+      : {
+          title: 'Delete task?',
+          body: 'Delete this task and its result history?',
+          confirmLabel: 'Delete',
+          destructive: true,
+        });
     if (ok) deleteTask(taskId);
   }, [deleteTask]);
 
@@ -675,7 +692,7 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
     if (isTerminal) {
       items.push(
         { id: 'divider-1', label: '', divider: true, action: () => {} },
-        { id: 'delete', label: 'Delete', action: () => handleDeleteTaskWithConfirm(task.id) },
+        { id: 'delete', label: removeTaskLabel, action: () => handleDeleteTaskWithConfirm(task.id) },
       );
     }
     contextMenu.open(e, items);
@@ -858,12 +875,19 @@ export default function AgentsPanel({ onOpenAgentRun }: AgentsPanelProps = {}) {
                 onClick={async () => {
                   const finishedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled');
                   if (finishedTasks.length === 0) return;
-                  const ok = await confirmDialog({
-                    title: 'Clear finished tasks?',
-                    body: `Delete ${finishedTasks.length} completed / failed / cancelled task${finishedTasks.length === 1 ? '' : 's'} and their result history?`,
-                    confirmLabel: 'Clear',
-                    destructive: true,
-                  });
+                  const plural = finishedTasks.length === 1 ? '' : 's';
+                  const ok = await confirmDialog(isEnterprise
+                    ? {
+                        title: 'Clear finished tasks?',
+                        body: `Remove ${finishedTasks.length} completed / failed / cancelled task${plural} from your list on this device? The Controller keeps the execution history.`,
+                        confirmLabel: 'Clear',
+                      }
+                    : {
+                        title: 'Clear finished tasks?',
+                        body: `Delete ${finishedTasks.length} completed / failed / cancelled task${plural} and their result history?`,
+                        confirmLabel: 'Clear',
+                        destructive: true,
+                      });
                   if (!ok) return;
                   finishedTasks.forEach(t => deleteTask(t.id));
                 }}

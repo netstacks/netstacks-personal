@@ -190,6 +190,20 @@
   cursor: default;
 }
 
+/* Sortable header buttons keep the plain header-label look. */
+.device-detail-tab-sort-btn {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  border-radius: 2px;
+}
+
 .device-detail-tab-sort-indicator {
   margin-left: 4px;
   font-size: 10px;
@@ -230,6 +244,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* The row's expand toggle: a bare chevron button. */
+.device-detail-tab-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  border-radius: 2px;
 }
 
 .device-detail-tab-interface-expand svg {

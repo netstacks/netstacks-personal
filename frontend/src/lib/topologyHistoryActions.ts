@@ -7,7 +7,10 @@
 
 import type { Topology, Device, Connection } from '../types/topology';
 import type { TopologyAction } from '../types/topologyHistory';
-import { updateDevicePosition, createConnection, deleteConnection, deleteDevice } from '../api/topology';
+import {
+  updateDevicePosition, createConnection, deleteConnection, deleteDevice,
+  saveDeviceUpdate, saveConnectionUpdate, toDeviceUpdateRequest, toConnectionUpdateRequest,
+} from '../api/topology';
 
 /**
  * One device's position within a bulk move (e.g. auto-layout).
@@ -234,6 +237,89 @@ async function applyBulkRemove(
  * @param direction - Whether to undo or redo the action
  * @param deps - Dependencies for state updates and API calls
  */
+/**
+ * Fields whose values differ between two snapshots of the same device or
+ * connection: exactly what an update changed, so undo/redo touch nothing else.
+ */
+function changedFields<T extends object>(before: T, after: T): (keyof T)[] {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)] as (keyof T)[]);
+  return [...keys].filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+}
+
+/** The subset of `target` for the given keys, minus fields the backend can't take. */
+function persistablePatch<T extends object>(
+  target: T,
+  keys: (keyof T)[],
+  isRejected: (patch: Partial<T>) => string[],
+): Partial<T> {
+  const patch: Partial<T> = {};
+  for (const k of keys) patch[k] = target[k];
+  for (const bad of isRejected(patch)) delete patch[bad as keyof T];
+  return patch;
+}
+
+async function applyDeviceSnapshot(
+  before: Device,
+  after: Device,
+  target: Device,
+  deps: ActionExecutorDeps
+): Promise<void> {
+  const keys = changedFields(before, after);
+  if (keys.length === 0) return;
+  deps.setTopology(prev => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      devices: prev.devices.map(d => {
+        if (d.id !== target.id) return d;
+        const next = { ...d };
+        for (const k of keys) (next as Record<string, unknown>)[k as string] = target[k];
+        return next;
+      }),
+    };
+  });
+  if (!deps.isTemporary && deps.topologyId) {
+    const patch = persistablePatch(target, keys, p => {
+      const conv = toDeviceUpdateRequest(p);
+      return [...conv.unknown, ...conv.invalid.map(i => i.field)];
+    });
+    if (Object.keys(patch).length > 0) {
+      await saveDeviceUpdate(deps.topologyId, target.id, patch);
+    }
+  }
+}
+
+async function applyConnectionSnapshot(
+  before: Connection,
+  after: Connection,
+  target: Connection,
+  deps: ActionExecutorDeps
+): Promise<void> {
+  const keys = changedFields(before, after);
+  if (keys.length === 0) return;
+  deps.setTopology(prev => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      connections: prev.connections.map(c => {
+        if (c.id !== target.id) return c;
+        const next = { ...c };
+        for (const k of keys) (next as Record<string, unknown>)[k as string] = target[k];
+        return next;
+      }),
+    };
+  });
+  if (!deps.isTemporary && deps.topologyId) {
+    const patch = persistablePatch(target, keys, p => {
+      const conv = toConnectionUpdateRequest(p);
+      return [...conv.unknown, ...conv.invalid.map(i => i.field)];
+    });
+    if (Object.keys(patch).length > 0) {
+      await saveConnectionUpdate(deps.topologyId, target.id, patch);
+    }
+  }
+}
+
 export async function executeHistoryAction(
   action: TopologyAction,
   direction: ExecutionDirection,
@@ -332,6 +418,22 @@ export async function executeHistoryAction(
         // Redo bulk_remove = remove the devices and connections again
         await applyBulkRemove(payload, deps);
       }
+      break;
+    }
+
+    case 'update_device': {
+      const before = action.data.before as Device | undefined;
+      const after = action.data.after as Device | undefined;
+      if (!before || !after) break;
+      await applyDeviceSnapshot(before, after, isUndo ? before : after, deps);
+      break;
+    }
+
+    case 'update_connection': {
+      const before = action.data.before as Connection | undefined;
+      const after = action.data.after as Connection | undefined;
+      if (!before || !after) break;
+      await applyConnectionSnapshot(before, after, isUndo ? before : after, deps);
       break;
     }
 

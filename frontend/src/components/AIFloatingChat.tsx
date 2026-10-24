@@ -124,12 +124,14 @@ const AIFloatingChat = ({
   }, [isOpen, providerInitialized])
 
   // Reset initialization when closed
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(isOpen)
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen)
     if (!isOpen) {
       setProviderInitialized(false)
       setInput('')
     }
-  }, [isOpen])
+  }
 
   // Position/size: shared movable-rect mechanics (drag header, corner resize,
   // viewport clamp). Not persisted — the chat opens where the user clicked.
@@ -233,11 +235,9 @@ const AIFloatingChat = ({
 
   // Track selected text for context display (captured at open time)
   const [capturedSelectedText, setCapturedSelectedText] = useState<string | undefined>()
-  useEffect(() => {
-    if (isOpen) {
-      setCapturedSelectedText(selectedText)
-    }
-  }, [isOpen, selectedText])
+  if (isOpen && capturedSelectedText !== selectedText) {
+    setCapturedSelectedText(selectedText)
+  }
 
   // Scroll to bottom when messages change
   useEffect(() => {

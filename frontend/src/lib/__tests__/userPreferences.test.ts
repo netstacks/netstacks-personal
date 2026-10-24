@@ -53,6 +53,9 @@ async function signIn(user: string) {
   await loadUserPreferences(CONTROLLER, user)
 }
 
+/** Longer than any retry backoff. */
+const RETRY_WINDOW_MS = 120_000
+
 /** Let the debounced save run. */
 async function flushSave() {
   await vi.advanceTimersByTimeAsync(600)
@@ -222,6 +225,93 @@ describe('enterprise user preferences', () => {
     expect(getSettings()['view.zoomStep']).toBe(4)
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+
+  describe('when the Controller cannot be read at sign-in (audit 4.4)', () => {
+    let consoleError: ReturnType<typeof vi.spyOn>
+    beforeEach(() => { consoleError = vi.spyOn(console, 'error').mockImplementation(() => {}) })
+    afterEach(() => { consoleError.mockRestore() })
+
+    /** Sign in once with the Controller up so alice has a cached copy, then sign in again offline. */
+    async function signInOffline() {
+      store.set(`alice:${REMOTE}`, { settings: { 'view.zoomStep': 1, 'editor.fontSize': 14 }, appTheme: 'system' })
+      await signIn('alice')
+      releaseUserPreferences()
+      controllerDown = true
+      await signIn('alice')
+      http.get.mockClear()
+      http.put.mockClear()
+    }
+
+    it('saves nothing while unread, then lays only the changed keys over the fresh Controller copy', async () => {
+      await signInOffline()
+      // Another machine saved newer values while this one was offline.
+      store.set(`alice:${REMOTE}`, { settings: { 'view.zoomStep': 5, 'editor.fontSize': 14 }, appTheme: 'dark' })
+
+      setGlobalSettings({ ...getSettings(), 'editor.fontSize': 22 })
+      await flushSave()
+      expect(http.put).not.toHaveBeenCalled()
+
+      controllerDown = false
+      await vi.advanceTimersByTimeAsync(2_000)
+      await flushSave()
+
+      // The Controller's newer values survive; the user's change wins for its key.
+      expect(getSettings()['view.zoomStep']).toBe(5)
+      expect(getSettings()['editor.fontSize']).toBe(22)
+      expect(getAppTheme()).toBe('dark')
+      const saved = store.get(`alice:${REMOTE}`) as { settings: Record<string, unknown>; appTheme: string }
+      expect(saved.settings['view.zoomStep']).toBe(5)
+      expect(saved.settings['editor.fontSize']).toBe(22)
+      expect(saved.appTheme).toBe('dark')
+    })
+
+    it('keeps a theme changed offline', async () => {
+      await signInOffline()
+      store.set(`alice:${REMOTE}`, { settings: { 'view.zoomStep': 5 }, appTheme: 'dark' })
+      setAppTheme('light')
+      await flushSave()
+      controllerDown = false
+      await vi.advanceTimersByTimeAsync(2_000)
+      await flushSave()
+      expect(getAppTheme()).toBe('light')
+      expect(getSettings()['view.zoomStep']).toBe(5)
+      expect((store.get(`alice:${REMOTE}`) as { appTheme: string }).appTheme).toBe('light')
+    })
+
+    it('retries with backoff and writes nothing back when nothing changed', async () => {
+      await signInOffline()
+      await vi.advanceTimersByTimeAsync(2_000) // 1st retry fails
+      expect(http.get).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(3_999) // next one is 4s later
+      expect(http.get).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(http.get).toHaveBeenCalledTimes(4)
+
+      store.set(`alice:${REMOTE}`, { settings: { 'view.zoomStep': 7 }, appTheme: 'system' })
+      controllerDown = false
+      await vi.advanceTimersByTimeAsync(8_000)
+      await flushSave()
+      expect(getSettings()['view.zoomStep']).toBe(7)
+      expect(http.put.mock.calls.filter(([url]) => url === REMOTE)).toHaveLength(0)
+    })
+
+    it('retries at once when the browser comes back online', async () => {
+      await signInOffline()
+      store.set(`alice:${REMOTE}`, { settings: { 'view.zoomStep': 9 }, appTheme: 'system' })
+      controllerDown = false
+      window.dispatchEvent(new Event('online'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getSettings()['view.zoomStep']).toBe(9)
+    })
+
+    it('stops retrying after sign-out', async () => {
+      await signInOffline()
+      releaseUserPreferences()
+      controllerDown = false
+      await vi.advanceTimersByTimeAsync(RETRY_WINDOW_MS)
+      expect(http.get).not.toHaveBeenCalled()
+    })
   })
 
   it('has no per-user state before anyone signs in', () => {

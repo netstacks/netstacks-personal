@@ -1,9 +1,9 @@
 // Topology API for saved topologies with CRUD operations
 
-import type { Topology, DeviceType, Device, Connection } from '../types/topology';
+import type { Topology, DeviceType, DeviceStatus, Device, Connection, ConnectionStatus, CurveStyle, LineStyle } from '../types/topology';
 import type { Annotation } from '../types/annotations';
 import { createDocument, type Document } from './docs';
-import { getClient } from './client';
+import { getClient, getCurrentMode } from './client';
 import { createAnnotation, toElementData } from './annotations';
 
 /** Type-specific annotation payload accepted by `createAnnotation`. */
@@ -265,22 +265,280 @@ export async function deleteDevice(topologyId: string, deviceId: string): Promis
   await getClient().http.delete(`/topologies/${topologyId}/devices/${deviceId}`);
 }
 
-// Update a connection (Phase 27-07)
+// ── Update conversion layer (frontend camelCase -> backend snake_case) ──
+//
+// Both backends — the standalone agent (`agent/src/models.rs`
+// UpdateConnectionRequest / UpdateTopologyDeviceDetails) and the Controller
+// (`crates/models/src/topology.rs` UpdateConnectionRequest /
+// UpdateDeviceDetailsRequest) — deserialize snake_case with no aliases and
+// silently ignore unknown keys. Every update must therefore go through this
+// table: a field that isn't listed here is not stored by either backend and
+// must never be reported as saved.
+
+/** Which backend the client is talking to. */
+export type TopologyBackend = 'standalone' | 'enterprise';
+
+/** Value shape a backend column accepts. */
+type UpdateFieldKind = 'string' | 'integer' | 'waypoints' | 'enum';
+
+interface UpdateFieldSpec {
+  /** snake_case key in the backend request struct */
+  wire: string;
+  kind: UpdateFieldKind;
+  /** Allowed values for `enum` fields */
+  values?: readonly string[];
+  /** Backends that persist this field (default: both) */
+  backends?: readonly TopologyBackend[];
+}
+
+export const TOPOLOGY_DEVICE_TYPES: readonly DeviceType[] = [
+  'router', 'switch', 'firewall', 'server', 'cloud', 'access-point',
+  'load-balancer', 'wan-optimizer', 'voice-gateway', 'wireless-controller',
+  'storage', 'virtual', 'sd-wan', 'iot', 'unknown',
+];
+export const DEVICE_STATUSES: readonly DeviceStatus[] = ['online', 'offline', 'warning', 'unknown'];
+export const CONNECTION_STATUSES: readonly ConnectionStatus[] = ['active', 'inactive', 'degraded'];
+export const CURVE_STYLES: readonly CurveStyle[] = ['straight', 'curved', 'orthogonal'];
+export const LINE_STYLES: readonly LineStyle[] = ['solid', 'dashed', 'dotted'];
+
+/**
+ * Mutable connection fields. Both backends store every one of these
+ * (`line_width` is i32 on the agent, f64 on the Controller, so only integers
+ * are accepted).
+ */
+export const CONNECTION_UPDATE_FIELDS = {
+  sourceInterface: { wire: 'source_interface', kind: 'string' },
+  targetInterface: { wire: 'target_interface', kind: 'string' },
+  label: { wire: 'label', kind: 'string' },
+  waypoints: { wire: 'waypoints', kind: 'waypoints' },
+  curveStyle: { wire: 'curve_style', kind: 'enum', values: CURVE_STYLES },
+  bundleId: { wire: 'bundle_id', kind: 'string' },
+  bundleIndex: { wire: 'bundle_index', kind: 'integer' },
+  color: { wire: 'color', kind: 'string' },
+  lineStyle: { wire: 'line_style', kind: 'enum', values: LINE_STYLES },
+  lineWidth: { wire: 'line_width', kind: 'integer' },
+  notes: { wire: 'notes', kind: 'string' },
+} as const satisfies Partial<Record<keyof Connection, UpdateFieldSpec>>;
+
+/**
+ * Connection fields the editor shows but neither backend stores (the
+ * connection row has no status column; every link loads as `active`).
+ * Updates to these are applied to the open view only.
+ */
+export const CONNECTION_LOCAL_ONLY_FIELDS = {
+  status: { wire: 'status', kind: 'enum', values: CONNECTION_STATUSES },
+} as const satisfies Partial<Record<keyof Connection, UpdateFieldSpec>>;
+
+/**
+ * Mutable device detail fields (`PUT .../devices/:id/details`). `name` is
+ * only accepted by the Controller; the profile IDs only by the agent.
+ */
+export const DEVICE_UPDATE_FIELDS = {
+  name: { wire: 'name', kind: 'string', backends: ['enterprise'] },
+  type: { wire: 'device_type', kind: 'enum', values: TOPOLOGY_DEVICE_TYPES },
+  status: { wire: 'status', kind: 'enum', values: DEVICE_STATUSES },
+  site: { wire: 'site', kind: 'string' },
+  role: { wire: 'role', kind: 'string' },
+  platform: { wire: 'platform', kind: 'string' },
+  vendor: { wire: 'vendor', kind: 'string' },
+  version: { wire: 'version', kind: 'string' },
+  model: { wire: 'model', kind: 'string' },
+  serial: { wire: 'serial', kind: 'string' },
+  uptime: { wire: 'uptime', kind: 'string' },
+  primaryIp: { wire: 'primary_ip', kind: 'string' },
+  notes: { wire: 'notes', kind: 'string' },
+  profileId: { wire: 'profile_id', kind: 'string', backends: ['standalone'] },
+  snmpProfileId: { wire: 'snmp_profile_id', kind: 'string', backends: ['standalone'] },
+} as const satisfies Partial<Record<keyof Device, UpdateFieldSpec>>;
+
+/** snake_case body for `PUT /topologies/:id/connections/:conn_id`. */
+export type ConnectionUpdateRequest = Partial<{
+  source_interface: string;
+  target_interface: string;
+  label: string;
+  waypoints: string;
+  curve_style: string;
+  bundle_id: string;
+  bundle_index: number;
+  color: string;
+  line_style: string;
+  line_width: number;
+  notes: string;
+}>;
+
+/** snake_case body for `PUT /topologies/:id/devices/:device_id/details`. */
+export type DeviceDetailsUpdateRequest = Partial<{
+  name: string;
+  device_type: string;
+  status: string;
+  site: string;
+  role: string;
+  platform: string;
+  vendor: string;
+  version: string;
+  model: string;
+  serial: string;
+  uptime: string;
+  primary_ip: string;
+  notes: string;
+  profile_id: string;
+  snmp_profile_id: string;
+}>;
+
+/** Outcome of converting a camelCase update for the backend. */
+export interface UpdateConversion<R> {
+  /** snake_case request body (only fields the active backend stores) */
+  request: R;
+  /** camelCase fields that will be saved */
+  persisted: string[];
+  /** Known fields the active backend does not store (view-only changes) */
+  notPersisted: string[];
+  /** Field names that aren't editable at all */
+  unknown: string[];
+  /** Known fields whose value has the wrong shape */
+  invalid: { field: string; reason: string }[];
+}
+
+/** Map the client's app mode to the backend that stores topologies. */
+export function currentTopologyBackend(): TopologyBackend {
+  return getCurrentMode() === 'enterprise' ? 'enterprise' : 'standalone';
+}
+
+function checkFieldValue(spec: UpdateFieldSpec, value: unknown): { ok: true; wire: unknown } | { ok: false; reason: string } {
+  switch (spec.kind) {
+    case 'string':
+      return typeof value === 'string' ? { ok: true, wire: value } : { ok: false, reason: 'must be a string' };
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value)
+        ? { ok: true, wire: value }
+        : { ok: false, reason: 'must be an integer' };
+    case 'enum':
+      return typeof value === 'string' && spec.values?.includes(value)
+        ? { ok: true, wire: value }
+        : { ok: false, reason: `must be one of: ${(spec.values ?? []).join(', ')}` };
+    case 'waypoints': {
+      const valid = Array.isArray(value) && value.every(p =>
+        p !== null && typeof p === 'object'
+        && typeof (p as { x?: unknown }).x === 'number'
+        && typeof (p as { y?: unknown }).y === 'number');
+      return valid
+        ? { ok: true, wire: JSON.stringify((value as { x: number; y: number }[]).map(p => ({ x: p.x, y: p.y }))) }
+        : { ok: false, reason: 'must be an array of {x, y} numbers' };
+    }
+  }
+}
+
+function convertUpdate<R>(
+  updates: Record<string, unknown>,
+  fields: Record<string, UpdateFieldSpec>,
+  localOnly: Record<string, UpdateFieldSpec>,
+  backend: TopologyBackend,
+): UpdateConversion<R> {
+  const request: Record<string, unknown> = {};
+  const out: UpdateConversion<R> = { request: request as R, persisted: [], notPersisted: [], unknown: [], invalid: [] };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) continue;
+    const spec = Object.hasOwn(fields, key) ? fields[key] : Object.hasOwn(localOnly, key) ? localOnly[key] : undefined;
+    if (!spec) {
+      out.unknown.push(key);
+      continue;
+    }
+    const checked = checkFieldValue(spec, value);
+    if (!checked.ok) {
+      out.invalid.push({ field: key, reason: checked.reason });
+      continue;
+    }
+    const stored = Object.hasOwn(fields, key) && (!spec.backends || spec.backends.includes(backend));
+    if (stored) {
+      request[spec.wire] = checked.wire;
+      out.persisted.push(key);
+    } else {
+      out.notPersisted.push(key);
+    }
+  }
+  return out;
+}
+
+/** Convert a camelCase `Partial<Connection>` to the backend update body. */
+export function toConnectionUpdateRequest(
+  updates: Partial<Connection> | Record<string, unknown>,
+  backend: TopologyBackend = currentTopologyBackend(),
+): UpdateConversion<ConnectionUpdateRequest> {
+  return convertUpdate(updates as Record<string, unknown>, CONNECTION_UPDATE_FIELDS, CONNECTION_LOCAL_ONLY_FIELDS, backend);
+}
+
+/** Convert a camelCase `Partial<Device>` to the backend details body. */
+export function toDeviceUpdateRequest(
+  updates: Partial<Device> | Record<string, unknown>,
+  backend: TopologyBackend = currentTopologyBackend(),
+): UpdateConversion<DeviceDetailsUpdateRequest> {
+  return convertUpdate(updates as Record<string, unknown>, DEVICE_UPDATE_FIELDS, {}, backend);
+}
+
+/** Error thrown when an update has unknown or malformed fields. */
+export class TopologyUpdateError extends Error {
+  readonly unknown: string[];
+  readonly invalid: { field: string; reason: string }[];
+  constructor(kind: 'device' | 'connection', unknown: string[], invalid: { field: string; reason: string }[]) {
+    const valid = Object.keys(kind === 'device' ? DEVICE_UPDATE_FIELDS : { ...CONNECTION_UPDATE_FIELDS, ...CONNECTION_LOCAL_ONLY_FIELDS });
+    const parts: string[] = [];
+    if (unknown.length > 0) parts.push(`unknown field(s): ${unknown.join(', ')}`);
+    for (const i of invalid) parts.push(`${i.field} ${i.reason}`);
+    super(`Invalid ${kind} update — ${parts.join('; ')}. Valid fields: ${valid.join(', ')}`);
+    this.name = 'TopologyUpdateError';
+    this.unknown = unknown;
+    this.invalid = invalid;
+  }
+}
+
+/** Which fields of an update were saved and which only changed the view. */
+export interface SavedUpdate {
+  persisted: string[];
+  notPersisted: string[];
+}
+
+/**
+ * Save a camelCase connection update. Throws `TopologyUpdateError` (before
+ * any request) on unknown/malformed fields; skips the PUT when nothing in
+ * the update is stored by the backend.
+ */
+export async function saveConnectionUpdate(
+  topologyId: string,
+  connectionId: string,
+  updates: Partial<Connection> | Record<string, unknown>,
+): Promise<SavedUpdate> {
+  const conv = toConnectionUpdateRequest(updates);
+  if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+    throw new TopologyUpdateError('connection', conv.unknown, conv.invalid);
+  }
+  if (conv.persisted.length > 0) {
+    await updateConnection(topologyId, connectionId, conv.request);
+  }
+  return { persisted: conv.persisted, notPersisted: conv.notPersisted };
+}
+
+/** Save a camelCase device details update (see `saveConnectionUpdate`). */
+export async function saveDeviceUpdate(
+  topologyId: string,
+  deviceId: string,
+  updates: Partial<Device> | Record<string, unknown>,
+): Promise<SavedUpdate> {
+  const conv = toDeviceUpdateRequest(updates);
+  if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+    throw new TopologyUpdateError('device', conv.unknown, conv.invalid);
+  }
+  if (conv.persisted.length > 0) {
+    await updateDevice(topologyId, deviceId, conv.request);
+  }
+  return { persisted: conv.persisted, notPersisted: conv.notPersisted };
+}
+
+// Update a connection (Phase 27-07). Takes the snake_case wire body — use
+// `saveConnectionUpdate` for a camelCase `Partial<Connection>`.
 export async function updateConnection(
   topologyId: string,
   connectionId: string,
-  updates: Partial<{
-    source_interface: string;
-    target_interface: string;
-    label: string;
-    status: string;
-    waypoints: string;
-    curve_style: string;
-    color: string;
-    line_style: string;
-    line_width: number;
-    notes: string;
-  }>
+  updates: ConnectionUpdateRequest,
 ): Promise<void> {
   await getClient().http.put(`/topologies/${topologyId}/connections/${connectionId}`, updates);
 }

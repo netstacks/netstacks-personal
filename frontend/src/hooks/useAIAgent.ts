@@ -1,5 +1,5 @@
 import { logger } from '../lib/logger'
-import { shareInFlight } from '../lib/inflight';
+import { fetchAiTerminalMode, subscribeAiTerminalMode } from '../lib/aiTerminalMode';
 /**
  * useAIAgent - Unified hook for AI agent interactions
  *
@@ -50,7 +50,7 @@ import {
   importNetStacksCrawlerTopology,
   type NetStacksCrawlerSource,
 } from '../api/netstacksCrawler';
-import { useTokenUsageOptional, type AiProviderType as GlobalProviderType } from '../contexts/TokenUsageContext';
+import { useTokenUsageOptional, resolveUsageProvider } from '../contexts/tokenUsageStore';
 import {
   type AgentState,
   type AgentMessage,
@@ -475,7 +475,23 @@ export interface UseAIAgentReturn {
   clearMessages: () => void;
   tokenUsage: CumulativeTokenUsage;
   resetTokenUsage: () => void;
+  /**
+   * Send now when idle, otherwise hold it (latest wins) and send it as soon as
+   * the current turn finishes. For prompts the user didn't type into this
+   * input (e.g. the AI Discover button), which must not be dropped while busy.
+   */
+  queueMessage: (content: string) => void;
+  /** The held prompt, if any (shown as "queued"). Cleared by Stop / New chat. */
+  queuedMessage: string | null;
+  clearQueuedMessage: () => void;
 }
+
+/** Shown when a streamed reply closes without its terminal `done` event. */
+export const STREAM_INCOMPLETE_ERROR =
+  'The AI response ended unexpectedly before it finished, so the reply may be incomplete. Try again.';
+/** Shown when the provider answers a fresh prompt with no text and no tool calls. */
+export const EMPTY_RESPONSE_ERROR =
+  'The AI returned an empty response. Try again, or check the provider and model in Settings → AI.';
 
 // Truncate tool result content to prevent context overflow.
 // ~4 chars per token, 30K chars ≈ 7,500 tokens — leaves room for tools + conversation.
@@ -795,20 +811,22 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   } = options;
 
   const agentTypeRef = useRef(agentType);
-  agentTypeRef.current = agentType;
-
   const onNavigateToBackupRef = useRef(onNavigateToBackup);
-  onNavigateToBackupRef.current = onNavigateToBackup;
   const onNavigateToDeviceRef = useRef(onNavigateToDevice);
-  onNavigateToDeviceRef.current = onNavigateToDevice;
   const onOpenTerminalSessionRef = useRef(onOpenTerminalSession);
-  onOpenTerminalSessionRef.current = onOpenTerminalSession;
   const onNavigateToMopRef = useRef(onNavigateToMop);
-  onNavigateToMopRef.current = onNavigateToMop;
   const onNavigateToTopologyRef = useRef(onNavigateToTopology);
-  onNavigateToTopologyRef.current = onNavigateToTopology;
   const onNavigateToSettingsRef = useRef(onNavigateToSettings);
-  onNavigateToSettingsRef.current = onNavigateToSettings;
+  // Refs read at call time by the tool/loop callbacks; synced after each commit.
+  useEffect(() => {
+    agentTypeRef.current = agentType;
+    onNavigateToBackupRef.current = onNavigateToBackup;
+    onNavigateToDeviceRef.current = onNavigateToDevice;
+    onOpenTerminalSessionRef.current = onOpenTerminalSession;
+    onNavigateToMopRef.current = onNavigateToMop;
+    onNavigateToTopologyRef.current = onNavigateToTopology;
+    onNavigateToSettingsRef.current = onNavigateToSettings;
+  }, [agentType, onNavigateToBackup, onNavigateToDevice, onOpenTerminalSession, onNavigateToMop, onNavigateToTopology, onNavigateToSettings]);
 
   const [messages, setMessages] = useState<AgentMessage[]>(() => capDisplayMessages(initialMessages || []));
   const [agentState, setAgentState] = useState<AgentState>('idle');
@@ -869,17 +887,22 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   // null/empty for a given agent type = "use built-in default from AGENT_PROMPT".
   const promptOverridesRef = useRef<Partial<Record<AgentType, string | null>>>({});
 
-  // Script context ref for stable access in callAgentApi
+  // Script context + active session context refs for stable access in
+  // callAgentApi. Live-context deps likewise, so sendMessage's deps stay stable.
   const scriptContextRef = useRef(scriptContext);
-  scriptContextRef.current = scriptContext;
-
-  // Active session context refs for stable access in callAgentApi
   const activeSessionIdRef = useRef(activeSessionId);
-  activeSessionIdRef.current = activeSessionId;
   const activeSessionNameRef = useRef(activeSessionName);
-  activeSessionNameRef.current = activeSessionName;
   const activeMemorySessionIdRef = useRef(activeMemorySessionId);
-  activeMemorySessionIdRef.current = activeMemorySessionId;
+  const liveContextDepsRef = useRef(liveContextDeps);
+  useEffect(() => {
+    scriptContextRef.current = scriptContext;
+    activeSessionIdRef.current = activeSessionId;
+    activeSessionNameRef.current = activeSessionName;
+    activeMemorySessionIdRef.current = activeMemorySessionId;
+    liveContextDepsRef.current = liveContextDeps;
+  }, [scriptContext, activeSessionId, activeSessionName, activeMemorySessionId, liveContextDeps]);
+  // sendMessage, for the auto-send below and the queued-message drain.
+  const sendMessageRef = useRef<((content: string, displayContent?: string) => Promise<void>) | null>(null);
 
   // Update messages and conversation when initialMessages changes (for continuing from popup)
   // Auto-send if the last message is from the user (triggered by context menu actions)
@@ -947,21 +970,28 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
   // NB: do NOT "fix" this by pointing the standalone setting calls at
   // `ai.terminal_mode_enabled` — that key lives on the admin-only global
   // settings route, which a non-admin cannot write.
-  const [aiTerminalMode, setAiTerminalMode] = useState(false);
+  //
+  // Standalone subscribes to changes (lib/aiTerminalMode) so a toggle in
+  // Settings → AI reaches already-mounted panels without a remount.
+  const [standaloneTerminalMode, setStandaloneTerminalMode] = useState(false);
   const aiTerminalModeCapability = useCapabilitiesStore(s => s.hasFeature('ai_terminal_mode'));
+  const isEnterpriseClient = getCurrentMode() === 'enterprise';
+  const aiTerminalMode = isEnterpriseClient ? aiTerminalModeCapability : standaloneTerminalMode;
   useEffect(() => {
-    if (getCurrentMode() === 'enterprise') {
-      setAiTerminalMode(aiTerminalModeCapability);
-      return;
-    }
-    shareInFlight('settings:ai.terminal_mode', () => getClient().http.get('/settings/ai.terminal_mode'))
-      .then((res) => {
-        // The settings endpoint has returned both a bare JSON bool and a
-        // `{ value: 'true' }` wrapper over time — accept either encoding.
-        setAiTerminalMode(res.data === true || res.data?.value === 'true');
-      })
+    if (isEnterpriseClient) return;
+    let cancelled = false;
+    const unsubscribe = subscribeAiTerminalMode((enabled) => {
+      cancelled = true; // a pushed value supersedes the initial read
+      setStandaloneTerminalMode(enabled);
+    });
+    fetchAiTerminalMode()
+      .then((enabled) => { if (!cancelled) setStandaloneTerminalMode(enabled); })
       .catch(() => { /* not set, default false */ });
-  }, [aiTerminalModeCapability]);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [isEnterpriseClient]);
 
   // Fetch MCP tools from connected servers (standalone mode only)
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -3220,7 +3250,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         return { content: `Unknown tool: ${toolName}`, is_error: true };
       }
     }
-  }, [availableToolNames, sessions, onExecuteCommand, getTerminalContext, addMessage, onListDocuments, onReadDocument, onSearchDocuments, onSaveDocument, onAddSessionContext, onListSessionContext, onAnalyzeChangeDiff, onSuggestPreChecks, onValidateChangeResult, onDiscoverNeighbors, onAddNeighborToTopology, onNetBoxGetNeighbors, onNetBoxImportTopology, onLibreNmsImportTopology, onNetStacksCrawlerImportTopology, onCreateMop, onTopologyDeviceUpdated, topologyCallbacks]);
+  }, [availableToolNames, sessions, onExecuteCommand, getTerminalContext, onOpenSession, onOpenConsole, navigableSettingsTabs, addMessage, onListDocuments, onReadDocument, onSearchDocuments, onSaveDocument, onAddSessionContext, onListSessionContext, onAnalyzeChangeDiff, onSuggestPreChecks, onValidateChangeResult, onDiscoverNeighbors, onAddNeighborToTopology, onNetBoxGetNeighbors, onNetBoxImportTopology, onLibreNmsImportTopology, onNetStacksCrawlerImportTopology, onCreateMop, onTopologyDeviceUpdated, topologyCallbacks]);
 
   // Wait for approval if needed
   const waitForApproval = useCallback(async (
@@ -3645,6 +3675,10 @@ Guidelines:
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
+    // An empty reply is only an error before any tool ran this turn; after
+    // tool results an empty end_turn just means the model had nothing to add.
+    let toolsRanThisTurn = false;
+
     while (!stopRequestedRef.current) {
       setAgentState('thinking');
 
@@ -3707,13 +3741,19 @@ Guidelines:
           }));
 
           // Track in global state (across platform)
-          if (globalTokenTracker && provider) {
-            globalTokenTracker.trackUsage(provider as GlobalProviderType, {
+          if (globalTokenTracker) {
+            globalTokenTracker.trackUsage(resolveUsageProvider(provider), {
               inputTokens,
               outputTokens,
               totalTokens,
             });
           }
+        }
+
+        if (!response.text && response.tool_use.length === 0 && !toolsRanThisTurn) {
+          addMessage(createErrorMessage(EMPTY_RESPONSE_ERROR));
+          setAgentState('error');
+          break;
         }
 
         // Add any text response to messages
@@ -3765,6 +3805,7 @@ Guidelines:
 
         // Process tool calls — every tool_use gets a tool_result
         const toolResults = await processToolCalls(response.tool_use);
+        toolsRanThisTurn = true;
         conversationRef.current.push({
           role: 'user',
           content: toolResults,
@@ -3803,8 +3844,14 @@ Guidelines:
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
+    let toolsRanThisTurn = false;
+
     while (!stopRequestedRef.current) {
       setAgentState('thinking');
+
+      // Hoisted so the catch below can clean up this iteration's placeholder.
+      let streamMsgId: string | null = null;
+      let fullText = '';
 
       try {
         // Truncate conversation if it exceeds the max messages limit
@@ -3834,10 +3881,11 @@ Guidelines:
         // Create a streaming message for progressive rendering
         const streamingMsg = createThinkingMessage('');
         addMessage(streamingMsg);
-        const streamMsgId = streamingMsg.id;
+        streamMsgId = streamingMsg.id;
+        const placeholderId = streamingMsg.id;
 
-        let fullText = '';
         let stopReason: string | null = null;
+        let sawDone = false;
         let usage: { input_tokens: number; output_tokens: number; total_tokens?: number } | null = null;
 
         // Accumulated tool calls from the stream
@@ -3856,9 +3904,12 @@ Guidelines:
           switch (event.type) {
             case 'content_delta':
               fullText += event.text;
-              setMessages(prev => prev.map(m =>
-                m.id === streamMsgId ? { ...m, content: fullText } : m
-              ));
+              {
+                const text = fullText;
+                setMessages(prev => prev.map(m =>
+                  m.id === placeholderId ? { ...m, content: text } : m
+                ));
+              }
               break;
 
             case 'tool_use_start':
@@ -3879,6 +3930,7 @@ Guidelines:
               break;
 
             case 'done':
+              sawDone = true;
               stopReason = event.stop_reason;
               usage = event.usage;
               break;
@@ -3897,7 +3949,20 @@ Guidelines:
 
         // If empty text, remove the streaming placeholder; otherwise finalize it
         if (!fullText) {
-          setMessages(prev => prev.filter(m => m.id !== streamMsgId));
+          setMessages(prev => prev.filter(m => m.id !== placeholderId));
+        }
+
+        // A stream that closed without `done` was cut off (and its tool calls
+        // may be partial), and a fresh prompt answered with nothing at all is
+        // a provider failure — say so instead of ending the turn silently.
+        const emptyReply = !fullText && pendingToolCalls.length === 0 && !toolsRanThisTurn;
+        if (!sawDone || emptyReply) {
+          if (fullText) {
+            conversationRef.current.push({ role: 'assistant', content: [{ type: 'text', text: fullText }] });
+          }
+          addMessage(createErrorMessage(!sawDone ? STREAM_INCOMPLETE_ERROR : EMPTY_RESPONSE_ERROR));
+          setAgentState('error');
+          break;
         }
 
         logger.log(`[AI Agent] Stream complete: stop=${stopReason}, tools=${pendingToolCalls.length}, tokens=${usage?.total_tokens || 0}`);
@@ -3915,8 +3980,8 @@ Guidelines:
             requestCount: prev.requestCount + 1,
           }));
 
-          if (globalTokenTracker && provider) {
-            globalTokenTracker.trackUsage(provider as GlobalProviderType, {
+          if (globalTokenTracker) {
+            globalTokenTracker.trackUsage(resolveUsageProvider(provider), {
               inputTokens,
               outputTokens,
               totalTokens,
@@ -3976,6 +4041,7 @@ Guidelines:
 
         // Process tool calls — every tool_use gets a tool_result
         const toolResults = await processToolCalls(parsedToolUses);
+        toolsRanThisTurn = true;
         conversationRef.current.push({
           role: 'user',
           content: toolResults,
@@ -3986,6 +4052,11 @@ Guidelines:
 
       } catch (err) {
         // Handle abort gracefully (user clicked stop)
+        // Drop this iteration's placeholder if nothing streamed into it.
+        if (streamMsgId && !fullText) {
+          const emptyId = streamMsgId;
+          setMessages(prev => prev.filter(m => m.id !== emptyId));
+        }
         if (err instanceof Error && err.name === 'AbortError') {
           logger.log('[AI Agent] Streaming request aborted by user');
           setAgentState('idle');
@@ -4003,18 +4074,19 @@ Guidelines:
     abortControllerRef.current = null;
   }, [callAgentApiStream, processToolCalls, addMessage, availableTools, singleTurn, provider, globalTokenTracker]);
 
-  // Send a new message to the agent
-  const sendMessage = useCallback(async (content: string, displayContent?: string) => {
-    logger.log('[AI Agent] sendMessage called with:', content.slice(0, 100));
-    if (!content.trim()) {
-      logger.log('[AI Agent] Blocked: empty content');
-      return;
-    }
-    if (agentState === 'thinking' || agentState === 'executing' || agentState === 'waiting_approval') {
-      logger.log('[AI Agent] Blocked: agent busy, state =', agentState);
-      return;
-    }
+  // Prompt held while a turn runs (queueMessage); the ref is what the drain reads.
+  const [queuedMessage, setQueuedMessageState] = useState<string | null>(null);
+  const queuedMessageRef = useRef<string | null>(null);
+  const setQueuedMessage = useCallback((content: string | null) => {
+    queuedMessageRef.current = content;
+    setQueuedMessageState(content);
+  }, []);
+  // startTurn, for draining the queue after a turn (the call site's own
+  // closure would be from the render that started the finished turn).
+  const startTurnRef = useRef<((content: string, displayContent?: string) => Promise<void>) | null>(null);
 
+  // Run one user turn. Callers check that the agent is free first.
+  const startTurn = useCallback(async (content: string, displayContent?: string) => {
     logger.log('[AI Agent] Proceeding with message');
     // Add user message to UI (plain — the envelope is model-only)
     addMessage(createUserMessage(displayContent ?? content));
@@ -4031,11 +4103,11 @@ Guidelines:
     // to the model-visible content. The envelope is sanitized server-side by
     // SanitizingProvider like all message content. Never throws (returns '').
     // Strip envelopes from prior user turns to keep only the newest envelope.
-    for (const m of conversationRef.current) {
-      if (m.role === 'user' && typeof m.content === 'string') {
-        m.content = stripLiveContext(m.content);
-      }
-    }
+    conversationRef.current = conversationRef.current.map(m =>
+      m.role === 'user' && typeof m.content === 'string'
+        ? { ...m, content: stripLiveContext(m.content) }
+        : m
+    );
 
     let modelContent = content;
     const deps = liveContextDepsRef.current;
@@ -4058,15 +4130,44 @@ Guidelines:
     } finally {
       if (loopPromiseRef.current === loop) loopPromiseRef.current = null;
     }
-  }, [agentState, addMessage, runAgentLoop, runAgentLoopStreaming, streaming]);
 
-  // Ref for auto-send to access sendMessage
-  const sendMessageRef = useRef(sendMessage);
-  sendMessageRef.current = sendMessage;
+    // Send the prompt that was queued while this turn ran.
+    const next = queuedMessageRef.current;
+    if (next !== null) {
+      setQueuedMessage(null);
+      await startTurnRef.current?.(next);
+    }
+  }, [addMessage, runAgentLoop, runAgentLoopStreaming, streaming, setQueuedMessage]);
 
-  // Ref for live-context deps so sendMessage deps stay stable
-  const liveContextDepsRef = useRef(liveContextDeps);
-  liveContextDepsRef.current = liveContextDeps;
+  // Send a new message to the agent
+  const sendMessage = useCallback(async (content: string, displayContent?: string) => {
+    logger.log('[AI Agent] sendMessage called with:', content.slice(0, 100));
+    if (!content.trim()) {
+      logger.log('[AI Agent] Blocked: empty content');
+      return;
+    }
+    if (agentState === 'thinking' || agentState === 'executing' || agentState === 'waiting_approval') {
+      logger.log('[AI Agent] Blocked: agent busy, state =', agentState);
+      return;
+    }
+    await startTurn(content, displayContent);
+  }, [agentState, startTurn]);
+
+  const queueMessage = useCallback((content: string) => {
+    if (!content.trim()) return;
+    if (agentState === 'thinking' || agentState === 'executing' || agentState === 'waiting_approval') {
+      setQueuedMessage(content);
+      return;
+    }
+    void startTurn(content);
+  }, [agentState, startTurn, setQueuedMessage]);
+
+  const clearQueuedMessage = useCallback(() => setQueuedMessage(null), [setQueuedMessage]);
+
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+    startTurnRef.current = startTurn;
+  }, [sendMessage, startTurn]);
 
   // Approve pending commands
   const approveCommands = useCallback(() => {
@@ -4091,6 +4192,8 @@ Guidelines:
   const stopAgent = useCallback(() => {
     logger.log('[AI Agent] Stop requested');
     stopRequestedRef.current = true;
+    // Stop means stop: don't fire a queued prompt once the loop unwinds.
+    setQueuedMessage(null);
 
     // Abort any in-flight fetch request
     if (abortControllerRef.current) {
@@ -4107,7 +4210,7 @@ Guidelines:
 
     setPendingCommands([]);
     setAgentState('idle');
-  }, []);
+  }, [setQueuedMessage]);
 
   // Unmount: stop the loop and abort any in-flight request so a closed popup
   // can't keep executing tool calls on the terminal behind the user's back.
@@ -4126,8 +4229,9 @@ Guidelines:
     setMessages([]);
     conversationRef.current = [];
     setPendingCommands([]);
+    setQueuedMessage(null);
     setAgentState('idle');
-  }, []);
+  }, [setQueuedMessage]);
 
   // Reset token usage counter
   const resetTokenUsage = useCallback(() => {
@@ -4150,5 +4254,8 @@ Guidelines:
     clearMessages,
     tokenUsage,
     resetTokenUsage,
+    queueMessage,
+    queuedMessage,
+    clearQueuedMessage,
   };
 }

@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useAgentTasks, useAgentTasksStore } from '../hooks/useAgentTasks';
-import { getTaskMessages } from '../api/tasks';
+import { fetchTaskTranscript, taskTranscriptsSupported } from '../api/tasks';
 import {
   listTaskPendingInteractions,
   resolveInteraction,
@@ -64,7 +64,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
   const transcript = useAgentTasksStore((s) => s.transcripts[taskId] ?? EMPTY);
   const setTranscript = useAgentTasksStore((s) => s.setTranscript);
 
-  const [pending, setPending] = useState<PendingInteraction | null>(null);
+  const [polledPending, setPolledPending] = useState<PendingInteraction | null>(null);
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'activity' | 'both' | 'workflow'>('both');
@@ -89,13 +89,18 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
   const hasSubagents = useAgentTasksStore((s) => s.tasks.some((t) => t.root_task_id === taskId));
 
   const isActive = task?.status === 'running' || task?.status === 'pending';
+  // A finished run has nothing left to answer.
+  const pending = isActive ? polledPending : null;
+
+  // The Controller has no transcript route: say so instead of "0 steps".
+  const transcriptUnavailable = !taskTranscriptsSupported();
 
   // Backfill the transcript on open (and when the run id changes).
   useEffect(() => {
     let cancelled = false;
-    getTaskMessages(taskId, -1)
-      .then((steps) => {
-        if (!cancelled && steps.length > 0) setTranscript(taskId, steps);
+    fetchTaskTranscript(taskId, -1)
+      .then((result) => {
+        if (!cancelled && result.supported && result.steps.length > 0) setTranscript(taskId, result.steps);
       })
       .catch(() => {
         /* best-effort */
@@ -108,15 +113,12 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
   // Poll for a pending interaction (the agent's ask_user / approval) while the
   // run is active, so the user can answer it inline like a chat turn.
   useEffect(() => {
-    if (!isActive) {
-      setPending(null);
-      return;
-    }
+    if (!isActive) return;
     let cancelled = false;
     const tick = async () => {
       try {
         const items = await listTaskPendingInteractions(taskId);
-        if (!cancelled) setPending(items[0] ?? null);
+        if (!cancelled) setPolledPending(items[0] ?? null);
       } catch {
         /* transient */
       }
@@ -126,6 +128,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
     return () => {
       cancelled = true;
       clearInterval(timer);
+      setPolledPending(null);
     };
   }, [taskId, isActive]);
 
@@ -135,7 +138,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
     try {
       await resolveInteraction(pending.id, body);
       setAnswer('');
-      setPending(null);
+      setPolledPending(null);
     } catch {
       /* will retry on next poll */
     } finally {
@@ -200,7 +203,7 @@ export default function AgentRunTab({ taskId, onOpenArtifact, onContinueChat, on
   // as the left pane beside the sub-agent workflow graph.
   const activityCenter = (
     <div className="agent-run-center">
-      <AgentActivity steps={transcript} live={isRunning} />
+      <AgentActivity steps={transcript} live={isRunning} unavailable={transcriptUnavailable} />
 
       {task.error_message && (
         <section className="agent-run-result agent-run-result-error">

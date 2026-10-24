@@ -367,6 +367,9 @@ pub struct WsQuery {
     pub username: Option<String>,
     pub password: Option<String>,
     pub key_path: Option<String>,
+    /// Quick connect (no saved session): credential profile used to log in
+    /// to `host`/`port`. Ignored when `session_id` is set.
+    pub profile_id: Option<String>,
     pub token: Option<String>,
     /// Initial terminal columns (from xterm.js FitAddon)
     #[serde(default)]
@@ -1161,9 +1164,39 @@ async fn get_ssh_params_with_vault(query: &WsQuery, app_state: &Arc<AppState>) -
         }
     }
 
-    // Fallback: build params from query params (for quick connect without saved session)
+    // Quick connect without a saved session: host/port from the query,
+    // login (and the profile's default jump) from the credential profile.
+    if query.session_id.is_none() {
+        if let Some(profile_id) = query.profile_id.as_deref().filter(|p| !p.is_empty()) {
+            let host = quick_connect_host(query)?;
+            let (profile, credential) = load_profile_and_credential(profile_id, app_state).await?;
+            let auth = ssh_auth_from_profile(&profile, credential.as_ref(), query)?;
+            let profile_level = JumpRef::from_pair(
+                profile.jump_host_id.as_deref(),
+                profile.jump_session_id.as_deref(),
+            );
+            let jump = resolve_jump_fields(JumpRef::None, profile_level, app_state).await?;
+            let auto_commands = profile.auto_commands.clone();
+            let mut params = SshParams::from_profile(host, query.port.unwrap_or(22), &profile, profile_id.to_string(), auth, jump);
+            params.auto_commands = auto_commands;
+            return Ok(params);
+        }
+    }
+
+    // Fallback: build params from explicit query credentials
     // This only runs if session_id was NOT provided
     get_ssh_params(query)
+}
+
+/// The non-empty `host` query param of a quick connect.
+fn quick_connect_host(query: &WsQuery) -> Result<String, String> {
+    query
+        .host
+        .as_deref()
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "Missing required parameter: host".to_string())
 }
 
 /// Load a credential profile and its vault secret. A locked vault is a
@@ -1532,8 +1565,19 @@ async fn get_telnet_params_with_vault(
             password,
             auto_commands,
         })
+    } else if let Some(profile_id) = query.profile_id.as_deref().filter(|p| !p.is_empty()) {
+        // Quick connect: host/port from the query, login from the profile.
+        let host = quick_connect_host(query)?;
+        let (profile, credential) = load_profile_and_credential(profile_id, app_state).await?;
+        Ok(TelnetParams {
+            host,
+            port: query.port.unwrap_or(23),
+            username: Some(profile.username),
+            password: credential.and_then(|c| c.password),
+            auto_commands: profile.auto_commands,
+        })
     } else {
-        Err("Telnet requires a session_id".to_string())
+        Err("Telnet requires a session_id or a profile_id".to_string())
     }
 }
 
@@ -2406,6 +2450,49 @@ async fn handle_task_progress(socket: WebSocket, app_state: Arc<AppState>) {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum TaskWsCommand {
     Cancel { task_id: String },
+}
+
+#[cfg(test)]
+mod quick_connect_query_tests {
+    use super::*;
+
+    fn query(host: Option<&str>, profile_id: Option<&str>) -> WsQuery {
+        WsQuery {
+            r#type: ConnectionType::Ssh,
+            session_id: None,
+            host: host.map(str::to_string),
+            port: Some(2222),
+            username: None,
+            password: None,
+            key_path: None,
+            profile_id: profile_id.map(str::to_string),
+            token: None,
+            cols: 80,
+            rows: 24,
+            guard: None,
+            guard_mode: None,
+            guard_flavor: None,
+            guard_device: None,
+        }
+    }
+
+    #[test]
+    fn quick_connect_host_requires_a_non_blank_host() {
+        assert_eq!(quick_connect_host(&query(Some(" r1.lab "), Some("p"))).unwrap(), "r1.lab");
+        assert!(quick_connect_host(&query(Some("  "), Some("p"))).is_err());
+        assert!(quick_connect_host(&query(None, Some("p"))).is_err());
+    }
+
+    #[test]
+    fn ws_query_accepts_profile_id_without_session_id() {
+        let q: WsQuery = serde_json::from_value(serde_json::json!({
+            "type": "ssh", "host": "10.0.0.1", "port": 22, "profile_id": "prof-1",
+        }))
+        .unwrap();
+        assert_eq!(q.r#type, ConnectionType::Ssh);
+        assert!(q.session_id.is_none());
+        assert_eq!(q.profile_id.as_deref(), Some("prof-1"));
+    }
 }
 
 #[cfg(test)]

@@ -36,6 +36,47 @@
   overflow: hidden;
 }
 
+/* AI highlight chip - what the AI highlighted on the canvas, dismissible */
+.ai-highlight-chip {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 6px 8px 6px 12px;
+  background: rgba(156, 39, 176, 0.15);
+  border: 1px solid rgba(156, 39, 176, 0.4);
+  border-radius: var(--radius-panel);
+  color: #ce93d8;
+  font-size: 12px;
+  z-index: 50;
+}
+
+.ai-highlight-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-highlight-chip-clear {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid rgba(156, 39, 176, 0.5);
+  border-radius: var(--radius-panel);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-highlight-chip-clear:hover,
+.ai-highlight-chip-clear:focus-visible {
+  background: rgba(156, 39, 176, 0.25);
+}
+
 /* AI Action Toast - shows when AI modifies topology */
 .ai-action-toast {
   position: fixed;

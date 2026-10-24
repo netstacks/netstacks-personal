@@ -11,14 +11,108 @@ import { getErrorMessage } from '../api/errors'
 import type { Topology, Device, Connection, DeviceType, DeviceStatus, ConnectionStatus } from '../types/topology';
 import type { DeviceLiveStats } from '../hooks/useTopologyLive';
 import type { LinkEnrichment } from '../types/enrichment';
+import type { ShapeType, TextAnnotation, ShapeAnnotation, LineAnnotation, BaseAnnotation } from '../types/annotations';
+import {
+  TOPOLOGY_DEVICE_TYPES,
+  CONNECTION_UPDATE_FIELDS,
+  CONNECTION_LOCAL_ONLY_FIELDS,
+  DEVICE_UPDATE_FIELDS,
+  TopologyUpdateError,
+  toConnectionUpdateRequest,
+  toDeviceUpdateRequest,
+} from '../api/topology';
 
-// Forward-declared type for annotations (not yet implemented)
-interface Annotation {
+/** What the AI asked `topology_annotate` to draw (0-1000 world coordinates). */
+export interface AIAnnotationSpec {
+  type: 'text' | 'shape' | 'line';
+  /** Text content (text) or label (shape) */
+  content?: string;
+  x: number;
+  y: number;
+  /** Shape size */
+  width?: number;
+  height?: number;
+  shapeType?: ShapeType;
+  /** Line end point */
+  x2?: number;
+  y2?: number;
+  color?: string;
+  fontSize?: number;
+}
+
+/** Type-specific annotation payload (what `createAnnotation` takes). */
+export type AIAnnotationData =
+  | ({ type: 'text' } & Omit<TextAnnotation, keyof BaseAnnotation>)
+  | ({ type: 'shape' } & Omit<ShapeAnnotation, keyof BaseAnnotation>)
+  | ({ type: 'line' } & Omit<LineAnnotation, keyof BaseAnnotation>);
+
+/** Result of an annotation the editor actually added. */
+export interface AIAnnotationResult {
   id: string;
   type: 'text' | 'shape' | 'line';
-  content?: string;
-  position: { x: number; y: number };
-  style?: Record<string, unknown>;
+  /** False for an unsaved (temporary) topology: kept in the editor until saved */
+  persisted: boolean;
+}
+
+/** Result of a device/connection update. */
+export interface TopologyItemUpdate<T> {
+  item: T;
+  /** Fields written to the backend */
+  persisted: string[];
+  /** Fields changed in the open editor only (the backend doesn't store them,
+   *  or the topology is unsaved) */
+  notPersisted: string[];
+}
+
+/** Highlight request with targets already resolved to device/connection IDs. */
+export interface TopologyHighlightRequest {
+  targets: string[];
+  color: string;
+  label?: string;
+}
+
+/**
+ * Build the annotation payload for an AI annotation spec. Pure, so the
+ * editor (which owns state, history and persistence) and tests share it.
+ */
+export function buildAIAnnotationData(spec: AIAnnotationSpec): AIAnnotationData {
+  const color = spec.color || (spec.type === 'shape' ? '#4a9eff' : '#ffffff');
+  switch (spec.type) {
+    case 'text':
+      return {
+        type: 'text',
+        position: { x: spec.x, y: spec.y },
+        content: spec.content || 'Note',
+        fontSize: spec.fontSize ?? 14,
+        fontWeight: 'normal',
+        color,
+      };
+    case 'shape': {
+      const width = spec.width ?? 100;
+      const height = spec.height ?? 60;
+      return {
+        type: 'shape',
+        shapeType: spec.shapeType ?? 'rectangle',
+        position: { x: spec.x, y: spec.y },
+        size: { width, height },
+        strokeColor: color,
+        strokeStyle: 'solid',
+        strokeWidth: 2,
+        fillColor: color,
+        fillOpacity: 0.1,
+        label: spec.content,
+      };
+    }
+    case 'line':
+      return {
+        type: 'line',
+        points: [{ x: spec.x, y: spec.y }, { x: spec.x2 ?? spec.x + 100, y: spec.y2 ?? spec.y }],
+        curveStyle: 'straight',
+        color,
+        lineStyle: 'solid',
+        lineWidth: 2,
+      };
+  }
 }
 
 /**
@@ -58,41 +152,63 @@ export interface TopologyAICallbacks {
   // Modifications (tracked in undo history with source='ai')
   addDevice: (device: Partial<Device>) => Promise<Device>;
   removeDevice: (deviceId: string) => Promise<void>;
-  updateDevice: (deviceId: string, updates: Partial<Device>) => Promise<Device>;
+  updateDevice: (deviceId: string, updates: Partial<Device>) => Promise<TopologyItemUpdate<Device>>;
   moveDevice: (deviceId: string, x: number, y: number) => Promise<void>;
 
   addConnection: (conn: Partial<Connection>) => Promise<Connection>;
   removeConnection: (connectionId: string) => Promise<void>;
-  updateConnection: (connectionId: string, updates: Partial<Connection>) => Promise<Connection>;
+  updateConnection: (connectionId: string, updates: Partial<Connection>) => Promise<TopologyItemUpdate<Connection>>;
 
-  addAnnotation: (annotation: Partial<Annotation>) => Promise<Annotation>;
-  removeAnnotation: (annotationId: string) => Promise<void>;
-  updateAnnotation: (annotationId: string, updates: Partial<Annotation>) => Promise<Annotation>;
+  // The editor-backed operations below are optional: they exist only while a
+  // topology editor is open and has published them. A tool whose callback is
+  // missing is not offered to the model (see getTopologyTools).
 
-  // Highlight support (temporary visual feedback)
-  setHighlights?: (highlights: { targets: string[]; color: string; label?: string }) => void;
+  /** Add an annotation through the editor (state + undo history + persistence) */
+  addAnnotation?: (spec: AIAnnotationSpec) => Promise<AIAnnotationResult>;
+
+  /** Highlight resolved device/connection IDs on the canvas. Returns whether
+   *  the highlight is visible in the editor's current view. */
+  setHighlights?: (highlights: TopologyHighlightRequest) => { visibleInCurrentView: boolean };
   clearHighlights?: () => void;
 
-  // Export support
-  exportTopology?: (format: 'png' | 'svg' | 'json') => Promise<string | Blob>;
+  /** Run the editor's export (native save dialog). Resolves to the saved
+   *  path, or null when the user cancelled the dialog. Rejects on failure. */
+  exportTopology?: (format: 'png' | 'svg' | 'json') => Promise<{ path: string } | null>;
 }
 
 /**
  * Valid device types for AI tool schema
  */
-const DEVICE_TYPES: DeviceType[] = [
-  'router', 'switch', 'firewall', 'server', 'cloud', 'access-point',
-  'load-balancer', 'wan-optimizer', 'voice-gateway', 'wireless-controller',
-  'storage', 'virtual', 'sd-wan', 'iot', 'unknown'
-];
+const DEVICE_TYPES: string[] = [...TOPOLOGY_DEVICE_TYPES];
+
+/** Field names `topology_update` accepts, per item type (for schema + errors). */
+const DEVICE_UPDATE_FIELD_NAMES = Object.keys(DEVICE_UPDATE_FIELDS);
+const CONNECTION_UPDATE_FIELD_NAMES = [...Object.keys(CONNECTION_UPDATE_FIELDS), ...Object.keys(CONNECTION_LOCAL_ONLY_FIELDS)];
+
+/** Tools that only work while an editor provides the matching callback. */
+const EDITOR_BACKED_TOOLS: Record<string, (cb: TopologyAICallbacks) => boolean> = {
+  topology_annotate: cb => typeof cb.addAnnotation === 'function',
+  topology_highlight: cb => typeof cb.setHighlights === 'function',
+  topology_export: cb => typeof cb.exportTopology === 'function',
+};
 
 /**
  * Get topology AI tool definitions
  *
- * @param _callbacks - Callbacks for topology operations (unused in definitions, used in execution)
+ * Annotation, highlight and export are only listed when the callbacks wire
+ * them to a real editor; otherwise the model never sees them.
+ *
+ * @param callbacks - Callbacks for topology operations
  * @returns Array of tool definitions for AI
  */
-export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinition[] {
+export function getTopologyTools(callbacks: TopologyAICallbacks): ToolDefinition[] {
+  return allTopologyTools().filter(t => {
+    const wired = EDITOR_BACKED_TOOLS[t.name];
+    return !wired || wired(callbacks);
+  });
+}
+
+function allTopologyTools(): ToolDefinition[] {
   return [
     // === QUERY TOOLS (auto-execute, read-only) ===
     {
@@ -190,7 +306,7 @@ export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinitio
     },
     {
       name: 'topology_update',
-      description: 'Update a device or connection property. Use when asked to "change the firewall type" or "mark connection as degraded".',
+      description: 'Update device or connection properties. Use when asked to "change the firewall type", "label the uplink" or "make the link dashed". The result lists which fields were saved and which changed the open view only.',
       input_schema: {
         type: 'object',
         properties: {
@@ -201,8 +317,8 @@ export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinitio
           },
           item_id: { type: 'string', description: 'Device or connection ID (or name for devices)' },
           updates: {
-            type: 'string',
-            description: 'JSON string of properties to update (e.g., {"name": "new-name", "status": "online"})'
+            type: 'object',
+            description: `Object of fields to set, e.g. {"label": "uplink", "lineStyle": "dashed"}. Device fields: ${DEVICE_UPDATE_FIELD_NAMES.join(', ')}. Connection fields: ${CONNECTION_UPDATE_FIELD_NAMES.join(', ')} (status is shown in the editor but not saved). snake_case names are accepted too.`
           }
         },
         required: ['item_type', 'item_id', 'updates']
@@ -241,7 +357,7 @@ export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinitio
     // === ANNOTATION TOOLS ===
     {
       name: 'topology_annotate',
-      description: 'Add annotation (text, shape, or line) to the topology. Use when asked to "add a label" or "draw a box around the core routers".',
+      description: 'Add an annotation (text label, shape, or line) to the open topology. It is saved with the topology and can be undone. Use when asked to "add a label" or "draw a box around the core routers".',
       input_schema: {
         type: 'object',
         properties: {
@@ -250,39 +366,46 @@ export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinitio
             enum: ['text', 'shape', 'line'],
             description: 'Type of annotation'
           },
-          content: { type: 'string', description: 'Text content or label' },
-          x: { type: 'number', description: 'X position in 0-1000 coordinate space' },
-          y: { type: 'number', description: 'Y position in 0-1000 coordinate space' },
-          style: {
+          content: { type: 'string', description: 'Text content (text) or label (shape)' },
+          x: { type: 'number', description: 'X position in 0-1000 space (text anchor, shape top-left, or line start). Default 500' },
+          y: { type: 'number', description: 'Y position in 0-1000 space. Default 500' },
+          width: { type: 'number', description: 'Shape width (default 100)' },
+          height: { type: 'number', description: 'Shape height (default 60)' },
+          shape_type: {
             type: 'string',
-            description: 'JSON string of style options (e.g., {"color": "red", "size": 14})'
-          }
+            enum: ['rectangle', 'circle', 'diamond', 'arrow', 'cloud'],
+            description: 'Shape kind (default rectangle)'
+          },
+          x2: { type: 'number', description: 'Line end X (default x + 100)' },
+          y2: { type: 'number', description: 'Line end Y (default y)' },
+          color: { type: 'string', description: 'Color, e.g. "#ff0000" or "red"' },
+          font_size: { type: 'number', description: 'Text font size (default 14)' }
         },
         required: ['annotation_type']
       }
     },
     {
       name: 'topology_highlight',
-      description: 'Highlight devices or connections with a specific color. Use when asked to "highlight the path" or "mark all firewalls in red".',
+      description: 'Highlight devices or connections on the canvas with a color (view only, not saved). Replaces any previous AI highlight; pass an empty targets array to clear. Use when asked to "highlight the path" or "mark all firewalls in red".',
       input_schema: {
         type: 'object',
         properties: {
           targets: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Device/connection names or IDs to highlight'
+            description: 'Device names/IDs or connection IDs to highlight (empty array clears highlights)'
           },
           color: { type: 'string', description: 'Highlight color (e.g., "red", "#ff0000")' },
           label: { type: 'string', description: 'Optional label for the highlight' }
         },
-        required: ['targets', 'color']
+        required: ['targets']
       }
     },
 
     // === EXPORT TOOLS ===
     {
       name: 'topology_export',
-      description: 'Export topology in various formats. Use when asked to "export as PNG" or "save the topology to JSON".',
+      description: 'Export the open topology to a file. The user picks the location in a save dialog; the result says whether a file was written. Use when asked to "export as PNG" or "save the topology to JSON".',
       input_schema: {
         type: 'object',
         properties: {
@@ -301,6 +424,123 @@ export function getTopologyTools(_callbacks: TopologyAICallbacks): ToolDefinitio
 // ============================================
 // TOOL EXECUTION HANDLERS
 // ============================================
+
+/** Error result for an editor-backed tool with no editor behind it. */
+function unavailable(message: string): { content: string; is_error: boolean } {
+  return { content: JSON.stringify({ error: message }), is_error: true };
+}
+
+/**
+ * Parse `topology_update.updates`: an object, or a JSON string encoding one
+ * (older prompts and some models still send a string).
+ */
+export function parseUpdatesArgument(raw: unknown): { updates: Record<string, unknown> } | { error: string } {
+  let value = raw;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return { error: 'No updates specified' };
+    try {
+      value = JSON.parse(trimmed);
+    } catch (err) {
+      return { error: `updates is not valid JSON: ${getErrorMessage(err)}` };
+    }
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: 'updates must be an object of field -> value, e.g. {"label": "uplink"}' };
+  }
+  if (Object.keys(value).length === 0) {
+    return { error: 'No updates specified' };
+  }
+  return { updates: value as Record<string, unknown> };
+}
+
+/** Accept snake_case field names (`source_interface`, `device_type`) as aliases. */
+export function normalizeUpdateKeys(updates: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    const camel = key === 'device_type' ? 'type' : key.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
+    out[camel] = value;
+  }
+  return out;
+}
+
+/** Summarise which fields were saved vs. view-only for a tool result. */
+function describeSaved(result: TopologyItemUpdate<unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { savedFields: result.persisted };
+  if (result.notPersisted.length > 0) {
+    out.notSavedFields = result.notPersisted;
+    out.note = 'notSavedFields changed in the open editor only and will be lost on reload (the backend does not store them, or the topology is unsaved).';
+  }
+  return out;
+}
+
+const NAMED_OR_FUNCTIONAL_COLOR = /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|[a-z]+|(rgb|rgba|hsl|hsla)\([^)]*\))$/i;
+
+/** True for a value the canvas will accept as a stroke/fill color. */
+export function isValidCssColor(color: string): boolean {
+  if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function') {
+    return CSS.supports('color', color);
+  }
+  return NAMED_OR_FUNCTIONAL_COLOR.test(color);
+}
+
+function optionalNumber(input: Record<string, unknown>, key: string): number | undefined | { error: string } {
+  const v = input[key];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `${key} must be a number` };
+  return v;
+}
+
+const SHAPE_TYPES: readonly ShapeType[] = ['rectangle', 'circle', 'diamond', 'arrow', 'cloud'];
+
+/** Validate `topology_annotate` input into an AIAnnotationSpec. */
+export function parseAnnotationSpec(input: Record<string, unknown>): { spec: AIAnnotationSpec } | { error: string } {
+  const type = input.annotation_type;
+  if (type !== 'text' && type !== 'shape' && type !== 'line') {
+    return { error: 'annotation_type must be one of: text, shape, line' };
+  }
+  const nums: Record<string, number | undefined> = {};
+  for (const key of ['x', 'y', 'width', 'height', 'x2', 'y2', 'font_size']) {
+    const n = optionalNumber(input, key);
+    if (typeof n === 'object') return n;
+    nums[key] = n;
+  }
+  for (const key of ['x', 'y', 'x2', 'y2']) {
+    const n = nums[key];
+    if (n !== undefined && (n < 0 || n > 1000)) return { error: `${key} must be within 0-1000` };
+  }
+  for (const key of ['width', 'height', 'font_size']) {
+    const n = nums[key];
+    if (n !== undefined && n <= 0) return { error: `${key} must be positive` };
+  }
+  const shapeType = input.shape_type;
+  if (shapeType !== undefined && !SHAPE_TYPES.includes(shapeType as ShapeType)) {
+    return { error: `shape_type must be one of: ${SHAPE_TYPES.join(', ')}` };
+  }
+  const color = input.color;
+  if (color !== undefined && (typeof color !== 'string' || !isValidCssColor(color))) {
+    return { error: `"${String(color)}" is not a valid CSS color` };
+  }
+  const content = input.content;
+  if (content !== undefined && typeof content !== 'string') {
+    return { error: 'content must be a string' };
+  }
+  return {
+    spec: {
+      type,
+      content,
+      x: nums.x ?? 500,
+      y: nums.y ?? 500,
+      width: nums.width,
+      height: nums.height,
+      shapeType: shapeType as ShapeType | undefined,
+      x2: nums.x2,
+      y2: nums.y2,
+      color,
+      fontSize: nums.font_size,
+    },
+  };
+}
 
 /**
  * Helper: Group array elements by a key
@@ -1181,15 +1421,24 @@ export async function executeTopologyTool(
           return { content: JSON.stringify({ error: 'No topology loaded' }), is_error: true };
         }
 
-        const itemType = input.item_type as 'device' | 'connection';
+        const itemType = input.item_type;
         const itemId = input.item_id as string;
-        const updates = input.updates as Record<string, unknown>;
+        if (itemType !== 'device' && itemType !== 'connection') {
+          return { content: JSON.stringify({ error: 'item_type must be "device" or "connection"' }), is_error: true };
+        }
 
-        if (!updates || Object.keys(updates).length === 0) {
-          return {
-            content: JSON.stringify({ error: 'No updates specified' }),
-            is_error: true
-          };
+        const parsed = parseUpdatesArgument(input.updates);
+        if ('error' in parsed) {
+          return { content: JSON.stringify({ error: parsed.error }), is_error: true };
+        }
+        const updates = normalizeUpdateKeys(parsed.updates);
+
+        // Reject unknown or malformed fields up front, listing the valid ones,
+        // instead of "succeeding" with values the backend drops.
+        const conv = itemType === 'device' ? toDeviceUpdateRequest(updates) : toConnectionUpdateRequest(updates);
+        if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+          const err = new TopologyUpdateError(itemType, conv.unknown, conv.invalid);
+          return { content: JSON.stringify({ error: err.message }), is_error: true };
         }
 
         if (itemType === 'device') {
@@ -1201,44 +1450,39 @@ export async function executeTopologyTool(
             };
           }
 
-          const updatedDevice = await callbacks.updateDevice(deviceId, updates as Partial<Device>);
+          const result = await callbacks.updateDevice(deviceId, updates as Partial<Device>);
           return {
             content: JSON.stringify({
               success: true,
-              message: `Updated device "${updatedDevice.name}"`,
-              device: {
-                id: updatedDevice.id,
-                name: updatedDevice.name,
-                updatedFields: Object.keys(updates)
-              }
-            }),
-            is_error: false
-          };
-        } else {
-          const connection = topology.connections.find(c => c.id === itemId);
-          if (!connection) {
-            return {
-              content: JSON.stringify({ error: `Connection "${itemId}" not found` }),
-              is_error: true
-            };
-          }
-
-          const updatedConnection = await callbacks.updateConnection(itemId, updates as Partial<Connection>);
-          const src = topology.devices.find(d => d.id === updatedConnection.sourceDeviceId);
-          const tgt = topology.devices.find(d => d.id === updatedConnection.targetDeviceId);
-
-          return {
-            content: JSON.stringify({
-              success: true,
-              message: `Updated connection between "${src?.name}" and "${tgt?.name}"`,
-              connection: {
-                id: updatedConnection.id,
-                updatedFields: Object.keys(updates)
-              }
+              message: `Updated device "${result.item.name}"`,
+              device: { id: result.item.id, name: result.item.name },
+              ...describeSaved(result),
             }),
             is_error: false
           };
         }
+
+        const connection = topology.connections.find(c => c.id === itemId);
+        if (!connection) {
+          return {
+            content: JSON.stringify({ error: `Connection "${itemId}" not found` }),
+            is_error: true
+          };
+        }
+
+        const result = await callbacks.updateConnection(itemId, updates as Partial<Connection>);
+        const src = topology.devices.find(d => d.id === result.item.sourceDeviceId);
+        const tgt = topology.devices.find(d => d.id === result.item.targetDeviceId);
+
+        return {
+          content: JSON.stringify({
+            success: true,
+            message: `Updated connection between "${src?.name}" and "${tgt?.name}"`,
+            connection: { id: result.item.id },
+            ...describeSaved(result),
+          }),
+          is_error: false
+        };
       }
 
       case 'topology_move': {
@@ -1339,53 +1583,90 @@ export async function executeTopologyTool(
 
       // === ANNOTATION TOOLS ===
       case 'topology_annotate': {
-        const annotationType = input.annotation_type as 'text' | 'shape' | 'line';
-        const content = input.content as string | undefined;
-        const position = input.position as { x: number; y: number } | undefined;
-        const style = input.style as Record<string, unknown> | undefined;
+        if (!callbacks.addAnnotation) {
+          return unavailable('Annotations need an open topology editor; none is available.');
+        }
+        const spec = parseAnnotationSpec(input);
+        if ('error' in spec) {
+          return { content: JSON.stringify({ error: spec.error }), is_error: true };
+        }
 
-        const annotation = await callbacks.addAnnotation({
-          type: annotationType,
-          content,
-          position: position || { x: 500, y: 500 },
-          style,
-        });
-
+        const annotation = await callbacks.addAnnotation(spec.spec);
         return {
           content: JSON.stringify({
             success: true,
-            message: `Added ${annotationType} annotation`,
-            annotation: {
-              id: annotation.id,
-              type: annotation.type,
-              position: annotation.position
-            }
+            message: annotation.persisted
+              ? `Added ${annotation.type} annotation (saved; the user can undo it)`
+              : `Added ${annotation.type} annotation to the unsaved topology (kept in the editor until the topology is saved)`,
+            annotation: { id: annotation.id, type: annotation.type, position: { x: spec.spec.x, y: spec.spec.y } },
+            persisted: annotation.persisted,
           }),
           is_error: false
         };
       }
 
       case 'topology_highlight': {
-        const targets = input.targets as string[];
-        const color = input.color as string;
-        const label = input.label as string | undefined;
+        if (!callbacks.setHighlights) {
+          return unavailable('Highlighting needs an open topology editor; none is available.');
+        }
+        if (!topology) {
+          return { content: JSON.stringify({ error: 'No topology loaded' }), is_error: true };
+        }
+        const targets = input.targets;
+        if (!Array.isArray(targets) || !targets.every(t => typeof t === 'string')) {
+          return { content: JSON.stringify({ error: 'targets must be an array of device names/IDs or connection IDs' }), is_error: true };
+        }
 
-        if (callbacks.setHighlights) {
-          callbacks.setHighlights({ targets, color, label });
+        if (targets.length === 0) {
+          callbacks.clearHighlights?.();
           return {
-            content: JSON.stringify({
-              success: true,
-              message: `Highlighted ${targets.length} item(s) in ${color}`,
-              targets
-            }),
+            content: JSON.stringify({ success: true, message: 'Cleared highlights' }),
             is_error: false
           };
         }
 
+        const color = typeof input.color === 'string' && input.color.trim() ? input.color.trim() : '#ffeb3b';
+        if (!isValidCssColor(color)) {
+          return { content: JSON.stringify({ error: `"${color}" is not a valid CSS color` }), is_error: true };
+        }
+        const label = typeof input.label === 'string' ? input.label : undefined;
+
+        const resolved: string[] = [];
+        const names: string[] = [];
+        const unresolved: string[] = [];
+        for (const target of targets) {
+          const conn = topology.connections.find(c => c.id === target);
+          if (conn) {
+            resolved.push(conn.id);
+            const src = topology.devices.find(d => d.id === conn.sourceDeviceId);
+            const tgt = topology.devices.find(d => d.id === conn.targetDeviceId);
+            names.push(`${src?.name ?? '?'} - ${tgt?.name ?? '?'}`);
+            continue;
+          }
+          const deviceId = resolveDeviceId(topology, target);
+          if (deviceId) {
+            resolved.push(deviceId);
+            names.push(topology.devices.find(d => d.id === deviceId)?.name ?? deviceId);
+          } else {
+            unresolved.push(target);
+          }
+        }
+
+        if (resolved.length === 0) {
+          return {
+            content: JSON.stringify({ error: 'None of the targets matched a device or connection', unresolved }),
+            is_error: true
+          };
+        }
+
+        const { visibleInCurrentView } = callbacks.setHighlights({ targets: [...new Set(resolved)], color, label });
         return {
           content: JSON.stringify({
-            success: false,
-            message: 'Highlight feature not available in current context'
+            success: true,
+            message: `Highlighted ${names.length} item(s) in ${color}`,
+            highlighted: names,
+            ...(unresolved.length > 0 ? { unresolved } : {}),
+            ...(visibleInCurrentView ? {} : { note: 'Highlights render in the 2D view; the editor is currently showing the 3D view.' }),
           }),
           is_error: false
         };
@@ -1393,26 +1674,27 @@ export async function executeTopologyTool(
 
       // === EXPORT TOOLS ===
       case 'topology_export': {
-        const format = input.format as 'png' | 'svg' | 'json';
-
-        if (callbacks.exportTopology) {
-          const result = await callbacks.exportTopology(format);
-          return {
-            content: JSON.stringify({
-              success: true,
-              message: `Topology exported as ${format.toUpperCase()}`,
-              format,
-              // Note: actual export happens in the callback
-              exported: typeof result === 'string' ? 'data_url' : 'blob'
-            }),
-            is_error: false
-          };
+        if (!callbacks.exportTopology) {
+          return unavailable('Export needs an open topology editor; none is available. The user can export from the toolbar.');
+        }
+        const format = input.format;
+        if (format !== 'png' && format !== 'svg' && format !== 'json') {
+          return { content: JSON.stringify({ error: 'format must be one of: png, svg, json' }), is_error: true };
         }
 
+        const saved = await callbacks.exportTopology(format);
+        if (!saved) {
+          return {
+            content: JSON.stringify({ error: 'The user cancelled the save dialog; nothing was exported.' }),
+            is_error: true
+          };
+        }
         return {
           content: JSON.stringify({
-            success: false,
-            message: 'Export feature not available in current context. User can export manually from the toolbar.'
+            success: true,
+            message: `Topology exported as ${format.toUpperCase()} to ${saved.path}`,
+            format,
+            path: saved.path,
           }),
           is_error: false
         };
@@ -1450,8 +1732,7 @@ Available capabilities:
 - Query devices, connections, and find paths between devices
 - Add/remove/update/move devices and connections
 - Analyze for single points of failure (SPOF), redundancy, and best practices
-- Add annotations and highlights
-- Export to PNG/SVG/JSON
+- Add annotations, highlight devices/links, and export to PNG/SVG/JSON (only while the topology editor is open; these tools are listed only then)
 
 Device types: router, switch, firewall, server, cloud, access-point, load-balancer, wan-optimizer, voice-gateway, wireless-controller, storage, virtual, sd-wan, iot, unknown
 
@@ -1461,8 +1742,8 @@ When asked to build or create a topology:
 3. Use meaningful device names indicating role/location
 
 When asked to analyze:
-- Use topology_analyze with type 'spof' to find single points of failure
-- Use topology_analyze with type 'redundancy' to check path redundancy
+- Use topology_analyze with analysis_type 'spof' to find single points of failure
+- Use topology_analyze with analysis_type 'redundancy' to check path redundancy
 - Use topology_path to find routes between devices
 `;
 

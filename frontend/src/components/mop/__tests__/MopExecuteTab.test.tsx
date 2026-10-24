@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import MopExecuteTab, { type MopExecuteTabProps } from '../MopExecuteTab';
 import type { MopExecution, MopExecutionDevice, MopExecutionStep } from '../../../types/mop';
 import type { MopExecutionState, UseMopExecutionReturn } from '../../../hooks/useMopExecution';
@@ -205,7 +205,8 @@ describe('MopExecuteTab', () => {
     fireEvent.click(complete);
     expect(props.actions.handleComplete).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { name: 'Complete execution' })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Complete with 2 failures' })[1]);
+    // The page behind is inert while the confirm is open; act inside the dialog.
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Complete with 2 failures' }));
     expect(props.actions.handleComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -252,7 +253,8 @@ describe('MopExecuteTab', () => {
     expect(screen.getByText('r1')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'New Execution' }));
     expect(props.actions.handleNewExecution).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole('button', { name: 'New Execution' })[1]);
+    // The page behind is inert while the confirm is open; act inside the dialog.
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'New Execution' }));
     expect(props.actions.handleNewExecution).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByText('Executions'));

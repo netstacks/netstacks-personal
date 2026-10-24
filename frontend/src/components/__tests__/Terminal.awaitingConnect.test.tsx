@@ -11,6 +11,15 @@ vi.mock('@xterm/xterm', () => {
     options: Record<string, unknown> = {}
     element: HTMLElement | undefined = undefined
     buffer = { active: { length: 0, viewportY: 0, baseY: 0, cursorX: 0, cursorY: 0, getLine: () => undefined } }
+    // Nested xterm APIs are objects, not methods — the Proxy below would hand
+    // back a function for them.
+    parser = {
+      registerOscHandler: () => ({ dispose() {} }),
+      registerCsiHandler: () => ({ dispose() {} }),
+      registerDcsHandler: () => ({ dispose() {} }),
+      registerEscHandler: () => ({ dispose() {} }),
+    }
+    modes = { mouseTrackingMode: 'none' }
     open(container: HTMLElement) {
       this.element = document.createElement('div')
       container.appendChild(this.element)

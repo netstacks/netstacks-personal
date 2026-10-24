@@ -266,10 +266,16 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
               />
             </div>
           ) : (
-            <div className="workspace-zone-collapsed-bar" onClick={() => setEditorCollapsed(false)}>
+            <button
+              type="button"
+              className="workspace-zone-collapsed-bar"
+              aria-expanded={false}
+              aria-label="Expand editor"
+              onClick={() => setEditorCollapsed(false)}
+            >
               <span>Editor</span>
-              <span className="workspace-zone-collapsed-expand">▼</span>
-            </div>
+              <span className="workspace-zone-collapsed-expand" aria-hidden>▼</span>
+            </button>
           )}
 
           {/* Resize handle between Zone 2 and Zone 3 */}
@@ -383,10 +389,16 @@ export default function WorkspaceTab({ config, isActive }: WorkspaceTabProps) {
               </div>
 
               {state.terminalPanelCollapsed && !showOutput && (
-                <div className="workspace-zone-collapsed-bar" onClick={() => workspace.toggleTerminalPanel()}>
+                <button
+                  type="button"
+                  className="workspace-zone-collapsed-bar"
+                  aria-expanded={false}
+                  aria-label="Expand terminal"
+                  onClick={() => workspace.toggleTerminalPanel()}
+                >
                   <span>Terminal</span>
-                  <span className="workspace-zone-collapsed-expand">▲</span>
-                </div>
+                  <span className="workspace-zone-collapsed-expand" aria-hidden>▲</span>
+                </button>
               )}
             </>
           )}

@@ -1,7 +1,8 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import type { CliFlavor } from '../types/enrichment'
 import Terminal, { type ConnectionStatus, type TerminalHandle } from './Terminal'
 import { ToastContainer } from './Toast'
+import { parsePopoutTerminalParams, type PopoutTerminalSnapshot } from '../lib/popoutTerminal'
 import './PopoutTerminal.css'
 import Tooltip from './Tooltip'
 
@@ -10,20 +11,11 @@ interface PopoutTerminalProps {
 }
 
 export default function PopoutTerminal({ params }: PopoutTerminalProps) {
-  const sessionId = params.get('sessionId') || undefined
-  const protocol = (params.get('protocol') as 'ssh' | 'telnet') || 'ssh'
-  const sessionName = params.get('sessionName') || 'Terminal'
-  const cliFlavor = (params.get('cliFlavor') as CliFlavor) || 'auto'
-  const terminalTheme = params.get('terminalTheme') || undefined
-  const fontSize = params.get('fontSize') ? Number(params.get('fontSize')) : undefined
-  const fontFamily = params.get('fontFamily') || undefined
-  const enterpriseProfileId = params.get('enterpriseProfileId') || undefined
-  const enterpriseSessionDefinitionId = params.get('enterpriseSessionDefinitionId') || undefined
-  const enterpriseTargetHost = params.get('enterpriseTargetHost') || undefined
-  const enterpriseTargetPort = params.get('enterpriseTargetPort') ? Number(params.get('enterpriseTargetPort')) : undefined
-  const isJumpbox = params.get('isJumpbox') === 'true'
+  const snapshot = useMemo(() => parsePopoutTerminalParams(params), [params])
+  const { sessionId, protocol, sessionName, terminalTheme, fontSize, fontFamily } = snapshot
+  const cliFlavor = snapshot.cliFlavor as CliFlavor
   // Reopened on relaunch: mounts disconnected until the user connects.
-  const restored = params.get('awaitingConnect') === 'true'
+  const restored = Boolean(snapshot.awaitingConnect)
 
   const [status, setStatus] = useState<ConnectionStatus>(restored ? 'disconnected' : 'connecting')
   // Still waiting for that first connect — popping back in keeps it waiting.
@@ -46,21 +38,7 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
     : 'var(--color-text-secondary)'
 
   const handlePopBackIn = useCallback(async () => {
-    const payload = {
-      sessionId,
-      sessionName,
-      protocol,
-      cliFlavor,
-      terminalTheme,
-      fontSize,
-      fontFamily,
-      enterpriseProfileId,
-      enterpriseSessionDefinitionId,
-      enterpriseTargetHost,
-      enterpriseTargetPort,
-      isJumpbox,
-      awaitingConnect,
-    }
+    const payload: PopoutTerminalSnapshot = { ...snapshot, awaitingConnect }
     try {
       const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
       const currentWindow = getCurrentWebviewWindow()
@@ -77,7 +55,7 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
       )
       window.close()
     }
-  }, [sessionId, sessionName, protocol, cliFlavor, terminalTheme, fontSize, fontFamily, enterpriseProfileId, enterpriseSessionDefinitionId, enterpriseTargetHost, enterpriseTargetPort, isJumpbox, awaitingConnect])
+  }, [snapshot, awaitingConnect])
 
   return (
     <div className="popout-terminal">
@@ -99,21 +77,27 @@ export default function PopoutTerminal({ params }: PopoutTerminalProps) {
       <div className="popout-terminal-body">
         <Terminal
           ref={terminalRef}
-          id={`popout-${sessionId || 'local'}`}
+          id={`popout-${sessionId || snapshot.quickConnectHost || 'local'}`}
           sessionId={sessionId}
+          quickConnectHost={snapshot.quickConnectHost}
+          quickConnectPort={snapshot.quickConnectPort}
+          quickConnectProfileId={snapshot.quickConnectProfileId}
           protocol={protocol}
           sessionName={sessionName}
           cliFlavor={cliFlavor}
           terminalTheme={terminalTheme}
           fontSize={fontSize}
           fontFamily={fontFamily}
+          scrollbackLines={snapshot.scrollbackLines}
+          autoReconnect={snapshot.autoReconnect}
+          reconnectDelay={snapshot.reconnectDelay}
           onStatusChange={handleStatusChange}
           awaitingConnect={restored}
-          enterpriseProfileId={enterpriseProfileId}
-          enterpriseSessionDefinitionId={enterpriseSessionDefinitionId}
-          enterpriseTargetHost={enterpriseTargetHost}
-          enterpriseTargetPort={enterpriseTargetPort}
-          isJumpbox={isJumpbox}
+          enterpriseProfileId={snapshot.enterpriseProfileId}
+          enterpriseSessionDefinitionId={snapshot.enterpriseSessionDefinitionId}
+          enterpriseTargetHost={snapshot.enterpriseTargetHost}
+          enterpriseTargetPort={snapshot.enterpriseTargetPort}
+          isJumpbox={snapshot.isJumpbox}
         />
       </div>
       <ToastContainer />

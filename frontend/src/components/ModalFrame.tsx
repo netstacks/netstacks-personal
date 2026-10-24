@@ -1,6 +1,7 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '../hooks/useOverlayDismiss'
+import { clampMove, clampToViewport, resizeRect, type Edge, type Rect } from './modalFrameGeometry'
 import './ModalFrame.css'
 
 /**
@@ -15,6 +16,14 @@ import './ModalFrame.css'
  * row — a direct child of the frame that is a heading or whose class ends in
  * "header" or "-head". Controls
  * inside the header (buttons, fields, links) never start a drag.
+ *
+ * Focus contract (every dialog gets it): on open, focus moves into the dialog
+ * — a child that already took focus (React `autoFocus`, its own effect) keeps
+ * it, else the first `[autofocus]` / `[data-autofocus]` element, else the
+ * first focusable control, else the dialog itself. While a modal dialog is
+ * open, Tab / Shift+Tab wrap inside it and the rest of the page is `inert`
+ * (aria-hidden where `inert` is unsupported). On close, focus returns to the
+ * element that had it before the dialog opened.
  */
 export interface ModalFrameProps {
   /** Stable key for the remembered size, e.g. "session-settings". */
@@ -45,15 +54,60 @@ export interface ModalFrameProps {
   children: React.ReactNode
 }
 
-interface Rect { x: number; y: number; width: number; height: number }
-type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
 const EDGES: Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
 const DEFAULT_MIN = { width: 320, height: 200 }
-/** How much of a moved dialog must stay on screen so its header can be grabbed again. */
-const KEEP_VISIBLE = 80
-const HEADER_REACH = 32
 const NON_DRAG_TARGETS = 'button, input, select, textarea, a, label, [role="button"], [role="tab"], [contenteditable="true"]'
+
+const FOCUSABLE_SELECTOR =
+  'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+const AUTOFOCUS_SELECTOR = '[autofocus], [data-autofocus]'
+/** Siblings left alone when inerting the page: they hold no focusable UI, or must keep announcing. */
+const INERT_EXEMPT = 'script, style, link, template, [aria-live]'
+
+function isVisible(el: HTMLElement): boolean {
+  if (el.closest('[hidden], [inert]')) return false
+  return typeof el.checkVisibility === 'function' ? el.checkVisibility() : true
+}
+
+/** The dialog's keyboard-reachable controls, in tab order (DOM order; positive tabindex is not used). */
+function focusableWithin(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(isVisible)
+}
+
+// Reference counts so stacked dialogs (one opened from another) share the
+// inerted page, and the page is released only when the last one closes.
+const inertCounts = new Map<Element, { count: number; owned: boolean; viaAria: boolean }>()
+const supportsInert = () => typeof HTMLElement !== 'undefined' && 'inert' in HTMLElement.prototype
+
+function inertSiblings(keep: Element): () => void {
+  const parent = keep.parentElement
+  if (!parent) return () => {}
+  const targets = [...parent.children].filter((el) => el !== keep && !el.matches(INERT_EXEMPT))
+  for (const el of targets) {
+    const entry = inertCounts.get(el)
+    if (entry) {
+      entry.count += 1
+      continue
+    }
+    const owned = !el.hasAttribute('inert')
+    const viaAria = owned && !supportsInert() && el.getAttribute('aria-hidden') !== 'true'
+    if (owned) el.setAttribute('inert', '')
+    if (viaAria) el.setAttribute('aria-hidden', 'true')
+    inertCounts.set(el, { count: 1, owned, viaAria })
+  }
+  return () => {
+    for (const el of targets) {
+      const entry = inertCounts.get(el)
+      if (!entry) continue
+      entry.count -= 1
+      if (entry.count > 0) continue
+      inertCounts.delete(el)
+      if (entry.owned) el.removeAttribute('inert')
+      if (entry.viaAria) el.removeAttribute('aria-hidden')
+    }
+  }
+}
 
 const sizeKey = (id: string) => `netstacks-modal-size:${id}`
 
@@ -66,38 +120,6 @@ function readSize(id: string): { width: number; height: number } | null {
   } catch {
     return null
   }
-}
-
-/** Keep a moved dialog grabbable: its header row stays inside the window. */
-export function clampMove(rect: Rect, viewport: { width: number; height: number }): Rect {
-  const x = Math.min(Math.max(rect.x, KEEP_VISIBLE - rect.width), viewport.width - KEEP_VISIBLE)
-  const y = Math.min(Math.max(rect.y, 0), viewport.height - HEADER_REACH)
-  return { ...rect, x, y }
-}
-
-/** Resize from `edge` by (dx, dy): the grabbed edge moves, the opposite edge stays put. */
-export function resizeRect(
-  start: Rect,
-  edge: Edge,
-  dx: number,
-  dy: number,
-  min: { width: number; height: number },
-  viewport: { width: number; height: number },
-): Rect {
-  let { x, y, width, height } = start
-  const right = start.x + start.width
-  const bottom = start.y + start.height
-  if (edge.includes('e')) width = Math.min(Math.max(start.width + dx, min.width), viewport.width - start.x)
-  if (edge.includes('s')) height = Math.min(Math.max(start.height + dy, min.height), viewport.height - start.y)
-  if (edge.includes('w')) {
-    x = Math.min(Math.max(start.x + dx, 0), right - min.width)
-    width = right - x
-  }
-  if (edge.includes('n')) {
-    y = Math.min(Math.max(start.y + dy, 0), bottom - min.height)
-    height = bottom - y
-  }
-  return { x, y, width, height }
 }
 
 function isHeaderTarget(frame: HTMLElement, target: HTMLElement): boolean {
@@ -130,6 +152,59 @@ const ModalFrame = forwardRef<HTMLDivElement, ModalFrameProps>(function ModalFra
   const frameRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(ref, () => frameRef.current as HTMLDivElement)
 
+  // Captured during the first render — before a child's `autoFocus` (which
+  // React applies in the commit, ahead of any effect here) moves focus.
+  const [opener] = useState(() => (typeof document === 'undefined' ? null : document.activeElement))
+
+  // Initial focus, then restore on close. Layout effect so focus moves before
+  // paint; children's autofocus and focus effects have already run.
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return
+    if (!frame.contains(document.activeElement)) {
+      const preferred = [...frame.querySelectorAll<HTMLElement>(AUTOFOCUS_SELECTOR)].find(isVisible)
+      const target = preferred ?? focusableWithin(frame)[0] ?? frame
+      target.focus({ preventScroll: true })
+    }
+    return () => {
+      // Only hand focus back when it is still ours to give: inside the
+      // dialog, or dropped on <body> because the dialog just unmounted.
+      const active = document.activeElement
+      const lost = !active || active === document.body || frame.contains(active)
+      if (lost && opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true })
+    }
+  }, [opener])
+
+  // Background inert while a modal dialog is open.
+  useEffect(() => {
+    const overlay = frameRef.current?.parentElement
+    if (!modal || !overlay) return
+    return inertSiblings(overlay)
+  }, [modal])
+
+  const onFrameKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    onKeyDown?.(e)
+    if (e.defaultPrevented || e.key !== 'Tab' || !modal) return
+    const frame = frameRef.current
+    if (!frame) return
+    const focusable = focusableWithin(frame)
+    if (focusable.length === 0) {
+      e.preventDefault()
+      frame.focus()
+      return
+    }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && (active === first || active === frame)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   // null = centred by the overlay; set once the user moves or resizes.
   const [rect, setRect] = useState<Rect | null>(null)
   const [size, setSize] = useState(() => (resizable ? readSize(id) : null))
@@ -149,10 +224,11 @@ const ModalFrame = forwardRef<HTMLDivElement, ModalFrameProps>(function ModalFra
     return { x: r.left, y: r.top, width: r.width, height: r.height }
   }, [])
 
-  // Keep a moved dialog on screen when the window shrinks.
+  // Keep a moved/resized dialog inside the window when it shrinks: the size
+  // shrinks to fit too, so the header and the far edges stay reachable.
   useEffect(() => {
     if (!rect) return
-    const onResize = () => setRect((r) => (r ? clampMove(r, viewport()) : r))
+    const onResize = () => setRect((r) => (r ? clampToViewport(r, viewport()) : r))
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [rect])
@@ -226,7 +302,8 @@ const ModalFrame = forwardRef<HTMLDivElement, ModalFrameProps>(function ModalFra
         aria-label={label}
         onPointerDown={onFramePointerDown}
         onDoubleClick={onFrameDoubleClick}
-        onKeyDown={onKeyDown}
+        onKeyDown={onFrameKeyDown}
+        tabIndex={-1}
         data-testid={testId}
         {...contentProps}
       >

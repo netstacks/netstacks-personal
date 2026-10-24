@@ -15,7 +15,9 @@ import { getClient, getCurrentMode } from '../api/client';
 import * as tasksApi from '../api/tasks';
 import { listAgentExecutions } from '../api/agentDefinitions';
 import { saveTaskResultToDoc } from '../lib/taskExport';
-import { useUserScopeStore } from '../lib/userScope';
+import { useUserScopeStore, userScopedKey } from '../lib/userScope';
+import { showToast } from '../components/Toast';
+import { getErrorMessage } from '../api/errors';
 import type {
   AgentTask,
   TaskStatus,
@@ -44,7 +46,8 @@ interface AgentTasksState {
   isConnected: boolean;
   /** Set of task IDs that have been auto-saved to Documents (prevents duplicates) */
   savedTaskIds: Set<string>;
-  /** Set of task IDs deleted locally (filtered out from poll results) */
+  /** Task IDs deleted (standalone) or removed from the list (enterprise),
+   *  filtered out of poll results. Enterprise ids persist per user. */
   deletedTaskIds: Set<string>;
   /** Feature A: per-task transcript steps, keyed by task id, seq-ordered. */
   transcripts: Record<string, TaskMessage[]>;
@@ -145,9 +148,11 @@ export interface UseAgentTasksReturn {
 
   /** Create a new task */
   createTask: (prompt: string, failurePolicy?: FailurePolicyConfig) => Promise<AgentTask>;
-  /** Cancel a running task via WebSocket */
+  /** Cancel a running task. Never rejects: a failure is shown as an error
+   *  toast and the task keeps its current (running) status. */
   cancelTask: (taskId: string) => Promise<void>;
-  /** Delete a task from history */
+  /** Standalone: delete a task from history. Enterprise: remove it from this
+   *  client's list only (the Controller keeps execution history). */
   deleteTask: (taskId: string) => Promise<void>;
   /** Add a task to the store (e.g. after running an agent) */
   addTask: (task: AgentTask) => void;
@@ -184,6 +189,64 @@ let moduleSubscriberCount = 0;
 let moduleShouldStay = false; // false = intentional disconnect, don't reconnect
 let modulePollInterval: ReturnType<typeof setInterval> | null = null;
 
+// ============================================================================
+// Enterprise "Remove from list" persistence
+// ============================================================================
+//
+// The Controller has no delete route for executions (they are kept for
+// audit), so in enterprise mode "removing" a task only hides it in this
+// client. The hidden ids are persisted per Controller + user so removed tasks
+// don't reappear on reload (audit 1.7).
+
+const HIDDEN_TASKS_KEY_BASE = 'netstacks.agentTasks.hidden';
+/** Keep the persisted list bounded; the oldest hidden ids drop off first. */
+const MAX_HIDDEN_TASK_IDS = 1000;
+/** Storage key the in-memory deletedTaskIds set was last loaded from. */
+let loadedHiddenKey: string | null | undefined;
+
+function hiddenTasksKey(): string | null {
+  if (!checkIsEnterprise()) return null;
+  return userScopedKey(HIDDEN_TASKS_KEY_BASE);
+}
+
+function readHiddenTaskIds(key: string | null): Set<string> {
+  if (!key) return new Set<string>();
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeHiddenTaskIds(key: string, ids: Set<string>): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(Array.from(ids).slice(-MAX_HIDDEN_TASK_IDS)));
+  } catch {
+    // Storage full / unavailable: the id stays hidden for this session only.
+  }
+}
+
+/** Load the signed-in enterprise user's hidden ids if the scope changed. */
+function syncHiddenTaskIds(): void {
+  if (!checkIsEnterprise()) return;
+  const key = hiddenTasksKey();
+  if (key === loadedHiddenKey) return;
+  loadedHiddenKey = key;
+  useAgentTasksStore.setState({ deletedTaskIds: readHiddenTaskIds(key) });
+}
+
+/** Enterprise: hide a task from the list and remember it for this user. */
+function hideTaskLocally(taskId: string): void {
+  syncHiddenTaskIds();
+  const store = useAgentTasksStore.getState();
+  store.addDeletedTaskId(taskId);
+  store.removeTask(taskId);
+  const key = hiddenTasksKey();
+  if (key) writeHiddenTaskIds(key, useAgentTasksStore.getState().deletedTaskIds);
+}
+
 // Enterprise: a change of user (or signing out) drops the previous user's
 // task list; the poller fills it again for whoever is signed in.
 useUserScopeStore.subscribe((state, prev) => {
@@ -191,6 +254,7 @@ useUserScopeStore.subscribe((state, prev) => {
   const store = useAgentTasksStore.getState();
   store.setTasks([]);
   store.setRunningCount(0);
+  syncHiddenTaskIds();
 });
 
 function moduleConnect(): void {
@@ -204,6 +268,7 @@ function moduleConnect(): void {
         if (!useUserScopeStore.getState().scope) return;
         try {
           const response = await listAgentExecutions({ limit: 50 });
+          syncHiddenTaskIds();
           const s = useAgentTasksStore.getState();
           s.setTasks(response.tasks);
           s.setRunningCount(response.running_count);
@@ -362,8 +427,12 @@ function moduleDisconnect(): void {
 export function sendTaskCancelCommand(taskId: string): boolean {
   if (moduleWs?.readyState === WebSocket.OPEN) {
     const cmd: TaskCancelCommand = { type: 'cancel', task_id: taskId };
-    moduleWs.send(JSON.stringify(cmd));
-    return true;
+    try {
+      moduleWs.send(JSON.stringify(cmd));
+      return true;
+    } catch (err) {
+      console.warn('[useAgentTasks] WebSocket cancel send failed, falling back to REST:', err);
+    }
   }
   return false;
 }
@@ -420,22 +489,28 @@ export function useAgentTasks(): UseAgentTasksReturn {
     return task;
   }, [addTask]);
 
-  // Cancel a task via WebSocket (standalone) or REST API (enterprise)
+  // Cancel a task: enterprise via the Controller's REST route; standalone via
+  // the singleton WebSocket for an immediate response (the handler broadcasts
+  // the status change), falling back to the agent's REST cancel route when
+  // the socket isn't open. Status updates arrive via WS / polling, so a
+  // failed cancel leaves the task marked running and tells the user.
   const cancelTask = useCallback(async (taskId: string): Promise<void> => {
-    if (checkIsEnterprise()) {
-      // Enterprise mode: use REST API
+    if (!checkIsEnterprise() && sendTaskCancelCommand(taskId)) return;
+    try {
       await tasksApi.cancelTask(taskId);
-      // Update will come via polling
-    } else {
-      // Standalone mode: send cancel command via the singleton WebSocket
-      // for immediate response. The handler will broadcast the status
-      // change, which updates the store via onmessage.
-      sendTaskCancelCommand(taskId);
+    } catch (err) {
+      console.error('[useAgentTasks] Failed to cancel task:', err);
+      showToast(`Couldn't cancel task: ${getErrorMessage(err)}`, 'error');
     }
   }, []);
 
-  // Delete a task (removes from history)
+  // Delete a task (standalone: removes from history; enterprise: hides it
+  // from this user's list, persisted — the Controller keeps the record).
   const deleteTask = useCallback(async (taskId: string): Promise<void> => {
+    if (checkIsEnterprise()) {
+      hideTaskLocally(taskId);
+      return;
+    }
     addDeletedTaskId(taskId);
     removeTask(taskId);
     await tasksApi.deleteTask(taskId).catch(() => {

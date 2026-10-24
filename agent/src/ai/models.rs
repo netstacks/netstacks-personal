@@ -212,11 +212,7 @@ pub async fn fetch_models(
                     Ok(parse_openai_style(&body))
                 }
                 "gemini" => {
-                    let mut url = format!("{base}/models");
-                    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-                        url = format!("{url}?key={key}");
-                    }
-                    let body = get_json(client.get(url), provider).await?;
+                    let body = get_json(gemini_models_request(&client, &base, api_key), provider).await?;
                     // Gemini uses `models[].name`; reuse the ollama shape which reads models[].name.
                     Ok(parse_ollama(&body))
                 }
@@ -227,6 +223,21 @@ pub async fn fetch_models(
         }
         other => Err(format!("Unsupported AI provider '{other}'.")),
     }
+}
+
+/// Gemini model listing. A static key goes in the `x-goog-api-key` header —
+/// the same transport chat requests use — rather than a `?key=` query
+/// parameter, which would also leak the key into proxy and access logs.
+fn gemini_models_request(
+    client: &reqwest::Client,
+    base: &str,
+    api_key: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let mut req = client.get(format!("{base}/models"));
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        req = req.header(super::providers::GEMINI_API_KEY_HEADER, key);
+    }
+    req
 }
 
 #[cfg(test)]
@@ -297,5 +308,20 @@ mod tests {
     async fn fetch_requires_key_for_anthropic() {
         let err = fetch_models("anthropic", None, None, true, None).await.unwrap_err();
         assert!(err.to_lowercase().contains("api key"), "got: {err}");
+    }
+
+    #[test]
+    fn gemini_listing_sends_key_in_header_not_query() {
+        let client = reqwest::Client::new();
+        let req = gemini_models_request(&client, "https://generativelanguage.googleapis.com/v1beta", Some("AIzaKEY"))
+            .build()
+            .unwrap();
+        assert_eq!(req.url().as_str(), "https://generativelanguage.googleapis.com/v1beta/models");
+        assert!(req.url().query().is_none());
+        assert_eq!(req.headers().get("x-goog-api-key").unwrap(), "AIzaKEY");
+        assert!(req.headers().get("authorization").is_none());
+
+        let anon = gemini_models_request(&client, "https://example.test", None).build().unwrap();
+        assert!(anon.headers().get("x-goog-api-key").is_none());
     }
 }

@@ -10,10 +10,20 @@
  */
 import AISidePanel from './AISidePanel';
 
+/** Close closes the popout window (Tauri window, else the browser window). */
+async function closePopoutWindow(): Promise<void> {
+  try {
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    await getCurrentWebviewWindow().close();
+  } catch {
+    window.close();
+  }
+}
+
 export default function PopoutAIChat() {
   return (
     <div style={{ height: '100vh', overflow: 'hidden' }}>
-      <AISidePanel variant="tab" isOpen onClose={() => {}} />
+      <AISidePanel variant="tab" isOpen onClose={() => { void closePopoutWindow(); }} />
     </div>
   );
 }

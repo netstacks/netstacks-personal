@@ -3,7 +3,8 @@
  * background tasks run as Auto Pilot and resolve tool permissions from
  * `ai.permissionMode.autopilot` + `ai.disabledTools.autopilot`
  * (agent/src/tasks/permissions.rs), and /ai/bash-execute applies
- * `ai.bash.deniedCommands`. The settings in localStorage stay the source of
+ * `ai.bash.deniedCommands`, and background tasks only record model reasoning
+ * when `ai.showThinking` is on (agent/src/tasks/react.rs). The settings in localStorage stay the source of
  * truth; the sidecar copy is written at startup and whenever one changes.
  * Standalone only — enterprise has no local sidecar.
  */
@@ -16,6 +17,7 @@ export const MIRRORED_AI_SETTINGS = [
   'ai.permissionMode.autopilot',
   'ai.disabledTools.autopilot',
   'ai.bash.deniedCommands',
+  'ai.showThinking',
 ] as const satisfies readonly (keyof AppSettings)[]
 
 export function startAiSettingsMirror(): void {

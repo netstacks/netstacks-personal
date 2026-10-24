@@ -7,6 +7,7 @@
 //! API communication. The ReAct loop handles iteration, tool execution, and
 //! conversation management while delegating HTTP calls to the provider layer.
 
+use std::future::Future;
 use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -19,9 +20,9 @@ use crate::ai::providers::{
 use crate::ai::sanitizer::{Sanitizer, SanitizingProvider};
 use crate::models::AgentDefinition;
 use crate::providers::DataProvider;
-use super::models::TaskStatus;
+use super::models::{FailurePolicy, TaskStatus};
 use super::progress::{ProgressBroadcaster, TaskProgressEvent};
-use super::tools::ToolRegistry;
+use super::tools::{ToolError, ToolOutput, ToolRegistry};
 use super::store::TaskStore;
 use super::models::CreateTaskMessageRequest;
 use tokio::sync::RwLock;
@@ -122,7 +123,7 @@ pub enum ReactError {
     #[error("Task cancelled")]
     Cancelled,
     #[error("Tool error: {0}")]
-    _ToolError(String),
+    ToolError(String),
     #[error("No API key configured")]
     _NoApiKey,
     #[error("No AI provider configured")]
@@ -252,6 +253,57 @@ async fn load_setting_string(provider: &Arc<dyn DataProvider>, key: &str) -> Opt
     }
 }
 
+/// Everything one ReAct run needs to know about its task (built by the executor).
+pub struct ReactTask<'a> {
+    pub task_id: &'a str,
+    pub prompt: &'a str,
+    pub store: &'a TaskStore,
+    pub registry: Arc<ToolRegistry>,
+    pub broadcaster: &'a ProgressBroadcaster,
+    pub cancel_token: CancellationToken,
+    pub data_provider: Arc<dyn DataProvider>,
+    pub approval_service: Arc<super::approvals::TaskApprovalService>,
+    pub config_mode: crate::ai::config_mode::ConfigModeHandle,
+    /// What a failing tool call does to the run (see [`FailurePolicy`]).
+    pub failure_policy: FailurePolicy,
+}
+
+/// Per-run loop settings resolved from the agent config and sidecar settings.
+struct LoopSettings {
+    system_prompt: String,
+    tools_json: Vec<Value>,
+    options: AgentChatOptions,
+    max_iterations: usize,
+    show_thinking: bool,
+}
+
+/// Run `fut` unless the task is cancelled first. Stop must not wait for a
+/// slow provider response or a long-running tool to finish on its own.
+async fn until_cancelled<F: Future>(
+    cancel_token: &CancellationToken,
+    fut: F,
+) -> Result<F::Output, ReactError> {
+    tokio::select! {
+        biased;
+        _ = cancel_token.cancelled() => Err(ReactError::Cancelled),
+        out = fut => Ok(out),
+    }
+}
+
+/// The failure text of a tool call, or None when it succeeded.
+fn tool_failure(result: &Result<ToolOutput, ToolError>) -> Option<String> {
+    match result {
+        Ok(output) if output.success => None,
+        Ok(output) => Some(
+            output
+                .error
+                .clone()
+                .unwrap_or_else(|| "tool reported failure".to_string()),
+        ),
+        Err(e) => Some(e.to_string()),
+    }
+}
+
 /// Execute ReAct loop for a task, optionally using an AgentDefinition for config overrides
 ///
 /// Every tool call is resolved against the user's permission settings
@@ -259,21 +311,16 @@ async fn load_setting_string(provider: &Arc<dyn DataProvider>, key: &str) -> Opt
 /// denied calls never run, and calls the resolver sends to the user park on
 /// `approval_service` (AUDIT FIX EXEC-017). The frontend polls for pending
 /// approvals scoped to this task_id and resolves them via REST.
-#[allow(clippy::too_many_arguments)]
 pub async fn execute_react_loop_with_agent(
-    task_id: &str,
-    prompt: &str,
-    store: &TaskStore,
-    registry: Arc<ToolRegistry>,
-    broadcaster: &ProgressBroadcaster,
-    cancel_token: CancellationToken,
-    data_provider: Arc<dyn DataProvider>,
+    task: &ReactTask<'_>,
     agent_definition: Option<AgentDefinition>,
     sanitizer_cache: Arc<RwLock<Option<Sanitizer>>>,
-    approval_service: Arc<super::approvals::TaskApprovalService>,
-    config_mode: crate::ai::config_mode::ConfigModeHandle,
     permit_guard: &mut super::PermitGuard,
 ) -> Result<Value, ReactError> {
+    let task_id = task.task_id;
+    let prompt = task.prompt;
+    let data_provider = &task.data_provider;
+    let registry = &task.registry;
     info!(task_id = %task_id, prompt_len = prompt.len(), "ReAct loop entry");
 
     // Load agent-specific configuration: use AgentDefinition overrides if provided, else global settings
@@ -287,7 +334,7 @@ pub async fn execute_react_loop_with_agent(
             system_prompt: def.system_prompt.clone(),
         }
     } else {
-        load_agent_config(&data_provider).await
+        load_agent_config(data_provider).await
     };
     info!(task_id = %task_id, "Agent config loaded: {:?}", agent_config);
 
@@ -340,6 +387,59 @@ pub async fn execute_react_loop_with_agent(
         max_tokens: Some(agent_config.max_tokens as u32),
     };
 
+    // Append the non-interactive operating guide so every agent (default or
+    // user-declared) understands how to reach the user + use its tools. Editable
+    // in Settings → Prompts; falls back to the built-in default.
+    let show_thinking = load_setting_bool(data_provider, "ai.showThinking", false).await;
+    let operating_guide = load_setting_string(data_provider, "ai.agent_operating_guide")
+        .await
+        .unwrap_or_else(|| DEFAULT_AGENT_OPERATING_GUIDE.to_string());
+    let system_prompt = if operating_guide.trim().is_empty() {
+        agent_config.system_prompt.clone()
+    } else {
+        format!("{}\n\n{}", agent_config.system_prompt, operating_guide)
+    };
+
+    let settings = LoopSettings {
+        system_prompt,
+        tools_json,
+        options,
+        max_iterations: agent_config.max_iterations,
+        show_thinking,
+    };
+    run_react_loop(task, ai_provider.as_ref(), &settings, permit_guard).await
+}
+
+/// The ReAct iterations themselves, against an already-built provider.
+async fn run_react_loop(
+    task: &ReactTask<'_>,
+    ai_provider: &dyn crate::ai::providers::AiProvider,
+    settings: &LoopSettings,
+    permit_guard: &mut super::PermitGuard,
+) -> Result<Value, ReactError> {
+    let ReactTask {
+        task_id,
+        prompt,
+        store,
+        broadcaster,
+        failure_policy,
+        ..
+    } = *task;
+    let registry = &task.registry;
+    let cancel_token = &task.cancel_token;
+    let data_provider = &task.data_provider;
+    let approval_service = &task.approval_service;
+    let config_mode = &task.config_mode;
+    let LoopSettings {
+        system_prompt,
+        tools_json,
+        options,
+        max_iterations,
+        show_thinking,
+    } = settings;
+    let max_iterations = *max_iterations;
+    let show_thinking = *show_thinking;
+
     // Initialize conversation with user prompt
     let mut messages: Vec<AgentMessage> = vec![AgentMessage {
         role: "user".to_string(),
@@ -348,20 +448,9 @@ pub async fn execute_react_loop_with_agent(
 
     let mut iteration = 0;
     let mut final_result: Option<String> = None;
-
-    let max_iterations = agent_config.max_iterations;
-    // Append the non-interactive operating guide so every agent (default or
-    // user-declared) understands how to reach the user + use its tools. Editable
-    // in Settings → Prompts; falls back to the built-in default.
-    let show_thinking = load_setting_bool(&data_provider, "ai.showThinking", false).await;
-    let operating_guide = load_setting_string(&data_provider, "ai.agent_operating_guide")
-        .await
-        .unwrap_or_else(|| DEFAULT_AGENT_OPERATING_GUIDE.to_string());
-    let system_prompt = if operating_guide.trim().is_empty() {
-        agent_config.system_prompt.clone()
-    } else {
-        format!("{}\n\n{}", agent_config.system_prompt, operating_guide)
-    };
+    // Set only by a clean `end_turn` — finishing on the last allowed
+    // iteration is still a success, not MaxIterationsReached.
+    let mut completed = false;
 
     while iteration < max_iterations {
         // Check for cancellation
@@ -386,16 +475,20 @@ pub async fn execute_react_loop_with_agent(
             "Calling AI API"
         );
 
-        // Call the shared provider infrastructure
-        let response = ai_provider
-            .agent_chat(
+        // Call the shared provider infrastructure (cancel-aware: Stop must
+        // not wait out a slow provider response).
+        let response = until_cancelled(
+            cancel_token,
+            ai_provider.agent_chat(
                 system_prompt.clone(),
                 messages.clone(),
                 Some(tools_json.clone()),
                 Some(options.clone()),
-            )
-            .await
-            .map_err(|e| ReactError::ApiError(e.to_string()))?;
+            ),
+        )
+        .await
+        .inspect_err(|_| warn!(task_id = %task_id, "ReAct loop cancelled during provider call"))?
+        .map_err(|e| ReactError::ApiError(e.to_string()))?;
 
         // Process response content
         let mut has_tool_use = false;
@@ -440,7 +533,7 @@ pub async fn execute_react_loop_with_agent(
                     // user to approve something we already rejected).
                     let decision = match validation {
                         ValidationOutcome::Allow => {
-                            let ctx = PermissionContext::load(&data_provider, &config_mode).await;
+                            let ctx = PermissionContext::load(data_provider, config_mode).await;
                             Some(resolve(&tool_name, &tool_input, &ctx))
                         }
                         ValidationOutcome::Block(_) => None,
@@ -463,10 +556,10 @@ pub async fn execute_react_loop_with_agent(
                                 format!("Approve tool: {} — {}", tool_name, reason),
                                 tool_name.clone(),
                                 tool_input.clone(),
-                                &cancel_token,
+                                cancel_token,
                             )
                             .await;
-                        if let Err(e) = permit_guard.reacquire(&cancel_token).await {
+                        if let Err(e) = permit_guard.reacquire(cancel_token).await {
                             return match e {
                                 super::ReacquireError::Cancelled => Err(ReactError::Cancelled),
                                 super::ReacquireError::SemaphoreClosed => {
@@ -542,9 +635,43 @@ pub async fn execute_react_loop_with_agent(
                         if parks {
                             permit_guard.release();
                         }
-                        let exec_result = tool.execute(tool_input, task_id).await;
+                        // failure_policy: `retry` re-runs a failing call up to
+                        // its retry budget; every attempt is cancel-aware so
+                        // Stop does not wait out a long-running tool.
+                        let attempts = failure_policy.attempts(parks);
+                        let mut attempt = 1;
+                        let exec_result = loop {
+                            let result = until_cancelled(
+                                cancel_token,
+                                tool.execute(tool_input.clone(), task_id),
+                            )
+                            .await
+                            .inspect_err(|_| {
+                                warn!(task_id = %task_id, tool = %tool_name, "ReAct loop cancelled during tool execution")
+                            })?;
+                            match tool_failure(&result) {
+                                Some(reason) if attempt < attempts => {
+                                    warn!(
+                                        task_id = %task_id,
+                                        tool = %tool_name,
+                                        attempt = attempt,
+                                        error = %reason,
+                                        "Tool failed; retrying per failure policy"
+                                    );
+                                    record_step(
+                                        store, broadcaster, task_id, iteration as i32,
+                                        "status", Some(tool_name.clone()),
+                                        format!("Attempt {}/{} failed ({}); retrying", attempt, attempts, reason),
+                                        progress,
+                                    )
+                                    .await;
+                                    attempt += 1;
+                                }
+                                _ => break result,
+                            }
+                        };
                         if parks {
-                            if let Err(e) = permit_guard.reacquire(&cancel_token).await {
+                            if let Err(e) = permit_guard.reacquire(cancel_token).await {
                                 return match e {
                                     super::ReacquireError::Cancelled => Err(ReactError::Cancelled),
                                     super::ReacquireError::SemaphoreClosed => {
@@ -553,7 +680,8 @@ pub async fn execute_react_loop_with_agent(
                                 };
                             }
                         }
-                        match exec_result {
+                        let failure = tool_failure(&exec_result);
+                        let result_str = match exec_result {
                             Ok(output) => {
                                 let result_str = serde_json::to_string_pretty(&output.output)
                                     .unwrap_or_else(|_| output.output.to_string());
@@ -597,7 +725,21 @@ pub async fn execute_react_loop_with_agent(
                                 .await;
                                 err_str
                             }
+                        };
+                        // failure_policy `stop` / exhausted `retry`: the
+                        // failure ends the task instead of going to the model.
+                        if let Some(reason) = failure.filter(|_| failure_policy.fails_task()) {
+                            let tries = if attempts > 1 {
+                                format!(" after {} attempts", attempts)
+                            } else {
+                                String::new()
+                            };
+                            return Err(ReactError::ToolError(format!(
+                                "'{}' failed{}: {}",
+                                tool_name, tries, reason
+                            )));
                         }
+                        result_str
                     } else {
                         warn!(
                             task_id = %task_id,
@@ -647,11 +789,12 @@ pub async fn execute_react_loop_with_agent(
                 iterations = iteration,
                 "ReAct loop completed"
             );
+            completed = true;
             break;
         }
     }
 
-    if iteration >= max_iterations {
+    if !completed {
         warn!(
             task_id = %task_id,
             "ReAct loop reached max iterations"
@@ -664,4 +807,296 @@ pub async fn execute_react_loop_with_agent(
         "iterations": iteration,
         "result": final_result.unwrap_or_else(|| "Task completed".to_string())
     }))
+}
+
+#[cfg(test)]
+mod loop_tests {
+    use super::*;
+    use crate::ai::providers::{AiError, AiProvider, AgentResponse, ChatMessage};
+    use crate::tasks::models::{CreateTaskRequest, FailurePolicyKind};
+    use crate::tasks::tools::Tool;
+    use async_trait::async_trait;
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    use tokio::sync::Semaphore;
+
+    /// Replays scripted responses; once the script runs out it never answers.
+    struct ScriptedProvider(Mutex<VecDeque<AgentResponse>>);
+
+    impl ScriptedProvider {
+        fn new(responses: Vec<AgentResponse>) -> Self {
+            Self(Mutex::new(responses.into()))
+        }
+    }
+
+    #[async_trait]
+    impl AiProvider for ScriptedProvider {
+        async fn chat_completion(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _context: Option<crate::ai::providers::AiContext>,
+        ) -> Result<String, AiError> {
+            Err(AiError::NotConfigured("test".into()))
+        }
+
+        async fn agent_chat(
+            &self,
+            _system_prompt: String,
+            _messages: Vec<AgentMessage>,
+            _tools: Option<Vec<Value>>,
+            _options: Option<AgentChatOptions>,
+        ) -> Result<AgentResponse, AiError> {
+            let next = self.0.lock().unwrap().pop_front();
+            match next {
+                Some(response) => Ok(response),
+                None => std::future::pending().await,
+            }
+        }
+
+        fn provider_name(&self) -> &str {
+            "scripted"
+        }
+    }
+
+    fn text_reply(text: &str) -> AgentResponse {
+        AgentResponse {
+            content: vec![AgentContentBlock::Text { text: text.into() }],
+            stop_reason: Some("end_turn".into()),
+            usage: None,
+        }
+    }
+
+    fn tool_call() -> AgentResponse {
+        AgentResponse {
+            content: vec![AgentContentBlock::ToolUse {
+                id: "call-1".into(),
+                name: "query_devices".into(),
+                input: json!({}),
+            }],
+            stop_reason: Some("tool_use".into()),
+            usage: None,
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum ToolBehaviour {
+        Fail,
+        FailOnce,
+        Hang,
+    }
+
+    /// Stand-in for a read-only tool (named `query_devices` so the
+    /// permission resolver allows it in the default Auto mode).
+    struct FakeTool {
+        behaviour: ToolBehaviour,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for FakeTool {
+        fn name(&self) -> &str {
+            "query_devices"
+        }
+        fn description(&self) -> &str {
+            "test tool"
+        }
+        fn input_schema(&self) -> Value {
+            json!({ "type": "object" })
+        }
+        async fn execute(&self, _input: Value, _task_id: &str) -> Result<ToolOutput, ToolError> {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            match self.behaviour {
+                ToolBehaviour::Fail => Err(ToolError::ExecutionFailed("boom".into())),
+                ToolBehaviour::FailOnce if n == 0 => Ok(ToolOutput::failure("flaky".into())),
+                ToolBehaviour::FailOnce => Ok(ToolOutput::success(json!({ "ok": true }))),
+                ToolBehaviour::Hang => std::future::pending().await,
+            }
+        }
+    }
+
+    struct Harness {
+        store: TaskStore,
+        task_id: String,
+        registry: Arc<ToolRegistry>,
+        data_provider: Arc<dyn DataProvider>,
+        broadcaster: ProgressBroadcaster,
+        calls: Arc<AtomicUsize>,
+        _dir: tempfile::TempDir,
+    }
+
+    async fn harness(behaviour: ToolBehaviour) -> Harness {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = crate::db::init_db(&dir.path().join("test.db")).await.unwrap();
+        let store = TaskStore::new(pool.clone());
+        let task_id = store
+            .create_task(CreateTaskRequest { prompt: "p".into(), failure_policy: None })
+            .await
+            .unwrap()
+            .id;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FakeTool { behaviour, calls: calls.clone() }));
+        Harness {
+            store,
+            task_id,
+            registry: Arc::new(registry),
+            data_provider: Arc::new(crate::providers::local::LocalDataProvider::new(pool)),
+            broadcaster: ProgressBroadcaster::new(64),
+            calls,
+            _dir: dir,
+        }
+    }
+
+    async fn run(
+        h: &Harness,
+        provider: &ScriptedProvider,
+        max_iterations: usize,
+        failure_policy: FailurePolicy,
+        cancel_token: CancellationToken,
+    ) -> Result<Value, ReactError> {
+        let task = ReactTask {
+            task_id: &h.task_id,
+            prompt: "p",
+            store: &h.store,
+            registry: h.registry.clone(),
+            broadcaster: &h.broadcaster,
+            cancel_token,
+            data_provider: h.data_provider.clone(),
+            approval_service: super::super::approvals::TaskApprovalService::new(h.store.clone()),
+            config_mode: Arc::new(RwLock::new(None)),
+            failure_policy,
+        };
+        let settings = LoopSettings {
+            system_prompt: "s".into(),
+            tools_json: vec![],
+            options: AgentChatOptions { temperature: None, max_tokens: None },
+            max_iterations,
+            show_thinking: false,
+        };
+        let semaphore = Arc::new(Semaphore::new(1));
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let mut guard = super::super::PermitGuard::new(semaphore, permit);
+        run_react_loop(&task, provider, &settings, &mut guard).await
+    }
+
+    fn policy(kind: FailurePolicyKind, retry_count: Option<u32>) -> FailurePolicy {
+        FailurePolicy { policy: kind, retry_count }
+    }
+
+    #[tokio::test]
+    async fn finishing_on_the_last_iteration_is_success() {
+        let h = harness(ToolBehaviour::FailOnce).await;
+        // Iteration 1 calls a tool, iteration 2 (the last allowed) ends the turn.
+        let provider = ScriptedProvider::new(vec![tool_call(), text_reply("done")]);
+        let out = run(&h, &provider, 2, FailurePolicy::default(), CancellationToken::new())
+            .await
+            .expect("end_turn on the final iteration must complete");
+        assert_eq!(out["result"], "done");
+        assert_eq!(out["iterations"], 2);
+    }
+
+    #[tokio::test]
+    async fn running_out_of_iterations_still_fails() {
+        let h = harness(ToolBehaviour::FailOnce).await;
+        let provider = ScriptedProvider::new(vec![tool_call(), tool_call()]);
+        let err = run(&h, &provider, 2, FailurePolicy::default(), CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ReactError::MaxIterationsReached(2)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn cancel_interrupts_a_pending_provider_call() {
+        let h = harness(ToolBehaviour::FailOnce).await;
+        let provider = ScriptedProvider::new(vec![]); // never answers
+        let token = CancellationToken::new();
+        let canceller = {
+            let token = token.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                token.cancel();
+            })
+        };
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            run(&h, &provider, 3, FailurePolicy::default(), token),
+        )
+        .await
+        .expect("cancel must not wait for the provider")
+        .unwrap_err();
+        canceller.await.unwrap();
+        assert!(matches!(err, ReactError::Cancelled), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn cancel_interrupts_a_running_tool() {
+        let h = harness(ToolBehaviour::Hang).await;
+        let provider = ScriptedProvider::new(vec![tool_call(), text_reply("unreached")]);
+        let token = CancellationToken::new();
+        // Cancel once the tool is actually running.
+        let canceller = {
+            let (token, calls) = (token.clone(), h.calls.clone());
+            tokio::spawn(async move {
+                while calls.load(Ordering::SeqCst) == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                token.cancel();
+            })
+        };
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            run(&h, &provider, 3, FailurePolicy::default(), token),
+        )
+        .await
+        .expect("cancel must not wait for the tool")
+        .unwrap_err();
+        canceller.await.unwrap();
+        assert!(matches!(err, ReactError::Cancelled), "{err:?}");
+        assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn continue_policy_hands_tool_failure_to_the_model() {
+        let h = harness(ToolBehaviour::Fail).await;
+        let provider = ScriptedProvider::new(vec![tool_call(), text_reply("recovered")]);
+        let out = run(&h, &provider, 3, policy(FailurePolicyKind::Continue, None), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(out["result"], "recovered");
+        assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn stop_policy_fails_the_task_on_first_tool_failure() {
+        let h = harness(ToolBehaviour::Fail).await;
+        let provider = ScriptedProvider::new(vec![tool_call(), text_reply("unreached")]);
+        let err = run(&h, &provider, 3, policy(FailurePolicyKind::Stop, None), CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ReactError::ToolError(ref m) if m.contains("boom")), "{err:?}");
+        assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retry_policy_reruns_until_success() {
+        let h = harness(ToolBehaviour::FailOnce).await;
+        let provider = ScriptedProvider::new(vec![tool_call(), text_reply("done")]);
+        let out = run(&h, &provider, 3, policy(FailurePolicyKind::Retry, Some(2)), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(out["result"], "done");
+        assert_eq!(h.calls.load(Ordering::SeqCst), 2, "one failure, one successful retry");
+    }
+
+    #[tokio::test]
+    async fn retry_policy_fails_the_task_when_retries_are_exhausted() {
+        let h = harness(ToolBehaviour::Fail).await;
+        let provider = ScriptedProvider::new(vec![tool_call(), text_reply("unreached")]);
+        let err = run(&h, &provider, 3, policy(FailurePolicyKind::Retry, Some(2)), CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ReactError::ToolError(ref m) if m.contains("after 3 attempts")), "{err:?}");
+        assert_eq!(h.calls.load(Ordering::SeqCst), 3);
+    }
 }

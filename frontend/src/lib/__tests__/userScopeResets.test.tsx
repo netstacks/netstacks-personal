@@ -15,7 +15,8 @@ vi.mock('../../api/quickPrompts', () => ({
 }))
 
 import { setUserScope, clearUserScope } from '../userScope'
-import { TokenUsageProvider, useTokenUsage } from '../../contexts/TokenUsageContext'
+import { TokenUsageProvider } from '../../contexts/TokenUsageContext'
+import { useTokenUsage } from '../../contexts/tokenUsageStore'
 import { useClipStore } from '../../stores/clipStore'
 import { useQuickPromptsStore } from '../../stores/quickPrompts'
 import { useCapabilitiesStore } from '../../stores/capabilitiesStore'

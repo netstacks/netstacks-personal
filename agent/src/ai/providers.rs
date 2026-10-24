@@ -289,6 +289,122 @@ fn build_model_stream_url(base_url: &str, model: &str, default_stream_action: &s
     }
 }
 
+/// Bare Claude model id: lowercased, without a router/vendor prefix
+/// (`anthropic/…`, `us.anthropic.…`), a Vertex `@version` or a `:action`
+/// suffix.
+fn bare_claude_model_id(model: &str) -> String {
+    let lower = model.trim().to_ascii_lowercase();
+    let after_slash = lower.rsplit('/').next().unwrap_or("");
+    let after_vendor = match after_slash.find("claude") {
+        Some(pos) => &after_slash[pos..],
+        None => after_slash,
+    };
+    after_vendor
+        .split([':', '@'])
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Whether an Anthropic model accepts `temperature` / `top_p`. Claude Opus
+/// 4.7 and later, every 5-series model, Fable and Mythos reject them with
+/// HTTP 400; Opus ≤ 4.6, Sonnet 4.x, Haiku 4.x and claude-3* accept them.
+/// Unknown names are treated as not accepting, since omitting the field is
+/// always safe.
+pub(crate) fn model_accepts_sampling_params(model: &str) -> bool {
+    let id = bare_claude_model_id(model);
+    if id.contains("fable") || id.contains("mythos") {
+        return false;
+    }
+    if id.starts_with("claude-3") {
+        return true;
+    }
+    let mut parts = id.split('-');
+    if parts.next() != Some("claude") {
+        return false;
+    }
+    let family = parts.next().unwrap_or("");
+    let Some(major) = parts.next().and_then(|p| p.parse::<u32>().ok()) else {
+        return false;
+    };
+    // A minor version is one or two digits; an 8-digit component is a date
+    // snapshot (`claude-opus-4-20250514` is Opus 4.0).
+    let minor = parts
+        .next()
+        .filter(|p| p.len() <= 2)
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    match (family, major) {
+        (_, m) if m >= 5 => false,
+        ("opus", 4) => minor < 7,
+        ("sonnet", 4) | ("haiku", 4) => true,
+        _ => false,
+    }
+}
+
+/// The caller's temperature, if the Anthropic `model` accepts one.
+fn anthropic_temperature(model: &str, options: &Option<AgentChatOptions>) -> Option<f64> {
+    options
+        .as_ref()
+        .and_then(|o| o.temperature)
+        .filter(|_| model_accepts_sampling_params(model))
+}
+
+/// OpenAI reasoning-family models (o1/o3/o4…, gpt-5*) take
+/// `max_completion_tokens` instead of `max_tokens` and reject a custom
+/// temperature.
+fn is_openai_reasoning_model(model: &str) -> bool {
+    let lower = model.trim().to_ascii_lowercase();
+    let id = lower.rsplit('/').next().unwrap_or("");
+    if id.starts_with("gpt-5") {
+        return true;
+    }
+    let mut chars = id.chars();
+    chars.next() == Some('o') && chars.next().is_some_and(|c| c.is_ascii_digit())
+}
+
+/// Token-limit and sampling fields of an OpenAI chat-completions request,
+/// shaped for `model`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OpenAiRequestShape {
+    max_tokens: Option<u32>,
+    max_completion_tokens: Option<u32>,
+    temperature: Option<f32>,
+}
+
+impl OpenAiRequestShape {
+    /// Classic shape (`max_tokens` + `temperature`) used by OpenAI-compatible
+    /// servers such as Ollama and LiteLLM.
+    fn classic(max_tokens: u32, temperature: f32) -> Self {
+        Self {
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
+            temperature: Some(temperature),
+        }
+    }
+
+    fn for_model(model: &str, max_tokens: u32, temperature: f32) -> Self {
+        if is_openai_reasoning_model(model) {
+            Self {
+                max_tokens: None,
+                max_completion_tokens: Some(max_tokens),
+                temperature: None,
+            }
+        } else {
+            Self::classic(max_tokens, temperature)
+        }
+    }
+}
+
+/// Header carrying a static Google (Gemini / AI Studio) API key. OAuth access
+/// tokens still go in `Authorization: Bearer`.
+pub(crate) const GEMINI_API_KEY_HEADER: &str = "x-goog-api-key";
+
+/// Error text for a stream that closed before its terminal event
+/// (`message_stop`, a Gemini `finishReason`, an OpenAI `finish_reason` or
+/// `[DONE]`). Reporting it beats showing a silently truncated answer.
+const STREAM_TRUNCATED_MESSAGE: &str = "Stream ended before the model finished";
+
 fn default_verify_ssl() -> bool {
     true
 }
@@ -568,6 +684,10 @@ struct VertexAnthropicAgentRequest {
     tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    /// Only set for models that accept sampling params — see
+    /// `model_accepts_sampling_params`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
 }
 
 /// Anthropic API request format with tools (for agent chat)
@@ -580,6 +700,10 @@ pub struct AnthropicAgentRequest {
     pub messages: Vec<AnthropicAgentMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<serde_json::Value>>,
+    /// Only set for models that accept sampling params — see
+    /// `model_accepts_sampling_params`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -656,7 +780,11 @@ pub struct AnthropicAgentResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicUsage {
+    /// Defaulted: a streaming `message_delta` may carry only `output_tokens`,
+    /// and a failed parse there would drop the event's `stop_reason`.
+    #[serde(default)]
     pub input_tokens: u32,
+    #[serde(default)]
     pub output_tokens: u32,
 }
 
@@ -688,6 +816,9 @@ enum AnthropicStreamEvent {
     MessageStop,
     #[serde(rename = "ping")]
     Ping,
+    /// Mid-stream failure (`overloaded_error`, `api_error`, …).
+    #[serde(rename = "error")]
+    Error { error: AnthropicError },
     #[serde(other)]
     Unknown,
 }
@@ -1033,6 +1164,7 @@ impl AiProvider for AnthropicProvider {
             system: Some(system_prompt),
             messages: anthropic_messages,
             tools,
+            temperature: anthropic_temperature(&self.model, &options),
         };
 
         let response = self
@@ -1174,6 +1306,11 @@ impl AiProvider for AnthropicProvider {
                 .unwrap()
                 .insert("system".to_string(), serde_json::json!(system_prompt));
         }
+        if let Some(t) = anthropic_temperature(&self.model, &options) {
+            body.as_object_mut()
+                .unwrap()
+                .insert("temperature".to_string(), serde_json::json!(t));
+        }
         if let Some(t) = tools {
             if !t.is_empty() {
                 body.as_object_mut()
@@ -1220,101 +1357,9 @@ impl AiProvider for AnthropicProvider {
             }
 
             use futures::StreamExt;
-
-            let mut byte_stream = response.bytes_stream();
-            let mut buffer = String::new();
-            let mut input_tokens: u32 = 0;
-            let mut output_tokens: u32 = 0;
-            let mut stop_reason: Option<String> = None;
-            let mut tool_use_indices = std::collections::HashSet::<usize>::new();
-
-            while let Some(chunk_result) = byte_stream.next().await {
-                let chunk = match chunk_result {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
-                        return;
-                    }
-                };
-
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                // Process complete lines from the buffer
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.is_empty() || line == "event: message_start" || line == "event: message_stop"
-                        || line == "event: message_delta" || line == "event: content_block_start"
-                        || line == "event: content_block_delta" || line == "event: content_block_stop"
-                        || line == "event: ping" || line.starts_with("event:")
-                    {
-                        continue;
-                    }
-
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        let event: AnthropicStreamEvent = match serde_json::from_str(data) {
-                            Ok(e) => e,
-                            Err(e) => {
-                                tracing::warn!("Failed to parse SSE event: {} — data: {}", e, data);
-                                continue;
-                            }
-                        };
-
-                        match event {
-                            AnthropicStreamEvent::MessageStart { message } => {
-                                if let Some(usage) = message.usage {
-                                    input_tokens = usage.input_tokens;
-                                }
-                            }
-                            AnthropicStreamEvent::ContentBlockStart { index, content_block } => {
-                                match content_block {
-                                    AnthropicStreamContentBlock::ToolUse { id, name } => {
-                                        tool_use_indices.insert(index);
-                                        yield Ok(StreamEvent::ToolUseStart { id, name });
-                                    }
-                                    AnthropicStreamContentBlock::Text { .. } => {
-                                        // Text block starts — content arrives via deltas
-                                    }
-                                }
-                            }
-                            AnthropicStreamEvent::ContentBlockDelta { delta, .. } => {
-                                match delta {
-                                    AnthropicStreamDelta::TextDelta { text } => {
-                                        yield Ok(StreamEvent::ContentDelta { text });
-                                    }
-                                    AnthropicStreamDelta::InputJsonDelta { partial_json } => {
-                                        yield Ok(StreamEvent::ToolInputDelta { delta: partial_json });
-                                    }
-                                }
-                            }
-                            AnthropicStreamEvent::ContentBlockStop { index } => {
-                                if tool_use_indices.remove(&index) {
-                                    yield Ok(StreamEvent::ToolUseEnd);
-                                }
-                            }
-                            AnthropicStreamEvent::MessageDelta { delta, usage } => {
-                                if let Some(reason) = delta.stop_reason {
-                                    stop_reason = Some(reason);
-                                }
-                                if let Some(u) = usage {
-                                    output_tokens = u.output_tokens;
-                                }
-                            }
-                            AnthropicStreamEvent::MessageStop => {
-                                yield Ok(StreamEvent::Done {
-                                    stop_reason: stop_reason.take(),
-                                    usage: Some(TokenUsage {
-                                        input_tokens,
-                                        output_tokens,
-                                        total_tokens: Some(input_tokens + output_tokens),
-                                    }),
-                                });
-                            }
-                            AnthropicStreamEvent::Ping | AnthropicStreamEvent::Unknown => {}
-                        }
-                    }
-                }
+            let mut events = parse_anthropic_sse_stream(response.bytes_stream(), "Anthropic");
+            while let Some(event) = events.next().await {
+                yield event;
             }
         })
     }
@@ -1448,7 +1493,13 @@ impl OpenAIProvider {
         mut request: reqwest::RequestBuilder,
         token: &str,
     ) -> reqwest::RequestBuilder {
-        request = request.header("Authorization", format!("Bearer {}", token));
+        request = if self.oauth2.is_none() && self.api_format == ApiFormat::Gemini {
+            // A static Gemini API key is not a bearer token: Google expects it
+            // in `x-goog-api-key` and rejects it as `Authorization: Bearer`.
+            request.header(GEMINI_API_KEY_HEADER, token)
+        } else {
+            request.header("Authorization", format!("Bearer {}", token))
+        };
         for (key, value) in &self.custom_headers {
             request = request.header(key.as_str(), value.as_str());
         }
@@ -1581,7 +1632,11 @@ struct GeminiError {
 struct OpenAIRequest {
     model: String,
     messages: Vec<OpenAIMessage>,
-    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    /// Replaces `max_tokens` for OpenAI reasoning models (o-series, gpt-5*).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
 }
@@ -1591,7 +1646,11 @@ struct OpenAIRequest {
 struct OpenAIAgentRequest {
     model: String,
     messages: Vec<OpenAIAgentMessage>,
-    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    /// Replaces `max_tokens` for OpenAI reasoning models (o-series, gpt-5*).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2369,6 +2428,7 @@ impl OpenAIProvider {
             messages: anthropic_messages,
             tools: tools.filter(|t| !t.is_empty()),
             stream: None,
+            temperature: anthropic_temperature(&self.model, &options),
         };
 
         let url = build_model_action_url(&self.base_url, &self.model, "rawPredict");
@@ -2454,6 +2514,7 @@ impl OpenAIProvider {
             messages: anthropic_messages,
             tools: tools.filter(|t| !t.is_empty()),
             stream: Some(true),
+            temperature: anthropic_temperature(&self.model, &options),
         };
 
         let url = build_model_stream_url(&self.base_url, &self.model, "streamRawPredict");
@@ -2468,104 +2529,10 @@ impl OpenAIProvider {
             };
 
             use futures::StreamExt;
-            let mut byte_stream = response.bytes_stream();
-            let mut buffer = String::new();
-            let mut input_tokens: u32 = 0;
-            let mut output_tokens: u32 = 0;
-            let mut stop_reason: Option<String> = None;
-            let mut tool_use_indices = std::collections::HashSet::<usize>::new();
-
-            while let Some(chunk_result) = byte_stream.next().await {
-                let chunk = match chunk_result {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
-                        return;
-                    }
-                };
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.is_empty() || line.starts_with("event:") || line == ":" {
-                        continue;
-                    }
-                    let Some(data) = line.strip_prefix("data: ") else { continue; };
-
-                    let event: AnthropicStreamEvent = match serde_json::from_str(data) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            tracing::warn!("Vertex Anthropic SSE parse error: {} — data: {}", e, data);
-                            continue;
-                        }
-                    };
-
-                    match event {
-                        AnthropicStreamEvent::MessageStart { message } => {
-                            if let Some(usage) = message.usage {
-                                input_tokens = usage.input_tokens;
-                            }
-                        }
-                        AnthropicStreamEvent::ContentBlockStart { index, content_block } => {
-                            match content_block {
-                                AnthropicStreamContentBlock::ToolUse { id, name } => {
-                                    tool_use_indices.insert(index);
-                                    yield Ok(StreamEvent::ToolUseStart { id, name });
-                                }
-                                AnthropicStreamContentBlock::Text { .. } => {}
-                            }
-                        }
-                        AnthropicStreamEvent::ContentBlockDelta { delta, .. } => {
-                            match delta {
-                                AnthropicStreamDelta::TextDelta { text } => {
-                                    yield Ok(StreamEvent::ContentDelta { text });
-                                }
-                                AnthropicStreamDelta::InputJsonDelta { partial_json } => {
-                                    yield Ok(StreamEvent::ToolInputDelta { delta: partial_json });
-                                }
-                            }
-                        }
-                        AnthropicStreamEvent::ContentBlockStop { index } => {
-                            if tool_use_indices.remove(&index) {
-                                yield Ok(StreamEvent::ToolUseEnd);
-                            }
-                        }
-                        AnthropicStreamEvent::MessageDelta { delta, usage } => {
-                            if let Some(reason) = delta.stop_reason {
-                                stop_reason = Some(reason);
-                            }
-                            if let Some(u) = usage {
-                                output_tokens = u.output_tokens;
-                            }
-                        }
-                        AnthropicStreamEvent::MessageStop => {
-                            yield Ok(StreamEvent::Done {
-                                stop_reason: stop_reason.clone(),
-                                usage: Some(TokenUsage {
-                                    input_tokens,
-                                    output_tokens,
-                                    total_tokens: Some(input_tokens + output_tokens),
-                                }),
-                            });
-                            return;
-                        }
-                        AnthropicStreamEvent::Ping | AnthropicStreamEvent::Unknown => {}
-                    }
-                }
+            let mut events = parse_anthropic_sse_stream(response.bytes_stream(), "Vertex Anthropic");
+            while let Some(event) = events.next().await {
+                yield event;
             }
-
-            // Stream ended without explicit message_stop — emit Done anyway so
-            // the client doesn't hang waiting.
-            yield Ok(StreamEvent::Done {
-                stop_reason,
-                usage: Some(TokenUsage {
-                    input_tokens,
-                    output_tokens,
-                    total_tokens: Some(input_tokens + output_tokens),
-                }),
-            });
         })
     }
 
@@ -2734,100 +2701,10 @@ impl OpenAIProvider {
             };
 
             use futures::StreamExt;
-            let mut byte_stream = response.bytes_stream();
-            let mut buffer = String::new();
-            let mut input_tokens: u32 = 0;
-            let mut output_tokens: u32 = 0;
-            let mut stop_reason: Option<String> = None;
-            let mut had_tool_use = false;
-
-            while let Some(chunk_result) = byte_stream.next().await {
-                let chunk = match chunk_result {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
-                        return;
-                    }
-                };
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.is_empty() || line.starts_with("event:") || line == ":" {
-                        continue;
-                    }
-                    let Some(data) = line.strip_prefix("data: ") else { continue; };
-
-                    let chunk_resp: GeminiResponse = match serde_json::from_str(data) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            tracing::warn!("Vertex Gemini SSE parse error: {} — data: {}", e, &data[..data.len().min(200)]);
-                            continue;
-                        }
-                    };
-
-                    if let Some(error) = chunk_resp.error {
-                        yield Err(AiError::RequestFailed(format!("Gemini error {}: {}", error.code, error.message)));
-                        return;
-                    }
-
-                    if let Some(usage) = chunk_resp.usage_metadata {
-                        input_tokens = usage.prompt_token_count;
-                        output_tokens = usage.candidates_token_count;
-                    }
-
-                    let candidate = match chunk_resp.candidates.and_then(|c| c.into_iter().next()) {
-                        Some(c) => c,
-                        None => continue,
-                    };
-
-                    if let Some(reason) = candidate.finish_reason.clone() {
-                        stop_reason = Some(reason);
-                    }
-
-                    let parts = match candidate.content.and_then(|c| c.parts) {
-                        Some(p) => p,
-                        None => continue,
-                    };
-
-                    for part in parts {
-                        if let Some(text) = part.text {
-                            if !text.is_empty() {
-                                yield Ok(StreamEvent::ContentDelta { text });
-                            }
-                        }
-                        if let Some(fc) = part.function_call {
-                            had_tool_use = true;
-                            let id = format!("call_{}", uuid::Uuid::new_v4());
-                            yield Ok(StreamEvent::ToolUseStart { id, name: fc.name });
-                            yield Ok(StreamEvent::ToolInputDelta {
-                                delta: serde_json::to_string(&fc.args).unwrap_or_else(|_| "{}".to_string()),
-                            });
-                            yield Ok(StreamEvent::ToolUseEnd);
-                        }
-                    }
-                }
+            let mut events = parse_gemini_sse_stream(response.bytes_stream());
+            while let Some(event) = events.next().await {
+                yield event;
             }
-
-            // Map Gemini's finish_reason to our generic stop_reason vocabulary
-            // (matches non-streaming gemini_agent_chat for consistency).
-            let mapped_reason = stop_reason.map(|r| match r.as_str() {
-                "STOP" if had_tool_use => "tool_use".to_string(),
-                "STOP" => "end_turn".to_string(),
-                "MAX_TOKENS" => "max_tokens".to_string(),
-                _ => r,
-            });
-
-            yield Ok(StreamEvent::Done {
-                stop_reason: mapped_reason,
-                usage: Some(TokenUsage {
-                    input_tokens,
-                    output_tokens,
-                    total_tokens: Some(input_tokens + output_tokens),
-                }),
-            });
         })
     }
 
@@ -2848,11 +2725,13 @@ impl OpenAIProvider {
             .map(|t| t as f32)
             .unwrap_or(0.7);
 
+        let shape = OpenAiRequestShape::for_model(&self.model, max_tokens, temperature);
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
             messages: agent_messages_to_openai_compat(system_prompt, messages),
-            max_tokens,
-            temperature: Some(temperature),
+            max_tokens: shape.max_tokens,
+            max_completion_tokens: shape.max_completion_tokens,
+            temperature: shape.temperature,
             tools: anthropic_tools_to_openai(tools),
             stream: Some(true),
             stream_options: Some(OpenAIStreamOptions {
@@ -2870,7 +2749,7 @@ impl OpenAIProvider {
                     return;
                 }
             };
-            let mut inner = parse_openai_compatible_stream(response);
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
             use futures::StreamExt;
             while let Some(event) = inner.next().await {
                 yield event;
@@ -3026,6 +2905,235 @@ fn anthropic_tools_to_openai(tools: Option<Vec<serde_json::Value>>) -> Option<Ve
     })
 }
 
+/// Generic event stream returned by the SSE parsers below.
+type ProviderEventStream = Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send>>;
+
+/// Split complete lines off the front of `buffer`, leaving any partial line.
+fn drain_lines(buffer: &mut String) -> Vec<String> {
+    let mut lines = Vec::new();
+    while let Some(newline_pos) = buffer.find('\n') {
+        lines.push(buffer[..newline_pos].trim().to_string());
+        buffer.drain(..=newline_pos);
+    }
+    lines
+}
+
+/// Parse an Anthropic Messages SSE stream (native API or Vertex
+/// `:streamRawPredict`) into `StreamEvent`s. `Done` is emitted only for
+/// `message_stop`; a stream that closes before it yields a truncation error.
+fn parse_anthropic_sse_stream<S, B, E>(byte_stream: S, label: &'static str) -> ProviderEventStream
+where
+    S: futures::Stream<Item = Result<B, E>> + Send + 'static,
+    B: AsRef<[u8]> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    Box::pin(async_stream::stream! {
+        use futures::StreamExt;
+        let mut byte_stream = Box::pin(byte_stream);
+        let mut buffer = String::new();
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
+        let mut stop_reason: Option<String> = None;
+        let mut tool_use_indices = std::collections::HashSet::<usize>::new();
+
+        while let Some(chunk_result) = byte_stream.next().await {
+            let chunk = match chunk_result {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
+                    return;
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(chunk.as_ref()));
+
+            for line in drain_lines(&mut buffer) {
+                if line.is_empty() || line.starts_with("event:") || line.starts_with(':') {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data:").map(str::trim_start) else { continue; };
+
+                let event: AnthropicStreamEvent = match serde_json::from_str(data) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("{} SSE parse error: {} — data: {}", label, e, data);
+                        continue;
+                    }
+                };
+
+                match event {
+                    AnthropicStreamEvent::MessageStart { message } => {
+                        if let Some(usage) = message.usage {
+                            input_tokens = usage.input_tokens;
+                        }
+                    }
+                    AnthropicStreamEvent::ContentBlockStart { index, content_block } => {
+                        match content_block {
+                            AnthropicStreamContentBlock::ToolUse { id, name } => {
+                                tool_use_indices.insert(index);
+                                yield Ok(StreamEvent::ToolUseStart { id, name });
+                            }
+                            // Text arrives via deltas.
+                            AnthropicStreamContentBlock::Text { .. } => {}
+                        }
+                    }
+                    AnthropicStreamEvent::ContentBlockDelta { delta, .. } => {
+                        match delta {
+                            AnthropicStreamDelta::TextDelta { text } => {
+                                yield Ok(StreamEvent::ContentDelta { text });
+                            }
+                            AnthropicStreamDelta::InputJsonDelta { partial_json } => {
+                                yield Ok(StreamEvent::ToolInputDelta { delta: partial_json });
+                            }
+                        }
+                    }
+                    AnthropicStreamEvent::ContentBlockStop { index } => {
+                        if tool_use_indices.remove(&index) {
+                            yield Ok(StreamEvent::ToolUseEnd);
+                        }
+                    }
+                    AnthropicStreamEvent::MessageDelta { delta, usage } => {
+                        if let Some(reason) = delta.stop_reason {
+                            stop_reason = Some(reason);
+                        }
+                        if let Some(u) = usage {
+                            output_tokens = u.output_tokens;
+                        }
+                    }
+                    AnthropicStreamEvent::MessageStop => {
+                        yield Ok(StreamEvent::Done {
+                            stop_reason: stop_reason.take(),
+                            usage: Some(TokenUsage {
+                                input_tokens,
+                                output_tokens,
+                                total_tokens: Some(input_tokens + output_tokens),
+                            }),
+                        });
+                        return;
+                    }
+                    AnthropicStreamEvent::Error { error } => {
+                        yield Err(AiError::RequestFailed(format!(
+                            "{}: {}",
+                            error.error_type, error.message
+                        )));
+                        return;
+                    }
+                    AnthropicStreamEvent::Ping | AnthropicStreamEvent::Unknown => {}
+                }
+            }
+        }
+
+        // EOF without message_stop: the answer is incomplete.
+        yield Err(AiError::InvalidResponse(STREAM_TRUNCATED_MESSAGE.to_string()));
+    })
+}
+
+/// Parse a Gemini `streamGenerateContent?alt=sse` stream into `StreamEvent`s.
+/// Each `data:` line is a whole `GenerateContentResponse` delta; function
+/// calls arrive complete, so the ToolUseStart/InputDelta/End triple is
+/// synthesised. `Done` requires a candidate `finishReason`; a stream that
+/// closes without one yields a truncation error.
+fn parse_gemini_sse_stream<S, B, E>(byte_stream: S) -> ProviderEventStream
+where
+    S: futures::Stream<Item = Result<B, E>> + Send + 'static,
+    B: AsRef<[u8]> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    Box::pin(async_stream::stream! {
+        use futures::StreamExt;
+        let mut byte_stream = Box::pin(byte_stream);
+        let mut buffer = String::new();
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
+        let mut stop_reason: Option<String> = None;
+        let mut had_tool_use = false;
+
+        while let Some(chunk_result) = byte_stream.next().await {
+            let chunk = match chunk_result {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
+                    return;
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(chunk.as_ref()));
+
+            for line in drain_lines(&mut buffer) {
+                if line.is_empty() || line.starts_with("event:") || line.starts_with(':') {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data:").map(str::trim_start) else { continue; };
+
+                let chunk_resp: GeminiResponse = match serde_json::from_str(data) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Vertex Gemini SSE parse error: {} — data: {}", e, &data[..data.len().min(200)]);
+                        continue;
+                    }
+                };
+
+                if let Some(error) = chunk_resp.error {
+                    yield Err(AiError::RequestFailed(format!("Gemini error {}: {}", error.code, error.message)));
+                    return;
+                }
+
+                if let Some(usage) = chunk_resp.usage_metadata {
+                    input_tokens = usage.prompt_token_count;
+                    output_tokens = usage.candidates_token_count;
+                }
+
+                let Some(candidate) = chunk_resp.candidates.and_then(|c| c.into_iter().next()) else { continue; };
+
+                if let Some(reason) = candidate.finish_reason.clone() {
+                    stop_reason = Some(reason);
+                }
+
+                let Some(parts) = candidate.content.and_then(|c| c.parts) else { continue; };
+
+                for part in parts {
+                    if let Some(text) = part.text {
+                        if !text.is_empty() {
+                            yield Ok(StreamEvent::ContentDelta { text });
+                        }
+                    }
+                    if let Some(fc) = part.function_call {
+                        had_tool_use = true;
+                        let id = format!("call_{}", uuid::Uuid::new_v4());
+                        yield Ok(StreamEvent::ToolUseStart { id, name: fc.name });
+                        yield Ok(StreamEvent::ToolInputDelta {
+                            delta: serde_json::to_string(&fc.args).unwrap_or_else(|_| "{}".to_string()),
+                        });
+                        yield Ok(StreamEvent::ToolUseEnd);
+                    }
+                }
+            }
+        }
+
+        // EOF without a finishReason: the answer is incomplete.
+        let Some(reason) = stop_reason else {
+            yield Err(AiError::InvalidResponse(STREAM_TRUNCATED_MESSAGE.to_string()));
+            return;
+        };
+
+        // Map Gemini's finish_reason to our generic stop_reason vocabulary
+        // (matches non-streaming gemini_agent_chat for consistency).
+        let mapped_reason = match reason.as_str() {
+            "STOP" if had_tool_use => "tool_use".to_string(),
+            "STOP" => "end_turn".to_string(),
+            "MAX_TOKENS" => "max_tokens".to_string(),
+            _ => reason,
+        };
+
+        yield Ok(StreamEvent::Done {
+            stop_reason: Some(mapped_reason),
+            usage: Some(TokenUsage {
+                input_tokens,
+                output_tokens,
+                total_tokens: Some(input_tokens + output_tokens),
+            }),
+        });
+    })
+}
+
 /// Parse an OpenAI-compatible SSE chat-completions stream into our generic
 /// `StreamEvent` enum. Used by every provider that speaks OpenAI's chat
 /// completions wire format (OpenAI, Ollama in OpenAI-compat mode, OpenRouter,
@@ -3059,12 +3167,15 @@ fn non_sse_stream_error(body: &str) -> AiError {
     }
 }
 
-fn parse_openai_compatible_stream(
-    response: reqwest::Response,
-) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send>> {
+fn parse_openai_compatible_stream<S, B, E>(byte_stream: S) -> ProviderEventStream
+where
+    S: futures::Stream<Item = Result<B, E>> + Send + 'static,
+    B: AsRef<[u8]> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
     Box::pin(async_stream::stream! {
         use futures::StreamExt;
-        let mut byte_stream = response.bytes_stream();
+        let mut byte_stream = Box::pin(byte_stream);
         let mut buffer = String::new();
         let mut input_tokens: u32 = 0;
         let mut output_tokens: u32 = 0;
@@ -3108,7 +3219,7 @@ fn parse_openai_compatible_stream(
                     return;
                 }
             };
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            buffer.push_str(&String::from_utf8_lossy(chunk.as_ref()));
 
             while let Some(newline_pos) = buffer.find('\n') {
                 let line = buffer[..newline_pos].trim().to_string();
@@ -3236,6 +3347,12 @@ fn parse_openai_compatible_stream(
             yield Err(non_sse_stream_error(&non_sse_body));
             return;
         }
+        // Neither `[DONE]` nor a `finish_reason`: the connection dropped
+        // mid-answer. Done here would present the partial text as complete.
+        if stop_reason.is_none() {
+            yield Err(AiError::InvalidResponse(STREAM_TRUNCATED_MESSAGE.to_string()));
+            return;
+        }
         if active_tool_index.take().is_some() {
             yield Ok(StreamEvent::ToolUseEnd);
         }
@@ -3285,11 +3402,13 @@ impl AiProvider for OpenAIProvider {
             }
         }
 
+        let shape = OpenAiRequestShape::for_model(&self.model, 4096, 0.7);
         let request = OpenAIRequest {
             model: self.model.clone(),
             messages: openai_messages,
-            max_tokens: 4096,
-            temperature: Some(0.7),
+            max_tokens: shape.max_tokens,
+            max_completion_tokens: shape.max_completion_tokens,
+            temperature: shape.temperature,
         };
 
         let url = format!("{}/chat/completions", self.base_url);
@@ -3437,11 +3556,13 @@ impl AiProvider for OpenAIProvider {
             .map(|t| t as f32)
             .unwrap_or(0.7);
 
+        let shape = OpenAiRequestShape::for_model(&self.model, max_tokens, temperature);
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
             messages: openai_messages,
-            max_tokens,
-            temperature: Some(temperature),
+            max_tokens: shape.max_tokens,
+            max_completion_tokens: shape.max_completion_tokens,
+            temperature: shape.temperature,
             tools: openai_tools,
             stream: None,
             stream_options: None,
@@ -3601,7 +3722,8 @@ impl AiProvider for OllamaProvider {
         let request = OpenAIRequest {
             model: self.model.clone(),
             messages: openai_messages,
-            max_tokens: 4096,
+            max_tokens: Some(4096),
+            max_completion_tokens: None,
             temperature: Some(0.7),
         };
 
@@ -3710,7 +3832,8 @@ impl AiProvider for OllamaProvider {
             let request = OpenAIAgentRequest {
                 model: model.clone(),
                 messages: openai_messages.clone(),
-                max_tokens,
+                max_tokens: Some(max_tokens),
+                max_completion_tokens: None,
                 temperature: Some(temperature),
                 tools: openai_tools.clone(),
                 stream: Some(true),
@@ -3744,7 +3867,8 @@ impl AiProvider for OllamaProvider {
                     let retry = OpenAIAgentRequest {
                         model,
                         messages: openai_messages,
-                        max_tokens,
+                        max_tokens: Some(max_tokens),
+                        max_completion_tokens: None,
                         temperature: Some(temperature),
                         tools: None,
                         stream: Some(true),
@@ -3769,7 +3893,7 @@ impl AiProvider for OllamaProvider {
                 }
             }
 
-            let mut inner = parse_openai_compatible_stream(response);
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
             use futures::StreamExt;
             while let Some(event) = inner.next().await {
                 yield event;
@@ -3892,7 +4016,8 @@ impl OllamaProvider {
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
             messages: openai_messages,
-            max_tokens,
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
             temperature: Some(temperature),
             tools: openai_tools,
             stream: None,
@@ -4459,7 +4584,7 @@ impl AiProvider for OpenRouterProvider {
                 return;
             }
 
-            let mut inner = parse_openai_compatible_stream(response);
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
             use futures::StreamExt;
             while let Some(event) = inner.next().await {
                 yield event;
@@ -4532,7 +4657,8 @@ impl AiProvider for LiteLLMProvider {
         let request = OpenAIRequest {
             model: self.model.clone(),
             messages: openai_messages,
-            max_tokens: 4096,
+            max_tokens: Some(4096),
+            max_completion_tokens: None,
             temperature: Some(0.7),
         };
 
@@ -4702,7 +4828,8 @@ impl AiProvider for LiteLLMProvider {
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
             messages: openai_messages,
-            max_tokens,
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
             temperature: Some(temperature),
             tools: openai_tools,
             stream: None,
@@ -4821,7 +4948,8 @@ impl AiProvider for LiteLLMProvider {
         let request = OpenAIAgentRequest {
             model: self.model.clone(),
             messages: agent_messages_to_openai_compat(system_prompt, messages),
-            max_tokens,
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
             temperature: Some(temperature),
             tools: anthropic_tools_to_openai(tools),
             stream: Some(true),
@@ -4868,7 +4996,7 @@ impl AiProvider for LiteLLMProvider {
                 return;
             }
 
-            let mut inner = parse_openai_compatible_stream(response);
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
             use futures::StreamExt;
             while let Some(event) = inner.next().await {
                 yield event;
@@ -5318,5 +5446,254 @@ mod tests {
             build_model_stream_url("https://x/models/", "m:rawPredict", "streamRawPredict"),
             "https://x/models/m:streamRawPredict"
         );
+    }
+
+    // ---- Audit 3.1: model-gated Anthropic temperature ----
+
+    #[test]
+    fn sampling_params_gated_by_model() {
+        for model in [
+            "claude-opus-4-6",
+            "claude-opus-4-1-20250805",
+            "claude-opus-4-20250514",
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-5@20250929",
+            "claude-haiku-4-5",
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-latest",
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "anthropic/claude-opus-4-6",
+        ] {
+            assert!(model_accepts_sampling_params(model), "{model} should accept temperature");
+        }
+        for model in [
+            "claude-opus-4-7",
+            "claude-opus-5",
+            "claude-opus-5-1",
+            "claude-sonnet-5",
+            "claude-fable-1",
+            "claude-mythos-preview",
+            "anthropic/claude-opus-5@20260101",
+            "not-a-claude-model",
+        ] {
+            assert!(!model_accepts_sampling_params(model), "{model} must not get temperature");
+        }
+    }
+
+    fn temp_options(t: f64) -> Option<AgentChatOptions> {
+        Some(AgentChatOptions {
+            temperature: Some(t),
+            max_tokens: None,
+        })
+    }
+
+    #[test]
+    fn anthropic_request_includes_temperature_only_for_accepting_models() {
+        let body = |model: &str, options: Option<AgentChatOptions>| {
+            serde_json::to_value(AnthropicAgentRequest {
+                model: model.into(),
+                max_tokens: 1024,
+                system: None,
+                messages: Vec::new(),
+                tools: None,
+                temperature: anthropic_temperature(model, &options),
+            })
+            .unwrap()
+        };
+        assert_eq!(body("claude-sonnet-4-6", temp_options(0.2))["temperature"], 0.2);
+        assert!(body("claude-opus-5", temp_options(0.2)).get("temperature").is_none());
+        assert!(body("claude-sonnet-4-6", None).get("temperature").is_none());
+
+        let vertex = |model: &str| {
+            serde_json::to_value(VertexAnthropicAgentRequest {
+                anthropic_version: "vertex-2023-10-16".into(),
+                max_tokens: 1024,
+                system: None,
+                messages: Vec::new(),
+                tools: None,
+                stream: None,
+                temperature: anthropic_temperature(model, &temp_options(0.3)),
+            })
+            .unwrap()
+        };
+        assert_eq!(vertex("claude-haiku-4-5@20251001")["temperature"], 0.3);
+        assert!(vertex("claude-opus-4-7@20260101").get("temperature").is_none());
+    }
+
+    // ---- Audit 3.2: Gemini static keys are not bearer tokens ----
+
+    #[test]
+    fn gemini_static_key_uses_goog_api_key_header() {
+        let client = reqwest::Client::new();
+        let build = |p: &OpenAIProvider| {
+            p.apply_headers(client.post("https://example.test/m:generateContent"), "KEY123")
+                .build()
+                .unwrap()
+        };
+
+        let gemini = OpenAIProvider::with_format(
+            "KEY123".into(),
+            "gemini-2.5-pro".into(),
+            "https://example.test".into(),
+            ApiFormat::Gemini,
+            true,
+        )
+        .unwrap();
+        let req = build(&gemini);
+        assert_eq!(req.headers().get(GEMINI_API_KEY_HEADER).unwrap(), "KEY123");
+        assert!(req.headers().get("authorization").is_none());
+
+        let openai = OpenAIProvider::new("KEY123".into(), None, None, true).unwrap();
+        let req = build(&openai);
+        assert_eq!(req.headers().get("authorization").unwrap(), "Bearer KEY123");
+        assert!(req.headers().get(GEMINI_API_KEY_HEADER).is_none());
+
+        let oauth = OpenAIProvider::with_oauth2(
+            "gemini-2.5-pro".into(),
+            "https://example.test".into(),
+            super::super::oauth2::OAuth2Config {
+                token_url: "https://example.test/token".into(),
+                client_id: "gemini-header-test".into(),
+                client_secret: "s".into(),
+                custom_headers: std::collections::HashMap::new(),
+                verify_ssl: true,
+            },
+            ApiFormat::Gemini,
+            true,
+        )
+        .unwrap();
+        let req = build(&oauth);
+        assert_eq!(req.headers().get("authorization").unwrap(), "Bearer KEY123");
+        assert!(req.headers().get(GEMINI_API_KEY_HEADER).is_none());
+    }
+
+    // ---- Audit 3.3: OpenAI reasoning models ----
+
+    #[test]
+    fn openai_reasoning_models_use_max_completion_tokens_without_temperature() {
+        let body = |model: &str| {
+            let shape = OpenAiRequestShape::for_model(model, 4096, 0.7);
+            serde_json::to_value(OpenAIRequest {
+                model: model.into(),
+                messages: Vec::new(),
+                max_tokens: shape.max_tokens,
+                max_completion_tokens: shape.max_completion_tokens,
+                temperature: shape.temperature,
+            })
+            .unwrap()
+        };
+        for model in ["o1", "o3-mini", "o4-mini", "gpt-5", "gpt-5-mini", "openai/gpt-5.1"] {
+            let b = body(model);
+            assert_eq!(b["max_completion_tokens"], 4096, "{model}");
+            assert!(b.get("max_tokens").is_none(), "{model}");
+            assert!(b.get("temperature").is_none(), "{model}");
+        }
+        for model in ["gpt-4o", "gpt-4.1-mini", "llama3", "omni-local"] {
+            let b = body(model);
+            assert_eq!(b["max_tokens"], 4096, "{model}");
+            assert!(b.get("max_completion_tokens").is_none(), "{model}");
+            assert!((b["temperature"].as_f64().unwrap() - 0.7).abs() < 1e-6, "{model}");
+        }
+    }
+
+    // ---- Audit 2: truncated streams surface an error ----
+
+    fn fixture_stream(
+        body: &str,
+    ) -> impl futures::Stream<Item = Result<Vec<u8>, std::convert::Infallible>> + Send + 'static {
+        // Split mid-line to exercise buffering across chunks.
+        let bytes = body.as_bytes().to_vec();
+        let mid = bytes.len() / 2;
+        futures::stream::iter(vec![Ok(bytes[..mid].to_vec()), Ok(bytes[mid..].to_vec())])
+    }
+
+    async fn collect_events(stream: ProviderEventStream) -> Vec<Result<StreamEvent, AiError>> {
+        use futures::StreamExt;
+        stream.collect().await
+    }
+
+    fn assert_done(events: &[Result<StreamEvent, AiError>], text: &str, reason: &str) {
+        let content: String = events
+            .iter()
+            .filter_map(|e| match e {
+                Ok(StreamEvent::ContentDelta { text }) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(content, text);
+        match events.last() {
+            Some(Ok(StreamEvent::Done { stop_reason, .. })) => {
+                assert_eq!(stop_reason.as_deref(), Some(reason))
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+        assert!(events.iter().all(|e| e.is_ok()), "{events:?}");
+    }
+
+    fn assert_truncated(events: &[Result<StreamEvent, AiError>]) {
+        assert!(
+            events.iter().any(|e| matches!(e, Ok(StreamEvent::ContentDelta { .. }))),
+            "partial text should still stream: {events:?}"
+        );
+        assert!(!events.iter().any(|e| matches!(e, Ok(StreamEvent::Done { .. }))), "{events:?}");
+        match events.last() {
+            Some(Err(e)) => assert!(e.to_string().contains("Stream ended before the model finished"), "{e}"),
+            other => panic!("expected truncation error, got {other:?}"),
+        }
+    }
+
+    const ANTHROPIC_PARTIAL: &str = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+    );
+
+    #[tokio::test]
+    async fn anthropic_stream_complete_and_truncated() {
+        let complete = format!(
+            "{ANTHROPIC_PARTIAL}{}",
+            concat!(
+                "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+                "data: {\"type\":\"message_stop\"}\n\n",
+            )
+        );
+        for label in ["Anthropic", "Vertex Anthropic"] {
+            let events = collect_events(parse_anthropic_sse_stream(fixture_stream(&complete), label)).await;
+            assert_done(&events, "Hello", "end_turn");
+            let events = collect_events(parse_anthropic_sse_stream(fixture_stream(ANTHROPIC_PARTIAL), label)).await;
+            assert_truncated(&events);
+        }
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_complete_and_truncated() {
+        let partial = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hel\"}]}}]}\n\n";
+        let complete = format!(
+            "{partial}data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"lo\"}}]}},\"finishReason\":\"STOP\"}}],\"usageMetadata\":{{\"promptTokenCount\":3,\"candidatesTokenCount\":2}}}}\n\n"
+        );
+        let events = collect_events(parse_gemini_sse_stream(fixture_stream(&complete))).await;
+        assert_done(&events, "Hello", "end_turn");
+        let events = collect_events(parse_gemini_sse_stream(fixture_stream(partial))).await;
+        assert_truncated(&events);
+    }
+
+    #[tokio::test]
+    async fn openai_stream_complete_and_truncated() {
+        let partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"}}]}\n\n";
+        let complete = format!(
+            "{partial}data: {{\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n"
+        );
+        let events = collect_events(parse_openai_compatible_stream(fixture_stream(&complete))).await;
+        assert_done(&events, "Hello", "end_turn");
+        // finish_reason without [DONE] (Apigee-style proxies) still completes.
+        let no_done = complete.replace("data: [DONE]\n\n", "");
+        let events = collect_events(parse_openai_compatible_stream(fixture_stream(&no_done))).await;
+        assert_done(&events, "Hello", "end_turn");
+        let events = collect_events(parse_openai_compatible_stream(fixture_stream(partial))).await;
+        assert_truncated(&events);
     }
 }

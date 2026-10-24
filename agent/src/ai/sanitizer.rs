@@ -99,6 +99,9 @@ pub struct Sanitizer {
     optional: Vec<CompiledPattern>,
     custom: Vec<CompiledPattern>,
     allowlist: Vec<String>,
+    /// Whether hostname redaction is on; also gates literal redaction of the
+    /// device names/hostnames a request's context carries.
+    redact_hostnames: bool,
 }
 
 impl Sanitizer {
@@ -114,19 +117,57 @@ impl Sanitizer {
             optional,
             custom,
             allowlist,
+            redact_hostnames: config.redact_hostnames,
         }
     }
 
     /// Sanitize a string, applying all active patterns with allowlist checking
     pub fn sanitize(&self, input: &str) -> SanitizedOutput {
+        self.sanitize_with_extra(input, &[])
+    }
+
+    /// Literal patterns for identity values (device names, hostnames, the
+    /// session name) taken from a request's context. A bare hostname such as
+    /// `router1` matches no generic rule, so the exact values the context
+    /// carries are redacted wherever they appear. Empty unless hostname
+    /// redaction is enabled.
+    fn identity_patterns(&self, terms: &[String]) -> Vec<CompiledPattern> {
+        if !self.redact_hostnames {
+            return Vec::new();
+        }
+        let mut terms: Vec<&str> = terms
+            .iter()
+            .map(|t| t.trim())
+            .filter(|t| t.chars().count() >= 3)
+            .collect();
+        // Longest first so "core-rtr-01.lab" is not split by "core-rtr-01".
+        terms.sort_by_key(|t| std::cmp::Reverse(t.len()));
+        terms.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        terms
+            .into_iter()
+            .filter_map(|term| {
+                let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+                let lead = if is_word(term.chars().next()) { r"\b" } else { "" };
+                let trail = if is_word(term.chars().last()) { r"\b" } else { "" };
+                compile(
+                    "context_hostname",
+                    &format!("(?i){}{}{}", lead, regex::escape(term), trail),
+                    "[HOST-REDACTED]",
+                )
+            })
+            .collect()
+    }
+
+    /// `sanitize`, with `extra` patterns applied before the configured ones.
+    fn sanitize_with_extra(&self, input: &str, extra: &[CompiledPattern]) -> SanitizedOutput {
         let mut result = input.to_string();
         let mut redaction_count = 0usize;
         let mut pattern_names: Vec<String> = Vec::new();
 
-        // Apply patterns in order: mandatory, optional, custom
-        for pattern in self
-            .mandatory
+        // Apply patterns in order: request-specific, mandatory, optional, custom
+        for pattern in extra
             .iter()
+            .chain(self.mandatory.iter())
             .chain(self.optional.iter())
             .chain(self.custom.iter())
         {
@@ -354,6 +395,15 @@ fn build_optional_patterns(config: &SanitizationConfig) -> Vec<CompiledPattern> 
         ) {
             patterns.push(p);
         }
+        // Bare hostnames in CLI prompts: `router1#`, `core-rtr-01(config)#`,
+        // `admin@mx1>`. Two-character minimum keeps FRR route codes (`K>*`) intact.
+        if let Some(p) = compile(
+            "hostname_prompt",
+            r"(?m)^([A-Za-z0-9_.\-]+@)?[A-Za-z][A-Za-z0-9_.\-]+(\([A-Za-z0-9_./\-]*\))?([#>])",
+            "${1}[HOST-REDACTED]${2}${3}",
+        ) {
+            patterns.push(p);
+        }
     }
 
     if config.redact_usernames {
@@ -432,6 +482,96 @@ pub async fn load_sanitization_config(provider: &dyn DataProvider) -> Sanitizati
 }
 
 // =============================================================================
+// Simple-chat request sanitization
+// =============================================================================
+
+/// Identity values the context carries (device names, hostnames, session
+/// name). Providers print these into the system prompt, and bare names like
+/// `router1` match no generic rule, so they are redacted literally.
+fn context_identity_terms(ctx: &AiContext) -> Vec<String> {
+    let mut terms = Vec::new();
+    if let Some(name) = &ctx.session_name {
+        terms.push(name.clone());
+    }
+    if let Some(device) = &ctx.device {
+        terms.push(device.name.clone());
+    }
+    if let Some(conn) = &ctx.connection {
+        terms.push(conn.source_device.name.clone());
+        terms.push(conn.target_device.name.clone());
+    }
+    if let Some(hostname) = ctx.terminal.as_ref().and_then(|t| t.hostname.as_ref()) {
+        terms.push(hostname.clone());
+    }
+    terms
+}
+
+/// Apply `f` to every string in a JSON value, recursively.
+fn map_json_strings(value: &mut serde_json::Value, f: &dyn Fn(&str) -> String) {
+    match value {
+        serde_json::Value::String(s) => *s = f(s),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                map_json_strings(item, f);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                map_json_strings(item, f);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Sanitize a simple `chat_completion` request: every message and every
+/// user-originated string in the context (session name, device, connection,
+/// terminal, team notes). The context is walked generically through its
+/// serialized form so a field added later cannot bypass redaction. When
+/// hostname redaction is on, the context's own device names and hostnames are
+/// also redacted wherever they occur.
+fn sanitize_chat_request(
+    sanitizer: &Sanitizer,
+    messages: Vec<ChatMessage>,
+    context: Option<AiContext>,
+) -> (Vec<ChatMessage>, Option<AiContext>) {
+    let terms = context.as_ref().map(context_identity_terms).unwrap_or_default();
+    let extra = sanitizer.identity_patterns(&terms);
+    let clean = |text: &str| sanitizer.sanitize_with_extra(text, &extra).sanitized;
+
+    let messages = messages
+        .into_iter()
+        .map(|m| ChatMessage {
+            role: m.role,
+            content: clean(&m.content),
+        })
+        .collect();
+
+    let context = context.map(|ctx| {
+        // Not serialized (loaded server-side, not user context): carried over.
+        let ai_profile = ctx.ai_profile.clone();
+        let feature = ctx.feature;
+        let sanitized = serde_json::to_value(&ctx)
+            .and_then(|mut value| {
+                map_json_strings(&mut value, &clean);
+                serde_json::from_value::<AiContext>(value)
+            })
+            .unwrap_or_else(|e| {
+                // Never forward the unsanitized original.
+                tracing::warn!("Failed to sanitize AI context, dropping it: {}", e);
+                AiContext::default()
+            });
+        AiContext {
+            ai_profile,
+            feature,
+            ..sanitized
+        }
+    });
+
+    (messages, context)
+}
+
+// =============================================================================
 // SanitizingProvider Decorator
 // =============================================================================
 
@@ -456,79 +596,33 @@ impl SanitizingProvider {
         }
     }
 
-    /// Sanitize a string using the cached sanitizer
-    async fn sanitize_text(&self, input: &str) -> String {
-        // Ensure cache is populated
+    /// The cached sanitizer, loading it from settings on first use.
+    async fn cached_sanitizer(&self) -> tokio::sync::RwLockReadGuard<'_, Option<Sanitizer>> {
         {
             let cache = self.sanitizer_cache.read().await;
-            if let Some(ref sanitizer) = *cache {
-                return sanitizer.sanitize(input).sanitized;
+            if cache.is_some() {
+                return cache;
             }
         }
-        // Cache miss — populate
         {
             let mut cache = self.sanitizer_cache.write().await;
             if cache.is_none() {
-                let sanitizer = load_sanitizer(self.data_provider.as_ref()).await;
-                *cache = Some(sanitizer);
-            }
-            if let Some(ref sanitizer) = *cache {
-                return sanitizer.sanitize(input).sanitized;
+                *cache = Some(load_sanitizer(self.data_provider.as_ref()).await);
             }
         }
-        // Fallback: return original (shouldn't happen)
-        input.to_string()
+        self.sanitizer_cache.read().await
     }
 
-    /// Sanitize a ChatMessage
-    async fn sanitize_chat_message(&self, msg: ChatMessage) -> ChatMessage {
-        ChatMessage {
-            role: msg.role,
-            content: self.sanitize_text(&msg.content).await,
-        }
-    }
-
-    /// Sanitize AiContext fields
-    async fn sanitize_context(&self, ctx: AiContext) -> AiContext {
-        AiContext {
-            selected_text: match ctx.selected_text {
-                Some(t) => Some(self.sanitize_text(&t).await),
-                None => None,
-            },
-            session_name: ctx.session_name,
-            device: ctx.device,
-            connection: ctx.connection,
-            terminal: match ctx.terminal {
-                Some(mut t) => {
-                    if let Some(ref output) = t.recent_output {
-                        t.recent_output = Some(self.sanitize_text(output).await);
-                    }
-                    Some(t)
-                }
-                None => None,
-            },
-            session_context: match ctx.session_context {
-                Some(entries) => {
-                    let mut sanitized = Vec::with_capacity(entries.len());
-                    for mut entry in entries {
-                        entry.issue = self.sanitize_text(&entry.issue).await;
-                        if let Some(ref rc) = entry.root_cause {
-                            entry.root_cause = Some(self.sanitize_text(rc).await);
-                        }
-                        if let Some(ref res) = entry.resolution {
-                            entry.resolution = Some(self.sanitize_text(res).await);
-                        }
-                        if let Some(ref cmds) = entry.commands {
-                            entry.commands = Some(self.sanitize_text(cmds).await);
-                        }
-                        sanitized.push(entry);
-                    }
-                    Some(sanitized)
-                }
-                None => None,
-            },
-            ai_profile: ctx.ai_profile,
-            feature: ctx.feature,
+    /// Sanitize a string using the cached sanitizer
+    async fn sanitize_text(&self, input: &str) -> String {
+        let cache = self.cached_sanitizer().await;
+        match cache.as_ref() {
+            Some(sanitizer) => sanitizer.sanitize(input).sanitized,
+            // Cache cleared between populate and read: never send unsanitized.
+            None => load_sanitizer(self.data_provider.as_ref())
+                .await
+                .sanitize(input)
+                .sanitized,
         }
     }
 
@@ -574,16 +668,17 @@ impl AiProvider for SanitizingProvider {
         messages: Vec<ChatMessage>,
         context: Option<AiContext>,
     ) -> Result<String, AiError> {
-        // Sanitize all messages
-        let mut sanitized_messages = Vec::with_capacity(messages.len());
-        for msg in messages {
-            sanitized_messages.push(self.sanitize_chat_message(msg).await);
-        }
-
-        // Sanitize context
-        let sanitized_context = match context {
-            Some(ctx) => Some(self.sanitize_context(ctx).await),
-            None => None,
+        let (sanitized_messages, sanitized_context) = {
+            let fresh;
+            let cache = self.cached_sanitizer().await;
+            let sanitizer = match cache.as_ref() {
+                Some(sanitizer) => sanitizer,
+                None => {
+                    fresh = load_sanitizer(self.data_provider.as_ref()).await;
+                    &fresh
+                }
+            };
+            sanitize_chat_request(sanitizer, messages, context)
         };
 
         self.inner
@@ -684,6 +779,140 @@ mod tests {
     fn paloalto_keeps_both_tags() {
         let out = sanitizer().sanitize("<password>hunter2</password>");
         assert_eq!(out.sanitized, "<password>[REDACTED]</password>");
+    }
+
+    fn redacting() -> Sanitizer {
+        Sanitizer::from_config(&SanitizationConfig {
+            redact_ip_addresses: true,
+            redact_hostnames: true,
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn bare_hostname_in_cli_prompt_is_redacted() {
+        let out = redacting().sanitize(
+            "router1#show ip int brief\ncore-rtr-01(config)#interface Gi0/1\nadmin@mx1> show route\nK>* 0.0.0.0/0 via eth0",
+        );
+        for name in ["router1", "core-rtr-01", "mx1"] {
+            assert!(!out.sanitized.contains(name), "{name} leaked: {}", out.sanitized);
+        }
+        assert!(out.sanitized.contains("[HOST-REDACTED](config)#interface"), "{}", out.sanitized);
+        assert!(out.sanitized.contains("admin@[HOST-REDACTED]> show route"), "{}", out.sanitized);
+        // Single-letter FRR route codes are not prompts.
+        assert!(out.sanitized.contains("K>* "), "{}", out.sanitized);
+    }
+
+    #[test]
+    fn context_identity_terms_only_apply_with_hostname_redaction() {
+        let terms = vec!["router1".to_string(), "ab".to_string()];
+        assert!(sanitizer().identity_patterns(&terms).is_empty());
+        let s = redacting();
+        let extra = s.identity_patterns(&terms);
+        // Too-short values are skipped rather than redacting every "ab".
+        assert_eq!(extra.len(), 1);
+        let out = s.sanitize_with_extra("ping from Router1 to router10", &extra);
+        assert_eq!(out.sanitized, "ping from [HOST-REDACTED] to router10");
+    }
+
+    /// Minimal HTTP/1.1 server: captures one request body, answers with an
+    /// Anthropic-shaped response.
+    async fn capture_one_request() -> (String, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut raw = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                raw.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&raw).to_string();
+                if let Some(split) = text.find("\r\n\r\n") {
+                    let len = text[..split]
+                        .lines()
+                        .find_map(|l| {
+                            let l = l.to_ascii_lowercase();
+                            l.strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if raw.len() >= split + 4 + len || n == 0 {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let body = r#"{"content":[{"type":"text","text":"ok"}]}"#;
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            sock.write_all(reply.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&raw).to_string()
+        });
+        (url, handle)
+    }
+
+    /// 1.3: on the simple `chat_completion` path, context identifiers must not
+    /// reach the provider. Drives SanitizingProvider -> AnthropicProvider ->
+    /// real HTTP request and inspects the outbound body.
+    #[tokio::test]
+    async fn chat_completion_outbound_request_has_no_context_identifiers() {
+        use super::super::providers::{
+            AnthropicProvider, ConnectionContext, DeviceContext, TerminalContext,
+        };
+
+        let (url, server) = capture_one_request().await;
+        let inner = AnthropicProvider::new("sk-test".into(), Some("claude-opus-5".into()), Some(url), true)
+            .unwrap();
+        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+        let data: Arc<dyn DataProvider> = Arc::new(crate::providers::LocalDataProvider::new(pool));
+        let cache = Arc::new(RwLock::new(Some(redacting())));
+        let provider = SanitizingProvider::new(Box::new(inner), cache, data);
+
+        let device = |name: &str, ip: &str| DeviceContext {
+            name: name.into(),
+            device_type: "router".into(),
+            primary_ip: Some(ip.into()),
+            site: Some("site 10.9.9.9".into()),
+            ..Default::default()
+        };
+        let context = AiContext {
+            session_name: Some("edge-session-7".into()),
+            device: Some(device("core-rtr-01", "10.1.2.3")),
+            connection: Some(ConnectionContext {
+                source_device: device("core-rtr-01", "10.1.2.3"),
+                source_interface: "Gi0/0 to 10.5.5.5".into(),
+                target_device: device("router1", "10.4.4.4"),
+                target_interface: "Gi0/1".into(),
+                status: "up".into(),
+                protocols: None,
+            }),
+            terminal: Some(TerminalContext {
+                hostname: Some("router1".into()),
+                recent_output: Some("router1#show ip int brief\nGi0/0 10.4.4.4 up".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: "Why is router1 dropping BGP to core-rtr-01 in edge-session-7?".into(),
+        }];
+
+        let reply = provider.chat_completion(messages, Some(context)).await.unwrap();
+        assert_eq!(reply, "ok");
+        let request = server.await.unwrap();
+        assert!(request.contains("[HOST-REDACTED]"), "{request}");
+        for leaked in [
+            "router1", "core-rtr-01", "edge-session-7", "10.1.2.3", "10.4.4.4", "10.5.5.5", "10.9.9.9",
+        ] {
+            assert!(!request.contains(leaked), "{leaked} reached the provider:\n{request}");
+        }
     }
 
     #[test]

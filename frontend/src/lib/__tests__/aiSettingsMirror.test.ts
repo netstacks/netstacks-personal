@@ -35,6 +35,7 @@ describe('startAiSettingsMirror', () => {
       '/settings/ai.permissionMode.autopilot': '"auto"',
       '/settings/ai.disabledTools.autopilot': JSON.stringify(defaultSettings['ai.disabledTools.autopilot']),
       '/settings/ai.bash.deniedCommands': '[]',
+      '/settings/ai.showThinking': JSON.stringify(defaultSettings['ai.showThinking']),
     })
     expect(put.mock.calls[0][2]).toEqual({ headers: { 'Content-Type': 'application/json' } })
 
@@ -53,5 +54,11 @@ describe('startAiSettingsMirror', () => {
     }))
     expect(put).toHaveBeenCalledTimes(1)
     expect(put).toHaveBeenCalledWith('/settings/ai.permissionMode.autopilot', '"ask"', expect.anything())
+
+    // Show AI Reasoning reaches the sidecar so background tasks record thinking.
+    put.mockClear()
+    act(() => result.current.updateSetting('ai.showThinking', !defaultSettings['ai.showThinking']))
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
+    expect(put).toHaveBeenCalledWith('/settings/ai.showThinking', JSON.stringify(!defaultSettings['ai.showThinking']), expect.anything())
   })
 })

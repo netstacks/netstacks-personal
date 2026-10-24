@@ -3,6 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 import './QuickConnectDialog.css';
 import { listHistory, createHistory, type ConnectionHistory, type Session, createSession, type NewSession } from '../api/sessions';
 import { listProfiles, type CredentialProfile } from '../api/profiles';
+import { listAccessibleProfiles } from '../api/enterpriseProfiles';
+import { useMode } from '../hooks/useMode';
+import type { QuickConnectInfo } from '../lib/terminalTarget';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 
 import { getErrorMessage } from '../api/errors'
@@ -12,11 +15,29 @@ import ModalFrame from './ModalFrame';
 interface QuickConnectDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onConnect: (session: Session | { host: string; port: number; profile_id: string; username: string }) => void;
+  onConnect: (session: Session | QuickConnectInfo) => void;
   /** Pre-fill host field (e.g., from topology device) */
   initialHost?: string;
   /** Pre-fill profile ID */
   initialProfileId?: string;
+}
+
+/** A selectable credential profile (local profile or Controller accessible profile). */
+interface ProfileOption {
+  id: string;
+  name: string;
+  username: string | null;
+  /** Shown after "Will connect as": local auth type or Controller auth mode. */
+  authLabel: string;
+}
+
+async function loadProfileOptions(isEnterprise: boolean): Promise<ProfileOption[]> {
+  if (isEnterprise) {
+    const profiles = await listAccessibleProfiles();
+    return profiles.map(p => ({ id: p.id, name: p.name, username: p.username, authLabel: p.auth_mode }));
+  }
+  const profiles: CredentialProfile[] = await listProfiles();
+  return profiles.map(p => ({ id: p.id, name: p.name, username: p.username, authLabel: p.auth_type }));
 }
 
 // Format relative time (e.g., "2 hours ago")
@@ -36,12 +57,23 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialProfileId }: QuickConnectDialogProps) {
+// The form mounts fresh on every open, so it starts from the initial props
+// and needs no reset-on-close.
+function QuickConnectDialog(props: QuickConnectDialogProps) {
+  if (!props.isOpen) return null;
+  return <QuickConnectForm {...props} />;
+}
+
+function QuickConnectForm({ onClose, onConnect, initialHost, initialProfileId }: QuickConnectDialogProps) {
   const formatName = useHostnameFormatter()
-  const [host, setHost] = useState('');
+  // Enterprise connects through the Controller's device-anchored /ws/ssh:
+  // the profile is optional (the device's assigned profile applies), there
+  // is no local connection history and no local saved sessions.
+  const { isEnterprise } = useMode();
+  const [host, setHost] = useState(initialHost ?? '');
   const [port, setPort] = useState(22);
-  const [profileId, setProfileId] = useState('');
-  const [profiles, setProfiles] = useState<CredentialProfile[]>([]);
+  const [profileId, setProfileId] = useState(initialProfileId ?? '');
+  const [profiles, setProfiles] = useState<ProfileOption[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ConnectionHistory[]>([]);
@@ -52,55 +84,36 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
 
   const selectedProfile = profiles.find(p => p.id === profileId);
 
-  // Fetch history and profiles when dialog opens
+  // Fetch history and profiles when the dialog opens
   useEffect(() => {
-    if (isOpen) {
-      // Load profiles
-      listProfiles()
-        .then(setProfiles)
-        .catch(console.error);
-
-      // Load history
+    let cancelled = false;
+    loadProfileOptions(isEnterprise)
+      .then(list => { if (!cancelled) setProfiles(list); })
+      .catch(console.error);
+    if (!isEnterprise) {
       listHistory()
-        .then(setHistory)
+        .then(list => { if (!cancelled) setHistory(list); })
         .catch(console.error);
+    }
 
-      // Set initial values if provided (e.g., from topology device)
+    // Focus the profile selector when the host is pre-filled, else the host
+    const focusTimer = setTimeout(() => {
       if (initialHost) {
-        setHost(initialHost);
+        document.querySelector<HTMLSelectElement>('.quick-connect-dialog #quick-profile')?.focus();
+      } else {
+        hostInputRef.current?.focus();
       }
-      if (initialProfileId) {
-        setProfileId(initialProfileId);
-      }
-
-      // Focus host input
-      setTimeout(() => {
-        if (initialHost) {
-          // Focus profile selector if host is pre-filled
-          document.querySelector<HTMLSelectElement>('.quick-connect-dialog #quick-profile')?.focus();
-        } else {
-          hostInputRef.current?.focus();
-        }
-      }, 50);
-    }
-  }, [isOpen, initialHost, initialProfileId]);
-
-  // Reset form when dialog closes
-  useEffect(() => {
-    if (!isOpen) {
-      setHost('');
-      setPort(22);
-      setProfileId('');
-      setError(null);
-      setShowSaveDialog(false);
-      setSessionName('');
-    }
-  }, [isOpen]);
+    }, 50);
+    return () => {
+      cancelled = true;
+      clearTimeout(focusTimer);
+    };
+  }, [isEnterprise, initialHost]);
 
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape') {
         if (showSaveDialog) {
           setShowSaveDialog(false);
         } else {
@@ -110,14 +123,14 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showSaveDialog]);
+  }, [onClose, showSaveDialog]);
 
   const handleConnect = async () => {
     if (!host.trim()) {
       setError('Host is required');
       return;
     }
-    if (!profileId) {
+    if (!profileId && !isEnterprise) {
       setError('Credential profile is required');
       return;
     }
@@ -126,24 +139,21 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
     setError(null);
 
     try {
-      // Record history for quick connects
-      if (selectedProfile) {
+      // Record history for quick connects (standalone only)
+      if (selectedProfile && !isEnterprise) {
         await createHistory({
           host: host.trim(),
           port,
-          username: selectedProfile.username,
+          username: selectedProfile.username ?? '',
         });
       }
 
-      // Create connection object with profile
-      const connectionInfo = {
+      onConnect({
         host: host.trim(),
         port,
         profile_id: profileId,
-        username: selectedProfile!.username,
-      };
-
-      onConnect(connectionInfo);
+        username: selectedProfile?.username ?? undefined,
+      });
       onClose();
     } catch (err) {
       setError(getErrorMessage(err, 'Connection failed'));
@@ -194,7 +204,7 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
           session_id: session.id,
           host: session.host,
           port: session.port,
-          username: selectedProfile.username,
+          username: selectedProfile.username ?? '',
         });
       }
 
@@ -217,7 +227,7 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
     }
   };
 
-  if (!isOpen) return null;
+  const canConnect = isEnterprise || profiles.length > 0;
 
   return (
     <ModalFrame id="quick-connect" className="dialog quick-connect-dialog" testId="quick-connect-dialog" label="Quick Connect">
@@ -300,34 +310,40 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
             </div>
 
             <div className="form-group">
-              <label htmlFor="quick-profile">Credential Profile <span className="required-marker">*</span></label>
-              {profiles.length === 0 ? (
+              <label htmlFor="quick-profile">
+                Credential Profile {!isEnterprise && <span className="required-marker">*</span>}
+              </label>
+              {!canConnect ? (
                 <div className="profile-warning">
                   <span>No credential profiles configured.</span>
                   <span className="form-hint">Create a profile in Settings → Profiles first.</span>
                 </div>
-      ) : (
-        <>
+              ) : (
+                <>
                   <select
                     id="quick-profile"
                     value={profileId}
                     onChange={e => setProfileId(e.target.value)}
                     className="ns-select"
-                    aria-invalid={!profileId}
+                    aria-invalid={!isEnterprise && !profileId}
                   >
-                    <option value="">Select a profile...</option>
+                    <option value="">{isEnterprise ? "Device's assigned profile" : 'Select a profile...'}</option>
                     {profiles.map(profile => (
                       <option key={profile.id} value={profile.id}>
-                        {profile.name} ({profile.username})
+                        {profile.username ? `${profile.name} (${profile.username})` : profile.name}
                       </option>
                     ))}
                   </select>
-                  {selectedProfile && (
+                  {selectedProfile ? (
                     <span className="form-hint">
-                      Will connect as: {selectedProfile.username} ({selectedProfile.auth_type})
+                      Will connect as: {selectedProfile.username ?? 'profile user'} ({selectedProfile.authLabel})
+                    </span>
+                  ) : isEnterprise && (
+                    <span className="form-hint">
+                      The host must be a device in your organization.
                     </span>
                   )}
-        </>
+                </>
               )}
             </div>
 
@@ -355,9 +371,9 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
           </div>
 
           <DialogFooter
-            primary={{ label: connecting ? 'Connecting...' : 'Connect', onClick: handleConnect, disabled: connecting || profiles.length === 0 }}
+            primary={{ label: connecting ? 'Connecting...' : 'Connect', onClick: handleConnect, disabled: connecting || !canConnect }}
             onCancel={onClose}
-            leading={
+            leading={isEnterprise ? undefined : (
               <button
                 type="button"
                 className="ns-btn"
@@ -366,7 +382,7 @@ function QuickConnectDialog({ isOpen, onClose, onConnect, initialHost, initialPr
               >
                 Connect & Save...
               </button>
-            }
+            )}
           />
         </>
       )}

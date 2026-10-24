@@ -196,65 +196,88 @@ export async function getTask(id: string): Promise<AgentTask> {
 }
 
 /**
+ * Result of a transcript backfill. The Controller has no transcript route,
+ * so in enterprise mode the result says so explicitly (`supported: false`)
+ * instead of masquerading as an empty run (audit 4.10).
+ */
+export type TaskTranscriptResult =
+  | { supported: true; steps: TaskMessage[] }
+  | { supported: false };
+
+/** Whether the active backend can serve per-step task transcripts. */
+export function taskTranscriptsSupported(): boolean {
+  return !isEnterprise();
+}
+
+/**
  * Feature A: backfill transcript steps with seq > sinceSeq (-1 = all).
- * Enterprise has no transcript table yet, so it degrades to empty.
+ * Enterprise: the Controller exposes no transcript endpoint, so this reports
+ * `{ supported: false }` without a request.
+ */
+export async function fetchTaskTranscript(
+  taskId: string,
+  sinceSeq = -1,
+): Promise<TaskTranscriptResult> {
+  if (!taskTranscriptsSupported()) {
+    return { supported: false };
+  }
+
+  const client = getClient();
+  const response = await client.http.get(`/tasks/${taskId}/messages`, {
+    params: { since_seq: sinceSeq },
+  });
+  return { supported: true, steps: response.data };
+}
+
+/**
+ * Transcript steps as a plain list (empty when the backend has none or
+ * cannot serve them). Callers that must tell "unsupported" apart from
+ * "no steps yet" use fetchTaskTranscript / taskTranscriptsSupported.
  */
 export async function getTaskMessages(
   taskId: string,
   sinceSeq = -1,
 ): Promise<TaskMessage[]> {
-  const client = getClient();
-
-  if (isEnterprise()) {
-    // Controller does not expose a transcript catch-up endpoint yet.
-    return [];
-  }
-
-  const response = await client.http.get(`/tasks/${taskId}/messages`, {
-    params: { since_seq: sinceSeq },
-  });
-  return response.data;
+  const result = await fetchTaskTranscript(taskId, sinceSeq);
+  return result.supported ? result.steps : [];
 }
 
 /**
- * Delete a task
+ * Delete a task (standalone only).
  *
- * In enterprise mode, this deletes the execution record.
+ * The Controller has no delete route for executions (they are kept for
+ * audit), so enterprise callers hide the record locally instead — see
+ * `hideTask` in hooks/useAgentTasks. Calling this in enterprise mode throws
+ * rather than pretending a deletion happened.
  */
 export async function deleteTask(id: string): Promise<void> {
-  const client = getClient();
-
   if (isEnterprise()) {
-    // Enterprise mode: cancel first if running, then the record is kept for history
-    // (Controller doesn't have delete for executions, they're kept for audit)
-    await client.http.post(`/tasks/executions/${id}/cancel`).catch(() => {
-      // Ignore if already completed or not found
-    });
-    return;
+    throw new Error('The Controller keeps execution history; tasks cannot be deleted');
   }
 
+  const client = getClient();
   await client.http.delete(`/tasks/${id}`);
 }
 
 /**
- * Cancel a running task
+ * Cancel a running task over REST.
+ *
+ * - Enterprise: `POST /tasks/executions/:id/cancel` on the Controller.
+ * - Standalone: `POST /tasks/:id/cancel` on the local agent, which cancels
+ *   without deleting the record. Standalone normally cancels over the task
+ *   WebSocket; this is the fallback when the socket is not open.
+ *
+ * Failures are thrown to the caller so the UI can surface them.
  */
 export async function cancelTask(taskId: string): Promise<void> {
   const client = getClient();
 
   if (isEnterprise()) {
-    // Enterprise mode: cancel via executions endpoint. The controller does not
-    // yet expose this route, so tolerate a 404 (degrade to no-op) the same way
-    // deleteTask does, instead of throwing an unhandled error to the caller.
-    await client.http.post(`/tasks/executions/${taskId}/cancel`).catch((err) => {
-      const status = (err as { response?: { status?: number } }).response?.status;
-      if (status && status !== 404 && status !== 405) throw err;
-    });
+    await client.http.post(`/tasks/executions/${taskId}/cancel`);
     return;
   }
 
-  // Standalone mode: delete endpoint also cancels if running
-  await client.http.delete(`/tasks/${taskId}`);
+  await client.http.post(`/tasks/${taskId}/cancel`);
 }
 
 /**

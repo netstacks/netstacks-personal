@@ -46,7 +46,8 @@ export interface FailurePolicyConfig {
 /** Request to create a new task */
 export interface CreateTaskRequest {
   prompt: string;
-  /** Failure policy configuration (optional, defaults to 'stop') */
+  /** Failure policy configuration (optional; the agent defaults to 'continue':
+   *  a tool error is reported back to the model, which may recover). */
   failure_policy?: FailurePolicyConfig;
 }
 

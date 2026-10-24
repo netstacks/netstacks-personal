@@ -45,7 +45,6 @@ import InstanceDetailTab from './components/config/InstanceDetailTab'
 import DeploymentDetailTab from './components/config/DeploymentDetailTab'
 import BackupHistoryTab from './components/BackupHistoryTab'
 // Note: TopologyCanvas and TopologyCanvas3D are used in TopologyTabEditor
-// DocumentViewer - available for future modal/preview use
 import DocumentTabEditor from './components/DocumentTabEditor'
 import UnsavedDocumentTab from './components/UnsavedDocumentTab'
 import TopologyTabEditor from './components/TopologyTabEditor'
@@ -68,10 +67,11 @@ import PanelTabRail from './components/PanelTabRail'
 import ScriptEditor, { type ScriptEditorHandle } from './components/ScriptEditor'
 import AIScriptGenerator from './components/AIScriptGenerator'
 import QuickConnectDialog from './components/QuickConnectDialog'
+import { quickConnectTabFields, type QuickConnectInfo } from './lib/terminalTarget'
+import { popoutTerminalParams, popoutSnapshotTabFields, type PopoutTerminalSnapshot } from './lib/popoutTerminal'
 import TabContextMenu, { type TabGroup } from './components/TabContextMenu'
 import LaunchDialog, { type LaunchChoice } from './components/LaunchDialog'
 import NamePromptModal from './components/NamePromptModal'
-// Note: SplitPaneContainer available for future drag-resize split view
 import DiscoveryModal, { type DiscoveryResult } from './components/DiscoveryModal'
 import DiscoveryToast from './components/DiscoveryToast'
 import AIProgressPanel, { type AIProgressLog } from './components/AIProgressPanel'
@@ -135,7 +135,6 @@ import { resolveSnmpHost } from './lib/sessionHostResolver'
 import { saveDeviceEnrichmentToDoc, saveLinkEnrichmentToDoc } from './lib/enrichmentExport'
 import DeviceDetailsOverlay from './components/DeviceDetailsOverlay'
 import ConnectionDetailsOverlay from './components/ConnectionDetailsOverlay'
-// SessionQuickLook removed - double-click now directly opens terminal
 import ContextMenu, { getDeviceMenuItems, type MenuItem } from './components/ContextMenu'
 import { ToastContainer, showToast } from './components/Toast'
 import { ConfirmDialogHost, confirmDialog } from './components/ConfirmDialog'
@@ -220,6 +219,11 @@ interface Tab {
   chatPrompt?: string
   // Terminal-specific
   sessionId?: string
+  /** Standalone quick connect (no saved session): the agent connects to this
+   *  host/port with this credential profile. Never a local shell. */
+  quickConnectHost?: string
+  quickConnectPort?: number
+  quickConnectProfileId?: string
   /** `console` = OOB console tab riding the session's terminal server. */
   protocol?: TabProtocol
   cliFlavor?: CliFlavor
@@ -333,6 +337,18 @@ function sessionTerminalTab(session: Session, isConsole: boolean, id: string, se
   }
 }
 
+/** The temporary tab for a Quick Connect that was not saved as a session. */
+function quickConnectTab(info: QuickConnectInfo, isEnterprise: boolean, id: string): Tab {
+  return {
+    id,
+    type: 'terminal',
+    ...quickConnectTabFields(info, isEnterprise, id),
+    fontSize: null,
+    fontFamily: null,
+    status: 'connecting',
+  }
+}
+
 /** The tab for an entry restored from the last run. Terminals come back
  *  disconnected, waiting for the user to connect. */
 function restoredTab(r: ResolvedTab): Tab {
@@ -371,27 +387,6 @@ const TERMINAL_POPOUT_SIZE = { width: 800, height: 600, minWidth: 400, minHeight
 const CHAT_POPOUT_SIZE = { width: 480, height: 720, minWidth: 360, minHeight: 420 }
 /** Browser build: how often an open popout window is checked for being closed. */
 const BROWSER_POPOUT_POLL_MS = 1000
-
-/** URL params a popout terminal window opens with (read by PopoutTerminal). */
-function popoutTerminalParams(tab: Tab): URLSearchParams {
-  const params = new URLSearchParams({
-    popout: 'true',
-    protocol: tab.protocol || 'ssh',
-    sessionName: tab.title,
-    cliFlavor: tab.cliFlavor || 'auto',
-  })
-  if (tab.sessionId) params.set('sessionId', tab.sessionId)
-  if (tab.terminalTheme) params.set('terminalTheme', tab.terminalTheme)
-  if (tab.fontSize) params.set('fontSize', String(tab.fontSize))
-  if (tab.fontFamily) params.set('fontFamily', tab.fontFamily)
-  if (tab.enterpriseProfileId) params.set('enterpriseProfileId', tab.enterpriseProfileId)
-  if (tab.enterpriseSessionDefinitionId) params.set('enterpriseSessionDefinitionId', tab.enterpriseSessionDefinitionId)
-  if (tab.enterpriseTargetHost) params.set('enterpriseTargetHost', tab.enterpriseTargetHost)
-  if (tab.enterpriseTargetPort) params.set('enterpriseTargetPort', String(tab.enterpriseTargetPort))
-  if (tab.isJumpbox) params.set('isJumpbox', 'true')
-  if (tab.awaitingConnect) params.set('awaitingConnect', 'true')
-  return params
-}
 
 /** Opens a Tauri popout window; `bounds` reapplies a restored position/size. */
 async function createPopoutWindow(
@@ -881,7 +876,6 @@ function AppContent() {
   // Store enrichment messages for transfer to AI panel
   const [aiEnrichmentMessages, setAiEnrichmentMessages] = useState<AgentMessage[]>([])
   const [aiEnrichmentComplete, setAiEnrichmentComplete] = useState(false)
-  const [_aiContext, setAiContext] = useState<AiContext | null>(null)
   const [aiPopup, setAiPopup] = useState<{
     isOpen: boolean
     position: { x: number; y: number }
@@ -1252,11 +1246,9 @@ function AppContent() {
   const [captureAIConversations, setCaptureAIConversations] = useState(
     () => getTroubleshootingSettings().captureAIConversations
   )
-  const [_isSummarizingSession, setIsSummarizingSession] = useState(false)
 
 
-  // Topology state (legacy - overlays reference these but topologies now use tabs)
-  const [topology] = useState<Topology | null>(null)
+  // Selected device for the device overlays (topologies themselves live in tabs)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
 
   // Device details overlay state
@@ -1735,31 +1727,13 @@ function AppContent() {
   // Open AI chat with device context
   const handleOpenAIChat = useCallback((device: Device) => {
     logger.log('Opening AI Chat for device:', device.name)
-    // Set device context for AI (using enhanced AiContext)
-    setAiContext({
-      device: {
-        name: device.name,
-        type: device.type,
-        platform: device.platform,
-        primaryIp: device.primaryIp,
-        site: device.site,
-        role: device.role,
-        status: device.status,
-      }
-    })
     setAiChatOpen(true)
     handleDeviceOverlayClose()
   }, [])
 
   // Open AI chat from terminal with session context
-  const handleOpenAIChatFromTerminal = useCallback((sessionName?: string) => {
-    // Build context from active terminal
-    const context: AiContext = {}
-    if (sessionName) {
-      context.sessionName = sessionName
-    }
-    // Terminal context is captured via getTerminalContext callback passed to AI components
-    setAiContext(context)
+  // Terminal context reaches the AI via the getTerminalContext callback.
+  const handleOpenAIChatFromTerminal = useCallback(() => {
     setAiChatOpen(true)
     setAiExpandTrigger(t => t + 1) // Expand if collapsed
   }, [])
@@ -2608,11 +2582,6 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
     setConnectionOverlay({ connection: null, position: null })
   }, [])
 
-  // Get device names for connection overlay
-  const getDeviceName = useCallback((deviceId: string) => {
-    return topology?.devices.find(d => d.id === deviceId)?.name
-  }, [topology])
-
   // Handle device right-click context menu
   const handleDeviceContextMenu = useCallback((device: Device, screenPosition: { x: number; y: number }, topologyId?: string) => {
     // Close overlays
@@ -2760,41 +2729,17 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
   // Tauri 'pop-back-in' event (or postMessage in browser mode) with the same
   // params handlePopoutTab sent it, then closes itself.
   useEffect(() => {
-    interface PopBackInPayload {
-      sessionId?: string
-      sessionName?: string
-      protocol?: 'ssh' | 'telnet'
-      cliFlavor?: string
-      terminalTheme?: string
-      fontSize?: number
-      fontFamily?: string
-      enterpriseProfileId?: string
-      enterpriseSessionDefinitionId?: string
-      enterpriseTargetHost?: string
-      enterpriseTargetPort?: number
-      isJumpbox?: boolean
-      awaitingConnect?: boolean
-    }
+    type PopBackInPayload = PopoutTerminalSnapshot
 
     const restoreTab = (p: PopBackInPayload) => {
-      const newId = `popin-${p.sessionId || 'local'}-${Date.now()}`
+      const newId = `popin-${p.sessionId || p.quickConnectHost || 'local'}-${Date.now()}`
+      const fields = popoutSnapshotTabFields(p)
       const newTab: Tab = {
         id: newId,
         type: 'terminal',
-        title: p.sessionName || 'Terminal',
-        sessionId: p.sessionId,
-        protocol: p.protocol || 'ssh',
-        cliFlavor: (p.cliFlavor as CliFlavor) || 'auto',
-        terminalTheme: p.terminalTheme,
-        fontSize: p.fontSize,
-        fontFamily: p.fontFamily,
-        enterpriseProfileId: p.enterpriseProfileId,
-        enterpriseSessionDefinitionId: p.enterpriseSessionDefinitionId,
-        enterpriseTargetHost: p.enterpriseTargetHost,
-        enterpriseTargetPort: p.enterpriseTargetPort,
-        isJumpbox: p.isJumpbox,
+        ...fields,
+        cliFlavor: fields.cliFlavor as CliFlavor,
         status: p.awaitingConnect ? 'disconnected' : 'connecting',
-        awaitingConnect: p.awaitingConnect,
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(newId)
@@ -3282,7 +3227,7 @@ def main(command: str = "show version"):
   // Create a new terminal tab
   const createTerminal = useCallback(() => {
     const newId = `terminal-${Date.now()}`
-    const localCount = tabs.filter(t => isTerminalTab(t) && !t.sessionId).length
+    const localCount = tabs.filter(t => isTerminalTab(t) && !t.sessionId && !t.quickConnectHost).length
     const newTab: Tab = {
       id: newId,
       type: 'terminal',
@@ -3698,12 +3643,18 @@ def main(command: str = "show version"):
         type: 'terminal',
         title: `${tab.title} (copy)`,
         sessionId: tab.sessionId,
+        quickConnectHost: tab.quickConnectHost,
+        quickConnectPort: tab.quickConnectPort,
+        quickConnectProfileId: tab.quickConnectProfileId,
         profileId: tab.profileId,
         protocol: tab.protocol,
         cliFlavor: tab.cliFlavor,
         terminalTheme: tab.terminalTheme,
         fontSize: tab.fontSize,
         fontFamily: tab.fontFamily,
+        scrollbackLines: tab.scrollbackLines,
+        autoReconnect: tab.autoReconnect,
+        reconnectDelay: tab.reconnectDelay,
         color: tab.color,
         isJumpbox: tab.isJumpbox,
         enterpriseProfileId: tab.enterpriseProfileId,
@@ -4751,7 +4702,7 @@ def main(command: str = "show version"):
     // If still no partner, create a new local terminal
     if (!partnerTabId) {
       const newId = `terminal-${Date.now()}`
-      const localCount = tabs.filter(t => isTerminalTab(t) && !t.sessionId).length
+      const localCount = tabs.filter(t => isTerminalTab(t) && !t.sessionId && !t.quickConnectHost).length
       const newTab: Tab = {
         id: newId,
         title: localCount === 0 ? 'Local Shell' : `Local Shell ${localCount + 1}`,
@@ -5481,7 +5432,6 @@ def main(command: str = "show version"):
     }
 
     // Start summarization
-    setIsSummarizingSession(true)
     showToast('Generating troubleshooting summary...', 'info', 5000)
 
     // Always generate fallback first so we have something to save even if AI fails
@@ -5526,8 +5476,6 @@ def main(command: str = "show version"):
           5000
         )
       }
-    } finally {
-      setIsSummarizingSession(false)
     }
   }, [endTroubleshootingSession])
 
@@ -5539,7 +5487,6 @@ def main(command: str = "show version"):
     }
 
     showToast('Session timed out - generating summary...', 'info', 5000)
-    setIsSummarizingSession(true)
 
     const fallback = generateFallbackSummary(session)
 
@@ -5568,8 +5515,6 @@ def main(command: str = "show version"):
           5000
         )
       }
-    } finally {
-      setIsSummarizingSession(false)
     }
   }, [])
 
@@ -6210,7 +6155,7 @@ def main(command: str = "show version"):
       if (activeTabId) {
         const activeTab = tabs.find(t => t.id === activeTabId)
         if (activeTab && isTerminalTab(activeTab)) {
-          handleOpenAIChatFromTerminal(activeTab.title)
+          handleOpenAIChatFromTerminal()
           return
         }
       }
@@ -6944,6 +6889,9 @@ def main(command: str = "show version"):
           }}
           id={tab.id}
           sessionId={tab.sessionId}
+          quickConnectHost={tab.quickConnectHost}
+          quickConnectPort={tab.quickConnectPort}
+          quickConnectProfileId={tab.quickConnectProfileId}
           protocol={tab.protocol}
           sessionName={tab.title}
           cliFlavor={tab.cliFlavor}
@@ -7054,7 +7002,7 @@ def main(command: str = "show version"):
         <AISidePanel
           variant="tab"
           isOpen
-          onClose={() => {}}
+          onClose={() => closeTab(tab.id)}
           onPopOut={() => handlePopoutAIChat(tab.id)}
           onDockToPanel={() => handleDockChatToPanel(tab.id)}
           onPromptCapture={(prompt) => setTabs(prev => prev.map(t => (t.id === tab.id ? { ...t, chatPrompt: prompt } : t)))}
@@ -7401,7 +7349,7 @@ def main(command: str = "show version"):
         </div>
       )
     }
-  }, [closeTerminal, handleTerminalAIAction, handleTerminalAIFloatingChat, handleTerminalForceClick, updateTerminalStatus, updateTabSessionId, broadcast, registerListener, handleVisualizeTraceroute, handleTopologyDeviceDoubleClick, handleDeviceContextMenu, handleAIDiscover, handleSaveTopology, handleOpenDeviceDetailTab, handleOpenLinkDetailTab, handleSaveDeviceToDocs, handleSaveLinkToDocs, documentCache, handleDocumentSave, handleDocumentModified, tabs, topologyRefreshKeys, deviceEnrichments, getLinkEnrichment, profiles, isTroubleshootingActive, isTroubleshootingCapturing, handleTroubleshootingCapture, aiOverlordActive])
+  }, [closeTerminal, closeTab, handleTerminalAIAction, handleTerminalAIFloatingChat, handleTerminalForceClick, updateTerminalStatus, updateTabSessionId, broadcast, registerListener, handleVisualizeTraceroute, handleTopologyDeviceDoubleClick, handleDeviceContextMenu, handleAIDiscover, handleSaveTopology, handleOpenDeviceDetailTab, handleOpenLinkDetailTab, handleSaveDeviceToDocs, handleSaveLinkToDocs, documentCache, handleDocumentSave, handleDocumentModified, tabs, topologyRefreshKeys, deviceEnrichments, getLinkEnrichment, profiles, isTroubleshootingActive, isTroubleshootingCapturing, handleTroubleshootingCapture, aiOverlordActive])
 
   // ── CommandRegistry: keep ActiveContext in sync with React state ──
   // Tracks active tab type + connection status + sidebar view + enterprise
@@ -7752,7 +7700,7 @@ def main(command: str = "show version"):
             {activeView === 'plugin:profiling-agents:profiling-agents-list' && !profilingChatAgent && (
               <ProfilingAgentsPanel
                 onOpenChat={(id, name) => setProfilingChatAgent({ id, name })}
-                onOpenConfig={() => {}}
+                adminUiBaseUrl={isEnterprise ? getClient().baseUrl : null}
               />
             )}
             {activeView === 'plugin:profiling-agents:profiling-agents-list' && profilingChatAgent && (
@@ -8261,7 +8209,6 @@ def main(command: str = "show version"):
           isOpen={true}
           onClose={() => {
             setAiChatOpen(false)
-            setAiContext(null)
             setAiPanelInitialMessages(undefined)
           }}
           expandTrigger={aiExpandTrigger}
@@ -8362,7 +8309,6 @@ def main(command: str = "show version"):
           isOpen={aiChatOpen}
           onClose={() => {
             setAiChatOpen(false)
-            setAiContext(null)
             setAiPanelInitialMessages(undefined)
           }}
           expandTrigger={aiExpandTrigger}
@@ -8701,20 +8647,12 @@ def main(command: str = "show version"):
           if ('id' in sessionOrInfo && sessionOrInfo.id) {
             handleSSHConnect(sessionOrInfo as Session)
           } else {
-            // Quick connect without saving - create temporary tab
-            const info = sessionOrInfo as { host: string; port: number; username: string; profile_id?: string }
-            const newId = `quick-${Date.now()}`
-            const newTab: Tab = {
-              id: newId,
-              type: 'terminal',
-              title: `${info.username}@${info.host}`,
-              fontSize: null,
-              fontFamily: null,
-              status: 'connecting'
-            }
+            // Quick connect without saving - a temporary tab that keeps the
+            // whole target, so it connects to the host (never a local shell).
+            const newTab = quickConnectTab(sessionOrInfo as QuickConnectInfo, isEnterprise, `quick-${Date.now()}`)
             setTabs(prev => [...prev, newTab])
-            setActiveTabId(newId)
-            logger.log('Quick connecting to:', info.host, info.port, info.username)
+            setActiveTabId(newTab.id)
+            logger.log('Quick connecting to:', newTab.title)
           }
         }}
       />
@@ -8839,8 +8777,6 @@ def main(command: str = "show version"):
       <ConnectionDetailsOverlay
         connection={connectionOverlay.connection}
         position={connectionOverlay.position}
-        sourceDeviceName={connectionOverlay.connection ? getDeviceName(connectionOverlay.connection.sourceDeviceId) : undefined}
-        targetDeviceName={connectionOverlay.connection ? getDeviceName(connectionOverlay.connection.targetDeviceId) : undefined}
         onClose={handleConnectionOverlayClose}
       />
 

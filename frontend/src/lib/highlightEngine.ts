@@ -676,10 +676,12 @@ export class HighlightEngine {
 
   // === Ad-hoc highlights (AI) ===
 
+  /** Replaces the AI highlight set; an empty list clears the old decorations. */
   applyAdHocHighlights(highlights: AdHocHighlight[]): void {
-    if (this.destroyed || highlights.length === 0) return
+    if (this.destroyed) return
 
     this.clearAdHocDecorations()
+    if (highlights.length === 0) return
 
     const buffer = this.terminal.buffer.active
     const viewportY = buffer.viewportY

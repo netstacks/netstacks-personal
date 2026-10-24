@@ -43,18 +43,29 @@ export function useNextStepSuggestions({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef<((command: string) => void) | null>(null);
   const mountedRef = useRef(true);
+  // Generation counter: bumped by every generate/clear so a late response
+  // from an older command can't overwrite newer suggestions.
+  const generationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Track mount status and clean up timeout on unmount
+  const cancelPending = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
+  // Track mount status and clean up timeout/in-flight request on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
+      generationRef.current += 1;
+      cancelPending();
     };
-  }, []);
+  }, [cancelPending]);
 
   const generateSuggestions = useCallback((
     lastCommand: string,
@@ -65,14 +76,16 @@ export function useNextStepSuggestions({
     // Don't generate suggestions for empty commands
     if (!lastCommand.trim()) return;
 
-    // Clear existing timeout
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
+    const generation = ++generationRef.current;
+    cancelPending();
+    const isCurrent = () => mountedRef.current && generation === generationRef.current;
 
     // Debounce the AI call
     debounceRef.current = setTimeout(async () => {
-      if (!mountedRef.current) return;
+      debounceRef.current = null;
+      if (!isCurrent()) return;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
 
       try {
@@ -102,9 +115,9 @@ Categories:
         const { provider, model } = resolveProvider('nextStep');
         const response = await sendChatMessage([
           { role: 'user', content: prompt }
-        ], { context, provider, model });
+        ], { context, provider, model, signal: controller.signal });
 
-        if (!mountedRef.current) return;
+        if (!isCurrent() || controller.signal.aborted) return;
 
         // Parse JSON from response
         const jsonMatch = response.match(/\[[\s\S]*\]/);
@@ -125,24 +138,27 @@ Categories:
           }
         }
       } catch (error) {
+        if (!isCurrent()) return;
         // Silently fail for AI not configured - user hasn't set up AI
         if (!(error instanceof AiNotConfiguredError)) {
           console.error('[NextStepSuggestions] Failed to generate:', error);
         }
-        if (mountedRef.current) setSuggestions([]);
+        setSuggestions([]);
       } finally {
-        if (mountedRef.current) setLoading(false);
+        if (isCurrent()) {
+          setLoading(false);
+          abortRef.current = null;
+        }
       }
     }, debounceMs);
-  }, [enabled, maxSuggestions, debounceMs]);
+  }, [enabled, maxSuggestions, debounceMs, cancelPending]);
 
   const clearSuggestions = useCallback(() => {
+    generationRef.current += 1;
+    cancelPending();
     setSuggestions([]);
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
-    }
-  }, []);
+    setLoading(false);
+  }, [cancelPending]);
 
   const useSuggestion = useCallback((command: string) => {
     if (callbackRef.current) {

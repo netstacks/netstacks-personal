@@ -107,11 +107,11 @@ const AIInlinePopup = ({
   }, [isOpen, providerInitialized])
 
   // Reset initialization when closed
-  useEffect(() => {
-    if (!isOpen) {
-      setProviderInitialized(false)
-    }
-  }, [isOpen])
+  const [wasOpen, setWasOpen] = useState(isOpen)
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen)
+    if (!isOpen) setProviderInitialized(false)
+  }
 
   // Drag state
   const [pos, setPos] = useState({ x: 0, y: 0 })
@@ -242,13 +242,19 @@ const AIInlinePopup = ({
 
   // Reset state when closed. Stop FIRST — a loop left running would keep
   // executing tool commands on the terminal.
+  const [wasOpenForReset, setWasOpenForReset] = useState(isOpen)
+  if (isOpen !== wasOpenForReset) {
+    setWasOpenForReset(isOpen)
+    if (!isOpen) {
+      setInput('')
+      setExpandedResults(new Set())
+    }
+  }
   useEffect(() => {
     if (!isOpen) {
       stopAgent()
       clearMessages()
       hasSentRef.current = false
-      setInput('')
-      setExpandedResults(new Set())
     }
   }, [isOpen, stopAgent, clearMessages])
 

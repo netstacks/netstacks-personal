@@ -12,11 +12,10 @@ import type { Annotation, ShapeAnnotation } from '../types/annotations';
 import { drawDevice } from './DeviceIcons';
 import { renderAnnotations, hitTestAnnotation, type CanvasTransform } from './AnnotationRenderer';
 import AIInlinePopup from './AIInlinePopup';
-import type { AiContext, DeviceContext, ConnectionContext } from '../api/ai';
+import type { AiContext } from '../api/ai';
 import type { LayerVisibility } from './TopologyToolbar';
 import { selectInBox, applyGroupDelta } from '../lib/topologySelection';
-import { formatHostname } from '../hooks/useHostnameFormatter';
-import { useSettings } from '../hooks/useSettings';
+import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import './TopologyCanvas.css';
 import Tooltip from './Tooltip';
 
@@ -98,6 +97,8 @@ interface TopologyCanvasProps {
   panEnabled?: boolean;
   /** Callback when marquee selection completes */
   onMarqueeSelect?: (ids: Set<string>, additive?: boolean) => void;
+  /** AI highlights: device or connection ID -> highlight color */
+  highlights?: Map<string, string>;
 }
 
 /** Resize handle positions */
@@ -193,10 +194,11 @@ export default function TopologyCanvas({
   marqueeEnabled = false,
   panEnabled = false,
   onMarqueeSelect,
+  highlights,
 }: TopologyCanvasProps) {
-  const { settings } = useSettings();
-  // Hostname strip settings key for canvas repaint reactivity
-  const hostnameStripKey = (settings['hostname.stripEnabled'] ?? false) + '|' + ((settings['hostname.stripPatterns'] as string[] | undefined) ?? []).join('\n');
+  // Reactive hostname formatter: a new function when the strip settings
+  // change, so device labels repaint.
+  const formatDeviceName = useHostnameFormatter();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1095,6 +1097,18 @@ export default function TopologyCanvas({
         ctx.globalAlpha = pulseAlpha;
       }
 
+      // AI highlight: a wide halo under the line in the highlight color
+      const highlightColor = highlights?.get(connection.id);
+      if (highlightColor) {
+        const savedAlpha = ctx.globalAlpha;
+        ctx.strokeStyle = highlightColor;
+        ctx.lineWidth = lineWidth + 8;
+        ctx.globalAlpha = savedAlpha * 0.45;
+        ctx.setLineDash([]);
+        drawPathThroughWaypoints(ctx, pathPoints, connection.curveStyle);
+        ctx.globalAlpha = savedAlpha;
+      }
+
       // Draw hover glow effect
       if (isHovered) {
         ctx.strokeStyle = color;
@@ -1253,7 +1267,7 @@ export default function TopologyCanvas({
 
       ctx.restore();
     },
-    [toCanvasX, toCanvasY, findDeviceById, getDevicePosition, hoveredConnection, linkEnrichment, liveStats, zoom, drawInterfaceLabel, drawEnhancedInterfaceLabel, drawCompactMidpoint, drawMidpointStats, drawErrorBadge, applyLineDash, drawPathThroughWaypoints, calculateBundleOffset]
+    [toCanvasX, toCanvasY, findDeviceById, getDevicePosition, hoveredConnection, linkEnrichment, liveStats, zoom, drawInterfaceLabel, drawEnhancedInterfaceLabel, drawCompactMidpoint, drawMidpointStats, drawErrorBadge, applyLineDash, drawPathThroughWaypoints, calculateBundleOffset, showPortStats, tracerouteEnrichment, highlights]
   );
 
   /**
@@ -1282,6 +1296,19 @@ export default function TopologyCanvas({
       const isSelected = selectedDeviceIds?.has(device.id) ?? (selectedDevice?.id === device.id);
       const isDragging = draggingDevice?.id === device.id;
       const isConnectionSource = drawingConnection && connectionSource?.id === device.id;
+
+      // AI highlight ring
+      const highlightColor = highlights?.get(device.id);
+      if (highlightColor) {
+        ctx.save();
+        ctx.strokeStyle = highlightColor;
+        ctx.lineWidth = 4;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(x, y, DEVICE_SIZE / 2 + 12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Draw connection source highlight
       if (isConnectionSource) {
@@ -1397,7 +1424,7 @@ export default function TopologyCanvas({
       }
 
       // Text shadow for readability
-      const formattedName = formatHostname(device.name);
+      const formattedName = formatDeviceName(device.name);
       ctx.fillStyle = '#000000';
       ctx.fillText(formattedName, x + 1, y + DEVICE_SIZE / 2 + 6);
 
@@ -1515,7 +1542,7 @@ export default function TopologyCanvas({
 
       ctx.restore();
     },
-    [toCanvasX, toCanvasY, getDevicePosition, hoveredDevice, selectedDevice, selectedDeviceIds, draggingDevice, drawingConnection, connectionSource, deviceStats, zoom, hostnameStripKey]
+    [toCanvasX, toCanvasY, getDevicePosition, hoveredDevice, selectedDevice, selectedDeviceIds, draggingDevice, drawingConnection, connectionSource, deviceStats, zoom, formatDeviceName, highlights]
   );
 
   /**
@@ -2349,7 +2376,7 @@ export default function TopologyCanvas({
         }
       }
     },
-    [isPanning, draggingDevice, draggingGroupStarts, localDevicePositions, draggingAnnotation, localAnnotationPositions, resizingAnnotation, localAnnotationSizes, topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, onDevicePositionChange, onGroupPositionChange, onDeviceClick, onAnnotationPositionChange, onAnnotationSizeChange, marquee, selectedDeviceIds, onMarqueeSelect, panEnabled]
+    [isPanning, draggingDevice, draggingGroupStarts, localDevicePositions, draggingAnnotation, localAnnotationPositions, resizingAnnotation, localAnnotationSizes, topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, onDevicePositionChange, onGroupPositionChange, onDeviceClick, onAnnotationPositionChange, onAnnotationSizeChange, marquee, onMarqueeSelect, panEnabled]
   );
 
   // While a pan/drag/resize/marquee is in progress, track the pointer on
@@ -2445,40 +2472,6 @@ export default function TopologyCanvas({
   );
 
   /**
-   * Build DeviceContext from Device for AI
-   */
-  const buildDeviceContext = useCallback((device: Device): DeviceContext => {
-    return {
-      name: device.name,
-      type: device.type,
-      platform: device.platform,
-      vendor: undefined, // Will be detected by terminal watcher
-      primaryIp: device.primaryIp,
-      site: device.site,
-      role: device.role,
-      status: device.status,
-    };
-  }, []);
-
-  /**
-   * Build ConnectionContext from Connection for AI
-   */
-  const buildConnectionContext = useCallback((connection: Connection): ConnectionContext | null => {
-    const sourceDevice = topology?.devices.find(d => d.id === connection.sourceDeviceId);
-    const targetDevice = topology?.devices.find(d => d.id === connection.targetDeviceId);
-    if (!sourceDevice || !targetDevice) return null;
-
-    return {
-      sourceDevice: buildDeviceContext(sourceDevice),
-      sourceInterface: connection.sourceInterface || '',
-      targetDevice: buildDeviceContext(targetDevice),
-      targetInterface: connection.targetInterface || '',
-      status: connection.status,
-      protocols: connection.protocols,
-    };
-  }, [topology, buildDeviceContext]);
-
-  /**
    * Handle right-click for device/connection context menu with AI popup
    */
   const handleContextMenu = useCallback(
@@ -2534,7 +2527,7 @@ export default function TopologyCanvas({
         onCanvasContextMenu({ x: event.clientX, y: event.clientY });
       }
     },
-    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findAnnotationAtPosition, findConnectionAtPosition, onDeviceContextMenu, onAnnotationContextMenu, onConnectionContextMenu, onCanvasContextMenu, buildDeviceContext, buildConnectionContext]
+    [topology, screenToWorldX, screenToWorldY, findDeviceAtPosition, findAnnotationAtPosition, findConnectionAtPosition, onDeviceContextMenu, onAnnotationContextMenu, onConnectionContextMenu, onCanvasContextMenu]
   );
 
   /**

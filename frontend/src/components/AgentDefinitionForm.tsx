@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { claudeIgnoresTemperature, TEMPERATURE_IGNORED_NOTE } from '../lib/modelTemperature';
 import type { AgentDefinition, CreateAgentDefinitionRequest, UpdateAgentDefinitionRequest } from '../api/agentDefinitions';
 import AITabInput from './AITabInput';
 import { useDirtyGuard } from '../hooks/useDirtyGuard';
@@ -31,8 +32,11 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
   // without unmounting (edit A → edit B in-place). Today's parent
   // conditionally renders so the bug is dormant, but the useDirtyGuard
   // resetKey above signals the author already expected resync. Without
-  // this, edit B would show A's values.
-  useEffect(() => {
+  // this, edit B would show A's values. Adjusted during render (not in an
+  // effect) so the stale values never paint.
+  const [syncedDefinitionId, setSyncedDefinitionId] = useState(definition?.id);
+  if (definition?.id !== syncedDefinitionId) {
+    setSyncedDefinitionId(definition?.id);
     setName(definition?.name ?? '');
     setDescription(definition?.description ?? '');
     setSystemPrompt(definition?.system_prompt ?? '');
@@ -42,7 +46,7 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
     setMaxIterations(definition?.max_iterations ?? 15);
     setMaxTokens(definition?.max_tokens ?? 4096);
     setEnabled(definition?.enabled ?? true);
-  }, [definition?.id]);
+  }
 
   // Dirty guard so Cancel doesn't silently discard a half-typed agent
   // definition — system prompts in particular can be many minutes of work.
@@ -198,7 +202,13 @@ export function AgentDefinitionForm({ definition, onSave, onCancel, isSaving }: 
             max={1}
             step={0.1}
             disabled={isSaving}
+            aria-describedby="agent-def-temperature-note"
           />
+          <p id="agent-def-temperature-note" className="form-hint">
+            {claudeIgnoresTemperature(model)
+              ? `${model.trim()} doesn’t support temperature, so this is ignored.`
+              : TEMPERATURE_IGNORED_NOTE}
+          </p>
         </div>
 
         <div className="agent-def-form-field">

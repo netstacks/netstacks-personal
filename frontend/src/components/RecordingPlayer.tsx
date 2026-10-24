@@ -298,6 +298,21 @@ export default function RecordingPlayer({ recordingId, onClose }: RecordingPlaye
     seek(targetTime)
   }, [totalDuration, seek])
 
+  // Keyboard seek on the progress slider: arrows ±5s, PageUp/PageDown ±30s, Home/End.
+  const handleProgressKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const steps: Record<string, number> = {
+      ArrowRight: 5000, ArrowUp: 5000, ArrowLeft: -5000, ArrowDown: -5000,
+      PageUp: 30000, PageDown: -30000,
+    }
+    let target: number
+    if (e.key === 'Home') target = 0
+    else if (e.key === 'End') target = totalDuration
+    else if (e.key in steps) target = currentTime + steps[e.key]
+    else return
+    e.preventDefault()
+    seek(Math.min(Math.max(target, 0), totalDuration))
+  }, [currentTime, totalDuration, seek])
+
   // Handle window resize
   useEffect(() => {
     const handleResize = () => {
@@ -386,7 +401,18 @@ export default function RecordingPlayer({ recordingId, onClose }: RecordingPlaye
         </div>
 
         {/* Progress bar */}
-        <div className="recording-player-progress" onClick={handleProgressClick}>
+        <div
+          className="recording-player-progress"
+          role="slider"
+          tabIndex={0}
+          aria-label="Playback position"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(totalDuration / 1000)}
+          aria-valuenow={Math.round(currentTime / 1000)}
+          aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
+          onClick={handleProgressClick}
+          onKeyDown={handleProgressKeyDown}
+        >
           <div
             className="recording-player-progress-fill"
             style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}

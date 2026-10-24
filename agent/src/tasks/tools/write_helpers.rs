@@ -341,8 +341,7 @@ pub async fn execute_ssh_for_session(
 
     let host = session.host.clone();
     let name = session.name.clone();
-    let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())
-        .map_err(|e| e)?;
+    let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())?;
 
     info!(
         session_id = %session_id,

@@ -9,68 +9,21 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import type { TopologyAICallbacks } from '../lib/topologyAITools';
+import type { TopologyAICallbacks, TopologyItemUpdate } from '../lib/topologyAITools';
 import type { Topology, Device, Connection, DeviceType, DeviceStatus, ConnectionStatus } from '../types/topology';
 import type { TopologyAction } from '../types/topologyHistory';
 import type { DeviceStatsMap, LiveStatsMap } from './useTopologyLive';
 import type { LinkEnrichment } from '../types/enrichment';
-import { createDevice, updateDevice as apiUpdateDevice, deleteDevice, createConnection, updateConnection as apiUpdateConnection, deleteConnection, updateDevicePosition } from '../api/topology';
+import {
+  createDevice, deleteDevice, createConnection, deleteConnection, updateDevicePosition,
+  saveDeviceUpdate, saveConnectionUpdate, toDeviceUpdateRequest, toConnectionUpdateRequest, TopologyUpdateError,
+  type SavedUpdate,
+} from '../api/topology';
+import { useActiveTopologyStore } from '../stores/activeTopologyStore';
 
-/** Snake_case body accepted by the agent's device details PUT. */
-export type DeviceUpdateRequest = Parameters<typeof apiUpdateDevice>[2];
-
-/**
- * Frontend `Device` key -> agent details field. Anything not listed here
- * (id, x/y, sessionId, netboxId, metadata, isNeighbor, ...) is not part of
- * the details struct and must be dropped rather than sent — serde ignores
- * unknown keys silently, so the AI would think it persisted and the value
- * would revert on reload.
- */
-const DEVICE_UPDATE_FIELD_MAP: Record<string, keyof DeviceUpdateRequest> = {
-  name: 'name',
-  type: 'device_type',
-  status: 'status',
-  site: 'site',
-  role: 'role',
-  platform: 'platform',
-  vendor: 'vendor',
-  version: 'version',
-  model: 'model',
-  serial: 'serial',
-  uptime: 'uptime',
-  primaryIp: 'primary_ip',
-  notes: 'notes',
-  profileId: 'profile_id',
-  snmpProfileId: 'snmp_profile_id',
-};
-
-/**
- * Map a camelCase `Partial<Device>` (what the AI tool hands us) to the
- * agent's snake_case details request. Returns the keys it dropped so the
- * caller can log them.
- */
-export function toDeviceUpdateRequest(updates: Partial<Device>): { request: DeviceUpdateRequest; dropped: string[] } {
-  const request: Record<string, string> = {};
-  const dropped: string[] = [];
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined) continue;
-    const target = DEVICE_UPDATE_FIELD_MAP[key];
-    if (!target || typeof value !== 'string') {
-      dropped.push(key);
-      continue;
-    }
-    request[target] = value;
-  }
-  return { request: request as DeviceUpdateRequest, dropped };
-}
-
-// Forward-declared type for annotations (not yet implemented)
-interface Annotation {
-  id: string;
-  type: 'text' | 'shape' | 'line';
-  content?: string;
-  position: { x: number; y: number };
-  style?: Record<string, unknown>;
+/** Drop `undefined` values so they neither overwrite local state nor count as changed. */
+function definedEntries<T extends object>(updates: Partial<T>): Partial<T> {
+  return Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 /**
@@ -260,7 +213,7 @@ export function useTopologyAICallbacks({
     showAIActionToast?.(action);
   }, [topology, effectiveTopologyId, isTemporary, setTopology, pushAction, showAIActionToast]);
 
-  const updateDevice = useCallback(async (deviceId: string, updates: Partial<Device>): Promise<Device> => {
+  const updateDevice = useCallback(async (deviceId: string, rawUpdates: Partial<Device>): Promise<TopologyItemUpdate<Device>> => {
     if (!topology || !effectiveTopologyId) {
       throw new Error('No topology loaded');
     }
@@ -270,23 +223,24 @@ export function useTopologyAICallbacks({
       throw new Error(`Device ${deviceId} not found`);
     }
 
-    const updatedDevice: Device = { ...device, ...updates };
+    const updates = definedEntries<Device>(rawUpdates);
+    const conv = toDeviceUpdateRequest(updates);
+    if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+      throw new TopologyUpdateError('device', conv.unknown, conv.invalid);
+    }
 
-    // Update in backend (if not temporary)
+    // Save first (if not temporary) so a failed save never shows as applied.
+    let saved: SavedUpdate = { persisted: [], notPersisted: Object.keys(updates) };
     if (!isTemporary && effectiveTopologyId) {
-      const { request, dropped } = toDeviceUpdateRequest(updates);
-      if (dropped.length > 0) {
-        console.warn('[useTopologyAICallbacks] Dropping device update fields the agent does not persist:', dropped);
-      }
       try {
-        if (Object.keys(request).length > 0) {
-          await apiUpdateDevice(effectiveTopologyId, deviceId, request);
-        }
+        saved = await saveDeviceUpdate(effectiveTopologyId, deviceId, updates);
       } catch (err) {
         console.error('[useTopologyAICallbacks] Failed to update device in backend:', err);
         throw err;
       }
     }
+
+    const updatedDevice: Device = { ...device, ...updates };
 
     // Update local state
     setTopology(prev => {
@@ -311,7 +265,7 @@ export function useTopologyAICallbacks({
 
     showAIActionToast?.(action);
 
-    return updatedDevice;
+    return { item: updatedDevice, ...saved };
   }, [topology, effectiveTopologyId, isTemporary, setTopology, pushAction, showAIActionToast]);
 
   const moveDevice = useCallback(async (deviceId: string, x: number, y: number): Promise<void> => {
@@ -471,7 +425,7 @@ export function useTopologyAICallbacks({
     showAIActionToast?.(action);
   }, [topology, effectiveTopologyId, isTemporary, setTopology, pushAction, showAIActionToast]);
 
-  const updateConnection = useCallback(async (connectionId: string, updates: Partial<Connection>): Promise<Connection> => {
+  const updateConnection = useCallback(async (connectionId: string, rawUpdates: Partial<Connection>): Promise<TopologyItemUpdate<Connection>> => {
     if (!topology || !effectiveTopologyId) {
       throw new Error('No topology loaded');
     }
@@ -481,22 +435,24 @@ export function useTopologyAICallbacks({
       throw new Error(`Connection ${connectionId} not found`);
     }
 
-    const updatedConnection: Connection = { ...connection, ...updates };
+    const updates = definedEntries<Connection>(rawUpdates);
+    const conv = toConnectionUpdateRequest(updates);
+    if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+      throw new TopologyUpdateError('connection', conv.unknown, conv.invalid);
+    }
 
-    // Update in backend (if not temporary)
+    // Save through the shared camelCase -> snake_case layer (both backends).
+    let saved: SavedUpdate = { persisted: [], notPersisted: Object.keys(updates) };
     if (!isTemporary && effectiveTopologyId) {
       try {
-        // Convert Connection type to API type (waypoints is string in API)
-        const apiUpdates: Record<string, unknown> = { ...updates };
-        if (updates.waypoints) {
-          apiUpdates.waypoints = JSON.stringify(updates.waypoints);
-        }
-        await apiUpdateConnection(effectiveTopologyId, connectionId, apiUpdates as Parameters<typeof apiUpdateConnection>[2]);
+        saved = await saveConnectionUpdate(effectiveTopologyId, connectionId, updates);
       } catch (err) {
         console.error('[useTopologyAICallbacks] Failed to update connection in backend:', err);
         throw err;
       }
     }
+
+    const updatedConnection: Connection = { ...connection, ...updates };
 
     // Update local state
     setTopology(prev => {
@@ -525,36 +481,18 @@ export function useTopologyAICallbacks({
 
     showAIActionToast?.(action);
 
-    return updatedConnection;
+    return { item: updatedConnection, ...saved };
   }, [topology, effectiveTopologyId, isTemporary, setTopology, pushAction, showAIActionToast]);
 
-  // === Annotation callbacks (in-memory only, not persisted to backend) ===
-
-  const addAnnotation = useCallback(async (annotationData: Partial<Annotation>): Promise<Annotation> => {
-    const annotation: Annotation = {
-      id: `annotation-${crypto.randomUUID()}`,
-      type: annotationData.type || 'text',
-      content: annotationData.content,
-      position: annotationData.position || { x: 500, y: 500 },
-      style: annotationData.style,
-    };
-    return annotation;
-  }, []);
-
-  const removeAnnotation = useCallback(async (_annotationId: string): Promise<void> => {
-    // Annotation removal is handled in TopologyTabEditor state
-  }, []);
-
-  const updateAnnotation = useCallback(async (annotationId: string, updates: Partial<Annotation>): Promise<Annotation> => {
-    const annotation: Annotation = {
-      id: annotationId,
-      type: updates.type || 'text',
-      content: updates.content,
-      position: updates.position || { x: 500, y: 500 },
-      style: updates.style,
-    };
-    return annotation;
-  }, []);
+  // === Editor-backed operations ===
+  // Annotations, highlights and export live in TopologyTabEditor's state; it
+  // publishes them to the active-topology store. Read them from there (App
+  // doesn't pass them) so the AI tools are wired to the real editor — and
+  // are absent, hence not offered to the model, when no editor is open.
+  const editorAddAnnotation = useActiveTopologyStore(s => s.addAnnotation);
+  const editorSetHighlights = useActiveTopologyStore(s => s.setHighlights);
+  const editorClearHighlights = useActiveTopologyStore(s => s.clearHighlights);
+  const editorExportTopology = useActiveTopologyStore(s => s.exportTopology);
 
   // Build the callbacks object
   const callbacks = useMemo((): TopologyAICallbacks | null => {
@@ -581,10 +519,11 @@ export function useTopologyAICallbacks({
       removeConnection,
       updateConnection,
 
-      // Annotation operations (in-memory only)
-      addAnnotation,
-      removeAnnotation,
-      updateAnnotation,
+      // Editor-backed operations (undefined when no editor published them)
+      addAnnotation: editorAddAnnotation,
+      setHighlights: editorSetHighlights,
+      clearHighlights: editorClearHighlights,
+      exportTopology: editorExportTopology,
     };
   }, [
     topology,
@@ -600,9 +539,10 @@ export function useTopologyAICallbacks({
     addConnection,
     removeConnection,
     updateConnection,
-    addAnnotation,
-    removeAnnotation,
-    updateAnnotation,
+    editorAddAnnotation,
+    editorSetHighlights,
+    editorClearHighlights,
+    editorExportTopology,
   ]);
 
   return callbacks;

@@ -3,8 +3,9 @@
  *
  * Topology state lives inside TopologyTabEditor, but the global AISidePanel needs
  * to see and act on it. This store is the bridge: TopologyTabEditor publishes the
- * active topology, live SNMP stats, and its mutation callbacks; App.tsx reads them
- * to build topologyCallbacks for the AI. When no topology tab is focused the store
+ * active topology, live SNMP stats, and its mutation callbacks; App.tsx (and
+ * useTopologyAICallbacks, for the editor-backed annotate/highlight/export
+ * operations) read them to build topologyCallbacks for the AI. When no topology tab is focused the store
  * holds nulls and the AI's topology tools are simply unavailable.
  */
 import { create } from 'zustand'
@@ -13,6 +14,7 @@ import type { Topology } from '../types/topology'
 import type { DeviceStatsMap, LiveStatsMap } from '../hooks/useTopologyLive'
 import type { LinkEnrichment } from '../types/enrichment'
 import type { TopologyAction } from '../types/topologyHistory'
+import type { TopologyAICallbacks } from '../lib/topologyAITools'
 
 /** Matches useTopologyHistory's pushAction signature so the editor can publish
  *  its real callback with no cast. */
@@ -27,8 +29,12 @@ export interface ActiveTopologyPayload {
   liveStats?: LiveStatsMap | null
   setTopology?: React.Dispatch<React.SetStateAction<Topology | null>>
   pushAction?: TopologyPushAction
-  setHighlights?: (h: { targets: string[]; color: string; label?: string }) => void
-  clearHighlights?: () => void
+  /** Editor-backed AI operations (see TopologyAICallbacks). Only an open
+   *  editor publishes these; absent ones are not offered to the model. */
+  addAnnotation?: TopologyAICallbacks['addAnnotation']
+  setHighlights?: TopologyAICallbacks['setHighlights']
+  clearHighlights?: TopologyAICallbacks['clearHighlights']
+  exportTopology?: TopologyAICallbacks['exportTopology']
   showAIActionToast?: (action: TopologyAction) => void
 }
 
@@ -46,8 +52,10 @@ const EMPTY: ActiveTopologyPayload = {
   liveStats: null,
   setTopology: undefined,
   pushAction: undefined,
+  addAnnotation: undefined,
   setHighlights: undefined,
   clearHighlights: undefined,
+  exportTopology: undefined,
   showAIActionToast: undefined,
 }
 

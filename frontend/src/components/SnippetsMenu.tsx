@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { usePopupMenuList } from '../hooks/usePopupMenuList';
 import { listGlobalSnippets, type GlobalSnippet } from '../api/snippets';
 import './SnippetsMenu.css';
 import SearchField from './SearchField';
@@ -14,19 +15,12 @@ export default function SnippetsMenu({
   onSelectSnippet,
   onManageSnippets,
 }: SnippetsMenuProps) {
-  const [snippets, setSnippets] = useState<GlobalSnippet[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Load snippets on mount
-  useEffect(() => {
-    listGlobalSnippets()
-      .then(setSnippets)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  // Load on mount; failures surface as an error state with Retry.
+  const { items: snippets, status, retry, onListKeyDown } = usePopupMenuList(listGlobalSnippets, searchRef);
 
   // Focus search on mount
   useEffect(() => {
@@ -70,34 +64,41 @@ export default function SnippetsMenu({
   }, [onManageSnippets, onClose]);
 
   return (
-    <div className="snippets-menu" ref={menuRef}>
+    <div className="snippets-menu" ref={menuRef} onKeyDown={onListKeyDown}>
       <div className="snippets-menu-search">
         <SearchField inputRef={searchRef} value={search} onChange={setSearch} placeholder="Search snippets..." />
       </div>
 
-      <div className="snippets-menu-list">
-        {loading ? (
-          <div className="snippets-menu-empty">Loading...</div>
+      <div className="snippets-menu-list" role="group" aria-label="Snippets">
+        {status === 'loading' ? (
+          <div className="snippets-menu-empty" role="status">Loading...</div>
+        ) : status === 'error' ? (
+          <div className="snippets-menu-empty snippets-menu-error" role="alert">
+            Couldn't load snippets.{' '}
+            <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={retry}>Retry</button>
+          </div>
         ) : filteredSnippets.length === 0 ? (
           <div className="snippets-menu-empty">
             {search ? 'No snippets match your search' : 'No snippets yet'}
           </div>
         ) : (
           filteredSnippets.map(snippet => (
-            <div
+            <button
+              type="button"
               key={snippet.id}
               className="snippets-menu-item"
+              data-menu-item
               onClick={() => handleSelect(snippet)}
             >
               <span className="snippets-menu-item-name">{snippet.name}</span>
               <span className="snippets-menu-item-command">{snippet.command}</span>
-            </div>
+            </button>
           ))
         )}
       </div>
 
       <div className="snippets-menu-footer">
-        <button onClick={handleManage}>
+        <button type="button" onClick={handleManage}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>

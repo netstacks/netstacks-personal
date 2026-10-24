@@ -4,7 +4,8 @@
  * Audit P1-16 flagged 9 dialogs that each lacked some subset of:
  *   - Escape closes the modal
  *   - Focus trap (Tab cycles within the modal instead of leaking
- *     behind it to the underlying app)
+ *     behind it to the underlying app) — now owned by ModalFrame,
+ *     together with background inerting and focus restore
  *   - Autofocus on a chosen field
  *   - Enter submits the primary action (when there's a single
  *     primary action that doesn't conflict with form internals)
@@ -13,6 +14,12 @@
  * the modal opened, and a stray Enter triggered the destructive
  * "Proceed Anyway" path. This hook centralises the pattern so every
  * modal can adopt all four without re-implementing.
+ *
+ * The focus trap used to live here too. Every caller renders a ModalFrame,
+ * which now traps Tab, inerts the page and restores focus for all dialogs,
+ * so a second trap here would only fight it. This hook keeps the per-dialog
+ * parts: Escape, Enter-to-submit and a chosen autofocus target (which runs
+ * after ModalFrame's default initial focus, so it wins).
  *
  * Usage
  * -----
@@ -41,12 +48,12 @@
  * without disturbing their JSX.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 interface UseModalKeyboardOptions {
   /** True when the modal is visible. The hook is a no-op when false. */
   isOpen: boolean
-  /** Container element to focus-trap inside. Required for Tab cycling. */
+  /** The dialog element (normally the ModalFrame ref). Scopes autofocus and the key handler. */
   containerRef: React.RefObject<HTMLElement | null>
   /** Called on Escape. Pass undefined to disable. */
   onEscape?: () => void
@@ -68,10 +75,6 @@ interface UseModalKeyboardOptions {
   autoFocusSelector?: string
 }
 
-// Elements that can receive keyboard focus. Used by the focus trap.
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
 export function useModalKeyboard(opts: UseModalKeyboardOptions): void {
   const { isOpen, containerRef, onEscape, onEnter, autoFocusSelector } = opts
 
@@ -79,8 +82,10 @@ export function useModalKeyboard(opts: UseModalKeyboardOptions): void {
   // effect to re-subscribe.
   const onEscapeRef = useRef(onEscape)
   const onEnterRef = useRef(onEnter)
-  onEscapeRef.current = onEscape
-  onEnterRef.current = onEnter
+  useLayoutEffect(() => {
+    onEscapeRef.current = onEscape
+    onEnterRef.current = onEnter
+  })
 
   // Autofocus on open.
   useEffect(() => {
@@ -96,7 +101,7 @@ export function useModalKeyboard(opts: UseModalKeyboardOptions): void {
     return () => clearTimeout(t)
   }, [isOpen, autoFocusSelector, containerRef])
 
-  // Escape + Enter + Tab focus trap.
+  // Escape + Enter.
   useEffect(() => {
     if (!isOpen) return
     const handler = (e: KeyboardEvent) => {
@@ -134,29 +139,6 @@ export function useModalKeyboard(opts: UseModalKeyboardOptions): void {
         if (!isMultiline) {
           e.preventDefault()
           onEnterRef.current()
-          return
-        }
-      }
-
-      // Tab — focus trap. Cycle within the modal's focusable elements
-      // so Shift+Tab from the first field wraps to the last, and Tab
-      // from the last wraps to the first. Without this, Tab leaks
-      // behind the modal into the app — including action buttons that
-      // shouldn't be reachable while a destructive confirm is up.
-      if (e.key === 'Tab') {
-        const focusable = Array.from(
-          root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-        ).filter((el) => el.offsetParent !== null) // visible only
-        if (focusable.length === 0) return
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        const active = document.activeElement as HTMLElement | null
-        if (e.shiftKey && active === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && active === last) {
-          e.preventDefault()
-          first.focus()
         }
       }
     }

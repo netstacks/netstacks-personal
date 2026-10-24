@@ -512,16 +512,16 @@ async fn async_main() {
     // AUDIT FIX (EXEC-002): config mode starts disabled. One handle, shared by
     // the API (AppState) and background tasks so both see the same live state.
     let config_mode: ai::config_mode::ConfigModeHandle = Arc::new(tokio::sync::RwLock::new(None));
-    let task_executor = Arc::new(tasks::AgentTaskExecutor::new(
-        task_store.clone(),
-        task_registry.clone(),
-        progress_broadcaster.clone(),
-        pool.clone(),
-        provider.clone(),
-        mcp_client_manager.clone(),
-        sanitizer.clone(),
-        config_mode.clone(),
-    ));
+    let task_executor = Arc::new(tasks::AgentTaskExecutor::new(tasks::AgentTaskExecutorDeps {
+        store: task_store.clone(),
+        registry: task_registry.clone(),
+        broadcaster: progress_broadcaster.clone(),
+        pool: pool.clone(),
+        provider: provider.clone(),
+        mcp_manager: mcp_client_manager.clone(),
+        sanitizer: sanitizer.clone(),
+        config_mode: config_mode.clone(),
+    }));
 
     // Initialize cert manager for SSH certificate auth
     let cert_manager = Arc::new(cert_manager::CertManager::new(pool.clone()));
@@ -1612,6 +1612,8 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
             "/tasks/:id",
             get(api::get_task).delete(api::delete_task_endpoint),
         )
+        // Cancel-only: keeps the record (DELETE cancels and deletes).
+        .route("/tasks/:id/cancel", post(api::cancel_task_endpoint))
         // Feature A: glass-box transcript catch-up (backfill after WS lag)
         .route("/tasks/:id/messages", get(api::list_task_messages))
         // SMTP Configuration (Phase 06)

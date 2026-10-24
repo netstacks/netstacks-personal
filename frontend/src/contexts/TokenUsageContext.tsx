@@ -1,51 +1,27 @@
 /**
  * TokenUsageContext - Global token usage tracking across the platform
  *
- * Tracks AI token consumption by provider, persists to localStorage,
- * and provides a centralized way to monitor usage across all AI features.
+ * Tracks AI token consumption by provider and persists it to localStorage.
+ *
+ * Coverage: the agent chat loops (side panel, chat tabs, floating chat and
+ * inline popup — streaming and non-streaming), including requests on the
+ * default-provider path, which are attributed to the default provider
+ * (resolveUsageProvider). Simple `/ai/chat` helpers (command suggestions,
+ * next-step suggestions, highlighting) and background tasks are NOT counted:
+ * those backend endpoints don't return usage.
  */
 
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { userScopedKey } from '../lib/userScope'
+import {
+  TokenUsageContext,
+  type AiProviderType,
+  type GlobalTokenUsage,
+  type ProviderUsage,
+  type TokenUsage,
+} from './tokenUsageStore'
 
-// Provider types (matches backend)
-export type AiProviderType = 'anthropic' | 'openai' | 'ollama' | 'openrouter' | 'litellm' | 'custom'
-
-// Token usage for a single request
-export interface TokenUsage {
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-}
-
-// Cumulative usage per provider
-export interface ProviderUsage {
-  provider: AiProviderType
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  requestCount: number
-  lastUsed: string // ISO date
-}
-
-// Global usage state
-export interface GlobalTokenUsage {
-  providers: Record<AiProviderType, ProviderUsage>
-  totalInputTokens: number
-  totalOutputTokens: number
-  totalTokens: number
-  totalRequests: number
-  sessionStart: string // ISO date - when tracking started
-}
-
-// Context value type
-interface TokenUsageContextValue {
-  usage: GlobalTokenUsage
-  trackUsage: (provider: AiProviderType, tokens: TokenUsage) => void
-  resetProvider: (provider: AiProviderType) => void
-  resetAll: () => void
-  getProviderUsage: (provider: AiProviderType) => ProviderUsage
-}
+export type { AiProviderType, GlobalTokenUsage, ProviderUsage, TokenUsage, TokenUsageContextValue } from './tokenUsageStore'
 
 // Per user in enterprise (lib/userScope). The provider mounts with the
 // signed-in user (see AppShell), so it reads and writes that user's copy.
@@ -114,9 +90,6 @@ const saveUsage = (usage: GlobalTokenUsage): void => {
     console.error('Failed to save token usage to localStorage:', err)
   }
 }
-
-// Create context
-const TokenUsageContext = createContext<TokenUsageContextValue | null>(null)
 
 // Provider component
 export function TokenUsageProvider({ children }: { children: ReactNode }) {
@@ -210,18 +183,4 @@ export function TokenUsageProvider({ children }: { children: ReactNode }) {
       {children}
     </TokenUsageContext.Provider>
   )
-}
-
-// Hook to use token usage context
-export function useTokenUsage(): TokenUsageContextValue {
-  const context = useContext(TokenUsageContext)
-  if (!context) {
-    throw new Error('useTokenUsage must be used within a TokenUsageProvider')
-  }
-  return context
-}
-
-// Optional hook that returns null if not in provider (for optional tracking)
-export function useTokenUsageOptional(): TokenUsageContextValue | null {
-  return useContext(TokenUsageContext)
 }

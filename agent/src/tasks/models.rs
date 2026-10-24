@@ -60,7 +60,7 @@ impl TaskStatus {
     }
 
     /// Check if this is a terminal state
-    pub fn _is_terminal(&self) -> bool {
+    pub fn is_terminal(&self) -> bool {
         matches!(
             self,
             TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
@@ -102,17 +102,64 @@ pub struct AgentTask {
     pub delegation_label: Option<String>,
 }
 
+/// What the ReAct loop does when a tool call fails (the tool returns an error
+/// or reports `success: false`). Wire values match the frontend's
+/// `FailurePolicy` type (`frontend/src/types/tasks.ts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FailurePolicyKind {
+    /// Fail the task on the first tool failure.
+    Stop,
+    /// Hand the failure back to the model and keep reasoning. This is what
+    /// tasks have always done, so it is the default when no policy is sent.
+    #[default]
+    Continue,
+    /// Re-run the failing call up to `retry_count` more times, then fail the
+    /// task if it still fails.
+    Retry,
+}
+
+/// Per-task failure-handling policy (`{"policy": "...", "retry_count": N}`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+pub struct FailurePolicy {
+    pub policy: FailurePolicyKind,
+    /// Retries after the first attempt (`retry` only). Default 1, capped at
+    /// [`MAX_TOOL_RETRIES`].
+    #[serde(default)]
+    pub retry_count: Option<u32>,
+}
+
+/// Upper bound on `retry_count`, so a bad request can't spin a tool forever.
+pub const MAX_TOOL_RETRIES: u32 = 5;
+
+impl FailurePolicy {
+    /// How many times a failing call is attempted in total. Parking tools
+    /// (ask_user, delegate_to_agent) wait on a human or a child agent, so
+    /// re-running them would re-ask the question; they get one attempt.
+    pub fn attempts(&self, parks: bool) -> u32 {
+        match self.policy {
+            FailurePolicyKind::Retry if !parks => {
+                1 + self.retry_count.unwrap_or(1).min(MAX_TOOL_RETRIES)
+            }
+            _ => 1,
+        }
+    }
+
+    /// Whether a tool failure that survived its attempts ends the task.
+    pub fn fails_task(&self) -> bool {
+        !matches!(self.policy, FailurePolicyKind::Continue)
+    }
+}
+
 /// Request to create a new task
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateTaskRequest {
     pub prompt: String,
-    /// Per-task failure-handling policy. Accepted from the wire so the
-    /// frontend's `failure_policy` field round-trips, but not yet read by
-    /// any downstream consumer — wiring this to the executor is a separate
-    /// task. The `_` prefix silences dead_code without `#[allow]`;
-    /// serde(rename) preserves the wire field name.
-    #[serde(rename = "failure_policy", default)]
-    pub _failure_policy: Option<serde_json::Value>,
+    /// Per-task failure-handling policy; absent means
+    /// [`FailurePolicyKind::Continue`]. Not persisted: the executor receives
+    /// it at spawn time (`AgentTaskExecutor::spawn_task_with_policy`).
+    #[serde(default)]
+    pub failure_policy: Option<FailurePolicy>,
 }
 
 /// Request to update task status/progress
@@ -173,11 +220,48 @@ mod tests {
 
     #[test]
     fn test_status_is_terminal() {
-        assert!(!TaskStatus::Pending._is_terminal());
-        assert!(!TaskStatus::Running._is_terminal());
-        assert!(TaskStatus::Completed._is_terminal());
-        assert!(TaskStatus::Failed._is_terminal());
-        assert!(TaskStatus::Cancelled._is_terminal());
+        assert!(!TaskStatus::Pending.is_terminal());
+        assert!(!TaskStatus::Running.is_terminal());
+        assert!(TaskStatus::Completed.is_terminal());
+        assert!(TaskStatus::Failed.is_terminal());
+        assert!(TaskStatus::Cancelled.is_terminal());
+    }
+
+    #[test]
+    fn failure_policy_parses_frontend_shapes() {
+        let req: CreateTaskRequest = serde_json::from_str(
+            r#"{"prompt":"p","failure_policy":{"policy":"retry","retry_count":3}}"#,
+        )
+        .unwrap();
+        let policy = req.failure_policy.unwrap();
+        assert_eq!(policy.policy, FailurePolicyKind::Retry);
+        assert_eq!(policy.attempts(false), 4);
+        assert_eq!(policy.attempts(true), 1, "parking tools are never re-run");
+        assert!(policy.fails_task());
+
+        let req: CreateTaskRequest =
+            serde_json::from_str(r#"{"prompt":"p","failure_policy":{"policy":"stop"}}"#).unwrap();
+        let policy = req.failure_policy.unwrap();
+        assert_eq!(policy.attempts(false), 1);
+        assert!(policy.fails_task());
+
+        let req: CreateTaskRequest = serde_json::from_str(r#"{"prompt":"p"}"#).unwrap();
+        let policy = req.failure_policy.unwrap_or_default();
+        assert_eq!(policy.policy, FailurePolicyKind::Continue);
+        assert!(!policy.fails_task());
+
+        assert!(serde_json::from_str::<CreateTaskRequest>(
+            r#"{"prompt":"p","failure_policy":{"policy":"explode"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn retry_count_defaults_and_is_capped() {
+        let retry = |n| FailurePolicy { policy: FailurePolicyKind::Retry, retry_count: n };
+        assert_eq!(retry(None).attempts(false), 2);
+        assert_eq!(retry(Some(0)).attempts(false), 1);
+        assert_eq!(retry(Some(1000)).attempts(false), 1 + MAX_TOOL_RETRIES);
     }
 
     #[test]

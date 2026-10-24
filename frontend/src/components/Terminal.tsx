@@ -44,6 +44,7 @@ import { useAIHighlighting } from '../hooks/useAIHighlighting'
 import { getHighlightTypeColor } from '../api/ai'
 // getWsUrl replaced by getClient().wsUrlWithAuth()
 import { getSession, listSessions, type TabProtocol } from '../api/sessions'
+import { buildTerminalWsParams } from '../lib/terminalTarget'
 import { listMappedKeys, revealMappedKey, type MappedKey } from '../api/mappedKeys'
 import { listCustomCommands, type CustomCommand } from '../api/customCommands'
 import { executeQuickAction } from '../api/quickActions'
@@ -86,8 +87,15 @@ export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'er
 
 interface TerminalProps {
   id: string
-  /** Session ID for SSH connection (if not provided, opens local terminal) */
+  /** Session ID for SSH connection. Without it (and without a quick-connect
+   *  target) the terminal opens a local shell. */
   sessionId?: string
+  /** Quick connect without a saved session: the device to connect to. When
+   *  set, the terminal is remote — it never falls back to a local shell. */
+  quickConnectHost?: string
+  quickConnectPort?: number
+  /** Quick connect: credential profile the agent logs in with. */
+  quickConnectProfileId?: string
   /** Connection protocol (ssh, telnet, or console — OOB console via the
    *  session's terminal server; default ssh) */
   protocol?: TabProtocol
@@ -246,6 +254,9 @@ function ensureTerminalDropTarget() {
 const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   id,
   sessionId,
+  quickConnectHost,
+  quickConnectPort,
+  quickConnectProfileId,
   protocol,
   onReviewPaste,
   sessionName,
@@ -471,6 +482,12 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Store settings in ref to avoid triggering reconnections
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  // Settings that re-apply to a live terminal (not via a remount).
+  const terminalFontWeight = settings['terminal.fontWeight']
+  const detectionHighlightingEnabled = settings['detection.highlighting']
+  // The xterm instance is created once per tab with these mount-time values;
+  // later changes are applied by their own effects, never by a remount.
+  const initialTerminalOptionsRef = useRef({ fontSize, fontFamily, terminalTheme, scrollbackLines, effectiveSessionId })
 
   // Copy on select - profile-level setting removed, use global only
   const [profileCopyOnSelect] = useState<boolean | null>(null)
@@ -480,6 +497,13 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const profileMappedKeysRef = useRef<MappedKey[]>([])
   const customCommandsRef = useRef<CustomCommand[]>([])
   const [customCommandsLoaded, setCustomCommandsLoaded] = useState(false)
+
+  // Quick connect: the host/profile are known up front (no session lookup).
+  useEffect(() => {
+    if (sessionId || !quickConnectHost) return
+    sessionHostRef.current = quickConnectHost
+    sessionProfileIdRef.current = quickConnectProfileId || ''
+  }, [sessionId, quickConnectHost, quickConnectProfileId])
 
   // Fetch session metadata when sessionId is present
   useEffect(() => {
@@ -1070,7 +1094,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       const pngData = await convertToPng(imageBlob)
       const n = imageCounterRef.current
 
-      const isLocal = !sessionId && !enterpriseSessionDefinitionId && !isJumpbox
+      const isLocal = !sessionId && !quickConnectHost && !enterpriseSessionDefinitionId && !isJumpbox
       let savedPath: string
 
       if (isLocal) {
@@ -1298,14 +1322,18 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     setShowReconnectOverlay(false)
     clearCountdownInterval()
 
-    // Build WebSocket URL with connection type and session ID
-    const params = new URLSearchParams()
-    if (sessionId) {
-      params.set('type', protocol || 'ssh')
-      params.set('session_id', sessionId)
-    } else {
-      params.set('type', 'local')
+    // Build WebSocket URL with connection type and target. A remote tab
+    // (session or quick connect) never falls back to a local shell.
+    const target = buildTerminalWsParams({ sessionId, protocol, quickConnectHost, quickConnectPort, quickConnectProfileId })
+    if (!target.ok) {
+      terminal.writeln(`\r\n\x1b[31mCannot connect: ${target.error}\x1b[0m`)
+      queueMicrotask(() => {
+        onStatusChangeRef.current?.('error')
+      })
+      return
     }
+    const isLocalShell = target.kind === 'local'
+    const params = target.params
     // Send initial PTY dimensions so the remote shell starts at the correct size
     // (avoids garbled display in full-screen apps like vim/nano)
     if (terminalRef.current) {
@@ -1322,7 +1350,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       params.set('guard', '1')
       params.set('guard_mode', settingsRef.current['guard.mode'] ?? 'dry-run')
       params.set('guard_flavor', cliFlavorRef.current ?? 'auto')
-      const guardDevice = sessionName || sessionHostRef.current
+      const guardDevice = sessionNameRef.current || sessionHostRef.current
       if (guardDevice) params.set('guard_device', guardDevice)
     }
     guardProbingAnnouncedRef.current = false
@@ -1341,7 +1369,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       logger.log('Terminal WebSocket opened')
       // For local terminals, mark connected immediately
       // For SSH, wait for Connected message from server (after successful auth)
-      if (!sessionId) {
+      if (isLocalShell) {
         isConnectedRef.current = true
         hasEverConnectedRef.current = true
         onStatusChangeRef.current?.('connected')
@@ -1669,7 +1697,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       }
     }
   // Note: All dynamic callbacks accessed via refs to prevent reconnection loops
-  }, [handleResize, clearCountdownInterval, id, sessionId])
+  }, [handleResize, clearCountdownInterval, id, sessionId, protocol, quickConnectHost, quickConnectPort, quickConnectProfileId, isEnterpriseMode, isJumpboxMode, remoteAgentUrl, remoteAgentToken])
 
   // Store connect in ref so connection effect doesn't re-run when connect changes
   const connectRef = useRef(connect)
@@ -2329,10 +2357,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
     // Create terminal instance with theme and font settings (session-specific → global terminal settings → defaults).
     // The UI `fontSize` is the chrome size; the terminal has its own (NS-TERM-11).
-    const effectiveFontSize = zoomedFontSize(fontSize ?? settingsRef.current['terminal.fontSize'], settingsRef.current['view.zoomStep'])
-    const effectiveFontFamily = fontFamily || settingsRef.current['terminal.fontFamily'] || platformMonoFont()
+    const initial = initialTerminalOptionsRef.current
+    const effectiveFontSize = zoomedFontSize(initial.fontSize ?? settingsRef.current['terminal.fontSize'], settingsRef.current['view.zoomStep'])
+    const effectiveFontFamily = initial.fontFamily || settingsRef.current['terminal.fontFamily'] || platformMonoFont()
     // Use session theme, or fall back to default theme from settings
-    const effectiveTheme = terminalTheme ?? settingsRef.current['terminal.defaultTheme']
+    const effectiveTheme = initial.terminalTheme ?? settingsRef.current['terminal.defaultTheme']
     // Font weight setting
     const fontWeight = settingsRef.current['terminal.fontWeight'] ?? 'normal'
     // Captured for the cleanup below (the ref's identity never changes).
@@ -2344,7 +2373,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       fontFamily: effectiveFontFamily,
       fontWeight: fontWeight as 'normal' | 'bold',
       theme: getTerminalTheme(effectiveTheme),
-      scrollback: scrollbackLines ?? DEFAULT_SCROLLBACK_LINES,
+      scrollback: initial.scrollbackLines ?? DEFAULT_SCROLLBACK_LINES,
       allowProposedApi: true,
     })
     // Load addons
@@ -2497,7 +2526,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // Reads settings live so the toggle takes effect without remount.
     if (containerRef.current) {
       enrichPopupRef.current = installEnrichPopup(terminal, containerRef.current, {
-        sessionId: effectiveSessionId ?? null,
+        sessionId: initial.effectiveSessionId ?? null,
         getCliFlavor: () => cliFlavorRef.current ?? null,
         getSettings: () => ({
           hoverEnabled: settingsRef.current['terminal.enrichment.hoverEnabled'] !== false
@@ -2821,13 +2850,13 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   // Update terminal font weight when setting changes
   useEffect(() => {
     if (terminalRef.current && fitAddonRef.current) {
-      const fontWeight = settings['terminal.fontWeight'] ?? 'normal'
+      const fontWeight = terminalFontWeight ?? 'normal'
       terminalRef.current.options.fontWeight = fontWeight as 'normal' | 'bold'
       // Re-fit and refresh terminal to apply new settings
       fitAddonRef.current.fit()
       terminalRef.current.refresh(0, terminalRef.current.rows - 1)
     }
-  }, [settings['terminal.fontWeight']])
+  }, [terminalFontWeight])
 
   // Initialize and update highlight engine (includes detection rules)
   useEffect(() => {
@@ -2863,8 +2892,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     ansiHighlighterRef.current.setRules(highlightRules)
 
     // Wire detection rules into the highlight engine for unified decorations
-    const detectionHighlighting = settings['detection.highlighting']
-    if (detectionHighlighting) {
+    if (detectionHighlightingEnabled) {
       // Map network preset rule names to detection types
       const presetTypeMap: Record<string, string> = {
         'IPv4 Address': 'ipv4',
@@ -2960,7 +2988,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     } else {
       highlightEngineRef.current.clearDetectionRules()
     }
-  }, [highlightingEnabled, highlightRules, sessionId, settings['detection.highlighting']])
+  }, [highlightingEnabled, highlightRules, sessionId, detectionHighlightingEnabled])
 
   // Set up scroll handler for highlight updates
   useEffect(() => {
@@ -3036,9 +3064,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     }
   }, [showLineNumbers, updateLineNumbers])
 
-  // Apply AI highlights when they change
+  // Apply AI highlights when they change. The new set always replaces the
+  // old one — an empty set clears the previous decorations instead of leaving
+  // stale highlights (and their hover tooltips) on screen.
   useEffect(() => {
-    if (!highlightEngineRef.current || aiHighlights.length === 0) return
+    if (!highlightEngineRef.current) return
     const terminal = terminalRef.current
     if (!terminal) return
 
@@ -3106,10 +3136,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     }
 
     resolvedHighlightsRef.current = resolvedHighlights
-
-    if (adHocHighlights.length > 0) {
-      highlightEngineRef.current.applyAdHocHighlights(adHocHighlights)
-    }
+    highlightEngineRef.current.applyAdHocHighlights(adHocHighlights)
   }, [aiHighlights, aiOverlordActive, onOverlordAnnotationClick])
 
   // Ref for resolved highlight positions (used by mousemove hover and click)
@@ -3553,7 +3580,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     } catch (err) {
       showToast(`Script failed: ${getErrorMessage(err)}`, 'error', 5000);
     }
-  }, [])
+  }, [isEnterpriseMode])
 
   const handleDetectionCopy = useCallback((text: string) => {
     void copyToClipboard(text, clipProvenanceRef.current())

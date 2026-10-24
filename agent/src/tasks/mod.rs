@@ -14,7 +14,7 @@ mod registry;
 mod store;
 pub mod tools;
 
-pub use executor::AgentTaskExecutor;
+pub use executor::{AgentTaskExecutor, AgentTaskExecutorDeps, CancelOutcome};
 pub use models::{AgentTask, CreateTaskRequest, TaskMessage, TaskStatus};
 pub use permit::{PermitGuard, ReacquireError};
 pub use progress::ProgressBroadcaster;

@@ -28,6 +28,8 @@ import { getCurrentMode } from '../api/client';
 import { listProfiles } from '../api/profiles';
 import type { CredentialProfile } from '../api/profiles';
 import { executeHistoryAction } from '../lib/topologyHistoryActions';
+import { executeAnnotationHistoryAction, isAnnotationAction } from '../lib/topologyAnnotationHistory';
+import { buildAIAnnotationData, type AIAnnotationSpec, type AIAnnotationResult, type TopologyHighlightRequest } from '../lib/topologyAITools';
 import { computeLayout } from '../lib/topologyLayout';
 import type { LayoutType } from '../lib/topologyLayout';
 import { filterTopology } from '../lib/topologyFilters';
@@ -353,75 +355,6 @@ export default function TopologyTabEditor({
   }, []);
 
   /**
-   * Handle starting enrichment from the toolbar dropdown.
-   * Resolves NetBox tokens and MCP servers, then runs enrichment.
-   */
-  const handleStartEnrichment = useCallback(async (options: TopologyEnrichmentOptions) => {
-    if (!topology) return;
-
-    const topoSnapshot = topology;
-    logger.log('[TopologyTabEditor] Starting enrichment for', topoSnapshot.devices.filter(d => d.primaryIp).length, 'devices');
-
-    // Resolve NetBox configs (need to fetch tokens)
-    const extOptions = options as TopologyEnrichmentOptions & { _selectedNetboxIds?: string[]; _selectedMcpIds?: string[] };
-    const netboxIds = extOptions._selectedNetboxIds || [];
-    const mcpIds = extOptions._selectedMcpIds || [];
-
-    const netboxConfigs: Array<{ url: string; token: string; sourceId?: string }> = [];
-    if (netboxIds.length > 0 && enrichmentSources) {
-      // Load full NetBox source info
-      try {
-        const allSources = await listNetBoxSources();
-        for (const src of allSources) {
-          if (!netboxIds.includes(src.id)) continue;
-          try {
-            const conn = await getNetBoxSourceConnection(src.id);
-            if (conn) {
-              netboxConfigs.push({ url: conn.base_url, token: conn.token, sourceId: src.id });
-            }
-          } catch { /* skip */ }
-        }
-      } catch { /* skip */ }
-    }
-
-    // Resolve MCP servers
-    const selectedMcpServers = mcpServerObjects.filter(s => mcpIds.includes(s.id));
-
-    // Remember whether to draw port-stat colors after enrichment finishes;
-    // disabled toggle = clear so the canvas falls back to its old behavior.
-    setShowPortStats(Boolean(options.enableLinkStats));
-
-    try {
-      await enrichTopology(topoSnapshot, {
-        ...options,
-        netboxConfigs: netboxConfigs.length > 0 ? netboxConfigs : undefined,
-        mcpServers: selectedMcpServers.length > 0 ? selectedMcpServers : undefined,
-        onProgress: (state) => {
-          setTraceEnrichment(state);
-          // Apply enrichment to topology for live visual updates
-          const enriched = applyEnrichmentToTopology(topoSnapshot, state);
-          setTopology(enriched);
-        },
-      });
-
-      // 1-hop neighbor discovery as part of enrichment. Runs SNMP LLDP/CDP
-      // on every topology device that has a profile + IP, then either links
-      // each discovered neighbor to an existing node (alias dedup) or adds
-      // it as a new node. Reuses runBatchDiscovery — the same path used by
-      // the Discovery modal — so jump-host routing & all SNMP plumbing
-      // are inherited automatically.
-      if (options.discoverNeighbors) {
-        await runNeighborDiscoveryPhase(topoSnapshot);
-        // Pull fresh topology with the new nodes/connections persisted.
-        const refreshed = await getTopology(topoSnapshot.id);
-        setTopology(refreshed);
-      }
-    } catch (err) {
-      console.error('[TopologyTabEditor] Enrichment failed:', err);
-    }
-  }, [topology, enrichmentSources, mcpServerObjects]);
-
-  /**
    * Phase 2 of enrichment (opt-in): SNMP LLDP/CDP neighbor discovery on every
    * device with a usable profile. Each discovered neighbor either matches an
    * existing topology node (by name or IP, case-insensitive) and gets a
@@ -547,6 +480,75 @@ export default function TopologyTabEditor({
 
     logger.log(`[TopologyTabEditor] Neighbor discovery added ${neighborIndex} new node(s)`);
   }, []);
+
+  /**
+   * Handle starting enrichment from the toolbar dropdown.
+   * Resolves NetBox tokens and MCP servers, then runs enrichment.
+   */
+  const handleStartEnrichment = useCallback(async (options: TopologyEnrichmentOptions) => {
+    if (!topology) return;
+
+    const topoSnapshot = topology;
+    logger.log('[TopologyTabEditor] Starting enrichment for', topoSnapshot.devices.filter(d => d.primaryIp).length, 'devices');
+
+    // Resolve NetBox configs (need to fetch tokens)
+    const extOptions = options as TopologyEnrichmentOptions & { _selectedNetboxIds?: string[]; _selectedMcpIds?: string[] };
+    const netboxIds = extOptions._selectedNetboxIds || [];
+    const mcpIds = extOptions._selectedMcpIds || [];
+
+    const netboxConfigs: Array<{ url: string; token: string; sourceId?: string }> = [];
+    if (netboxIds.length > 0 && enrichmentSources) {
+      // Load full NetBox source info
+      try {
+        const allSources = await listNetBoxSources();
+        for (const src of allSources) {
+          if (!netboxIds.includes(src.id)) continue;
+          try {
+            const conn = await getNetBoxSourceConnection(src.id);
+            if (conn) {
+              netboxConfigs.push({ url: conn.base_url, token: conn.token, sourceId: src.id });
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+    }
+
+    // Resolve MCP servers
+    const selectedMcpServers = mcpServerObjects.filter(s => mcpIds.includes(s.id));
+
+    // Remember whether to draw port-stat colors after enrichment finishes;
+    // disabled toggle = clear so the canvas falls back to its old behavior.
+    setShowPortStats(Boolean(options.enableLinkStats));
+
+    try {
+      await enrichTopology(topoSnapshot, {
+        ...options,
+        netboxConfigs: netboxConfigs.length > 0 ? netboxConfigs : undefined,
+        mcpServers: selectedMcpServers.length > 0 ? selectedMcpServers : undefined,
+        onProgress: (state) => {
+          setTraceEnrichment(state);
+          // Apply enrichment to topology for live visual updates
+          const enriched = applyEnrichmentToTopology(topoSnapshot, state);
+          setTopology(enriched);
+        },
+      });
+
+      // 1-hop neighbor discovery as part of enrichment. Runs SNMP LLDP/CDP
+      // on every topology device that has a profile + IP, then either links
+      // each discovered neighbor to an existing node (alias dedup) or adds
+      // it as a new node. Reuses runBatchDiscovery — the same path used by
+      // the Discovery modal — so jump-host routing & all SNMP plumbing
+      // are inherited automatically.
+      if (options.discoverNeighbors) {
+        await runNeighborDiscoveryPhase(topoSnapshot);
+        // Pull fresh topology with the new nodes/connections persisted.
+        const refreshed = await getTopology(topoSnapshot.id);
+        setTopology(refreshed);
+      }
+    } catch (err) {
+      console.error('[TopologyTabEditor] Enrichment failed:', err);
+    }
+  }, [topology, enrichmentSources, mcpServerObjects, runNeighborDiscoveryPhase]);
 
   /**
    * Build live SNMP targets from topology data.
@@ -788,14 +790,14 @@ export default function TopologyTabEditor({
   useEffect(() => {
     logger.log('[TopologyTabEditor] useEffect triggered', { topologyId, hasInitialTopology: !!initialTopology, refreshKey });
     if (!topologyId) {
+      // `loading` starts false without a topologyId, and a load already in
+      // flight clears it in its own finally — nothing to reset here.
       logger.log('[TopologyTabEditor] Skipping load - no topologyId');
-      setLoading(false);
       return;
     }
     // Skip initial load if we have initialTopology, but allow refresh when refreshKey changes
     if (initialTopology && refreshKey === undefined) {
       logger.log('[TopologyTabEditor] Using initialTopology, skipping load');
-      setLoading(false);
       return;
     }
 
@@ -854,31 +856,6 @@ export default function TopologyTabEditor({
     }
     setAIActionToast(null);
   }, []);
-
-  // Publish the active topology + live telemetry + mutation callbacks to the
-  // shared store so the global AI side panel can see and act on this map.
-  // Cleared on unmount so the AI's topology tools disappear when no topology
-  // tab is focused.
-  const publishActiveTopology = useActiveTopologyStore(s => s.publish);
-  const clearActiveTopology = useActiveTopologyStore(s => s.clear);
-  useEffect(() => {
-    publishActiveTopology({
-      topology,
-      topologyId: topologyId || topology?.id,
-      isTemporary,
-      deviceStats: activeDeviceStats,
-      linkEnrichment: linkEnrichmentMap,
-      liveStats: activeLiveStats,
-      setTopology,
-      pushAction,
-      showAIActionToast,
-    });
-    return () => clearActiveTopology();
-  }, [
-    topology, topologyId, isTemporary, activeDeviceStats, linkEnrichmentMap,
-    activeLiveStats, setTopology, pushAction, showAIActionToast,
-    publishActiveTopology, clearActiveTopology,
-  ]);
 
   // Handle device position change (drag-drop) with history tracking
   const handleDevicePositionChange = useCallback(async (
@@ -1047,22 +1024,6 @@ export default function TopologyTabEditor({
     onConnectionSelect?.(connection);
   }, [onConnectionSelect, linkDetailCard]);
 
-  // Handle device click for connection drawing
-  const handleDeviceClickForConnection = useCallback((device: Device): boolean => {
-    if (!drawingConnection) return false; // Let normal selection happen
-
-    if (!connectionSource) {
-      // First click - set source
-      setConnectionSource(device);
-      return true; // Handled
-    } else if (device.id !== connectionSource.id) {
-      // Second click - create connection
-      createConnectionBetween(connectionSource, device);
-      return true; // Handled
-    }
-    return false;
-  }, [drawingConnection, connectionSource]);
-
   // Create connection between two devices with history tracking
   const createConnectionBetween = useCallback(async (
     source: Device,
@@ -1145,6 +1106,22 @@ export default function TopologyTabEditor({
       setConnectionSource(null);
     }
   }, [topologyId, isTemporary, topology, pushAction, showAIActionToast]);
+
+  // Handle device click for connection drawing
+  const handleDeviceClickForConnection = useCallback((device: Device): boolean => {
+    if (!drawingConnection) return false; // Let normal selection happen
+
+    if (!connectionSource) {
+      // First click - set source
+      setConnectionSource(device);
+      return true; // Handled
+    } else if (device.id !== connectionSource.id) {
+      // Second click - create connection
+      createConnectionBetween(connectionSource, device);
+      return true; // Handled
+    }
+    return false;
+  }, [drawingConnection, connectionSource, createConnectionBetween]);
 
   // Delete a connection with history tracking (invoked from the link menu)
   const handleDeleteConnection = useCallback(async (
@@ -1372,13 +1349,23 @@ export default function TopologyTabEditor({
     logger.log('[TopologyTabEditor] Undoing action:', action.type, action.description);
 
     try {
-      await executeHistoryAction(action, 'undo', {
-        topologyId,
-        isTemporary,
-        setTopology,
-      });
+      if (isAnnotationAction(action)) {
+        await executeAnnotationHistoryAction(action, 'undo', {
+          topologyId: topology.id,
+          isTemporary: isTemporary || !topology.id,
+          setAnnotations,
+          idAliases: annotationIdAliasesRef.current,
+        });
+      } else {
+        await executeHistoryAction(action, 'undo', {
+          topologyId,
+          isTemporary,
+          setTopology,
+        });
+      }
     } catch (err) {
       console.error('[TopologyTabEditor] Failed to undo:', err);
+      showToast(`Undo failed: ${getErrorMessage(err)}`, 'error');
     }
   }, [undo, topology, topologyId, isTemporary]);
 
@@ -1392,13 +1379,23 @@ export default function TopologyTabEditor({
     logger.log('[TopologyTabEditor] Redoing action:', action.type, action.description);
 
     try {
-      await executeHistoryAction(action, 'redo', {
-        topologyId,
-        isTemporary,
-        setTopology,
-      });
+      if (isAnnotationAction(action)) {
+        await executeAnnotationHistoryAction(action, 'redo', {
+          topologyId: topology.id,
+          isTemporary: isTemporary || !topology.id,
+          setAnnotations,
+          idAliases: annotationIdAliasesRef.current,
+        });
+      } else {
+        await executeHistoryAction(action, 'redo', {
+          topologyId,
+          isTemporary,
+          setTopology,
+        });
+      }
     } catch (err) {
       console.error('[TopologyTabEditor] Failed to redo:', err);
+      showToast(`Redo failed: ${getErrorMessage(err)}`, 'error');
     }
   }, [redo, topology, topologyId, isTemporary]);
 
@@ -2206,11 +2203,10 @@ export default function TopologyTabEditor({
   /**
    * Export topology to PNG format via native save dialog
    */
-  const exportToPng = useCallback(async () => {
-    const canvas = document.querySelector('.topology-tab-editor .topology-canvas') as HTMLCanvasElement;
+  const exportToPng = useCallback(async (): Promise<string | null> => {
+    const canvas = document.querySelector('.topology-tab-editor .topology-canvas') as HTMLCanvasElement | null;
     if (!canvas) {
-      console.error('Canvas not found for export');
-      return;
+      throw new Error('Canvas not found for PNG export (switch to the 2D view)');
     }
 
     const defaultName = `${topology?.name || 'topology'}-${new Date().toISOString().slice(0, 10)}.png`;
@@ -2218,13 +2214,13 @@ export default function TopologyTabEditor({
       defaultPath: defaultName,
       filters: [{ name: 'PNG Image', extensions: ['png'] }],
     });
-    if (!filePath) return;
+    if (!filePath) return null;
 
     const exportCanvas = document.createElement('canvas');
     exportCanvas.width = canvas.width;
     exportCanvas.height = canvas.height;
     const ctx = exportCanvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) throw new Error('Could not create a 2D canvas for PNG export');
     ctx.drawImage(canvas, 0, 0);
 
     const dataUrl = exportCanvas.toDataURL('image/png');
@@ -2235,14 +2231,15 @@ export default function TopologyTabEditor({
       bytes[i] = binaryStr.charCodeAt(i);
     }
     await writeFile(filePath, bytes);
+    return filePath;
   }, [topology?.name]);
 
   /**
    * Export topology to SVG format
    * Creates SVG representation of the topology
    */
-  const exportToSvg = useCallback(async () => {
-    if (!topology) return;
+  const exportToSvg = useCallback(async (): Promise<string | null> => {
+    if (!topology) throw new Error('No topology loaded');
     const view = filterTopology(topology, deviceFilters);
 
     const width = 1000;
@@ -2314,15 +2311,16 @@ export default function TopologyTabEditor({
       defaultPath: defaultName,
       filters: [{ name: 'SVG Image', extensions: ['svg'] }],
     });
-    if (!filePath) return;
+    if (!filePath) return null;
     await writeTextFile(filePath, svg);
+    return filePath;
   }, [topology, deviceFilters]);
 
   /**
    * Export topology to JSON format via native save dialog
    */
-  const exportToJson = useCallback(async () => {
-    if (!topology) return;
+  const exportToJson = useCallback(async (): Promise<string | null> => {
+    if (!topology) throw new Error('No topology loaded');
 
     const exportData = {
       version: '1.0',
@@ -2383,26 +2381,117 @@ export default function TopologyTabEditor({
       defaultPath: defaultName,
       filters: [{ name: 'JSON', extensions: ['json'] }],
     });
-    if (!filePath) return;
+    if (!filePath) return null;
     await writeTextFile(filePath, json);
+    return filePath;
   }, [topology, annotations]);
 
   /**
    * Handle export request based on format
    */
-  const handleExport = useCallback((format: ExportFormat) => {
-    switch (format) {
-      case 'png':
-        exportToPng();
-        break;
-      case 'svg':
-        exportToSvg();
-        break;
-      case 'json':
-        exportToJson();
-        break;
-    }
+  const runExport = useCallback(async (format: ExportFormat): Promise<{ path: string } | null> => {
+    const exporters = { png: exportToPng, svg: exportToSvg, json: exportToJson };
+    const path = await exporters[format]();
+    return path ? { path } : null;
   }, [exportToPng, exportToSvg, exportToJson]);
+
+  const handleExport = useCallback((format: ExportFormat) => {
+    runExport(format).catch((err: unknown) => {
+      console.error('[TopologyTabEditor] Export failed:', err);
+      showToast(`Export failed: ${getErrorMessage(err)}`, 'error');
+    });
+  }, [runExport]);
+
+  // === Editor-backed AI operations ===
+  // The AI's annotate / highlight / export tools act on this editor's real
+  // state through these callbacks, published to the active-topology store
+  // below. Without an open editor they are absent and not offered to the AI.
+
+  const annotationsRef = useRef<Annotation[]>(annotations);
+  useEffect(() => {
+    annotationsRef.current = annotations;
+  }, [annotations]);
+
+  /** history-action annotation ID -> current ID (redo re-creates with a new ID) */
+  const annotationIdAliasesRef = useRef(new Map<string, string>());
+
+  const aiAddAnnotation = useCallback(async (spec: AIAnnotationSpec): Promise<AIAnnotationResult> => {
+    if (!topology) throw new Error('No topology loaded');
+    const { type, ...data } = buildAIAnnotationData(spec);
+    const zIndex = annotationsRef.current.length;
+    const persisted = !isTemporary && !!topology.id;
+
+    let annotation: Annotation;
+    if (persisted) {
+      annotation = await createAnnotation(topology.id, type, data, zIndex);
+    } else {
+      const now = new Date().toISOString();
+      annotation = {
+        ...data,
+        type,
+        id: `temp-${type}-${crypto.randomUUID()}`,
+        topologyId: topology.id || 'temp',
+        zIndex,
+        createdAt: now,
+        updatedAt: now,
+      } as Annotation;
+    }
+
+    setAnnotations(prev => [...prev, annotation]);
+    const action = pushAction({
+      type: 'add_annotation',
+      source: 'ai',
+      description: createActionDescription('add_annotation', type),
+      data: {
+        before: null,
+        after: annotation,
+        context: { topologyId: topology.id, annotationId: annotation.id },
+      },
+    });
+    showAIActionToast(action);
+    return { id: annotation.id, type, persisted };
+  }, [topology, isTemporary, pushAction, showAIActionToast]);
+
+  // AI highlight: id -> color for devices/connections, shown on the 2D canvas
+  // until replaced, cleared by the AI, or dismissed by the user.
+  const [aiHighlight, setAIHighlight] = useState<{ colors: Map<string, string>; label?: string } | null>(null);
+
+  const aiSetHighlights = useCallback((h: TopologyHighlightRequest) => {
+    setAIHighlight({ colors: new Map(h.targets.map(id => [id, h.color])), label: h.label });
+    return { visibleInCurrentView: viewMode === '2d' };
+  }, [viewMode]);
+
+  const aiClearHighlights = useCallback(() => setAIHighlight(null), []);
+
+  // Publish the active topology + live telemetry + mutation callbacks to the
+  // shared store so the global AI side panel can see and act on this map.
+  // Cleared on unmount so the AI's topology tools disappear when no topology
+  // tab is focused.
+  const publishActiveTopology = useActiveTopologyStore(s => s.publish);
+  const clearActiveTopology = useActiveTopologyStore(s => s.clear);
+  useEffect(() => {
+    publishActiveTopology({
+      topology,
+      topologyId: topologyId || topology?.id,
+      isTemporary,
+      deviceStats: activeDeviceStats,
+      linkEnrichment: linkEnrichmentMap,
+      liveStats: activeLiveStats,
+      setTopology,
+      pushAction,
+      showAIActionToast,
+      addAnnotation: aiAddAnnotation,
+      setHighlights: aiSetHighlights,
+      clearHighlights: aiClearHighlights,
+      exportTopology: runExport,
+    });
+    return () => clearActiveTopology();
+  }, [
+    topology, topologyId, isTemporary, activeDeviceStats, linkEnrichmentMap,
+    activeLiveStats, setTopology, pushAction, showAIActionToast,
+    aiAddAnnotation, aiSetHighlights, aiClearHighlights, runExport,
+    publishActiveTopology, clearActiveTopology,
+  ]);
 
   // Get toolbar hint text based on current tool
   const getToolbarHint = useCallback((): string | undefined => {
@@ -2632,6 +2721,7 @@ export default function TopologyTabEditor({
             onAnnotationContextMenu={handleAnnotationContextMenu}
             marqueeEnabled={currentTool === 'select'}
             onMarqueeSelect={(ids, additive) => setSelectedDeviceIds(prev => additive ? new Set([...prev, ...ids]) : ids)}
+            highlights={aiHighlight?.colors}
           />
         ) : (
           <TopologyCanvas3D
@@ -2654,6 +2744,19 @@ export default function TopologyTabEditor({
             marqueeEnabled={currentTool === 'select'}
             onMarqueeSelect={(ids, additive) => setSelectedDeviceIds(prev => additive ? new Set([...prev, ...ids]) : ids)}
           />
+        )}
+
+        {/* AI highlight chip - shows what the AI highlighted and lets the user dismiss it */}
+        {aiHighlight && (
+          <div className="ai-highlight-chip" role="status">
+            <span className="ai-highlight-chip-label">
+              AI highlight{aiHighlight.label ? `: ${aiHighlight.label}` : ''} ({aiHighlight.colors.size})
+              {viewMode !== '2d' && ' — shown in 2D view'}
+            </span>
+            <button type="button" className="ai-highlight-chip-clear" onClick={aiClearHighlights}>
+              Clear
+            </button>
+          </div>
         )}
 
         {/* Inline text editing overlay */}

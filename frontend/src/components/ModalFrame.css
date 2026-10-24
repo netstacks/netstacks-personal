@@ -124,3 +124,9 @@
 .ns-modal-resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
 .ns-modal-resize--nw { top: 0; left: 0; cursor: nwse-resize; }
 .ns-modal-resize--se { bottom: 0; right: 0; cursor: nwse-resize; }
+
+/* The frame takes focus only as a fallback when a dialog has no controls;
+ * the dialog itself is not an interactive target, so no focus ring. */
+.ns-modal:focus {
+  outline: none;
+}

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ANTHROPIC_MODELS, MODEL_PLACEHOLDER, SUGGESTED_MODEL } from '../lib/aiModelDefaults';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { getClient, isClientInitialized } from '../api/client';
+import { fetchAiTerminalMode, saveAiTerminalMode } from '../lib/aiTerminalMode';
 import { providerRequirements } from './aiProviderValidation';
 import {
   getAiConfig,
@@ -24,6 +25,7 @@ import {
   DEFAULT_SANITIZATION_CONFIG,
   type AiConfig,
   type AiProviderType,
+  type AiProviderOverrides,
   type SanitizationConfig,
   type CustomPattern,
   type SanitizationTestResult,
@@ -38,7 +40,7 @@ import {
 } from '../api/ai';
 import { useSettings, type AppSettings, type AiProviderType as SettingsProviderType } from '../hooks/useSettings';
 import { useMode } from '../hooks/useMode';
-import { useTokenUsage, type AiProviderType as TokenProviderType } from '../contexts/TokenUsageContext';
+import { useTokenUsage, type AiProviderType as TokenProviderType } from '../contexts/tokenUsageStore';
 import { toolRegistryFor, TOOL_CATEGORIES, type ToolCategory } from '../lib/agentTools';
 import { PERMISSION_MODES, PERMISSION_MODE_SETTING, type PermissionMode } from '../lib/aiModes';
 import McpServersSection from './McpServersSection';
@@ -257,22 +259,24 @@ export default function AISettingsTab() {
   const [aiTerminalMode, setAiTerminalMode] = useState(false);
   useEffect(() => {
     if (isEnterprise || !isClientInitialized()) return;
-    getClient().http.get('/settings/ai.terminal_mode')
-      .then((res) => {
-        const data = res.data;
-        setAiTerminalMode(data === true || data?.value === 'true');
-      })
+    fetchAiTerminalMode()
+      .then(setAiTerminalMode)
       .catch(() => setAiTerminalMode(false)); // not set = off
   }, [isEnterprise]);
 
+  // saveAiTerminalMode also tells mounted AI panels, so the toggle applies
+  // without a remount.
   const handleToggleTerminalMode = async (enabled: boolean) => {
     const previous = aiTerminalMode;
     setAiTerminalMode(enabled);
     try {
-      await getClient().http.put('/settings/ai.terminal_mode', { value: enabled ? 'true' : 'false' });
+      await saveAiTerminalMode(enabled);
     } catch (err) {
       setAiTerminalMode(previous);
-      setError(getErrorMessage(err, 'Failed to update AI Terminal Mode'));
+      showError(
+        getErrorMessage(err, 'Failed to update AI Terminal Mode'),
+        () => { showError(null); void handleToggleTerminalMode(enabled); },
+      );
     }
   };
 
@@ -371,13 +375,20 @@ export default function AISettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<AiProviderType | null>(null);
   const [testing, setTesting] = useState<AiProviderType | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  // Re-runs the failed save behind `error`, when it can be retried.
+  const [errorRetry, setErrorRetry] = useState<(() => void) | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  // Load initial configuration
-  useEffect(() => {
-    loadAllProviderStatus();
+  const showError = useCallback((message: string | null, retry?: () => void) => {
+    setErrorState(message);
+    setErrorRetry(() => retry ?? null);
+    if (message) setSuccess(null);
   }, []);
+  const showSuccess = useCallback((message: string) => {
+    showError(null);
+    setSuccess(message);
+    setTimeout(() => setSuccess(null), 3000);
+  }, [showError]);
 
   useEffect(() => {
     if (!canManageRedaction) return;
@@ -404,9 +415,14 @@ export default function AISettingsTab() {
   // Agent settings also live in the backend's ai.agent_config. Written when
   // the user changes one here — never on opening the tab.
   type AgentSettingKey = 'ai.agent.model' | 'ai.agent.temperature' | 'ai.agent.maxTokens' | 'ai.agent.maxIterations';
+  // Each change is applied optimistically and rolled back (with a Retry)
+  // if the backend write fails, so the form never shows an unsaved value.
+  const agentSyncSeqRef = useRef(0);
   const updateAgentSetting = <K extends AgentSettingKey>(key: K, value: AppSettings[K]) => {
+    const previous = settings[key];
     updateSetting(key, value);
     const next = { ...settings, [key]: value };
+    const seq = ++agentSyncSeqRef.current;
     setAiAgentConfig({
       // Provider is never a per-toolset override — the agent inherits the
       // single default provider. Only an optional model may differ.
@@ -418,15 +434,28 @@ export default function AISettingsTab() {
       system_prompt: next['ai.agent.systemPrompt'],
     }).catch((err: unknown) => {
       console.error('Failed to sync agent config to backend:', err);
+      // A newer edit superseded this one; its own write decides the outcome.
+      if (seq !== agentSyncSeqRef.current) return;
+      updateSetting(key, previous);
+      showError(
+        `Agent settings weren't saved: ${getErrorMessage(err, 'backend unavailable')}`,
+        () => { showError(null); updateAgentSetting(key, value); },
+      );
     });
   };
 
   const saveSanitizationConfig = async (config: SanitizationConfig) => {
+    const previous = sanitizationConfig;
     setSanitizationConfigState(config);
     try {
       await setSanitizationConfig(config);
     } catch (err) {
       console.error('Failed to save sanitization config:', err);
+      setSanitizationConfigState(previous);
+      showError(
+        `Redaction settings weren't saved: ${getErrorMessage(err, 'backend unavailable')}`,
+        () => { showError(null); void saveSanitizationConfig(config); },
+      );
     }
   };
 
@@ -605,6 +634,14 @@ export default function AISettingsTab() {
       if (overrides?.verify_ssl) {
         setVerifySSL(prev => ({ ...prev, ...overrides.verify_ssl }));
       }
+      // A non-default custom provider keeps its wire format and auth mode in
+      // the overrides; the default one is already loaded from its config.
+      if (config?.provider !== 'custom') {
+        const fmt = overrides?.api_formats?.custom;
+        if (fmt === 'openai' || fmt === 'gemini' || fmt === 'vertex-anthropic') setApiFormat(fmt);
+        const mode = overrides?.auth_modes?.custom;
+        if (mode === 'api_key' || mode === 'oauth2') setAuthMode(mode);
+      }
 
       setProviderStatus({
         anthropic: {
@@ -645,25 +682,48 @@ export default function AISettingsTab() {
         },
       });
 
-      setError(null);
+      showError(null);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load configuration'));
+      showError(getErrorMessage(err, 'Failed to load configuration'));
     } finally {
       setLoading(false);
       overridesHydratedRef.current = true;
     }
   };
 
-  // Persist per-provider base_url / verify_ssl whenever they change, so each
-  // provider keeps its OWN endpoint settings (ai.provider_config only tracks the
-  // active provider). Skipped during initial hydration.
+  // Load initial configuration (once — the first render's loader).
+  const initialLoadRef = useRef(loadAllProviderStatus);
+  useEffect(() => {
+    void initialLoadRef.current();
+  }, []);
+
+  /** Per-provider endpoint settings, plus the custom provider's wire format
+   *  and auth mode, so a non-default custom provider still works (3.4). */
+  const buildProviderOverrides = useCallback((): AiProviderOverrides => ({
+    base_urls: baseUrls,
+    verify_ssl: verifySSL,
+    api_formats: { custom: apiFormat },
+    auth_modes: { custom: authMode },
+  }), [baseUrls, verifySSL, apiFormat, authMode]);
+
+  // Persist per-provider base_url / verify_ssl (and the custom provider's
+  // format/auth mode) whenever they change, so each provider keeps its OWN
+  // endpoint settings (ai.provider_config only tracks the active provider).
+  // Skipped during initial hydration.
   useEffect(() => {
     if (!overridesHydratedRef.current) return;
     const t = setTimeout(() => {
-      void setAiProviderOverrides({ base_urls: baseUrls, verify_ssl: verifySSL });
+      const overrides = buildProviderOverrides();
+      const save = (): Promise<void> => setAiProviderOverrides(overrides).catch((err: unknown) => {
+        showError(
+          `Endpoint settings weren't saved: ${getErrorMessage(err, 'backend unavailable')}`,
+          () => { showError(null); void save(); },
+        );
+      });
+      void save();
     }, 500);
     return () => clearTimeout(t);
-  }, [baseUrls, verifySSL]);
+  }, [buildProviderOverrides, showError]);
 
   const toggleProvider = (type: AiProviderType) => {
     setExpandedProviders(prev => {
@@ -831,7 +891,7 @@ export default function AISettingsTab() {
    *  the agent boots from. Test/Save on a non-default card must never clobber
    *  the default provider's config (RC-8). */
   const persistProviderConfig = async (providerType: AiProviderType, config: AiConfig) => {
-    await setAiProviderOverrides({ base_urls: baseUrls, verify_ssl: verifySSL });
+    await setAiProviderOverrides(buildProviderOverrides());
     if ((settings['ai.defaultProvider'] || 'anthropic') === providerType) {
       await setAiConfig(config);
     }
@@ -846,7 +906,7 @@ export default function AISettingsTab() {
 
     try {
       setSaving(providerType);
-      setError(null);
+      showError(null);
 
       // Store API key in vault (not needed for ollama/litellm). Track
       // whether the vault write succeeded so a downstream setAiConfig
@@ -927,10 +987,12 @@ export default function AISettingsTab() {
       // Re-fetch models after saving key (Task 5 — cloud APIs now have auth)
       fetchLiveModels(providerType, true);
 
-      setSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} settings saved`);
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} settings saved`);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to save configuration'));
+      showError(
+        getErrorMessage(err, 'Failed to save configuration'),
+        () => { void handleSaveKey(providerType); },
+      );
     } finally {
       setSaving(null);
     }
@@ -947,10 +1009,9 @@ export default function AISettingsTab() {
           connectionMessage: '',
         },
       }));
-      setSuccess('API key removed');
-      setTimeout(() => setSuccess(null), 3000);
+      showSuccess('API key removed');
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to delete API key'));
+      showError(getErrorMessage(err, 'Failed to delete API key'));
     }
   };
 
@@ -1055,9 +1116,8 @@ export default function AISettingsTab() {
   };
 
   const handleSetDefault = async (providerType: AiProviderType) => {
-    updateSetting('ai.defaultProvider', providerType as SettingsProviderType);
-
-    // Also sync backend ai.provider_config so the agent sidecar uses the same default
+    // The backend ai.provider_config is what every request actually uses, so
+    // write it first; the local default only changes once that succeeded.
     try {
       const configuredModels = getProviderModels(providerType);
       const model = providerType === 'custom' ? customModel : configuredModels[0] || '';
@@ -1089,10 +1149,15 @@ export default function AISettingsTab() {
       await setAiConfig(config);
     } catch (err) {
       console.warn('Failed to sync default provider to backend:', err);
+      showError(
+        `Couldn't set ${PROVIDERS.find(p => p.type === providerType)?.name} as default provider: ${getErrorMessage(err, 'backend unavailable')}`,
+        () => { void handleSetDefault(providerType); },
+      );
+      return;
     }
 
-    setSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} set as default provider`);
-    setTimeout(() => setSuccess(null), 3000);
+    updateSetting('ai.defaultProvider', providerType as SettingsProviderType);
+    showSuccess(`${PROVIDERS.find(p => p.type === providerType)?.name} set as default provider`);
   };
 
   // Get placeholder text for model input based on provider
@@ -1139,7 +1204,17 @@ export default function AISettingsTab() {
     <>
       {(error || success) && (
         <div>
-          {error && <p className="settings-error">{error}</p>}
+          {error && (
+            <p className="settings-error" role="alert">
+              {error}
+              {errorRetry && (
+                <>
+                  {' '}
+                  <button type="button" className="ns-btn ns-btn--small" onClick={errorRetry}>Retry</button>
+                </>
+              )}
+            </p>
+          )}
           {success && <p className="settings-success">{success}</p>}
         </div>
       )}

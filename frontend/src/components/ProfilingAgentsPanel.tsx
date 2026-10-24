@@ -5,9 +5,18 @@ import './ProfilingAgentsPanel.css';
 
 import { getErrorMessage } from '../api/errors'
 import Tooltip from './Tooltip';
+import { openExternalUrl } from '../lib/openExternal';
 interface ProfilingAgentsPanelProps {
   onOpenChat: (agentId: string, agentName: string) => void;
-  onOpenConfig: (agentId: string) => void;
+  /** Controller origin serving the Admin UI. Inactive agents are configured
+   *  there (`/profiling-agents/:id`), not in the terminal. When absent, or the
+   *  link can't be opened, the row shows an inline hint instead. */
+  adminUiBaseUrl?: string | null;
+}
+
+/** The Admin UI page that configures a profiling agent. */
+function agentConfigUrl(adminUiBaseUrl: string, agentId: string): string {
+  return `${adminUiBaseUrl.replace(/\/+$/, '')}/profiling-agents/${encodeURIComponent(agentId)}`;
 }
 
 interface AgentWithMetrics extends ProfilingAgent {
@@ -18,11 +27,13 @@ interface AgentWithMetrics extends ProfilingAgent {
 
 export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
   onOpenChat,
-  onOpenConfig,
+  adminUiBaseUrl,
 }) => {
   const [agents, setAgents] = useState<AgentWithMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Inactive agent whose Admin UI link couldn't be opened — shows the hint.
+  const [configHintAgentId, setConfigHintAgentId] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const intervalRef = useRef<number | null>(null);
 
@@ -100,18 +111,20 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
     fetchAgents();
   };
 
-  const handleRowClick = (agent: AgentWithMetrics) => {
+  const handleRowClick = async (agent: AgentWithMetrics) => {
     if (agent.active) {
       onOpenChat(agent.id, agent.name);
-    } else {
-      onOpenConfig(agent.id);
+      return;
     }
+    const opened = adminUiBaseUrl ? await openExternalUrl(agentConfigUrl(adminUiBaseUrl, agent.id)) : false;
+    if (isMountedRef.current) setConfigHintAgentId(opened ? null : agent.id);
   };
 
   // Initial fetch and polling setup
   useEffect(() => {
     isMountedRef.current = true;
-    fetchAgents();
+    // First load on the next tick, like the polls that follow it.
+    const initialFetch = window.setTimeout(fetchAgents, 0);
 
     // Poll every 15 seconds
     intervalRef.current = window.setInterval(() => {
@@ -120,6 +133,7 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
 
     return () => {
       isMountedRef.current = false;
+      window.clearTimeout(initialFetch);
       if (intervalRef.current !== null) {
         clearInterval(intervalRef.current);
       }
@@ -174,7 +188,8 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
             <div
               key={agent.id}
               className="profiling-agent-item"
-              onClick={() => handleRowClick(agent)}
+              onClick={() => { void handleRowClick(agent); }}
+              title={agent.active ? undefined : 'Inactive — configure in the Admin UI'}
             >
               <div className="profiling-agent-row">
                 <div className={`profiling-agent-status ${getStatusClass(agent)}`} />
@@ -194,6 +209,11 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
                   <div className="profiling-agent-anomaly-badge">{agent.anomalyCount}</div>
                 )}
               </div>
+              {configHintAgentId === agent.id && (
+                <div className="profiling-agent-meta" role="status">
+                  Configure this agent in the Admin UI{adminUiBaseUrl ? ` (${agentConfigUrl(adminUiBaseUrl, agent.id)})` : ''}.
+                </div>
+              )}
             </div>
           ))}
         </div>

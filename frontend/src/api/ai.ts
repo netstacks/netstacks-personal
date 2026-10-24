@@ -235,6 +235,11 @@ export async function setAiConfig(config: AiConfig): Promise<void> {
 export interface AiProviderOverrides {
   base_urls?: Record<string, string>;
   verify_ssl?: Record<string, boolean>;
+  /** Wire format per provider (custom provider only: `openai` | `gemini` |
+   *  `vertex-anthropic`), so a non-default custom provider keeps its format. */
+  api_formats?: Record<string, string>;
+  /** `api_key` | `oauth2` per provider (custom provider only). */
+  auth_modes?: Record<string, string>;
 }
 
 export async function getAiProviderOverrides(): Promise<AiProviderOverrides | null> {
@@ -1248,8 +1253,7 @@ Available capabilities:
 - Query devices, connections, and find paths between devices
 - Add/remove/update/move devices and connections
 - Analyze for single points of failure (SPOF), redundancy, and best practices
-- Add annotations and highlights
-- Export to PNG/SVG/JSON
+- Add annotations, highlight devices/links, and export to PNG/SVG/JSON (only while the topology editor is open; these tools are listed only then)
 
 Device types: router, switch, firewall, server, cloud, access-point, load-balancer, wan-optimizer, voice-gateway, wireless-controller, storage, virtual, sd-wan, iot, unknown
 
@@ -1259,8 +1263,8 @@ When asked to build or create a topology:
 3. Use meaningful device names indicating role/location
 
 When asked to analyze:
-- Use topology_analyze with type 'spof' to find single points of failure
-- Use topology_analyze with type 'redundancy' to check path redundancy
+- Use topology_analyze with analysis_type 'spof' to find single points of failure
+- Use topology_analyze with analysis_type 'redundancy' to check path redundancy
 - Use topology_path to find routes between devices`;
 
 /** Default Script Generation prompt */

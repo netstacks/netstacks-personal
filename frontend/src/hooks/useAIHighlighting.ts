@@ -82,13 +82,15 @@ export function useAIHighlighting(
   // Use refs for values that callbacks need to read at call-time
   // to avoid stale closure issues with useCallback
   const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
   const providerRef = useRef(provider);
-  providerRef.current = provider;
   const modelRef = useRef(model);
-  modelRef.current = model;
   const cliFlavorRef = useRef(cliFlavor);
-  cliFlavorRef.current = cliFlavor;
+  useEffect(() => {
+    enabledRef.current = enabled;
+    providerRef.current = provider;
+    modelRef.current = model;
+    cliFlavorRef.current = cliFlavor;
+  }, [enabled, provider, model, cliFlavor]);
 
   const outputBufferRef = useRef<string>('');
   const debounceTimerRef = useRef<number | null>(null);
@@ -109,22 +111,9 @@ export function useAIHighlighting(
     };
   }, []);
 
-  // Analyze a single mode — uses refs to avoid stale closures
-  const analyzeMode = useCallback(
-    async (output: string, mode: AIHighlightMode, signal: AbortSignal): Promise<AIHighlight[]> => {
-      try {
-        const result = await analyzeHighlights(output, mode, cliFlavorRef.current, providerRef.current, modelRef.current, signal);
-        return result;
-      } catch (err) {
-        if (err instanceof Error && err.message === 'canceled') return [];
-        console.warn(`[Overlord] AI highlight analysis failed for mode ${mode}:`, err);
-        return [];
-      }
-    },
-    []
-  );
-
-  // Perform full analysis across all 3 modes
+  // Perform full analysis across all 3 modes. A provider failure in any mode
+  // surfaces as `error`, keeps the previous good highlights, and leaves the
+  // input un-recorded so the next debounce (or analyzeNow) retries it.
   const performAnalysis = useCallback(async () => {
     if (!enabledRef.current || inFlightRef.current) return;
 
@@ -144,16 +133,24 @@ export function useAIHighlighting(
 
     inFlightRef.current = true;
     setIsAnalyzing(true);
-    setError(null);
 
     try {
-      const results = await Promise.all(
-        ALL_MODES.map((mode) => analyzeMode(output, mode, controller.signal))
+      const results = await Promise.allSettled(
+        ALL_MODES.map((mode) =>
+          analyzeHighlights(output, mode, cliFlavorRef.current, providerRef.current, modelRef.current, controller.signal)
+        )
       );
 
       if (!isMountedRef.current || controller.signal.aborted) return;
 
-      const allHighlights = results.flat();
+      const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failure) {
+        console.warn('[Overlord] AI highlight analysis failed:', failure.reason);
+        setError(getErrorMessage(failure.reason, 'Analysis failed'));
+        return;
+      }
+
+      const allHighlights = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
 
       // Deduplicate by line and text
       const seen = new Set<string>();
@@ -170,21 +167,17 @@ export function useAIHighlighting(
       });
 
       setHighlights(deduplicated);
+      setError(null);
       lastAnalyzedHashRef.current = outputHash;
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      setError(getErrorMessage(err, 'Analysis failed'));
     } finally {
-      inFlightRef.current = false;
-      if (isMountedRef.current) {
-        setIsAnalyzing(false);
+      if (abortControllerRef.current === controller) {
+        inFlightRef.current = false;
+        if (isMountedRef.current) {
+          setIsAnalyzing(false);
+        }
       }
     }
-  }, [analyzeMode]);
-
-  // Use ref to always call the latest performAnalysis
-  const performAnalysisRef = useRef(performAnalysis);
-  performAnalysisRef.current = performAnalysis;
+  }, []);
 
   const addOutput = useCallback(
     (output: string) => {
@@ -203,10 +196,10 @@ export function useAIHighlighting(
 
       debounceTimerRef.current = window.setTimeout(() => {
         debounceTimerRef.current = null;
-        performAnalysisRef.current();
+        void performAnalysis();
       }, debounceMs);
     },
-    [debounceMs]
+    [debounceMs, performAnalysis]
   );
 
   const analyzeNow = useCallback(async () => {
@@ -223,6 +216,8 @@ export function useAIHighlighting(
       debounceTimerRef.current = null;
     }
     abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    inFlightRef.current = false;
     outputBufferRef.current = '';
     lastAnalyzedHashRef.current = '';
     setHighlights([]);

@@ -246,6 +246,28 @@
 }
 
 /* Cursor-style Input Container */
+/* External prompt held while a turn runs */
+.ai-side-panel-queued {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 6px;
+  padding: 4px 8px;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ai-side-panel-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+
 .ai-input-container {
   padding: 0 12px 12px;
   flex-shrink: 0;
@@ -445,6 +467,12 @@
 /* Provider selector */
 .ai-text-selector.provider-selector select {
   min-width: 50px;
+}
+
+/* Model selector (per chat) */
+.ai-text-selector.model-selector select {
+  min-width: 50px;
+  max-width: 140px;
 }
 
 /* Permission mode selector */

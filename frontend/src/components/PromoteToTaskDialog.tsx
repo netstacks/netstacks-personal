@@ -21,6 +21,70 @@ interface PromoteToTaskDialogProps {
 
 type PromotionMode = 'latest' | 'context' | 'custom';
 
+/** How many trailing chat messages the "With Context" prompt carries. */
+const CONTEXT_MESSAGE_COUNT = 6;
+/** Per-message cap on tool/command output (head + tail kept). */
+const MAX_OUTPUT_CHARS = 4000;
+/** Cap on the whole serialized conversation. */
+const MAX_CONTEXT_CHARS = 24000;
+
+/** Keep the head and tail of long text, marking what was cut. */
+function truncateMiddle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.6);
+  const tail = max - head;
+  const omitted = text.length - head - tail;
+  return `${text.slice(0, head)}\n… [${omitted} characters omitted] …\n${text.slice(-tail)}`;
+}
+
+function roleLabel(m: AgentMessage): string {
+  switch (m.type) {
+    case 'user':
+      return 'User';
+    case 'command-result':
+      return m.sessionName ? `Tool output (${m.sessionName})` : 'Tool output';
+    case 'command-request':
+    case 'approval-request':
+      return 'Assistant (requested tool call)';
+    case 'error':
+      return 'Error';
+    default:
+      return 'Assistant';
+  }
+}
+
+function serializeMessage(m: AgentMessage): string {
+  const parts = [`${roleLabel(m)}: ${m.content}`];
+  if (m.command && !m.content.includes(m.command)) parts.push(`Command: ${m.command}`);
+  if (m.output?.trim()) {
+    const exit = m.exitCode !== undefined ? ` (exit ${m.exitCode})` : '';
+    parts.push(`Output${exit}:\n${truncateMiddle(m.output.trimEnd(), MAX_OUTPUT_CHARS)}`);
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Serialize the recent conversation — including bounded tool/command output,
+ * the evidence behind the prior analysis — into a background-task prompt.
+ * Oldest messages are dropped first when the total exceeds the cap.
+ */
+function buildContextPrompt(messages: AgentMessage[]): string {
+  const recent = messages.slice(-CONTEXT_MESSAGE_COUNT).map(serializeMessage);
+  if (recent.length === 0) return '';
+  let total = 0;
+  const kept: string[] = [];
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const remaining = MAX_CONTEXT_CHARS - total;
+    if (remaining <= 0) break;
+    const block = recent[i].length > remaining ? truncateMiddle(recent[i], remaining) : recent[i];
+    kept.unshift(block);
+    total += block.length;
+  }
+  const dropped = recent.length - kept.length;
+  const note = dropped > 0 ? `[${dropped} earlier message(s) omitted for length]\n\n` : '';
+  return `Continue this conversation as a background task:\n\n${note}${kept.join('\n\n')}`;
+}
+
 export function PromoteToTaskDialog({
   messages,
   onClose,
@@ -38,20 +102,7 @@ export function PromoteToTaskDialog({
     return userMessages[userMessages.length - 1]?.content || '';
   }, [messages]);
 
-  const contextPrompt = useMemo(() => {
-    // Take last 6 messages for context
-    const recentMessages = messages.slice(-6);
-    if (recentMessages.length === 0) return '';
-
-    const context = recentMessages
-      .map(m => {
-        const role = m.type === 'user' ? 'User' : 'Assistant';
-        return `${role}: ${m.content}`;
-      })
-      .join('\n\n');
-
-    return `Continue this conversation as a background task:\n\n${context}`;
-  }, [messages]);
+  const contextPrompt = useMemo(() => buildContextPrompt(messages), [messages]);
 
   // Current prompt based on mode
   const currentPrompt = useMemo(() => {

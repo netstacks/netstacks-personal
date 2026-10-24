@@ -48,23 +48,33 @@ interface DiscoveryModalProps {
   onDiscoveryComplete: (results: DiscoveryResult[]) => void;
 }
 
-export default function DiscoveryModal({
-  isOpen,
+export default function DiscoveryModal({ isOpen, ...rest }: DiscoveryModalProps) {
+  // The body mounts only while open, so every opening starts from a fresh,
+  // idle run, and closing (unmounting) abandons whatever run was in flight.
+  if (!isOpen) return null;
+  return <DiscoveryModalBody {...rest} />;
+}
+
+function DiscoveryModalBody({
   onClose,
   groupName,
   devices,
   onDiscoveryComplete,
-}: DiscoveryModalProps) {
+}: Omit<DiscoveryModalProps, 'isOpen'>) {
   const [logs, setLogs] = useState<DiscoveryLogEntry[]>([]);
   const [phase, setPhase] = useState<'idle' | 'discovering' | 'analyzing' | 'complete' | 'error'>('idle');
   const [progress, setProgress] = useState(0);
-  const [_results, setResults] = useState<DiscoveryResult[]>([]);
   const [capabilities, setCapabilities] = useState<DiscoveryCapabilities | null>(null);
   // Wall-clock seconds since the discovery run started — gives the user a
   // visible heartbeat while the agent is busy. Without this the modal looks
   // hung whenever batch discovery takes more than a few seconds.
   const [elapsedSec, setElapsedSec] = useState(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  // Run generation. Bumped when a run starts and whenever the modal is
+  // dismissed or unmounted, so a batch request that completes after the user
+  // walked away (or started over) is ignored instead of logging into — and
+  // publishing results from — a run nobody is watching anymore.
+  const runGenerationRef = useRef(0);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -78,27 +88,37 @@ export default function DiscoveryModal({
     return () => clearInterval(id);
   }, [phase]);
 
-  // Reset state and fetch capabilities when modal opens
+  // Fetch discovery capabilities (informational — failures are silent).
   useEffect(() => {
-    if (isOpen) {
-      setLogs([]);
-      setPhase('idle');
-      setProgress(0);
-      setResults([]);
-      setElapsedSec(0);
+    let cancelled = false;
+    getDiscoveryCapabilities()
+      .then(caps => { if (!cancelled) setCapabilities(caps); })
+      .catch(() => { if (!cancelled) setCapabilities(null); });
+    return () => { cancelled = true; };
+  }, []);
 
-      // Fetch discovery capabilities (informational — failures are silent)
-      getDiscoveryCapabilities()
-        .then(caps => setCapabilities(caps))
-        .catch(() => setCapabilities(null));
-    }
-  }, [isOpen]);
+  // Unmounting (the parent closed the modal) abandons any run in flight.
+  useEffect(() => {
+    const generation = runGenerationRef;
+    return () => { generation.current += 1; };
+  }, []);
 
-  const addLog = (entry: Omit<DiscoveryLogEntry, 'timestamp'>) => {
-    setLogs(prev => [...prev, { ...entry, timestamp: new Date() }]);
+  // Closing abandons any run in flight: its completion is discarded and
+  // onDiscoveryComplete never fires for it. (The batch API takes no abort
+  // signal, so the agent may finish querying devices it already contacted.)
+  const handleClose = () => {
+    runGenerationRef.current += 1;
+    onClose();
   };
 
   const startDiscovery = async () => {
+    const generation = ++runGenerationRef.current;
+    const isCurrent = () => runGenerationRef.current === generation;
+    const addLog = (entry: Omit<DiscoveryLogEntry, 'timestamp'>) => {
+      if (!isCurrent()) return;
+      setLogs(prev => [...prev, { ...entry, timestamp: new Date() }]);
+    };
+
     setPhase('discovering');
     setProgress(0);
     setElapsedSec(0);
@@ -127,6 +147,8 @@ export default function DiscoveryModal({
 
       // Call the batch discovery API
       const apiResults = await runBatchDiscovery(request);
+      // Dismissed or restarted while the request was in flight.
+      if (!isCurrent()) return;
 
       setProgress(70);
 
@@ -171,7 +193,6 @@ export default function DiscoveryModal({
         }
       }
 
-      setResults(discoveryResults);
       setPhase('analyzing');
       setProgress(85);
       addLog({ level: 'info', message: 'Analyzing discovered connections...' });
@@ -236,6 +257,7 @@ export default function DiscoveryModal({
       onDiscoveryComplete(discoveryResults);
 
     } catch (err) {
+      if (!isCurrent()) return;
       setPhase('error');
       addLog({
         level: 'error',
@@ -248,13 +270,10 @@ export default function DiscoveryModal({
     return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // Always mounted by App — register on the Escape stack only while open,
-  // otherwise this modal swallows every Escape in the app (NS-UI-15).
-
-  if (!isOpen) return null;
+  const isRunning = phase === 'discovering' || phase === 'analyzing';
 
   return (
-    <ModalFrame id="discovery" onDismiss={onClose} className="discovery-modal" testId="discovery-modal" label="Topology Discovery">
+    <ModalFrame id="discovery" onDismiss={handleClose} className="discovery-modal" testId="discovery-modal" label="Topology Discovery">
       <div className="discovery-modal-header">
         <h2>Topology Discovery</h2>
         <span className="discovery-modal-group">{groupName}</span>
@@ -279,7 +298,7 @@ export default function DiscoveryModal({
             topic="topology discovery"
             prompt={`Explain how NetStacks topology discovery works and help me get a good result for group "${groupName}" (${devices.length} device(s): ${devices.map(d => d.name).join(', ')}). nmap is ${capabilities ? (capabilities.nmapAvailable ? (capabilities.nmapSudo ? 'available with OS detection' : 'available') : 'not available') : 'unknown'}. Cover what is collected (LLDP/CDP neighbors over SSH, SNMP, nmap), which credentials and SNMP profiles are used, and what to check when a device returns no neighbors.`}
           />
-          <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={onClose} aria-label="Close">x</button>
+          <button className="ns-btn ns-btn--ghost ns-icon-btn" onClick={handleClose} aria-label={isRunning ? 'Cancel discovery and close' : 'Close'}>x</button>
         </span>
       </div>
 
@@ -327,22 +346,23 @@ export default function DiscoveryModal({
             <div className="discovery-device-list">
               <strong>Devices to scan:</strong> {devices.map(d => d.name).join(', ')}
             </div>
-            <DialogFooter primary={{ label: 'Start Discovery', onClick: startDiscovery }} onCancel={onClose} inline />
+            <DialogFooter primary={{ label: 'Start Discovery', onClick: startDiscovery }} onCancel={handleClose} inline />
           </>
         )}
 
-        {(phase === 'discovering' || phase === 'analyzing') && (
+        {isRunning && (
           <div className="discovery-modal-actions">
-            <button className="ns-btn" disabled>Running...</button>
+            <span className="form-hint">Closing cancels this run; its results are discarded.</span>
+            <button className="ns-btn" onClick={handleClose}>Cancel Discovery</button>
           </div>
         )}
 
         {phase === 'complete' && (
-          <DialogFooter primary={{ label: 'View Topology', onClick: onClose }} onCancel={onClose} cancelLabel="Close" inline />
+          <DialogFooter primary={{ label: 'View Topology', onClick: handleClose }} onCancel={handleClose} cancelLabel="Close" inline />
         )}
 
         {phase === 'error' && (
-          <DialogFooter primary={{ label: 'Retry', onClick: startDiscovery }} onCancel={onClose} cancelLabel="Close" inline />
+          <DialogFooter primary={{ label: 'Retry', onClick: startDiscovery }} onCancel={handleClose} cancelLabel="Close" inline />
         )}
       </div>
     </ModalFrame>

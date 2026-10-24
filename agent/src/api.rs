@@ -8644,7 +8644,7 @@ pub async fn run_agent_definition(
         .create_task_with_agent(
             crate::tasks::CreateTaskRequest {
                 prompt: req.prompt,
-                _failure_policy: None,
+                failure_policy: None,
             },
             Some(id),
         )
@@ -12998,6 +12998,7 @@ pub async fn create_task(
     State(state): State<Arc<AppState>>,
     Json(req): Json<crate::tasks::CreateTaskRequest>,
 ) -> Result<Response, (StatusCode, String)> {
+    let failure_policy = req.failure_policy.unwrap_or_default();
     let task = state
         .task_store
         .create_task(req)
@@ -13007,7 +13008,11 @@ pub async fn create_task(
     // Spawn for background execution (returns immediately; a full pool
     // queues the task inside the executor — NS-API-8).
     let queued = state.task_registry.semaphore().available_permits() == 0;
-    if let Err(e) = state.task_executor.spawn_task(task.id.clone()).await {
+    if let Err(e) = state
+        .task_executor
+        .spawn_task_with_policy(task.id.clone(), failure_policy)
+        .await
+    {
         tracing::warn!("Failed to spawn task {}: {}", task.id, e);
         // Task is created but not running - client can retry
     }
@@ -13114,6 +13119,39 @@ pub async fn delete_task_endpoint(
         })?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /tasks/:id/cancel` — cancel a task (and its sub-agents) but keep
+/// the record, unlike `DELETE /tasks/:id`. 200 `{id, status}` with the status
+/// read back after cancelling; 404 unknown task; 409 already finished.
+pub async fn cancel_task_endpoint(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let outcome = state
+        .task_executor
+        .cancel_keep_record(&id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    cancel_outcome_response(&id, outcome)
+}
+
+fn cancel_outcome_response(
+    id: &str,
+    outcome: crate::tasks::CancelOutcome,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use crate::tasks::CancelOutcome;
+    match outcome {
+        CancelOutcome::NotFound => Err((StatusCode::NOT_FOUND, "Task not found".to_string())),
+        CancelOutcome::AlreadyFinished(status) => Err((
+            StatusCode::CONFLICT,
+            format!("Task already finished ({})", status.as_str()),
+        )),
+        CancelOutcome::Cancelled(status) => Ok(Json(serde_json::json!({
+            "id": id,
+            "status": status,
+        }))),
+    }
 }
 
 // === SMTP Configuration Endpoints ===
@@ -15826,6 +15864,21 @@ mod netbox_console_access_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancel_route_maps_outcomes_to_status_codes() {
+        use crate::tasks::{CancelOutcome, TaskStatus};
+        let not_found = cancel_outcome_response("t1", CancelOutcome::NotFound).unwrap_err();
+        assert_eq!(not_found.0, StatusCode::NOT_FOUND);
+        let finished =
+            cancel_outcome_response("t1", CancelOutcome::AlreadyFinished(TaskStatus::Completed))
+                .unwrap_err();
+        assert_eq!(finished.0, StatusCode::CONFLICT);
+        assert!(finished.1.contains("completed"));
+        let Json(body) =
+            cancel_outcome_response("t1", CancelOutcome::Cancelled(TaskStatus::Cancelled)).unwrap();
+        assert_eq!(body, serde_json::json!({ "id": "t1", "status": "cancelled" }));
+    }
 
     #[test]
     fn parse_librenms_port_stats_converts_octets_to_bits() {

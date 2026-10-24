@@ -206,10 +206,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     if (!isInitialized) return;
 
-    if (!isEnterprise) {
-      setIsChecking(false);
-      return;
-    }
+    // Personal mode never renders the checking state (it returns children
+    // before reading it), so there is nothing to check or reset.
+    if (!isEnterprise) return;
 
     if (hasCheckedAuth.current) return;
 

@@ -38,6 +38,7 @@ import { logger } from '../lib/logger'
 import Tooltip from './Tooltip'
 import ModalFrame from './ModalFrame'
 import { userScopedKey } from '../lib/userScope'
+import { formatChatCapture, selectUncaptured } from '../lib/aiChatCapture'
 export type { AgentMessage }
 
 // localStorage pointer to the conversation to resume when the panel reopens.
@@ -70,7 +71,9 @@ function deriveConversationTitle(messages: AgentMessage[]): string {
 
 interface AISidePanelProps {
   isOpen: boolean
-  onClose: () => void
+  /** Close the panel. When omitted (e.g. a chat tab or popout that owns its
+   *  own close), the Close button is hidden rather than shown as a no-op. */
+  onClose?: () => void
   /** Increment to trigger expand (for Cmd+I when collapsed) */
   expandTrigger?: number
   /** Available sessions for the AI agent - includes connection status */
@@ -288,7 +291,9 @@ const AISidePanel = ({
   // Large-prompt editor (the expand icon opens it; a movable, resizable dialog).
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
   const openPromptEditor = () => setPromptEditorOpen(true)
-  const [selectedSession, setSelectedSession] = useState<string>('')
+  const [chosenSession, setSelectedSession] = useState<string>('')
+  // Until a session is chosen (or focus picks one), default to the first.
+  const selectedSession = chosenSession || availableSessions[0]?.id || ''
   const [agentType, setAgentType] = useState<AgentType>('autopilot')
   const modeNames = useModeNames()
 
@@ -300,8 +305,13 @@ const AISidePanel = ({
 
   // Provider/Model selection (two separate dropdowns)
   const [selectedProvider, setSelectedProvider] = useState<AiProviderType>('anthropic')
-  const [defaultModel, setDefaultModel] = useState<string>('')
-  const [, setAvailableModels] = useState<{ value: string; label: string }[]>([])
+  const [availableModels, setAvailableModels] = useState<{ value: string; label: string }[]>([])
+  // Per-chat model override. Empty (or no longer offered by the provider) =
+  // the provider's first configured model, which is its default.
+  const [modelOverride, setModelOverride] = useState('')
+  const selectedModel = availableModels.some(m => m.value === modelOverride)
+    ? modelOverride
+    : (availableModels[0]?.value ?? '')
   const [providerConfigured, setProviderConfigured] = useState<Record<AiProviderType, boolean>>({
     anthropic: false,
     openai: false,
@@ -513,6 +523,17 @@ const AISidePanel = ({
   }, [setConversationId])
   const [showHistory, setShowHistory] = useState(false)
   const [conversations, setConversations] = useState<AiConversationSummary[]>([])
+  // Troubleshooting capture state (see the capture effect below), declared
+  // here because the chat-switch handlers mark swapped-in history as seen.
+  const capturedIdsRef = useRef<Set<string>>(new Set())
+  const capturingRef = useRef(false)
+  // The messages of a conversation swapped into the panel are history, not
+  // new chat — never capture them.
+  const markChatCaptured = useCallback((messages: AgentMessage[] | undefined) => {
+    if (!capturingRef.current) return
+    for (const m of messages ?? []) capturedIdsRef.current.add(m.id)
+  }, [])
+
 
   // Use the unified AI agent hook
   const {
@@ -526,6 +547,9 @@ const AISidePanel = ({
     clearMessages,
     tokenUsage,
     resetTokenUsage,
+    queueMessage,
+    queuedMessage,
+    clearQueuedMessage,
   } = useAIAgent({
     sessions: agentSessions,
     onExecuteCommand,
@@ -535,7 +559,7 @@ const AISidePanel = ({
     onOpenConsole,
     // Pass selected provider/model to the hook
     provider: selectedProvider,
-    model: defaultModel,
+    model: selectedModel,
     // Setup interview only while a profile is still missing (NS-AI-33)
     onboardingMode: onboardingNeeded && !isEnterprise,
     onListDocuments,
@@ -588,20 +612,32 @@ const AISidePanel = ({
     const lastId = readLastConversationId()
     if (!lastId) return
     getAiConversation(lastId)
-      .then(conv => { setSeed(conv.messages); switchChat(conv.id) })
+      .then(conv => { markChatCaptured(conv.messages); setSeed(conv.messages); switchChat(conv.id) })
       .catch(() => writeLastConversationId(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Continue-in-panel hand-off (after mount): seed from the prop as a new convo.
+  // Continue-in-panel hand-off (after mount): seed from the prop as a new
+  // convo. State is swapped during render; the chat-switch refs after commit.
+  const [handedOffMessages, setHandedOffMessages] = useState(initialMessages)
+  if (initialMessages !== handedOffMessages) {
+    setHandedOffMessages(initialMessages)
+    if (initialMessages && initialMessages.length) {
+      setSeed(initialMessages)
+      setConversationIdState(null)
+    }
+  }
   const continueHandledRef = useRef(false)
   useEffect(() => {
     if (!continueHandledRef.current) { continueHandledRef.current = true; return }
     if (initialMessages && initialMessages.length) {
-      setSeed(initialMessages)
-      switchChat(null)
+      markChatCaptured(initialMessages)
+      // switchChat(null) minus the id state, already cleared above.
+      chatGenRef.current += 1
+      createInFlightRef.current = null
+      conversationIdRef.current = null
     }
-  }, [initialMessages, switchChat])
+  }, [initialMessages, markChatCaptured])
 
   // Save the conversation (create on first message, update thereafter).
   // Debounced so streaming token updates don't thrash the DB. Failures are
@@ -645,10 +681,11 @@ const AISidePanel = ({
     stopAgent()
     clearMessages()
     setSeed(undefined)
+    setModelOverride('')
     switchChat(null)
     setShowHistory(false)
     writeLastConversationId(null)
-  }, [clearMessages, stopAgent, switchChat])
+  }, [clearMessages, stopAgent, switchChat, setModelOverride])
 
   const handleToggleHistory = useCallback(async () => {
     if (!showHistory) {
@@ -663,12 +700,14 @@ const AISidePanel = ({
       // Stop the in-flight turn BEFORE swapping ids, otherwise its streamed
       // reply is appended to the loaded conversation and saved under its id.
       stopAgent()
+      markChatCaptured(conv.messages)
       setSeed(conv.messages)
+      setModelOverride('')
       switchChat(conv.id)
       writeLastConversationId(conv.id)
       setShowHistory(false)
     } catch { /* ignore */ }
-  }, [stopAgent, switchChat])
+  }, [stopAgent, switchChat, markChatCaptured, setModelOverride])
 
   const handleDeleteConversation = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -765,23 +804,19 @@ const AISidePanel = ({
   }, [resizeInput])
 
   // Update isPinned when default setting changes
-  useEffect(() => {
+  const [prevDefaultPinned, setPrevDefaultPinned] = useState(defaultPinned)
+  if (defaultPinned !== prevDefaultPinned) {
+    setPrevDefaultPinned(defaultPinned)
     setIsPinned(defaultPinned)
-  }, [defaultPinned])
+  }
 
-  // Auto-track focused tab — when user switches terminal tabs, update selected session
-  useEffect(() => {
-    if (focusedSessionId && availableSessions.some(s => s.id === focusedSessionId)) {
-      setSelectedSession(focusedSessionId)
-    }
-  }, [focusedSessionId, availableSessions])
-
-  // Auto-select first session if none selected
-  useEffect(() => {
-    if (availableSessions.length > 0 && !selectedSession) {
-      setSelectedSession(availableSessions[0].id)
-    }
-  }, [availableSessions, selectedSession])
+  // Auto-track focused tab — when user switches terminal tabs, select that
+  // session (once it appears in the list).
+  const [trackedFocusId, setTrackedFocusId] = useState<string | undefined>(undefined)
+  if (focusedSessionId !== trackedFocusId && (!focusedSessionId || availableSessions.some(s => s.id === focusedSessionId))) {
+    setTrackedFocusId(focusedSessionId)
+    if (focusedSessionId) setSelectedSession(focusedSessionId)
+  }
 
   // Load AI provider configuration on mount
   useEffect(() => {
@@ -791,7 +826,6 @@ const AISidePanel = ({
         const isEnabled = (type: AiProviderType) => enabledProviders.includes(type)
 
         let configured: Record<AiProviderType, boolean>
-        let ollamaModels: { value: string; label: string }[] = []
 
         if (getCurrentMode() === 'enterprise') {
           // Enterprise mode: query Controller for centrally configured providers
@@ -826,9 +860,6 @@ const AISidePanel = ({
               const ollamaUrl = await getOllamaBaseUrl()
               const status = await checkOllamaStatus(ollamaUrl)
               ollamaRunning = status.running
-              if (ollamaRunning) {
-                ollamaModels = await fetchOllamaModels(ollamaUrl)
-              }
             } catch {
               // Ollama not available
             }
@@ -880,37 +911,8 @@ const AISidePanel = ({
           else if (configured.custom) initialProvider = 'custom'
         }
 
+        // Its model list is loaded by the effect below.
         setSelectedProvider(initialProvider)
-
-        // Load models from settings for selected provider
-        const getModelsFromSettings = (provider: AiProviderType): { value: string; label: string }[] => {
-          const key = `ai.models.${provider}` as keyof typeof appSettings
-          const modelList = (appSettings[key] as string[]) || []
-          return modelList.map(m => ({ value: m, label: m }))
-        }
-
-        // Set available models for selected provider
-        let models: { value: string; label: string }[] = []
-        if (initialProvider === 'ollama' && ollamaModels.length > 0) {
-          models = ollamaModels
-        } else if (initialProvider === 'custom') {
-          // Custom provider: get model from backend config (not localStorage)
-          try {
-            const cfg = await getAiConfig()
-            if (cfg?.provider === 'custom' && cfg.model) {
-              models = [{ value: cfg.model, label: cfg.model }]
-            }
-          } catch { /* ignore */ }
-        } else {
-          models = getModelsFromSettings(initialProvider)
-        }
-
-        // Select first model if available
-        if (models.length > 0) {
-          setDefaultModel(models[0].value)
-        }
-
-        setAvailableModels(models)
       } catch (err) {
         console.error('Failed to load AI provider config:', err)
       }
@@ -918,8 +920,10 @@ const AISidePanel = ({
     loadProviderConfig()
   }, [appSettings])
 
-  // Update available models when provider changes
+  // Update available models when provider changes. The selected model is
+  // derived from this list (selectedModel), so it always stays valid.
   useEffect(() => {
+    let cancelled = false
     const updateModels = async () => {
       // Helper to get models from settings
       const getModelsFromSettings = (provider: AiProviderType): { value: string; label: string }[] => {
@@ -950,13 +954,10 @@ const AISidePanel = ({
         models = getModelsFromSettings(selectedProvider)
       }
 
-      setAvailableModels(models)
-      // Auto-select first model if current model not in list
-      if (models.length > 0 && !models.find(m => m.value === defaultModel)) {
-        setDefaultModel(models[0].value)
-      }
+      if (!cancelled) setAvailableModels(models)
     }
-    updateModels()
+    void updateModels()
+    return () => { cancelled = true }
   }, [selectedProvider, appSettings]) // Re-run when provider or settings change
 
   // Focus input when opened
@@ -969,13 +970,17 @@ const AISidePanel = ({
   }, [isOpen, isCollapsed])
 
   // Expand when trigger changes (Cmd+I pressed)
+  const [handledExpandTrigger, setHandledExpandTrigger] = useState<number | undefined>(undefined)
+  if (isOpen && expandTrigger && expandTrigger !== handledExpandTrigger) {
+    setHandledExpandTrigger(expandTrigger)
+    setIsCollapsed(false)
+  }
   useEffect(() => {
-    if (isOpen && expandTrigger) {
-      setIsCollapsed(false)
-      setTimeout(() => {
-        inputRef.current?.focus()
-      }, 100)
-    }
+    if (!isOpen || !expandTrigger) return
+    const t = setTimeout(() => {
+      inputRef.current?.focus()
+    }, 100)
+    return () => clearTimeout(t)
   }, [expandTrigger, isOpen])
 
   // ESC to collapse, click outside to auto-collapse when unpinned (docked only)
@@ -1014,28 +1019,29 @@ const AISidePanel = ({
     }
   }, [displayMessages])
 
-  // Capture AI chat messages for troubleshooting session (Phase 26)
-  // We track the last captured message count to only capture new messages
-  const lastCapturedCountRef = useRef(0)
+  // Capture AI chat messages for troubleshooting session (Phase 26).
+  // Tracked by message id (lib/aiChatCapture): starting a recording marks the
+  // existing transcript as already seen, and a replaced conversation (load /
+  // new chat / continue-in-panel) marks its history seen via markChatCaptured.
+  const capturing = !!(isTroubleshootingActive && captureAIConversations && onTroubleshootingCapture)
+  const replyStreaming = agentState === 'thinking'
   useEffect(() => {
-    // Only capture if troubleshooting is active and AI capture is enabled
-    if (!isTroubleshootingActive || !captureAIConversations || !onTroubleshootingCapture) {
+    if (!capturing || !onTroubleshootingCapture) {
+      capturingRef.current = false
+      capturedIdsRef.current = new Set()
       return
     }
-
-    // Capture any new messages since last time
-    const newMessages = agentMessages.slice(lastCapturedCountRef.current)
-    for (const msg of newMessages) {
-      // Format message for capture
-      const role = msg.type === 'user' ? 'User' : 'AI'
-      const captureContent = `[${role}] ${msg.content}`
-      onTroubleshootingCapture('ai-chat', captureContent)
+    if (!capturingRef.current) {
+      // Recording just started: only messages from now on belong to it.
+      capturingRef.current = true
+      capturedIdsRef.current = new Set(agentMessages.map(m => m.id))
+      return
     }
-
-    // Update last captured count
-    lastCapturedCountRef.current = agentMessages.length
-  }, [agentMessages, isTroubleshootingActive, captureAIConversations, onTroubleshootingCapture])
-
+    for (const msg of selectUncaptured(agentMessages, capturedIdsRef.current, replyStreaming)) {
+      capturedIdsRef.current.add(msg.id)
+      onTroubleshootingCapture('ai-chat', formatChatCapture(msg))
+    }
+  }, [agentMessages, capturing, replyStreaming, onTroubleshootingCapture])
   // Handle resize
   useEffect(() => {
     if (!isResizing) return
@@ -1065,12 +1071,12 @@ const AISidePanel = ({
 
     // Send message through the agent hook - it handles the agentic loop
     await sendMessage(userMessage)
-  }, [input, agentState, sendMessage])
+  }, [input, agentState, sendMessage, setInput])
 
   const handleQuickAction = useCallback((prompt: string) => {
     setInput(prompt)
     setTimeout(() => inputRef.current?.focus(), 50)
-  }, [])
+  }, [setInput])
 
   // Handle promoting chat to background task
   const handlePromoteToTask = useCallback(async (prompt: string) => {
@@ -1083,17 +1089,16 @@ const AISidePanel = ({
     onOpenAsTab?.()
   }, [onOpenAsTab])
 
-  // Handle external prompts (e.g., from AI Discover button)
+  // Handle external prompts (e.g., from AI Discover button). Sent now when
+  // idle; while a turn runs the latest one is queued (shown above the input)
+  // and sent when the turn finishes — never acknowledged without sending.
   const lastExternalPromptCounter = useRef(0)
   useEffect(() => {
     if (externalPrompt && externalPrompt.counter !== lastExternalPromptCounter.current) {
       lastExternalPromptCounter.current = externalPrompt.counter
-      // Only send if not busy
-      if (agentState !== 'thinking' && agentState !== 'executing' && agentState !== 'waiting_approval') {
-        sendMessage(externalPrompt.prompt)
-      }
+      queueMessage(externalPrompt.prompt)
     }
-  }, [externalPrompt, agentState, sendMessage])
+  }, [externalPrompt, queueMessage])
 
   // Use hook functions directly - no need for wrapper callbacks
 
@@ -1357,16 +1362,18 @@ const AISidePanel = ({
               </svg>
             </button></Tooltip>
           )}
-          <Tooltip label="Close" shortcut={aiChatBinding}><button
-            className="ns-btn ns-btn--ghost ns-icon-btn"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button></Tooltip>
+          {onClose && (
+            <Tooltip label="Close" shortcut={aiChatBinding}><button
+              className="ns-btn ns-btn--ghost ns-icon-btn"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button></Tooltip>
+          )}
         </div>
       </div>
 
@@ -1646,6 +1653,14 @@ const AISidePanel = ({
         )}
       </div>
 
+      {queuedMessage && (
+        <div className="ai-side-panel-queued" role="status">
+          <span className="ai-side-panel-queued-label">Queued — sends when the current reply finishes:</span>
+          <span className="ai-side-panel-queued-text" title={queuedMessage}>{queuedMessage}</span>
+          <button type="button" className="ns-btn ns-btn--ghost ns-btn--small" onClick={clearQueuedMessage}>Discard</button>
+        </div>
+      )}
+
       {/* Input - Cursor Style */}
       <div className="ai-input-container">
         <form onSubmit={handleSubmit}>
@@ -1701,7 +1716,10 @@ const AISidePanel = ({
               <div className="ai-text-selector provider-selector">
                 <select aria-label="AI provider"
                   value={selectedProvider}
-                  onChange={e => setSelectedProvider(e.target.value as AiProviderType)}
+                  onChange={e => {
+                    setSelectedProvider(e.target.value as AiProviderType)
+                    setModelOverride('')
+                  }}
                   disabled={isAgentBusy}
                 >
                   {providerConfigured.anthropic && (
@@ -1730,6 +1748,24 @@ const AISidePanel = ({
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </div>
+
+              {/* Model (per chat) — defaults to the provider's first model */}
+              {availableModels.length > 0 && (
+                <div className="ai-text-selector model-selector">
+                  <Tooltip label="Model for this chat"><select aria-label="AI model"
+                    value={selectedModel}
+                    onChange={e => setModelOverride(e.target.value)}
+                    disabled={isAgentBusy || availableModels.length < 2}
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select></Tooltip>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </div>
+              )}
 
               {/* Permission Mode */}
               <div className={`ai-text-selector mode-selector${permissionMode === 'yolo' ? ' yolo-active' : ''}`}>

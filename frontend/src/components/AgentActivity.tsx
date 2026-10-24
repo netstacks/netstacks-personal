@@ -4,9 +4,15 @@
  * icon, a title ("Thinking", "Command", "Result"), a tool chip + right-aligned
  * metadata, and the body (reasoning text, the exact command in a terminal row,
  * or the tool result/error). Kind-coded accents, a live pulse, auto-scroll.
+ *
+ * Extended-reasoning ('thinking') steps are shown only while the
+ * "Show AI Reasoning" setting (`ai.showThinking`) is on. When the backend
+ * cannot serve transcripts at all (enterprise: the Controller has no
+ * transcript route) pass `unavailable` to say so instead of "0 steps".
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskMessage } from '../types/tasks';
+import { useSettings } from '../hooks/useSettings';
 import './AgentActivity.css';
 import Tooltip from './Tooltip';
 
@@ -78,7 +84,24 @@ function KindIcon({ kind }: { kind: StepKind }) {
   }
 }
 
-export default function AgentActivity({ steps, live, fill }: { steps: TaskMessage[]; live?: boolean; fill?: boolean }) {
+/** Shown in place of the feed when the backend has no transcript support. */
+export const ACTIVITY_UNAVAILABLE_TEXT = "Detailed activity isn't available from this Controller.";
+
+interface AgentActivityProps {
+  steps: TaskMessage[];
+  live?: boolean;
+  fill?: boolean;
+  /** The backend cannot serve per-step transcripts (enterprise Controller). */
+  unavailable?: boolean;
+}
+
+export default function AgentActivity({ steps: allSteps, live, fill, unavailable }: AgentActivityProps) {
+  const { settings } = useSettings();
+  const showThinking = !!settings['ai.showThinking'];
+  const steps = useMemo(
+    () => (showThinking ? allSteps : allSteps.filter((s) => s.kind !== 'thinking')),
+    [allSteps, showThinking],
+  );
   const feedRef = useRef<HTMLDivElement | null>(null);
   // Per-step collapse (by seq) so a busy feed can be folded down to headers.
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -97,6 +120,19 @@ export default function AgentActivity({ steps, live, fill }: { steps: TaskMessag
     });
   const allCollapsed = steps.length > 0 && steps.every((s) => collapsed.has(s.seq));
   const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(steps.map((s) => s.seq)));
+
+  if (unavailable) {
+    return (
+      <div className={`agent-activity${fill ? ' fill' : ''}`}>
+        <div className="agent-activity-header">
+          <span className="agent-activity-title">Agent Activity</span>
+        </div>
+        <div className="agent-activity-feed">
+          <div className="aa-body aa-text agent-activity-unavailable" role="note">{ACTIVITY_UNAVAILABLE_TEXT}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`agent-activity${fill ? ' fill' : ''}`}>

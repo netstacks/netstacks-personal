@@ -864,6 +864,12 @@
 /* Zone header bars (Editor / Terminal) */
 
 .workspace-zone-collapsed-bar {
+  /* A native button (keyboard operable); reset the button chrome. */
+  width: 100%;
+  margin: 0;
+  border: none;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   gap: 6px;

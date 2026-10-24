@@ -28,6 +28,9 @@ import { toolRegistryFor } from './agentTools'
 const PREFERENCES_KEY = 'terminal.preferences'
 const PERMISSIONS_KEY = 'ai.permissions'
 const PUSH_DEBOUNCE_MS = 500
+/** First retry of a failed Controller read; doubles up to RETRY_MAX_MS. */
+const RETRY_BASE_MS = 2_000
+const RETRY_MAX_MS = 60_000
 
 interface UserPreferences {
   settings: Record<string, unknown>
@@ -95,6 +98,22 @@ const synced = new Map<string, string>()
 let pushTimer: number | null = null
 let stopSync: (() => void) | null = null
 
+// Audit 4.4: while the Controller's copy hasn't been read yet (it was down at
+// sign-in), nothing is saved — the device's cached copy may be older than the
+// Controller's, and saving it whole would overwrite newer values. Instead the
+// keys the user changes are remembered, the read is retried with backoff, and
+// once it succeeds those keys are laid over the Controller's fresh copy.
+/** What the user started from while the Controller is unread; null once read. */
+let offlineBaseline: UserPreferences | null = null
+/** Settings keys the user changed while the Controller was unread. */
+const pendingSettingKeys = new Set<string>()
+/** Whether the user changed the theme while the Controller was unread. */
+let pendingTheme = false
+let retryTimer: number | null = null
+let retryDelayMs = RETRY_BASE_MS
+/** Bumped on every sign-in/out so a late read for an old session is dropped. */
+let session = 0
+
 function parsePreferences(value: unknown): UserPreferences | null {
   if (typeof value !== 'object' || value === null) return null
   const { settings, appTheme } = value as Record<string, unknown>
@@ -115,9 +134,23 @@ function reportSaveFailure(key: string, err: unknown): void {
   }
 }
 
+/** Note which preferences differ from what the user started from offline. */
+function recordOfflineChanges(baseline: UserPreferences): void {
+  const current = getSettings() as unknown as Record<string, unknown>
+  for (const key of new Set([...Object.keys(current), ...Object.keys(baseline.settings)])) {
+    if (canonicalJson(current[key]) !== canonicalJson(baseline.settings[key])) pendingSettingKeys.add(key)
+  }
+  if (getAppTheme() !== baseline.appTheme) pendingTheme = true
+}
+
 /** Save every document whose value differs from the Controller's copy. */
 function push(): void {
   pushTimer = null
+  if (offlineBaseline !== null) {
+    // Controller unread: remember the change, save it once the read succeeds.
+    recordOfflineChanges(offlineBaseline)
+    return
+  }
   for (const [key, current] of Object.entries(DOCUMENTS)) {
     const value = current()
     const print = fingerprint(key, value)
@@ -139,53 +172,116 @@ function flushPush(): void {
   push()
 }
 
+/** Back online: retry a pending Controller read now instead of waiting out the backoff. */
+function retryNow(): void {
+  if (offlineBaseline === null) return
+  if (retryTimer !== null) window.clearTimeout(retryTimer)
+  retryTimer = null
+  void retryRead(session)
+}
+
 function startSync(): void {
   window.addEventListener(SETTINGS_CHANGED_EVENT, schedulePush)
   window.addEventListener('pagehide', flushPush)
+  window.addEventListener('online', retryNow)
   const unsubscribeTheme = subscribeAppTheme(schedulePush)
   stopSync = () => {
     window.removeEventListener(SETTINGS_CHANGED_EVENT, schedulePush)
     window.removeEventListener('pagehide', flushPush)
+    window.removeEventListener('online', retryNow)
     unsubscribeTheme()
+  }
+}
+
+/**
+ * Read both documents and make them current. When the read follows an offline
+ * stretch, the keys the user changed meanwhile win over the Controller's copy
+ * (and are then saved); everything else comes from the Controller.
+ */
+async function readFromController(forSession: number): Promise<boolean> {
+  const http = getClient().http
+  const [preferences, permissions] = await Promise.all([
+    http.get(`/user-settings/${PREFERENCES_KEY}`),
+    http.get(`/user-settings/${PERMISSIONS_KEY}`),
+  ])
+  if (forSession !== session) return false
+
+  const baseline = offlineBaseline
+  if (baseline !== null) recordOfflineChanges(baseline)
+  const local = getSettings() as unknown as Record<string, unknown>
+  const localTheme = getAppTheme()
+  const changedKeys = baseline !== null ? [...pendingSettingKeys] : []
+  const themeChanged = baseline !== null && pendingTheme
+  offlineBaseline = null
+  pendingSettingKeys.clear()
+  pendingTheme = false
+
+  const remote = parsePreferences(preferences.data)
+  if (remote) {
+    const merged: Record<string, unknown> = { ...remote.settings }
+    for (const key of changedKeys) merged[key] = local[key]
+    setGlobalSettings(normalizeSettings(merged))
+    setAppTheme(themeChanged ? localTheme : remote.appTheme)
+    // Synced = the Controller's copy, so a merge that changed anything is saved.
+    const remoteDoc = { settings: normalizeSettings({ ...remote.settings }), appTheme: remote.appTheme }
+    synced.set(PREFERENCES_KEY, fingerprint(PREFERENCES_KEY, remoteDoc))
+  } else {
+    synced.delete(PREFERENCES_KEY)
+    // Nothing saved yet: the theme is a device setting, so it still shows the
+    // previous user's choice — start this user from the default instead.
+    if (!themeChanged) setAppTheme(DEFAULT_APP_THEME)
+  }
+  // ai.permissions is derived from the preferences and never read back into
+  // the UI; what the Controller holds only decides whether to rewrite it
+  // (sign-in saves it only when it differs from the derived value).
+  if (permissions.data !== null) synced.set(PERMISSIONS_KEY, fingerprint(PERMISSIONS_KEY, permissions.data))
+  else synced.delete(PERMISSIONS_KEY)
+  schedulePush()
+  return true
+}
+
+function scheduleRetry(forSession: number): void {
+  if (retryTimer !== null) window.clearTimeout(retryTimer)
+  retryTimer = window.setTimeout(() => {
+    retryTimer = null
+    void retryRead(forSession)
+  }, retryDelayMs)
+  retryDelayMs = Math.min(retryDelayMs * 2, RETRY_MAX_MS)
+}
+
+async function retryRead(forSession: number): Promise<void> {
+  if (forSession !== session || offlineBaseline === null) return
+  try {
+    if (await readFromController(forSession)) retryDelayMs = RETRY_BASE_MS
+  } catch {
+    if (forSession === session && offlineBaseline !== null) scheduleRetry(forSession)
   }
 }
 
 /**
  * Make `userId`'s preferences current: their cached copy at once, then the
  * Controller's. A document unset (or stale) on the Controller is saved from
- * this device's copy. If the Controller can't be read the cached copy stays,
- * and later changes still save to the Controller.
+ * this device's copy. If the Controller can't be read the cached copy stays
+ * and is not saved (it may be older than the Controller's); the read is
+ * retried with backoff, and changes made meanwhile are saved over the
+ * Controller's copy once it has been read.
  */
 export async function loadUserPreferences(controllerUrl: string, userId: string): Promise<void> {
   releaseUserPreferences()
+  const forSession = session
   setUserScope(controllerUrl, userId)
   reloadSettings()
   try {
-    const http = getClient().http
-    const [preferences, permissions] = await Promise.all([
-      http.get(`/user-settings/${PREFERENCES_KEY}`),
-      http.get(`/user-settings/${PERMISSIONS_KEY}`),
-    ])
-    const remote = parsePreferences(preferences.data)
-    if (remote) {
-      setGlobalSettings(normalizeSettings(remote.settings))
-      setAppTheme(remote.appTheme)
-      synced.set(PREFERENCES_KEY, fingerprint(PREFERENCES_KEY, DOCUMENTS[PREFERENCES_KEY]()))
-    } else {
-      // Nothing saved yet: the theme is a device setting, so it still shows the
-      // previous user's choice — start this user from the default instead.
-      setAppTheme(DEFAULT_APP_THEME)
-    }
-    // ai.permissions is derived from the preferences and never read back into
-    // the UI; what the Controller holds only decides whether to rewrite it
-    // (sign-in saves it only when it differs from the derived value).
-    if (permissions.data !== null) synced.set(PERMISSIONS_KEY, fingerprint(PERMISSIONS_KEY, permissions.data))
-    schedulePush()
+    await readFromController(forSession)
   } catch (err) {
+    if (forSession !== session) return
     console.error('[userPreferences] Could not load your preferences from the Controller; using this device\'s copy:', err)
+    // Never treat the cached copy as newer than the Controller's.
     for (const [key, current] of Object.entries(DOCUMENTS)) synced.set(key, fingerprint(key, current()))
+    offlineBaseline = { settings: { ...getSettings() }, appTheme: getAppTheme() }
+    scheduleRetry(forSession)
   }
-  startSync()
+  if (forSession === session) startSync()
 }
 
 /** Sign-out: save what is pending, then drop the user's preferences from memory. */
@@ -193,6 +289,13 @@ export function releaseUserPreferences(): void {
   flushPush()
   stopSync?.()
   stopSync = null
+  session++
+  if (retryTimer !== null) window.clearTimeout(retryTimer)
+  retryTimer = null
+  retryDelayMs = RETRY_BASE_MS
+  offlineBaseline = null
+  pendingSettingKeys.clear()
+  pendingTheme = false
   synced.clear()
   clearUserScope()
   reloadSettings()

@@ -388,13 +388,21 @@ fn default_verify_ssl() -> bool {
 /// ACTIVE provider, so the frontend (`setAiProviderOverrides` in
 /// `frontend/src/api/ai.ts`) remembers every provider's endpoint here as
 /// `{"base_urls": {"<provider>": "<url>"}, "verify_ssl": {"<provider>": bool}}`
-/// (wrapped as `{"value": "<json string>"}` in standalone mode).
+/// (wrapped as `{"value": "<json string>"}` in standalone mode), plus the
+/// custom provider's `api_formats` / `auth_modes` so testing it while another
+/// provider is the default keeps its wire format and auth mode (3.4).
 #[derive(Debug, Clone, Default, Deserialize)]
 struct AiProviderOverrides {
     #[serde(default)]
     base_urls: HashMap<String, String>,
     #[serde(default)]
     verify_ssl: HashMap<String, bool>,
+    /// `"openai"` (default) or `"gemini"`, keyed by provider.
+    #[serde(default)]
+    api_formats: HashMap<String, String>,
+    /// `"api_key"` (default) or `"oauth2"`, keyed by provider.
+    #[serde(default)]
+    auth_modes: HashMap<String, String>,
 }
 
 /// Unwrap a settings value the frontend may have stored as `{"value": "<json>"}`
@@ -440,6 +448,7 @@ struct ResolvedProviderSettings {
     base_url: Option<String>,
     verify_ssl: bool,
     api_format: Option<String>,
+    auth_mode: Option<String>,
 }
 
 /// Trim surrounding whitespace and drop whitespace-only URLs. A stray
@@ -466,6 +475,13 @@ fn resolve_provider_settings(
         .base_urls
         .get(provider_name)
         .and_then(|u| clean_url(u));
+    let non_empty = |map: &HashMap<String, String>| {
+        map.get(provider_name)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let override_format = non_empty(&overrides.api_formats);
+    let override_auth = non_empty(&overrides.auth_modes);
 
     if let Some(settings) = settings.filter(|s| provider_name == s.provider) {
         ResolvedProviderSettings {
@@ -476,7 +492,8 @@ fn resolve_provider_settings(
                 .and_then(clean_url)
                 .or(override_url),
             verify_ssl: settings.verify_ssl,
-            api_format: settings.api_format.clone(),
+            api_format: settings.api_format.clone().or(override_format),
+            auth_mode: settings.auth_mode.clone().or(override_auth),
         }
     } else {
         ResolvedProviderSettings {
@@ -487,7 +504,8 @@ fn resolve_provider_settings(
                 .get(provider_name)
                 .copied()
                 .unwrap_or(true),
-            api_format: None,
+            api_format: override_format,
+            auth_mode: override_auth,
         }
     }
 }
@@ -539,34 +557,37 @@ pub async fn load_ai_config(
     provider_override: Option<&str>,
     model_override: Option<&str>,
 ) -> (Result<AiProviderConfig, String>, Option<String>) {
+    let explicit_provider = provider_override.filter(|p| !p.is_empty());
     // --- Parse ai.provider_config -> AiSettingsConfig ---
-    let settings_value = match dp.get_setting("ai.provider_config").await {
-        Ok(v) if !v.is_null() => v,
-        Ok(_) => return (
-            Err(
-                "AI provider not configured. Go to Settings > AI to select a provider and model."
-                    .into(),
-            ),
-            None,
-        ),
-        Err(e) => return (Err(format!("Failed to read AI settings: {}", e)), None),
-    };
-
-    // The frontend may wrap the value as {"value": "<json string>"}.
-    let config_value = match unwrap_setting_json(settings_value) {
-        Ok(v) if !v.is_null() => v,
-        Ok(_) => return (
-            Err(
-                "AI provider not configured. Go to Settings > AI to select a provider and model."
-                    .into(),
-            ),
-            None,
-        ),
-        Err(e) => return (Err(e), None),
-    };
-    let settings: AiSettingsConfig = match serde_json::from_value(config_value) {
-        Ok(c) => c,
-        Err(e) => return (Err(format!("Failed to parse AI settings: {}", e)), None),
+    // The default config is only required when the request does not name a
+    // provider. An explicit provider (e.g. Test on a non-default card on a
+    // fresh profile) is built from the overrides + its stored key (3.4).
+    let settings: Option<AiSettingsConfig> = match dp.get_setting("ai.provider_config").await {
+        Ok(v) => match unwrap_setting_json(v) {
+            Ok(v) if v.is_null() => None,
+            Ok(v) => match serde_json::from_value(v) {
+                Ok(c) => Some(c),
+                Err(e) if explicit_provider.is_none() => {
+                    return (Err(format!("Failed to parse AI settings: {}", e)), None)
+                }
+                Err(e) => {
+                    tracing::warn!("Ignoring unparseable ai.provider_config: {}", e);
+                    None
+                }
+            },
+            Err(e) if explicit_provider.is_none() => return (Err(e), None),
+            Err(e) => {
+                tracing::warn!("Ignoring unreadable ai.provider_config: {}", e);
+                None
+            }
+        },
+        Err(e) if explicit_provider.is_none() => {
+            return (Err(format!("Failed to read AI settings: {}", e)), None)
+        }
+        Err(e) => {
+            tracing::warn!("Failed to read ai.provider_config: {}", e);
+            None
+        }
     };
 
     // Per-provider endpoints for providers other than the active one (RC-8).
@@ -583,14 +604,25 @@ pub async fn load_ai_config(
 
     // System prompt is independent of provider/key resolution — keep it even if
     // the config build below fails.
-    let custom_prompt = settings.system_prompt.clone().filter(|s| !s.is_empty());
+    let custom_prompt = settings
+        .as_ref()
+        .and_then(|s| s.system_prompt.clone())
+        .filter(|s| !s.is_empty());
 
     // --- Resolve effective provider + model (overrides win; no hardcoded model) ---
-    let provider_name = provider_override
-        .filter(|p| !p.is_empty())
-        .unwrap_or(settings.provider.as_str());
-    let same_provider = provider_name == settings.provider;
-    let resolved = resolve_provider_settings(Some(&settings), &overrides, provider_name);
+    let provider_name = match explicit_provider.or(settings.as_ref().map(|s| s.provider.as_str())) {
+        Some(p) => p,
+        None => {
+            return (
+                Err("AI provider not configured. Go to Settings > AI to select a provider and model."
+                    .into()),
+                None,
+            )
+        }
+    };
+    // The active config, only when it describes the provider being built.
+    let active = settings.as_ref().filter(|s| s.provider == provider_name);
+    let resolved = resolve_provider_settings(settings.as_ref(), &overrides, provider_name);
 
     let model = match model_override
         .filter(|m| !m.is_empty())
@@ -644,9 +676,17 @@ pub async fn load_ai_config(
             .ok()
             .flatten()
             .unwrap_or_default();
-        // OAuth2/header settings belong to the active config; only apply them
-        // when that config actually describes the custom provider.
-        let oauth2 = if same_provider && settings.auth_mode.as_deref() == Some("oauth2") {
+        // The OAuth2 token endpoint/client id/headers live in the active
+        // config only; an OAuth2 custom provider that is not the default
+        // cannot be built from the overrides alone, so say so instead of
+        // silently sending the secret as a static key.
+        let oauth2 = if resolved.auth_mode.as_deref() == Some("oauth2") {
+            let Some(settings) = active else {
+                return (
+                    Err("The custom provider uses OAuth2, whose token URL and client ID are saved only with the default provider. Make Custom the default provider in Settings → AI to test it.".to_string()),
+                    custom_prompt,
+                );
+            };
             match (
                 settings.oauth2_token_url.clone(),
                 settings.oauth2_client_id.clone(),
@@ -1787,6 +1827,7 @@ mod ai_config_resolution_tests {
                 base_url: Some("https://gw.example/v1".into()),
                 verify_ssl: false,
                 api_format: Some("gemini".into()),
+                auth_mode: None,
             }
         );
     }
@@ -1815,6 +1856,7 @@ mod ai_config_resolution_tests {
                 base_url: Some("http://litellm:4000".into()),
                 verify_ssl: false,
                 api_format: None,
+                auth_mode: None,
             }
         );
 
@@ -1826,7 +1868,8 @@ mod ai_config_resolution_tests {
                 model: None,
                 base_url: None,
                 verify_ssl: true,
-                api_format: None
+                api_format: None,
+                auth_mode: None,
             }
         );
     }
@@ -1842,6 +1885,7 @@ mod ai_config_resolution_tests {
                 base_url: Some("http://litellm:4000".into()),
                 verify_ssl: false,
                 api_format: None,
+                auth_mode: None,
             }
         );
         let r = resolve_provider_settings(None, &overrides(), "anthropic");
@@ -1851,9 +1895,100 @@ mod ai_config_resolution_tests {
                 model: None,
                 base_url: None,
                 verify_ssl: true,
-                api_format: None
+                api_format: None,
+                auth_mode: None,
             }
         );
+    }
+
+    #[test]
+    fn overrides_carry_custom_api_format_and_auth_mode() {
+        let o = parse_provider_overrides(json!({
+            "api_formats": { "custom": "gemini" },
+            "auth_modes": { "custom": "oauth2" },
+        }));
+        // Custom is not the active provider: the overrides apply.
+        let s = settings("openai", None, true);
+        let r = resolve_provider_settings(Some(&s), &o, "custom");
+        assert_eq!(r.api_format.as_deref(), Some("gemini"));
+        assert_eq!(r.auth_mode.as_deref(), Some("oauth2"));
+        let r = resolve_provider_settings(None, &o, "custom");
+        assert_eq!(r.api_format.as_deref(), Some("gemini"));
+        // Other providers don't pick them up.
+        let r = resolve_provider_settings(None, &o, "openai");
+        assert_eq!((r.api_format, r.auth_mode), (None, None));
+    }
+
+    async fn fresh_provider() -> (Arc<dyn crate::providers::DataProvider>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = crate::db::init_db(&dir.path().join("test.db")).await.unwrap();
+        let dp: Arc<dyn crate::providers::DataProvider> =
+            Arc::new(crate::providers::local::LocalDataProvider::new(pool));
+        dp.set_master_password("test-password-123").await.unwrap();
+        (dp, dir)
+    }
+
+    #[tokio::test]
+    async fn explicit_provider_builds_without_a_default_config() {
+        let (dp, _dir) = fresh_provider().await;
+        dp.store_api_key("ai.openai", "sk-test").await.unwrap();
+
+        let (config, prompt) = load_ai_config(dp.as_ref(), Some("openai"), Some("gpt-x")).await;
+        match config {
+            Ok(AiProviderConfig::OpenAI { api_key, model, .. }) => {
+                assert_eq!(api_key, "sk-test");
+                assert_eq!(model, "gpt-x");
+            }
+            other => panic!("expected an OpenAI config, got {other:?}"),
+        }
+        assert!(prompt.is_none());
+
+        // No provider named and no default config: still "not configured".
+        let (config, _) = load_ai_config(dp.as_ref(), None, Some("gpt-x")).await;
+        assert!(config.unwrap_err().contains("not configured"));
+        // A provider without a model is still rejected.
+        let (config, _) = load_ai_config(dp.as_ref(), Some("openai"), None).await;
+        assert!(config.unwrap_err().contains("No model configured"));
+    }
+
+    #[tokio::test]
+    async fn explicit_custom_provider_uses_override_format_and_auth_mode() {
+        let (dp, _dir) = fresh_provider().await;
+        dp.store_api_key("ai.custom", "static-key").await.unwrap();
+        let set_overrides = |v: serde_json::Value| {
+            let dp = dp.clone();
+            async move {
+                dp.set_setting("ai.provider_overrides", json!({ "value": v.to_string() }))
+                    .await
+                    .unwrap()
+            }
+        };
+        set_overrides(json!({
+            "base_urls": { "custom": "https://gw.example/v1" },
+            "api_formats": { "custom": "gemini" },
+            "auth_modes": { "custom": "api_key" },
+        }))
+        .await;
+
+        let (config, _) = load_ai_config(dp.as_ref(), Some("custom"), Some("m")).await;
+        match config {
+            Ok(AiProviderConfig::Custom { api_format, oauth2, base_url, api_key, .. }) => {
+                assert_eq!(api_format.as_deref(), Some("gemini"));
+                assert!(oauth2.is_none());
+                assert_eq!(base_url, "https://gw.example/v1");
+                assert_eq!(api_key, "static-key");
+            }
+            other => panic!("expected a Custom config, got {other:?}"),
+        }
+
+        // OAuth2 needs the token URL/client id from the active config.
+        set_overrides(json!({
+            "base_urls": { "custom": "https://gw.example/v1" },
+            "auth_modes": { "custom": "oauth2" },
+        }))
+        .await;
+        let (config, _) = load_ai_config(dp.as_ref(), Some("custom"), Some("m")).await;
+        assert!(config.unwrap_err().contains("OAuth2"));
     }
 
     #[test]

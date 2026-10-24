@@ -38,6 +38,7 @@ import { fetchDeviceByName, getNetBoxDeviceRole, type NetBoxDevice } from '../ap
 import { buildDeviceDetail } from '../lib/detail/buildDeviceDetail';
 import DetailSections from './detail/DetailSections';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
+import type { FeatureName } from '../types/capabilities';
 import { useHostnameFormatter } from '../hooks/useHostnameFormatter';
 import SearchField from './SearchField';
 import './DeviceDetailTab.css';
@@ -919,15 +920,15 @@ export default function DeviceDetailTab({
       setPollError(getErrorMessage(err, 'SNMP poll failed'));
       setPollState('error');
     }
-  }, [host, profileId, deviceId, isEnterprise, interfaces, discoveredInterfaces, cachedCommunity]);
+  }, [host, profileId, deviceId, isEnterprise, interfaces, discoveredInterfaces, cachedCommunity, jumpHostId, jumpSessionId, sessionId, setDeviceEnrichment]);
 
-  // Auto-trigger SNMP poll on mount when we can poll but have no enrichment data
+  // Auto-trigger one SNMP poll once we can poll but have no enrichment data.
+  const autoPolledRef = useRef(false);
   useEffect(() => {
-    if (canPoll && !enrichment && pollState === 'idle') {
-      handleRefresh();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPoll]);
+    if (autoPolledRef.current || !canPoll || enrichment || pollState !== 'idle') return;
+    autoPolledRef.current = true;
+    void handleRefresh();
+  }, [canPoll, enrichment, pollState, handleRefresh]);
 
   // Last-resort fallbacks parsed from the locally-polled SNMP system info.
   // Only kicks in when neither the enrichment cache nor the persisted device
@@ -951,21 +952,10 @@ export default function DeviceDetailTab({
   // Uptime — fall back to the SNMP sysUpTime string the poll already
   // formatted into snmpSystemInfo['SNMP Uptime'] (e.g. "7h 35m") so we don't
   // show "N/A" right next to a populated SNMP Uptime row.
-  const getUptimeDisplay = (): string => {
-    if (enrichment?.uptimeSeconds !== undefined) {
-      return formatUptime(enrichment.uptimeSeconds);
-    }
-    if (enrichment?.uptimeFormatted) {
-      return enrichment.uptimeFormatted;
-    }
-    if (device?.uptime) {
-      return device.uptime;
-    }
-    if (snmpSystemInfo?.['SNMP Uptime']) {
-      return snmpSystemInfo['SNMP Uptime'];
-    }
-    return 'N/A';
-  };
+  const uptimeDisplay: string =
+    enrichment?.uptimeSeconds !== undefined
+      ? formatUptime(enrichment.uptimeSeconds)
+      : enrichment?.uptimeFormatted || device?.uptime || snmpSystemInfo?.['SNMP Uptime'] || 'N/A';
 
   // Collection timestamp
   const collectedAt = enrichment?.collectedAt
@@ -981,7 +971,7 @@ export default function DeviceDetailTab({
     profile: null, // Tab doesn't currently resolve profile; can be added later if needed
     connected: undefined, // Not readily determinable in tab context
     isEnterprise: isEnterpriseFlag,
-    hasFeature: (name: string) => hasFeatureRaw(name as any),
+    hasFeature: (name: string) => hasFeatureRaw(name as FeatureName),
   }), [enrichment, isEnterpriseFlag, hasFeatureRaw]);
 
   // Filtered and sorted interfaces
@@ -1111,41 +1101,51 @@ export default function DeviceDetailTab({
       <div key={iface.name} className="device-detail-tab-interface-item">
         <div
           className={`device-detail-tab-interface-row ${isExpanded ? 'expanded' : ''} ${liveRates.size > 0 ? 'has-live-rates' : ''}`}
+          role="row"
           onClick={() => setExpandedInterface(isExpanded ? null : iface.name)}
         >
-          <span className="device-detail-tab-interface-expand">
-            {isExpanded ? Icons.chevronDown : Icons.chevronRight}
+          <span role="cell" className="device-detail-tab-interface-expand">
+            {/* Keyboard path to the row toggle; the click bubbles to the row. */}
+            <button
+              type="button"
+              className="device-detail-tab-expand-btn"
+              aria-expanded={isExpanded}
+              aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${iface.name}`}
+            >
+              {isExpanded ? Icons.chevronDown : Icons.chevronRight}
+            </button>
           </span>
-          <span className="device-detail-tab-interface-name">{iface.name}</span>
+          <span role="cell" className="device-detail-tab-interface-name">{iface.name}</span>
           <span
+            role="cell"
             className="device-detail-tab-interface-status"
             style={{ backgroundColor: getStatusColor(iface.status) }}
           >
             {iface.status}
           </span>
-          <span className="device-detail-tab-interface-speed">{iface.speed || '-'}</span>
-          <span className="device-detail-tab-interface-mtu">{iface.mtu || '-'}</span>
-          <span className="device-detail-tab-interface-ip">{iface.ipAddress || '-'}</span>
-          <span className="device-detail-tab-interface-mac">{iface.macAddress || '-'}</span>
-          <span className="device-detail-tab-interface-rx">{formatPackets(iface.rxPackets || 0)}</span>
-          <span className="device-detail-tab-interface-tx">{formatPackets(iface.txPackets || 0)}</span>
-          <span className={`device-detail-tab-interface-errors ${hasErrors ? 'has-errors' : ''}`}>
+          <span role="cell" className="device-detail-tab-interface-speed">{iface.speed || '-'}</span>
+          <span role="cell" className="device-detail-tab-interface-mtu">{iface.mtu || '-'}</span>
+          <span role="cell" className="device-detail-tab-interface-ip">{iface.ipAddress || '-'}</span>
+          <span role="cell" className="device-detail-tab-interface-mac">{iface.macAddress || '-'}</span>
+          <span role="cell" className="device-detail-tab-interface-rx">{formatPackets(iface.rxPackets || 0)}</span>
+          <span role="cell" className="device-detail-tab-interface-tx">{formatPackets(iface.txPackets || 0)}</span>
+          <span role="cell" className={`device-detail-tab-interface-errors ${hasErrors ? 'has-errors' : ''}`}>
             {(iface.rxErrors || 0) + (iface.txErrors || 0)}
           </span>
           {liveRates.size > 0 && (
             <>
-              <span className="device-detail-tab-interface-in-rate">
+              <span role="cell" className="device-detail-tab-interface-in-rate">
                 {rate ? formatRate(rate.inBps) : '-'}
               </span>
-              <span className="device-detail-tab-interface-out-rate">
+              <span role="cell" className="device-detail-tab-interface-out-rate">
                 {rate ? formatRate(rate.outBps) : '-'}
               </span>
             </>
           )}
         </div>
         {isExpanded && (
-          <div className="device-detail-tab-interface-details">
-            <div className="device-detail-tab-interface-detail-grid">
+          <div className="device-detail-tab-interface-details" role="row">
+            <div className="device-detail-tab-interface-detail-grid" role="cell">
               {iface.description && (
                 <div className="device-detail-tab-interface-detail">
                   <span className="label">Description</span>
@@ -1292,6 +1292,27 @@ export default function DeviceDetailTab({
     return <span className="device-detail-tab-sort-indicator">{snmpSortDir === 'asc' ? '\u2191' : '\u2193'}</span>;
   };
 
+  // A sortable column header: a native button inside a columnheader that
+  // announces its sort state (keyboard operable, same look as before).
+  const renderSortHeader = (
+    label: string,
+    active: boolean,
+    direction: SortDirection,
+    indicator: React.ReactNode,
+    onSort: () => void,
+    className?: string,
+  ) => (
+    <span
+      className={className}
+      role="columnheader"
+      aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button type="button" className="device-detail-tab-sort-btn" onClick={onSort}>
+        {label} {indicator}
+      </button>
+    </span>
+  );
+
   // Close save dialog when clicking outside
   useEffect(() => {
     if (!saveDialogOpen) return;
@@ -1324,7 +1345,7 @@ export default function DeviceDetailTab({
     md += `| OS Version | ${osVersion} |\n`;
     md += `| Serial Number | ${serial} |\n`;
     md += `| Hostname | ${fullHostname} |\n`;
-    md += `| Uptime | ${getUptimeDisplay()} |\n`;
+    md += `| Uptime | ${uptimeDisplay} |\n`;
     if (enrichment?.cliFlavor) md += `| CLI Flavor | ${enrichment.cliFlavor} |\n`;
     if (device?.primaryIp) md += `| Management IP | ${device.primaryIp} |\n`;
     if (device?.site) md += `| Site | ${device.site} |\n`;
@@ -1427,7 +1448,7 @@ export default function DeviceDetailTab({
     }
 
     return md;
-  }, [fullHostname, vendor, model, osVersion, serial, enrichment, device, interfaces, snmpSystemInfo, snmpInterfaceData, liveRates, sessionHistory, changeHistory]);
+  }, [fullHostname, vendor, model, osVersion, serial, enrichment, device, interfaces, snmpSystemInfo, snmpInterfaceData, liveRates, sessionHistory, changeHistory, uptimeDisplay]);
 
   /** Save basic markdown doc from current state */
   const handleBasicSave = useCallback(async () => {
@@ -2016,7 +2037,7 @@ export default function DeviceDetailTab({
                   </div>
                   <div className="device-detail-tab-health-tile-info">
                     <div className="device-detail-tab-health-tile-label">System Health</div>
-                    <div className="device-detail-tab-health-tile-value-large">{getUptimeDisplay()}</div>
+                    <div className="device-detail-tab-health-tile-value-large">{uptimeDisplay}</div>
                     {interfaceHealth.total > 0 && (
                       <div className="device-detail-tab-health-iface-stats">
                         <div className="device-detail-tab-health-stat">
@@ -2134,44 +2155,30 @@ export default function DeviceDetailTab({
               />
             </div>
             <div className="device-detail-tab-card-body no-padding">
-              <div className={`device-detail-tab-interface-table ${liveRates.size > 0 ? 'has-live-rates' : ''}`}>
-                <div className="device-detail-tab-interface-header">
-                  <span className="expand" />
-                  <span className="name" onClick={() => handleSort('name')}>
-                    Name {renderSortIndicator('name')}
-                  </span>
-                  <span className="status" onClick={() => handleSort('status')}>
-                    Status {renderSortIndicator('status')}
-                  </span>
-                  <span className="speed" onClick={() => handleSort('speed')}>
-                    Speed {renderSortIndicator('speed')}
-                  </span>
-                  <span className="mtu" onClick={() => handleSort('mtu')}>
-                    MTU {renderSortIndicator('mtu')}
-                  </span>
-                  <span className="ip">IP Address</span>
-                  <span className="mac">MAC Address</span>
-                  <span className="rx" onClick={() => handleSort('rxPackets')}>
-                    RX Pkts {renderSortIndicator('rxPackets')}
-                  </span>
-                  <span className="tx" onClick={() => handleSort('txPackets')}>
-                    TX Pkts {renderSortIndicator('txPackets')}
-                  </span>
-                  <span className="errors" onClick={() => handleSort('errors')}>
-                    Errors {renderSortIndicator('errors')}
-                  </span>
+              <div className={`device-detail-tab-interface-table ${liveRates.size > 0 ? 'has-live-rates' : ''}`} role="table" aria-label="Interfaces">
+                <div className="device-detail-tab-interface-header" role="row">
+                  <span className="expand" role="columnheader" aria-label="Expand" />
+                  {renderSortHeader('Name', sortField === 'name', sortDirection, renderSortIndicator('name'), () => handleSort('name'), 'name')}
+                  {renderSortHeader('Status', sortField === 'status', sortDirection, renderSortIndicator('status'), () => handleSort('status'), 'status')}
+                  {renderSortHeader('Speed', sortField === 'speed', sortDirection, renderSortIndicator('speed'), () => handleSort('speed'), 'speed')}
+                  {renderSortHeader('MTU', sortField === 'mtu', sortDirection, renderSortIndicator('mtu'), () => handleSort('mtu'), 'mtu')}
+                  <span className="ip" role="columnheader">IP Address</span>
+                  <span className="mac" role="columnheader">MAC Address</span>
+                  {renderSortHeader('RX Pkts', sortField === 'rxPackets', sortDirection, renderSortIndicator('rxPackets'), () => handleSort('rxPackets'), 'rx')}
+                  {renderSortHeader('TX Pkts', sortField === 'txPackets', sortDirection, renderSortIndicator('txPackets'), () => handleSort('txPackets'), 'tx')}
+                  {renderSortHeader('Errors', sortField === 'errors', sortDirection, renderSortIndicator('errors'), () => handleSort('errors'), 'errors')}
                   {liveRates.size > 0 && (
                     <>
-                      <span className="in-rate">In Rate</span>
-                      <span className="out-rate">Out Rate</span>
+                      <span className="in-rate" role="columnheader">In Rate</span>
+                      <span className="out-rate" role="columnheader">Out Rate</span>
                     </>
                   )}
                 </div>
-                <div className="device-detail-tab-interface-list">
+                <div className="device-detail-tab-interface-list" role="rowgroup">
                   {filteredInterfaces.map(renderInterfaceRow)}
                   {filteredInterfaces.length === 0 && (
-                    <div className="device-detail-tab-interface-empty">
-                      {interfaceFilter ? 'No interfaces match filter' : 'No interface data available'}
+                    <div className="device-detail-tab-interface-empty" role="row">
+                      <span role="cell">{interfaceFilter ? 'No interfaces match filter' : 'No interface data available'}</span>
                     </div>
                   )}
                 </div>
@@ -2195,18 +2202,18 @@ export default function DeviceDetailTab({
               </span>
             </div>
             <div className="device-detail-tab-card-body no-padding">
-              <div className="device-detail-tab-interface-table device-detail-tab-snmp-table">
-                <div className="device-detail-tab-snmp-header">
-                  <span onClick={() => handleSnmpSort('name')}>Name {renderSnmpSortIndicator('name')}</span>
-                  <span>Alias</span>
-                  <span onClick={() => handleSnmpSort('status')}>Status {renderSnmpSortIndicator('status')}</span>
-                  <span onClick={() => handleSnmpSort('speed')}>Speed {renderSnmpSortIndicator('speed')}</span>
-                  <span onClick={() => handleSnmpSort('inRate')}>In Rate {renderSnmpSortIndicator('inRate')}</span>
-                  <span onClick={() => handleSnmpSort('outRate')}>Out Rate {renderSnmpSortIndicator('outRate')}</span>
-                  <span onClick={() => handleSnmpSort('errors')}>Errors {renderSnmpSortIndicator('errors')}</span>
-                  <span onClick={() => handleSnmpSort('discards')}>Discards {renderSnmpSortIndicator('discards')}</span>
+              <div className="device-detail-tab-interface-table device-detail-tab-snmp-table" role="table" aria-label="SNMP interfaces">
+                <div className="device-detail-tab-snmp-header" role="row">
+                  {renderSortHeader('Name', snmpSortField === 'name', snmpSortDir, renderSnmpSortIndicator('name'), () => handleSnmpSort('name'))}
+                  <span role="columnheader">Alias</span>
+                  {renderSortHeader('Status', snmpSortField === 'status', snmpSortDir, renderSnmpSortIndicator('status'), () => handleSnmpSort('status'))}
+                  {renderSortHeader('Speed', snmpSortField === 'speed', snmpSortDir, renderSnmpSortIndicator('speed'), () => handleSnmpSort('speed'))}
+                  {renderSortHeader('In Rate', snmpSortField === 'inRate', snmpSortDir, renderSnmpSortIndicator('inRate'), () => handleSnmpSort('inRate'))}
+                  {renderSortHeader('Out Rate', snmpSortField === 'outRate', snmpSortDir, renderSnmpSortIndicator('outRate'), () => handleSnmpSort('outRate'))}
+                  {renderSortHeader('Errors', snmpSortField === 'errors', snmpSortDir, renderSnmpSortIndicator('errors'), () => handleSnmpSort('errors'))}
+                  {renderSortHeader('Discards', snmpSortField === 'discards', snmpSortDir, renderSnmpSortIndicator('discards'), () => handleSnmpSort('discards'))}
                 </div>
-                <div className="device-detail-tab-interface-list">
+                <div className="device-detail-tab-interface-list" role="rowgroup">
                   {sortedSnmpInterfaces.map(({ name, data, rate }) => {
                     const totalErrors = data.inErrors + data.outErrors;
                     const totalDiscards = data.inDiscards + data.outDiscards;
@@ -2216,15 +2223,15 @@ export default function DeviceDetailTab({
                     const outPct = data.speedMbps > 0 && rate ? Math.min(100, (rate.outBps / (data.speedMbps * 1_000_000)) * 100) : 0;
 
                     return (
-                      <div key={name} className="device-detail-tab-snmp-row">
-                        <span className="device-detail-tab-interface-name">{name}</span>
-                        <span className="device-detail-tab-snmp-alias">{data.ifAlias || '-'}</span>
-                        <span className="device-detail-tab-snmp-status-cell">
+                      <div key={name} className="device-detail-tab-snmp-row" role="row">
+                        <span role="cell" className="device-detail-tab-interface-name">{name}</span>
+                        <span role="cell" className="device-detail-tab-snmp-alias">{data.ifAlias || '-'}</span>
+                        <span role="cell" className="device-detail-tab-snmp-status-cell">
                           <span className={`device-detail-tab-status-dot ${isUp ? 'up' : 'down'}`} />
                           {data.operStatusText}
                         </span>
-                        <span className="device-detail-tab-interface-speed">{data.speedMbps > 0 ? speedLabel : '-'}</span>
-                        <span className="device-detail-tab-snmp-rate-cell">
+                        <span role="cell" className="device-detail-tab-interface-speed">{data.speedMbps > 0 ? speedLabel : '-'}</span>
+                        <span role="cell" className="device-detail-tab-snmp-rate-cell">
                           <span className="device-detail-tab-interface-in-rate">{rate ? formatRate(rate.inBps) : '-'}</span>
                           {inPct > 0 && (
                             <div className="device-detail-tab-util-bar-container small">
@@ -2232,7 +2239,7 @@ export default function DeviceDetailTab({
                             </div>
                           )}
                         </span>
-                        <span className="device-detail-tab-snmp-rate-cell">
+                        <span role="cell" className="device-detail-tab-snmp-rate-cell">
                           <span className="device-detail-tab-interface-out-rate">{rate ? formatRate(rate.outBps) : '-'}</span>
                           {outPct > 0 && (
                             <div className="device-detail-tab-util-bar-container small">
@@ -2240,10 +2247,10 @@ export default function DeviceDetailTab({
                             </div>
                           )}
                         </span>
-                        <span className={`device-detail-tab-interface-errors ${totalErrors > 0 ? 'has-errors' : ''}`}>
+                        <span role="cell" className={`device-detail-tab-interface-errors ${totalErrors > 0 ? 'has-errors' : ''}`}>
                           {totalErrors}
                         </span>
-                        <span className={`device-detail-tab-interface-errors ${totalDiscards > 0 ? 'has-errors' : ''}`}>
+                        <span role="cell" className={`device-detail-tab-interface-errors ${totalDiscards > 0 ? 'has-errors' : ''}`}>
                           {totalDiscards}
                         </span>
                       </div>
