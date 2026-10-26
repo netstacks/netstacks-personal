@@ -14,6 +14,29 @@ let configModeUnreachable = false;
 let adminAllowsConfigChanges = true;
 /** How /ai/command-check fails, if it does: an HTTP status, or 'network'. */
 let commandCheckFailure: number | 'network' | null = null;
+/**
+ * The Controller's server-side AI permission decision for /ai/ssh-execute and
+ * (for Overlord) /ai/tool-exec. 'ask' parks the call behind a 202 until the
+ * same request comes back with its approval_id; 'ask-expired' never redeems.
+ */
+let serverPolicy: 'allow' | 'ask' | 'ask-expired' | 'deny' = 'allow';
+const sshExecuteBodies: Array<Record<string, unknown>> = [];
+const toolExecBodies: Array<Record<string, unknown>> = [];
+let approvalSeq = 0;
+function policyResponse(body: Record<string, unknown>, toolName: string, run: () => Record<string, unknown>) {
+  if (serverPolicy === 'deny') {
+    throw Object.assign(new Error('Request failed with status code 403'), {
+      isAxiosError: true,
+      response: { status: 403, data: { success: false, error: `Command rejected: ${toolName} is not allowed in this mode` } },
+    });
+  }
+  const redeemable = serverPolicy === 'ask' && typeof body.approval_id === 'string' && body.approval_id.startsWith('appr-');
+  if (serverPolicy !== 'allow' && !redeemable) {
+    const approval_id = `appr-${++approvalSeq}`;
+    return { status: 202, data: { success: false, approval_required: true, approval_id, tool_name: toolName, reason: 'permission mode is Ask', error: 'Approval required: permission mode is Ask' } };
+  }
+  return { status: 200, data: run() };
+}
 function httpError(status: number) {
   return Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status, data: {} } });
 }
@@ -47,7 +70,12 @@ const http = {
           response: { status: 403, data: { success: false, error: 'graph_impact is disabled for Auto Pilot' } },
         });
       }
-      return { data: { success: true, result: 'impact: 3 nodes' } };
+      toolExecBodies.push(body as Record<string, unknown>);
+      return policyResponse(body as Record<string, unknown>, 'graph_impact', () => ({ success: true, result: 'impact: 3 nodes' }));
+    }
+    if (url === '/ai/ssh-execute') {
+      sshExecuteBodies.push(body as Record<string, unknown>);
+      return policyResponse(body as Record<string, unknown>, 'ssh_command', () => ({ success: true, output: 'IOS XE 17.9', error: null, execution_time_ms: 5 }));
     }
     if (url === '/ai/agent-chat') {
       chatRequests.push(JSON.parse(JSON.stringify(body)));
@@ -114,6 +142,10 @@ beforeEach(() => {
   configModeUnreachable = false;
   adminAllowsConfigChanges = true;
   commandCheckFailure = null;
+  serverPolicy = 'allow';
+  sshExecuteBodies.length = 0;
+  toolExecBodies.length = 0;
+  approvalSeq = 0;
   http.get.mockClear();
   http.post.mockClear();
   useCapabilitiesStore.setState({
@@ -263,6 +295,106 @@ describe('enterprise: Controller server tools', () => {
     const offered = (chatRequests[0] as unknown as { tools: Array<{ name: string }> }).tools.map(t => t.name);
     expect(offered).not.toContain('graph_impact');
     expect(offered).not.toContain('run_bash');
+  });
+});
+
+describe('enterprise: the Controller\'s own Ask / Deny on ai_ssh_execute', () => {
+  function sshTurn(command = 'show version') {
+    return { text: null, stop_reason: 'tool_use', tool_use: [{ id: 's1', name: 'ai_ssh_execute', input: { session_id: SESSION.id, command } }] };
+  }
+  const EXPECTED_BODY = { session_definition_id: SESSION.id, command: 'show version', timeout_secs: 30, agent_type: 'autopilot' };
+
+  it('sends the active agent type and returns the output when the Controller allows the call', async () => {
+    chatReplies.push(sshTurn(), DONE);
+    const { result } = renderAgent({ 'ai.permissionMode.autopilot': 'yolo' });
+
+    await send(result, 'show version over ssh');
+    expect(sshExecuteBodies).toEqual([EXPECTED_BODY]);
+    expect(toolResults(1)[0]).toMatchObject({ tool_use_id: 's1', is_error: false, content: 'IOS XE 17.9' });
+  });
+
+  it('202: shows the approval card even though Go Nuts would have auto-run, then repeats the identical request with the approval_id', async () => {
+    serverPolicy = 'ask';
+    chatReplies.push(sshTurn(), DONE);
+    const { result } = renderAgent({ 'ai.permissionMode.autopilot': 'yolo' });
+
+    let sent!: Promise<void>;
+    act(() => { sent = result.current.sendMessage('show version over ssh'); });
+    await vi.waitFor(() => expect(result.current.pendingCommands).toHaveLength(1));
+    expect(result.current.agentState).toBe('waiting_approval');
+    expect(result.current.pendingCommands[0]).toMatchObject({ id: 's1', toolName: 'ai_ssh_execute', command: '[ssh] show version', sessionName: SESSION.name });
+    expect(result.current.pendingCommands[0].reason).toMatch(/Controller: permission mode is Ask/);
+    // Nothing ran: the Controller parked the call and the client has not resent it.
+    expect(sshExecuteBodies).toHaveLength(1);
+
+    act(() => result.current.approveCommands());
+    await act(async () => { await sent; });
+    expect(sshExecuteBodies).toEqual([EXPECTED_BODY, { ...EXPECTED_BODY, approval_id: 'appr-1' }]);
+    expect(toolResults(1)[0]).toMatchObject({ tool_use_id: 's1', is_error: false, content: 'IOS XE 17.9' });
+    expect(result.current.agentState).toBe('idle');
+  });
+
+  it('202 then Reject: nothing is resent and the model is told the user rejected it', async () => {
+    serverPolicy = 'ask';
+    chatReplies.push(sshTurn(), DONE);
+    const { result } = renderAgent({ 'ai.permissionMode.autopilot': 'yolo' });
+
+    let sent!: Promise<void>;
+    act(() => { sent = result.current.sendMessage('show version over ssh'); });
+    await vi.waitFor(() => expect(result.current.pendingCommands).toHaveLength(1));
+
+    act(() => result.current.rejectCommands());
+    await act(async () => { await sent; });
+    expect(sshExecuteBodies).toHaveLength(1);
+    expect(toolResults(1)[0]).toMatchObject({ tool_use_id: 's1', is_error: true, content: 'User rejected this tool call.' });
+  });
+
+  it('202 after the resend: reports the approval as expired', async () => {
+    serverPolicy = 'ask-expired';
+    chatReplies.push(sshTurn(), DONE);
+    const { result } = renderAgent({ 'ai.permissionMode.autopilot': 'yolo' });
+
+    let sent!: Promise<void>;
+    act(() => { sent = result.current.sendMessage('show version over ssh'); });
+    await vi.waitFor(() => expect(result.current.pendingCommands).toHaveLength(1));
+    act(() => result.current.approveCommands());
+    await act(async () => { await sent; });
+
+    expect(sshExecuteBodies).toHaveLength(2);
+    expect(toolResults(1)[0]).toMatchObject({ tool_use_id: 's1', is_error: true });
+    expect(toolResults(1)[0].content).toMatch(/approval expired/);
+    expect(result.current.pendingCommands).toHaveLength(0);
+  });
+
+  it('403: reports the Controller\'s refusal reason without an approval card', async () => {
+    serverPolicy = 'deny';
+    chatReplies.push(sshTurn(), DONE);
+    const { result } = renderAgent({ 'ai.permissionMode.autopilot': 'yolo' });
+
+    await send(result, 'show version over ssh');
+    expect(sshExecuteBodies).toHaveLength(1);
+    expect(toolResults(1)[0]).toMatchObject({ tool_use_id: 's1', is_error: true, content: 'Not permitted by the Controller: Command rejected: ssh_command is not allowed in this mode' });
+  });
+
+  it('202 on a Controller tool (tool-exec): approve, then resend with the approval_id', async () => {
+    serverPolicy = 'ask';
+    chatReplies.push({ text: null, stop_reason: 'tool_use', tool_use: [{ id: 'g1', name: 'graph_impact', input: { node: 'core-rtr-01' } }] }, DONE);
+    setGlobalSettings({ ...defaultSettings, 'ai.permissionMode.overlord': 'yolo' });
+    const { result } = renderHook(() => useAIAgent({ agentType: 'overlord', sessions: [SESSION] }));
+    await vi.waitFor(() => expect(http.get).toHaveBeenCalledWith('/ai/tools/schemas'));
+    await act(async () => { await Promise.resolve(); });
+
+    let sent!: Promise<void>;
+    act(() => { sent = result.current.sendMessage('what breaks if core-rtr-01 fails?'); });
+    await vi.waitFor(() => expect(result.current.pendingCommands).toHaveLength(1));
+    expect(result.current.pendingCommands[0]).toMatchObject({ id: 'g1', toolName: 'graph_impact' });
+    expect(toolExecBodies).toHaveLength(1);
+
+    act(() => result.current.approveCommands());
+    await act(async () => { await sent; });
+    const expected = { tool_name: 'graph_impact', arguments: { node: 'core-rtr-01' }, agent_type: 'overlord' };
+    expect(toolExecBodies).toEqual([expected, { ...expected, approval_id: 'appr-1' }]);
+    expect(toolResults(1)[0]).toMatchObject({ tool_use_id: 'g1', is_error: false, content: 'impact: 3 nodes' });
   });
 });
 

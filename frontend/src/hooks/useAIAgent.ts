@@ -70,7 +70,7 @@ import { parseApiError, getErrorMessage } from '../api/errors';
 import { featureEnabled, useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { useAuthStore } from '../stores/authStore';
 import { getSystemPrompt as getSystemPromptFn, type AgentType } from '../lib/aiModes';
-import { getTopologyPrompt, DEFAULT_TOPOLOGY_PROMPT, getAllModePrompts, checkAiCommands, getServerToolSchemas, execServerTool, getAiConfigModeStatus, aiNotConfiguredReason, aiHttpErrorMessage } from '../api/ai';
+import { getTopologyPrompt, DEFAULT_TOPOLOGY_PROMPT, getAllModePrompts, checkAiCommands, getServerToolSchemas, execServerTool, execWithServerApproval, getAiConfigModeStatus, aiNotConfiguredReason, aiHttpErrorMessage, type ServerApprovalPrompt } from '../api/ai';
 import type { Document, DocumentCategory } from '../api/docs';
 import { listMcpServers, executeMcpTool, type McpServer } from '../api/mcp';
 import { createTask, getTask } from '../api/tasks';
@@ -1162,10 +1162,13 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     setMessages(prev => [...prev, message]);
   }, []);
 
-  // Execute a tool locally
+  // Execute a tool locally. `requestApproval` answers a Controller 202
+  // (server-side Ask) for the tools the Controller runs; without it such a
+  // call is reported as not run.
   const executeTool = useCallback(async (
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    requestApproval?: ServerApprovalPrompt,
   ): Promise<{ content: string; is_error: boolean }> => {
     if (!availableToolNames.has(toolName)) {
       return { content: `Tool not available: ${toolName}`, is_error: true };
@@ -1612,37 +1615,50 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
           (timeoutSecs * cmdCount * 1000) + handshakeOverheadMs,
         );
 
-        // Call backend endpoint — field name differs by mode
+        // Call backend endpoint — field name differs by mode. In enterprise the
+        // Controller enforces the AI permission policy for the active agent
+        // type: Deny is a 403, Ask is a 202 answered through the approval card
+        // and repeated with its approval_id (execWithServerApproval).
         try {
           const isEnterpriseMode = getCurrentMode() === 'enterprise';
-          const response = await getClient().http.post(
-            '/ai/ssh-execute',
-            {
-              ...(isEnterpriseMode
-                ? { session_definition_id: sessionId }
-                : { session_id: sessionId }),
-              ...(command !== undefined ? { command } : {}),
-              ...(commands !== undefined ? { commands } : {}),
-              ...(stopOnError !== undefined ? { stop_on_error: stopOnError } : {}),
-              timeout_secs: timeoutSecs,
+          const body = {
+            ...(isEnterpriseMode
+              ? { session_definition_id: sessionId }
+              : { session_id: sessionId }),
+            ...(command !== undefined ? { command } : {}),
+            ...(commands !== undefined ? { commands } : {}),
+            ...(stopOnError !== undefined ? { stop_on_error: stopOnError } : {}),
+            timeout_secs: timeoutSecs,
+            agent_type: agentTypeRef.current,
+          };
+          return await execWithServerApproval(
+            async (approvalId) => {
+              const response = await getClient().http.post(
+                '/ai/ssh-execute',
+                { ...body, ...(approvalId !== undefined ? { approval_id: approvalId } : {}) },
+                { timeout: axiosTimeoutMs },
+              );
+              return response.data;
             },
-            { timeout: axiosTimeoutMs },
+            (data) => {
+              const result = data as { success: boolean; output: string; error?: string | null };
+              if (!result.success) {
+                return {
+                  content: `Command failed: ${result.error || 'Unknown error'}\n\nOutput:\n${result.output}`,
+                  is_error: true,
+                };
+              }
+              return { content: result.output, is_error: false };
+            },
+            requestApproval,
           );
-
-          const result = response.data;
-
-          if (!result.success) {
+        } catch (err) {
+          if (parseApiError(err).status === 403) {
             return {
-              content: `Command failed: ${result.error || 'Unknown error'}\n\nOutput:\n${result.output}`,
+              content: `Not permitted by the Controller: ${getErrorMessage(err, 'this command is not allowed for this agent type')}`,
               is_error: true,
             };
           }
-
-          return {
-            content: result.output,
-            is_error: false,
-          };
-        } catch (err) {
           return {
             content: `SSH execution failed: ${getErrorMessage(err)}`,
             is_error: true,
@@ -3223,7 +3239,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
         // Server-side controller tools (KAG graph + RAG) — execution is delegated
         // to the controller, which runs them org-scoped with RBAC + sanitization.
         if (serverToolNamesRef.current.has(toolName)) {
-          return await execServerTool(toolName, input, agentTypeRef.current);
+          return await execServerTool(toolName, input, agentTypeRef.current, requestApproval);
         }
         // Check if it's a topology tool (Phase 27-07)
         if (isTopologyTool(toolName) && topologyCallbacks) {
@@ -3342,8 +3358,18 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
     if (!rejected) {
       setAgentState('executing');
       for (const toolUse of runnable) {
-        if (stopRequestedRef.current) break;
-        const result = await executeTool(toolUse.name, toolUse.input);
+        if (stopRequestedRef.current || rejected) break;
+        // Enterprise: the Controller's own policy may still say Ask (HTTP 202)
+        // for a call the local policy let through. Its decision is
+        // authoritative, so the same approval card is shown mid-turn; a
+        // rejection there ends the turn like any other.
+        const requestServerApproval: ServerApprovalPrompt = async (reason) => {
+          const approved = await waitForApproval([buildApprovalRequest(toolUse, `Controller: ${reason}`)]);
+          setAgentState('executing');
+          if (!approved || stopRequestedRef.current) rejected = true;
+          return !rejected;
+        };
+        const result = await executeTool(toolUse.name, toolUse.input, requestServerApproval);
         showResult(toolUse, result);
         toolResults.push({
           type: 'tool_result',

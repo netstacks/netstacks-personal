@@ -3512,3 +3512,10 @@
 .mop-review-ai-source.rules {
   color: #dcdcaa;
 }
+
+/* Legacy deploy_template steps: kept readable, but the engine cannot run them (Phase 0.3). */
+.mop-step-source-badge.not-executable {
+  background: rgba(var(--color-warning-rgb), 0.15);
+  color: var(--color-warning);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.3);
+}

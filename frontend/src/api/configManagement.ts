@@ -264,17 +264,6 @@ export async function deployStackInstance(id: string): Promise<any> {
   return data;
 }
 
-/**
- * @deprecated Use deployment_link MOP steps instead. Will be removed in a future version.
- */
-export async function deployInstanceWithMop(
-  instanceId: string,
-  options?: { control_mode?: string; name?: string }
-): Promise<{ mop_plan_id: string; mop_execution_id: string; instance_id: string; stack_id: string }> {
-  const { data } = await getClient().http.post(`${BASE}/instances/${instanceId}/deploy-with-mop`, options || {});
-  return data;
-}
-
 // === Device Config (full text) ===
 export async function getDeviceConfigVersion(deviceId: string, version: number): Promise<DeviceConfigFull> {
   const { data } = await getClient().http.get(`${BASE}/devices/${deviceId}/configs/${version}`);

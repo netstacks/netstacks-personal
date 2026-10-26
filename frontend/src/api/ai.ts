@@ -1576,25 +1576,88 @@ export async function getServerToolSchemas(): Promise<ServerToolSchema[]> {
 }
 
 /**
+ * Body of the Controller's HTTP 202 from `/ai/ssh-execute` and `/ai/tool-exec`
+ * when its AI permission policy says Ask: nothing ran, and the same request
+ * repeated with `approval_id` runs it once the user approves. Approvals are
+ * single-use, bound to user + tool + exact arguments, and expire after 10 min.
+ */
+export interface ServerApprovalRequired {
+  success: false;
+  approval_required: true;
+  approval_id: string;
+  tool_name: string;
+  reason: string;
+}
+
+export function isServerApprovalRequired(data: unknown): data is ServerApprovalRequired {
+  return typeof data === 'object' && data !== null
+    && (data as { approval_required?: unknown }).approval_required === true
+    && typeof (data as { approval_id?: unknown }).approval_id === 'string';
+}
+
+/** Asks the user about a call the Controller parked; resolves to their answer. */
+export type ServerApprovalPrompt = (reason: string) => Promise<boolean>;
+
+/**
+ * Run a Controller tool call under the server-authoritative Ask contract:
+ * `send` posts the request (with the `approval_id` to redeem, if any) and
+ * `toResult` reads a non-202 body. On a 202 the user is asked — even when the
+ * local policy would have auto-run, the Controller's decision wins — and the
+ * identical request is repeated with the approval_id. A second 202 means the
+ * approval was not redeemable (expired or already used).
+ */
+export async function execWithServerApproval(
+  send: (approvalId?: string) => Promise<unknown>,
+  toResult: (data: unknown) => { content: string; is_error: boolean },
+  requestApproval: ServerApprovalPrompt | undefined,
+): Promise<{ content: string; is_error: boolean }> {
+  const first = await send();
+  if (!isServerApprovalRequired(first)) return toResult(first);
+  if (!requestApproval) {
+    return { content: `Not run: the Controller requires the user's approval (${first.reason}), and none can be asked for here.`, is_error: true };
+  }
+  if (!(await requestApproval(first.reason))) {
+    return { content: 'User rejected this tool call.', is_error: true };
+  }
+  const second = await send(first.approval_id);
+  if (isServerApprovalRequired(second)) {
+    return { content: 'Not run: the approval expired before the Controller could redeem it (approvals are single-use and last 10 minutes). Ask again to retry.', is_error: true };
+  }
+  return toResult(second);
+}
+
+/**
  * Execute a server-side AI tool on the controller (org-scoped, RBAC-checked).
  * The Controller applies the user's AI permissions (`ai.permissions`) for the
- * calling agent type and answers a refused call with 403 and its reason.
+ * calling agent type: a refused call gets 403 and its reason, a call the
+ * policy puts to the user gets 202 (see `execWithServerApproval`).
  */
 export async function execServerTool(
   name: string,
   args: Record<string, unknown>,
   agentType: AgentType,
+  requestApproval?: ServerApprovalPrompt,
 ): Promise<{ content: string; is_error: boolean }> {
   try {
-    const { data } = await getClient().http.post('/ai/tool-exec', {
-      tool_name: name,
-      arguments: args,
-      agent_type: agentType,
-    });
-    if (data?.success) {
-      return { content: data.result ?? '', is_error: false };
-    }
-    return { content: data?.error ?? 'Tool execution failed', is_error: true };
+    return await execWithServerApproval(
+      async (approvalId) => {
+        const { data } = await getClient().http.post('/ai/tool-exec', {
+          tool_name: name,
+          arguments: args,
+          agent_type: agentType,
+          ...(approvalId !== undefined ? { approval_id: approvalId } : {}),
+        });
+        return data;
+      },
+      (data) => {
+        const body = data as { success?: boolean; result?: string; error?: string } | null | undefined;
+        if (body?.success) {
+          return { content: body.result ?? '', is_error: false };
+        }
+        return { content: body?.error ?? 'Tool execution failed', is_error: true };
+      },
+      requestApproval,
+    );
   } catch (e) {
     if (axios.isAxiosError(e) && e.response?.status === 403) {
       return { content: `Not permitted by the Controller: ${getErrorMessage(e, 'this tool is not allowed for this agent type')}`, is_error: true };

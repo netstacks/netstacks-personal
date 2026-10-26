@@ -36,6 +36,29 @@ function formatDate(dateStr: string): string {
   }
 }
 
+/** Template formats the Controller accepts (config_templates_config_format_check). */
+const TEMPLATE_FORMATS = [
+  { value: 'cli', label: 'CLI' },
+  { value: 'xml', label: 'XML' },
+  { value: 'json', label: 'JSON' },
+] as const
+
+/**
+ * CLI device types the Controller accepts as a template platform in addition
+ * to the config platforms it lists (template_rules::CLI_TEMPLATE_PLATFORMS).
+ */
+const CLI_TEMPLATE_PLATFORMS = [
+  { value: 'cisco_ios', label: 'Cisco IOS (CLI)' },
+  { value: 'cisco_xe', label: 'Cisco IOS-XE (CLI)' },
+  { value: 'cisco_xr', label: 'Cisco IOS-XR (CLI)' },
+  { value: 'cisco_nxos', label: 'Cisco NX-OS (CLI)' },
+  { value: 'juniper_junos', label: 'Juniper JunOS (CLI)' },
+  { value: 'arista_eos', label: 'Arista EOS (CLI)' },
+  { value: 'paloalto_panos', label: 'Palo Alto PAN-OS (CLI)' },
+  { value: 'fortinet', label: 'Fortinet FortiOS (CLI)' },
+  { value: 'generic', label: 'Generic (CLI)' },
+] as const
+
 function getMonacoLanguage(format: string): string {
   switch (format.toLowerCase()) {
     case 'json':
@@ -93,7 +116,7 @@ export default function TemplateDetailTab({
 
   // Editable metadata (used in both create and edit modes)
   const [editName, setEditName] = useState('')
-  const [editPlatform, setEditPlatform] = useState('ios')
+  const [editPlatform, setEditPlatform] = useState<string>(CLI_TEMPLATE_PLATFORMS[0].value)
   const [editFormat, setEditFormat] = useState('cli')
   const [editOperation, setEditOperation] = useState('merge')
   const [platforms, setPlatforms] = useState<ConfigPlatform[]>([])
@@ -163,6 +186,7 @@ export default function TemplateDetailTab({
     if (isCreate) {
       if (!editName.trim()) return
       setSaving(true)
+      setError(null)
       try {
         const created = await createConfigTemplate({
           name: editName.trim(),
@@ -184,6 +208,7 @@ export default function TemplateDetailTab({
     }
     if (!template || !dirty) return
     setSaving(true)
+    setError(null)
     try {
       const updated = await updateConfigTemplate(templateId, {
         name: editName.trim() || template.name,
@@ -289,7 +314,9 @@ export default function TemplateDetailTab({
     )
   }
 
-  if (error && !template) {
+  // Create mode keeps the editor up so a rejected save (e.g. a Jinja syntax
+  // error) shows in the error bar instead of replacing the form.
+  if (error && !template && !isCreate) {
     return (
       <div className="tdt-container">
         <div className="tdt-error">
@@ -323,24 +350,23 @@ export default function TemplateDetailTab({
                 onAIValue={v => { setEditName(v); setDirty(true) }}
               />
               <select aria-label="Platform" className="tdt-create-select ns-select" value={editPlatform} onChange={e => { setEditPlatform(e.target.value); setDirty(true) }}>
-                {platforms.length > 0 ? platforms.map(p => (
-                  <option key={p.id} value={p.name}>{p.display_name}</option>
-                )) : (
-                  <>
-                    <option value="ios">IOS</option>
-                    <option value="iosxr">IOS-XR</option>
-                    <option value="junos">JunOS</option>
-                    <option value="nxos">NX-OS</option>
-                    <option value="eos">EOS</option>
-                  </>
+                {platforms.length > 0 && (
+                  <optgroup label="Config platforms">
+                    {platforms.map(p => (
+                      <option key={p.id} value={p.name}>{p.display_name}</option>
+                    ))}
+                  </optgroup>
                 )}
+                <optgroup label="CLI device types">
+                  {CLI_TEMPLATE_PLATFORMS.map(p => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </optgroup>
               </select>
               <select aria-label="Format" className="tdt-create-select ns-select" value={editFormat} onChange={e => { setEditFormat(e.target.value); setDirty(true) }}>
-                <option value="cli">CLI</option>
-                <option value="xml">XML</option>
-                <option value="netconf-xml">NETCONF XML</option>
-                <option value="json">JSON</option>
-                <option value="yaml">YAML</option>
+                {TEMPLATE_FORMATS.map(f => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
               </select>
               <select aria-label="Operation" className="tdt-create-select ns-select" value={editOperation} onChange={e => { setEditOperation(e.target.value); setDirty(true) }}>
                 <option value="merge">Merge</option>

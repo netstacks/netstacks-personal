@@ -8,7 +8,6 @@ import {
   updateStackInstance,
   deleteStackInstance,
   deployStackInstance,
-  deployInstanceWithMop,
   resolveStackVariables,
   renderConfigStack,
   listConfigDeployments,
@@ -35,6 +34,10 @@ interface InstanceDetailTabProps {
   onTitleChange?: (title: string) => void
   onDeleted?: () => void
   onOpenDeploymentTab?: (deploymentId: string, deploymentName: string) => void
+  /**
+   * No longer called: "Deploy with Procedure" (deploy-with-mop) was removed in
+   * Phase 0.3. Kept so existing callers still type-check.
+   */
   onOpenMopTab?: (executionId: string, name: string) => void
 }
 
@@ -90,7 +93,6 @@ export default function InstanceDetailTab({
   onTitleChange,
   onDeleted,
   onOpenDeploymentTab,
-  onOpenMopTab,
 }: InstanceDetailTabProps) {
   const [instance, setInstance] = useState<ConfigStackInstance | null>(null)
   const [stack, setStack] = useState<ConfigStack | null>(null)
@@ -122,7 +124,6 @@ export default function InstanceDetailTab({
 
   // Deploy dialog
   const [deployDialogOpen, setDeployDialogOpen] = useState(false)
-  const [deployControlMode, setDeployControlMode] = useState('auto_run')
 
   // Deployment detail (expanded inline)
   const [expandedDeploymentId, setExpandedDeploymentId] = useState<string | null>(null)
@@ -515,25 +516,6 @@ export default function InstanceDetailTab({
       setDeploying(false)
     }
   }, [instance])
-
-  // Deploy with MOP
-  const handleDeployWithMop = useCallback(async () => {
-    if (!instance || !stack) return
-    setDeploying(true)
-    setError(null)
-    try {
-      const result = await deployInstanceWithMop(instance.id, {
-        control_mode: deployControlMode,
-        name: `Deploy: ${instance.name}`,
-      })
-      setDeployDialogOpen(false)
-      onOpenMopTab?.(result.mop_execution_id, `Deploy: ${instance.name}`)
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create deployment MOP'))
-    } finally {
-      setDeploying(false)
-    }
-  }, [instance, stack, deployControlMode, onOpenMopTab])
 
   // Delete
   const handleDelete = useCallback(async () => {
@@ -1135,26 +1117,20 @@ export default function InstanceDetailTab({
               {stack.deployment_procedure?.post_checks?.length || 0} post-checks.
               On failure: {stack.deployment_procedure?.on_post_check_failure || 'pause'}.
             </p>
-            <div className="instance-deploy-dialog-field">
-              <label>Control Mode</label>
-              <select aria-label="Control Mode" className="ns-select" value={deployControlMode} onChange={e => setDeployControlMode(e.target.value)}>
-                <option value="manual">Manual</option>
-                <option value="auto_run">Auto-run</option>
-                <option value="ai_pilot">AI Pilot</option>
-              </select>
-            </div>
+            {procedureRequiresMop && (
+              <p className="instance-deploy-dialog-notice" role="note">
+                This stack requires a MOP — create one in MOPs.
+              </p>
+            )}
           </div>
           <div className="instance-deploy-dialog-actions">
-            <button
-              className="ns-btn ns-btn--primary"
-              onClick={handleDeployWithMop}
-              disabled={deploying}
-            >
-              {deploying ? 'Creating...' : 'Deploy with Procedure'}
-            </button>
-            {!procedureRequiresMop && (
+            {procedureRequiresMop ? (
+              <button className="ns-btn" onClick={() => setDeployDialogOpen(false)}>
+                Close
+              </button>
+            ) : (
               <button
-                className="ns-btn"
+                className="ns-btn ns-btn--primary"
                 onClick={() => { setDeployDialogOpen(false); handleDeploy() }}
                 disabled={deploying}
               >

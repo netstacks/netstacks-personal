@@ -155,7 +155,6 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
     setRenderedConfig,
     renderingConfig,
     handleRenderConfigTemplate,
-    handleUseConfigAsMop,
   } = plan.configTemplate;
   const {
     steps,
@@ -385,13 +384,9 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                     >
                       {renderingConfig ? 'Rendering...' : 'Preview'}
                     </button>
-                    <button
-                      className="ns-btn ns-btn--small ns-btn--primary"
-                      onClick={handleUseConfigAsMop}
-                      disabled={!selectedConfigTemplate}
-                    >
-                      Add as MOP Step
-                    </button>
+                  </div>
+                  <div className="mop-step-context-hint">
+                    Preview only — template steps cannot be added to a MOP yet. Deploy the config from a stack instance.
                   </div>
 
                   {/* Rendered preview */}
@@ -622,6 +617,11 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                               {step.execution_source === 'quick_action' && <span className="mop-step-source-badge api">API</span>}
                               {step.execution_source === 'script' && <span className="mop-step-source-badge script">Script</span>}
                               {step.execution_source === 'deploy_template' && <span className="mop-step-source-badge template">Template</span>}
+                              {step.execution_source === 'deploy_template' && (
+                                <Tooltip label="Template steps cannot be executed. Replace this step with a CLI, Quick Action or Script step.">
+                                  <span className="mop-step-source-badge not-executable">Not executable</span>
+                                </Tooltip>
+                              )}
                               {step.execution_source === 'deployment_link' && <span className="mop-step-source-badge deployment">Deploy</span>}
                               <input
                                 data-ai-fill="off"
@@ -747,21 +747,9 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                     {src === 'cli' ? 'CLI Command' : src === 'quick_action' ? 'Quick Action' : 'Script'}
                                   </button>
                                 ))}
-                                {isEnterprise && (
-                                  <>
-                                    <button
-                                      className={`ns-segment ${step.execution_source === 'deploy_template' ? 'active' : ''}`}
-                                      onClick={() => updateStepField(step.id, {
-                                        execution_source: 'deploy_template',
-                                        quick_action_id: undefined, quick_action_variables: undefined,
-                                        script_id: undefined, script_args: undefined,
-                                      })}
-                                    >
-                                      Template
-                                    </button>
-                                    {/* "Deployment" (deployment_link) source is not implemented — not offered (NS-MOP-12) */}
-                                  </>
-                                )}
+                                {/* "Template" (deploy_template) is not offered: the engine has no
+                                    governed config-deploy step yet, so such steps cannot run (Phase 0.3).
+                                    "Deployment" (deployment_link) is not implemented either (NS-MOP-12). */}
                               </div>
                             </div>
 
@@ -879,6 +867,9 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             {step.execution_source === 'deploy_template' && (
                               <div className="mop-plan-step-detail-field">
                                 <label>Config Template</label>
+                                <div className="mop-step-deployment-link-placeholder">
+                                  Template steps are not executable. Pick CLI, Quick Action or Script above, or deploy the config from a stack instance.
+                                </div>
                                 <select aria-label="Config Template"
                                   value={step.deploy_metadata?.template_id || ''}
                                   onChange={(e) => {
@@ -932,7 +923,7 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                               <div className="mop-plan-step-detail-field">
                                 <label>Deployment</label>
                                 <div className="mop-step-deployment-link-placeholder">
-                                  This step was saved with the unsupported "Deployment" source. Pick CLI, Quick Action, Script or Template above.
+                                  This step was saved with the unsupported "Deployment" source. Pick CLI, Quick Action or Script above.
                                 </div>
                               </div>
                             )}
