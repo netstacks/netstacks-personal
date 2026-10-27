@@ -8,22 +8,13 @@ export interface MopPackageStep {
   expected_output?: string;
 
   // Execution source routing
-  execution_source?: 'cli' | 'quick_action' | 'script' | 'deploy_template' | 'deployment_link';
+  execution_source?: 'cli' | 'quick_action' | 'script';
   quick_action_id?: string;
   quick_action_variables?: Record<string, string>;
   script_id?: string;
   script_args?: Record<string, unknown>;
   paired_step_id?: string;
   output_format?: 'text' | 'json';
-
-  // Config deployment metadata
-  deploy_metadata?: {
-    template_id?: string;
-    stack_id?: string;
-    instance_id?: string;
-    variables?: Record<string, unknown>;
-    target_devices?: Array<{ device_id: string; device_name?: string }>;
-  };
 
   // Device targeting
   device_scope?: 'all' | 'specific';
@@ -77,11 +68,6 @@ export interface MopPackageExecutionDefaults {
   ai_rollback_policy?: string;
 }
 
-export interface MopPackageLinkedStack {
-  stack_id?: string;
-  stack_name?: string;
-}
-
 export interface MopPackage {
   format: string;
   version: string;
@@ -90,7 +76,6 @@ export interface MopPackage {
   mop: MopPackageProcedure;
   metadata: MopPackageMetadata;
   execution_defaults?: MopPackageExecutionDefaults;
-  linked_stack?: MopPackageLinkedStack;
 }
 
 export interface MopImportResult {

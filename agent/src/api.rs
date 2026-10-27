@@ -5479,7 +5479,6 @@ pub async fn export_mop_package(
             output_format: s.output_format.clone(),
             device_scope: s.device_scope.clone(),
             device_ids: s.device_ids.clone(),
-            deploy_metadata: s.deploy_metadata.clone(),
         })
         .collect();
 
@@ -5506,7 +5505,6 @@ pub async fn export_mop_package(
                         output_format: s.output_format.clone(),
                         device_scope: s.device_scope.clone(),
                         device_ids: s.device_ids.clone(),
-                        deploy_metadata: s.deploy_metadata.clone(),
                     })
                     .collect();
                 (key, pkg_steps)
@@ -5623,7 +5621,6 @@ fn package_step_to_mop_step(s: &MopPackageStep) -> MopStep {
         ai_feedback: None,
         device_scope: s.device_scope.clone(),
         device_ids: s.device_ids.clone(),
-        deploy_metadata: s.deploy_metadata.clone(),
     }
 }
 

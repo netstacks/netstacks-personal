@@ -7,7 +7,6 @@ import type { Session } from '../../api/sessions';
 import type { DeviceSummary } from '../../api/enterpriseDevices';
 import { extractActionVariables } from '../../lib/quickActionVariables';
 import ScriptParamsForm from '../ScriptParamsForm';
-import SearchField from '../SearchField';
 import AITabInput from '../AITabInput';
 
 import { STEP_SECTIONS, ASSERTION_COLORS } from './constants';
@@ -40,7 +39,6 @@ function activateOnKey(handler: () => void) {
 
 export interface MopPlanEnterpriseProps {
   isEnterprise: boolean;
-  hasStacks: boolean;
   // Approval state (enterprise)
   approvalStatus: string;
   syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
@@ -105,7 +103,6 @@ export interface MopPlanTabProps {
 export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopPlanTabProps) {
   const {
     isEnterprise,
-    hasStacks,
     approvalStatus,
     syncStatus,
     controllerMopId,
@@ -140,22 +137,6 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
     handleAiAutoExpectedOutput,
     handleAiAutoFillAllDescriptions,
   } = ai;
-  const {
-    sourceType,
-    setSourceType,
-    configTemplatesList,
-    configTemplatesLoading,
-    configTemplateSearch,
-    setConfigTemplateSearch,
-    selectedConfigTemplate,
-    setSelectedConfigTemplate,
-    configVariables,
-    setConfigVariables,
-    renderedConfig,
-    setRenderedConfig,
-    renderingConfig,
-    handleRenderConfigTemplate,
-  } = plan.configTemplate;
   const {
     steps,
     hasPerDeviceSteps,
@@ -276,133 +257,6 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
 
       {/* Plan variables ({{name}} placeholders) */}
       <MopVariablesCard variables={plan.variables} />
-
-      {/* Enterprise: Source Selector (only show template tabs when stacks plugin is installed) */}
-      {isEnterprise && hasStacks && (
-        <div className="ns-segmented mop-source-selector">
-          <div className="mop-source-tabs">
-            <button
-              className={`ns-segment mop-source-tab ${sourceType === 'manual' ? 'active' : ''}`}
-              onClick={() => setSourceType('manual')}
-            >
-              Manual
-            </button>
-            <button
-              className={`ns-segment mop-source-tab ${sourceType === 'config_template' ? 'active' : ''}`}
-              onClick={() => setSourceType('config_template')}
-            >
-              Config Template
-              {configTemplatesList.length > 0 && (
-                <span className="mop-source-badge">{configTemplatesList.length}</span>
-              )}
-            </button>
-          </div>
-
-          {/* Config Template Picker */}
-          {sourceType === 'config_template' && (
-            <div className="mop-template-picker">
-              {configTemplatesLoading ? (
-                <div className="mop-template-loading">Loading templates...</div>
-              ) : configTemplatesList.length === 0 ? (
-                <div className="mop-template-empty">No config templates available</div>
-              ) : !selectedConfigTemplate ? (
-                <>
-                  <SearchField className="mop-template-search" value={configTemplateSearch} onChange={setConfigTemplateSearch} placeholder="Search templates..." />
-                  <div className="mop-template-list">
-                    {configTemplatesList
-                      .filter(t => {
-                        if (!configTemplateSearch.trim()) return true;
-                        const q = configTemplateSearch.toLowerCase();
-                        return t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
-                      })
-                      .map(t => {
-                        const selectTemplate = () => {
-                          setSelectedConfigTemplate(t);
-                          const vars: Record<string, string> = {};
-                          for (const v of t.variables) vars[v.name] = '';
-                          setConfigVariables(vars);
-                          setRenderedConfig(null);
-                          setConfigTemplateSearch('');
-                        };
-                        return (
-                        <div
-                          key={t.id}
-                          className="mop-template-card"
-                          role="button"
-                          tabIndex={0}
-                          onClick={selectTemplate}
-                          onKeyDown={activateOnKey(selectTemplate)}
-                        >
-                          <div className="mop-template-card-name">{t.name}</div>
-                          {t.description && <div className="mop-template-card-desc">{t.description}</div>}
-                          <div className="mop-template-card-meta">
-                            {t.variables.length} variable{t.variables.length !== 1 ? 's' : ''} &middot; v{t.current_version}
-                          </div>
-                        </div>
-                        );
-                      })
-                    }
-                    {configTemplateSearch.trim() && configTemplatesList.filter(t => {
-                      const q = configTemplateSearch.toLowerCase();
-                      return t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
-                    }).length === 0 && (
-                      <div className="mop-template-empty">No templates matching "{configTemplateSearch}"</div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="mop-template-detail">
-                  <div className="mop-template-detail-header">
-                    <button className="mop-template-back" onClick={() => { setSelectedConfigTemplate(null); setRenderedConfig(null); }}>
-                      &larr; Back
-                    </button>
-                    <span className="mop-template-detail-name">{selectedConfigTemplate.name}</span>
-                  </div>
-
-                  {/* Variable form */}
-                  {selectedConfigTemplate.variables.length > 0 && (
-                    <div className="mop-template-vars">
-                      <div className="mop-template-vars-title">Variables</div>
-                      {selectedConfigTemplate.variables.map(v => (
-                        <div key={v.name} className="mop-template-var-row">
-                          <label>{v.name}{v.required ? ' *' : ''}</label>
-                          <input data-ai-fill="off" className="ns-input"
-                            value={configVariables[v.name] || ''}
-                            onChange={e => setConfigVariables(prev => ({ ...prev, [v.name]: e.target.value }))}
-                            placeholder={v.description || `Enter ${v.name}...`}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="mop-template-actions">
-                    <button
-                      className="ns-btn ns-btn--small"
-                      onClick={handleRenderConfigTemplate}
-                      disabled={renderingConfig}
-                    >
-                      {renderingConfig ? 'Rendering...' : 'Preview'}
-                    </button>
-                  </div>
-                  <div className="mop-step-context-hint">
-                    Preview only — template steps cannot be added to a MOP yet. Deploy the config from a stack instance.
-                  </div>
-
-                  {/* Rendered preview */}
-                  {renderedConfig && (
-                    <div className="mop-template-preview">
-                      <div className="mop-template-preview-title">Rendered Config</div>
-                      <pre className="mop-template-preview-content">{renderedConfig}</pre>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-        </div>
-      )}
 
       {/* Device pills — shown when per-device steps exist */}
       {hasPerDeviceSteps && (
@@ -616,13 +470,6 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             <div className="mop-plan-step-title-row">
                               {step.execution_source === 'quick_action' && <span className="mop-step-source-badge api">API</span>}
                               {step.execution_source === 'script' && <span className="mop-step-source-badge script">Script</span>}
-                              {step.execution_source === 'deploy_template' && <span className="mop-step-source-badge template">Template</span>}
-                              {step.execution_source === 'deploy_template' && (
-                                <Tooltip label="Template steps cannot be executed. Replace this step with a CLI, Quick Action or Script step.">
-                                  <span className="mop-step-source-badge not-executable">Not executable</span>
-                                </Tooltip>
-                              )}
-                              {step.execution_source === 'deployment_link' && <span className="mop-step-source-badge deployment">Deploy</span>}
                               <input
                                 data-ai-fill="off"
                                 value={step.description || ''}
@@ -633,11 +480,6 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                             </div>
                             {!isExpanded && step.command && (!step.execution_source || step.execution_source === 'cli') && (
                               <span className="mop-plan-step-desc-preview">{step.command}</span>
-                            )}
-                            {!isExpanded && step.execution_source === 'deploy_template' && step.deploy_metadata?.template_id && (
-                              <span className="mop-plan-step-desc-preview">
-                                {configTemplatesList.find(t => t.id === step.deploy_metadata?.template_id)?.name || step.command}
-                              </span>
                             )}
                           </div>
                           <div className="mop-plan-step-actions">
@@ -739,17 +581,14 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                     className={`ns-segment ${(step.execution_source || 'cli') === src ? 'active' : ''}`}
                                     onClick={() => updateStepField(step.id, {
                                       execution_source: src,
-                                      ...(src === 'cli' ? { quick_action_id: undefined, quick_action_variables: undefined, script_id: undefined, script_args: undefined, deploy_metadata: undefined } : {}),
-                                      ...(src === 'quick_action' ? { script_id: undefined, script_args: undefined, deploy_metadata: undefined } : {}),
-                                      ...(src === 'script' ? { quick_action_id: undefined, quick_action_variables: undefined, deploy_metadata: undefined } : {}),
+                                      ...(src === 'cli' ? { quick_action_id: undefined, quick_action_variables: undefined, script_id: undefined, script_args: undefined } : {}),
+                                      ...(src === 'quick_action' ? { script_id: undefined, script_args: undefined } : {}),
+                                      ...(src === 'script' ? { quick_action_id: undefined, quick_action_variables: undefined } : {}),
                                     })}
                                   >
                                     {src === 'cli' ? 'CLI Command' : src === 'quick_action' ? 'Quick Action' : 'Script'}
                                   </button>
                                 ))}
-                                {/* "Template" (deploy_template) is not offered: the engine has no
-                                    governed config-deploy step yet, so such steps cannot run (Phase 0.3).
-                                    "Deployment" (deployment_link) is not implemented either (NS-MOP-12). */}
                               </div>
                             </div>
 
@@ -860,71 +699,6 @@ export default function MopPlanTab({ plan, ai, enterprise, devices, meta }: MopP
                                     </div>
                                   </div>
                                 )}
-                              </div>
-                            )}
-
-                            {/* Deploy Template selector */}
-                            {step.execution_source === 'deploy_template' && (
-                              <div className="mop-plan-step-detail-field">
-                                <label>Config Template</label>
-                                <div className="mop-step-deployment-link-placeholder">
-                                  Template steps are not executable. Pick CLI, Quick Action or Script above, or deploy the config from a stack instance.
-                                </div>
-                                <select aria-label="Config Template"
-                                  value={step.deploy_metadata?.template_id || ''}
-                                  onChange={(e) => {
-                                    const tmpl = configTemplatesList.find(t => t.id === e.target.value);
-                                    if (tmpl) {
-                                      const vars: Record<string, string> = {};
-                                      tmpl.variables.forEach(v => { vars[v.name] = ''; });
-                                      updateStepField(step.id, {
-                                        deploy_metadata: {
-                                          ...step.deploy_metadata,
-                                          template_id: tmpl.id,
-                                          variables: vars,
-                                        },
-                                        command: `Deploy template: ${tmpl.name}`,
-                                        description: step.description || `Deploy config template "${tmpl.name}"`,
-                                      });
-                                    }
-                                  }}
-                                  className="ns-select mop-step-select"
-                                >
-                                  <option value="">Select a Config Template...</option>
-                                  {configTemplatesList.map(t => (
-                                    <option key={t.id} value={t.id}>{t.name} ({t.platform})</option>
-                                  ))}
-                                </select>
-                                {step.deploy_metadata?.template_id && step.deploy_metadata?.variables && (
-                                  <div className="mop-step-variables">
-                                    <label>Template Variables</label>
-                                    {Object.entries(step.deploy_metadata.variables).map(([varName, varValue]) => (
-                                      <div key={varName} className="mop-step-variable-row">
-                                        <span className="mop-step-variable-name">{varName}</span>
-                                        <input data-ai-fill="off"
-                                          value={String(varValue || '')}
-                                          onChange={(e) => updateStepField(step.id, {
-                                            deploy_metadata: {
-                                              ...step.deploy_metadata,
-                                              variables: { ...step.deploy_metadata?.variables, [varName]: e.target.value },
-                                            },
-                                          })}
-                                          placeholder="value"
-                                          className="ns-input mop-step-variable-input"
-                                        />
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {step.execution_source === 'deployment_link' && (
-                              <div className="mop-plan-step-detail-field">
-                                <label>Deployment</label>
-                                <div className="mop-step-deployment-link-placeholder">
-                                  This step was saved with the unsupported "Deployment" source. Pick CLI, Quick Action or Script above.
-                                </div>
                               </div>
                             )}
 

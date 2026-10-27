@@ -12,8 +12,6 @@ function step(command: string): MopStep {
 
 function useHarness(markDirty: () => void) {
   return useMopPlan({
-    isEnterprise: false,
-    hasStacks: false,
     markDirty,
     selectedDeviceIds: new Set(),
     selectedDeviceList: [],

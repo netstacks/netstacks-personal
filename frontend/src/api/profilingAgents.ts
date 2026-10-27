@@ -159,7 +159,6 @@ export interface AssignDeviceInput {
 
 export interface SendChatMessageInput {
   message: string;
-  user_id: string;
 }
 
 // ============================================================================
@@ -254,27 +253,21 @@ export async function unassignDevice(agentId: string, deviceId: string): Promise
 }
 
 /**
- * Get chat context for an agent and user
+ * Get chat context for an agent. The conversation history is the signed-in
+ * user's: the Controller's plugin proxy injects X-User-Id.
  */
-export async function getChatContext(agentId: string, userId: string): Promise<ChatContextResponse> {
-  const { data } = await getClient().http.get(`${PLUGIN_BASE}/admin/agents/${agentId}/chat`, {
-    params: { user_id: userId },
-  });
+export async function getChatContext(agentId: string): Promise<ChatContextResponse> {
+  const { data } = await getClient().http.get(`${PLUGIN_BASE}/admin/agents/${agentId}/chat`);
   return data;
 }
 
 /**
- * Send a chat message to an agent
+ * Send a chat message to an agent as the signed-in user (identity comes from
+ * the proxy-injected X-User-Id, never from the request body).
  */
-export async function sendChatMessage(
-  agentId: string,
-  message: string,
-  userId: string
-): Promise<ChatResponse> {
-  const { data } = await getClient().http.post(`${PLUGIN_BASE}/admin/agents/${agentId}/chat`, {
-    message,
-    user_id: userId,
-  });
+export async function sendChatMessage(agentId: string, message: string): Promise<ChatResponse> {
+  const input: SendChatMessageInput = { message };
+  const { data } = await getClient().http.post(`${PLUGIN_BASE}/admin/agents/${agentId}/chat`, input);
   return data;
 }
 

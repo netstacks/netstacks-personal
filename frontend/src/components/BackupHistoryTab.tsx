@@ -47,31 +47,11 @@ interface SearchTimelineEntry {
   present: boolean
 }
 
-/** CLI backups have config_format === 'cli'; everything else (json, xml,
- *  yaml, gnmi, …) is "structured". The Controller stores the concrete
- *  format string, so the Structured tab must match by exclusion, not by a
- *  literal 'structured' value. */
-function isStructured(format: string): boolean {
-  return format !== 'cli'
-}
-
 /** Map a backup's config_format to a Monaco language id for syntax
- *  highlighting. CLI configs use the custom 'netcli' grammar (Cisco/Junos). */
+ *  highlighting. The Controller stores 'cli' (SSH pull) or 'snmp'; CLI
+ *  configs use the custom 'netcli' grammar (Cisco/Junos). */
 function backupLanguage(format: string): string {
-  switch (format.toLowerCase()) {
-    case 'json':
-      return 'json'
-    case 'xml':
-    case 'netconf-xml':
-      return 'xml'
-    case 'yaml':
-    case 'yml':
-      return 'yaml'
-    case 'cli':
-      return 'netcli'
-    default:
-      return 'plaintext'
-  }
+  return format.toLowerCase() === 'cli' ? 'netcli' : 'plaintext'
 }
 
 function toBackupEntry(dc: DeviceConfig): BackupEntry {
@@ -111,7 +91,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
   const [error, setError] = useState<string | null>(null)
 
   // Filter
-  const [filterTab, setFilterTab] = useState<'all' | 'cli' | 'structured'>('all')
+  const [filterTab, setFilterTab] = useState<'all' | 'cli' | 'snmp'>('all')
 
   // Selection
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
@@ -123,8 +103,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
   const [configDraft, setConfigDraft] = useState('')
   const [draftDirty, setDraftDirty] = useState(false)
   // The "clean" buffer text — what we compare against to detect real user
-  // edits. Updated on select and after auto-formatting (so pretty-printing a
-  // structured backup doesn't read as an unsaved edit).
+  // edits. Updated on select.
   const baselineRef = useRef('')
 
   // Notes (tribal knowledge) — metadata on the selected version.
@@ -187,15 +166,14 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
   // Filtered backups based on filter tab
   const filteredBackups = useMemo(() => {
     if (filterTab === 'all') return backups
-    if (filterTab === 'cli') return backups.filter(b => b.config_format === 'cli')
-    return backups.filter(b => isStructured(b.config_format))
+    return backups.filter(b => b.config_format === filterTab)
   }, [backups, filterTab])
 
   // Filter counts
   const filterCounts = useMemo(() => ({
     all: backups.length,
     cli: backups.filter(b => b.config_format === 'cli').length,
-    structured: backups.filter(b => isStructured(b.config_format)).length,
+    snmp: backups.filter(b => b.config_format === 'snmp').length,
   }), [backups])
 
   const handleSelectBackup = async (backup: BackupEntry) => {
@@ -284,7 +262,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
     setError(null)
     try {
       await pullDeviceConfig(deviceId)
-      setCollectMessage('Config pulled successfully (CLI + Structured)')
+      setCollectMessage('Config pulled successfully')
       setTimeout(() => setCollectMessage(null), 3000)
       await fetchBackups()
     } catch (err) {
@@ -418,24 +396,6 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
     }
   }, [overlord, askAIAboutSelection])
 
-  // Pretty-print structured (JSON/XML) backups once loaded so single-line
-  // blobs become readable. CLI/plaintext are left as-is.
-  useEffect(() => {
-    if (!editorRef.current || loadingConfig) return
-    const lang = selectedConfig ? backupLanguage(selectedConfig.config_format) : 'plaintext'
-    if (lang !== 'json' && lang !== 'xml') return
-    const ed = editorRef.current
-    const t = setTimeout(async () => {
-      await ed.getAction('editor.action.formatDocument')?.run()
-      // Treat the pretty-printed result as the clean baseline, not a user edit.
-      const v = ed.getValue()
-      baselineRef.current = v
-      setConfigDraft(v)
-      setDraftDirty(false)
-    }, 120)
-    return () => clearTimeout(t)
-  }, [selectedConfig, loadingConfig])
-
   const formatDate = (iso: string) => {
     const d = new Date(iso)
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString()
@@ -481,7 +441,7 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
             <span className="backup-count">{filteredBackups.length}</span>
           </div>
           <div className="backup-sidebar-actions">
-            <Tooltip label="Pull running config from device (CLI + Structured)"><button
+            <Tooltip label="Pull running config from device (CLI or SNMP)"><button
               className="ns-btn ns-btn--small ns-btn--primary"
               onClick={handleCollect}
               disabled={collecting}
@@ -515,10 +475,10 @@ export default function BackupHistoryTab({ deviceId, deviceName, onAskAI }: Back
               CLI <span className="backup-filter-count">({filterCounts.cli})</span>
             </button>
             <button
-              className={`ns-segment ${filterTab === 'structured' ? 'active' : ''}`}
-              onClick={() => setFilterTab('structured')}
+              className={`ns-segment ${filterTab === 'snmp' ? 'active' : ''}`}
+              onClick={() => setFilterTab('snmp')}
             >
-              Structured <span className="backup-filter-count">({filterCounts.structured})</span>
+              SNMP <span className="backup-filter-count">({filterCounts.snmp})</span>
             </button>
           </div>
         </div>

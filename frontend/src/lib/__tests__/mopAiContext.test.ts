@@ -104,13 +104,11 @@ describe('buildMopAiContext — plan', () => {
     expect(block).toContain('Platforms in scope: unknown (no CLI flavor set on the selected sessions)');
   });
 
-  it('renders variables and device-scoped steps by device name', () => {
+  it('renders device-scoped steps by device name', () => {
     const { block } = buildMopAiContext({
       ...basePlan,
-      variables: { vlan_id: '200', name: 'USERS' },
       steps: [planStep({ step_type: 'change', command: 'vlan {{vlan_id}}', device_scope: 'specific', device_ids: ['sess-2'] })],
     });
-    expect(block).toContain('Variables: {{vlan_id}}=200 {{name}}=USERS');
     expect(block).toContain('1. vlan {{vlan_id}} [devices: sw2]');
   });
 

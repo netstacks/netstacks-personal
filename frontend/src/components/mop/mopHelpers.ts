@@ -184,7 +184,6 @@ export function duplicatePlanStep(steps: MopStep[], stepId: string): MopStep[] {
     quick_action_variables: step.quick_action_variables ? { ...step.quick_action_variables } : undefined,
     script_id: step.script_id,
     script_args: step.script_args ? { ...step.script_args } : undefined,
-    deploy_metadata: step.deploy_metadata ? { ...step.deploy_metadata } : undefined,
     output_format: step.output_format,
     device_scope: step.device_scope,
     device_ids: step.device_ids ? [...step.device_ids] : undefined,

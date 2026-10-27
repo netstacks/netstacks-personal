@@ -1,7 +1,7 @@
 // useMopPlan — plan-editing state for the MOP workspace (P2-5).
 // Owns the step lists (base + per-device), section/step expansion, paste
-// mode, step CRUD, the test terminal, the step-source picker data and the
-// config-template source. AI handlers, enterprise sync and execution actions
+// mode, step CRUD, the test terminal and the step-source picker data.
+// AI handlers, enterprise sync and execution actions
 // stay in MopWorkspace and reach the Plan tab as separate prop groups.
 
 import { useState, useEffect, useCallback, useMemo, useRef, type RefObject } from 'react';
@@ -10,8 +10,6 @@ import { createMopStep } from '../../types/change';
 import { undeclaredPlaceholders as findUndeclaredPlaceholders, variableRowErrors } from '../../lib/mopVariables';
 import type { Session } from '../../api/sessions';
 import type { DeviceSummary } from '../../api/enterpriseDevices';
-import type { StepSourceType } from '../../types/mop';
-import { listConfigTemplates, renderConfigTemplate, type ConfigTemplate } from '../../api/configManagement';
 import { execMopCommand, type ExecCommandResult } from '../../api/mopTestTerminal';
 import { listQuickActions } from '../../api/quickActions';
 import { listScripts, analyzeScript, type Script, type ScriptParam } from '../../api/scripts';
@@ -60,8 +58,6 @@ export interface QuickCommandChip {
 export type AssertionType = 'CONTAINS' | 'NOT_CONTAINS' | 'EXACT_LINE' | 'REGEX';
 
 export interface UseMopPlanArgs {
-  isEnterprise: boolean;
-  hasStacks: boolean;
   /** Flags the plan as unsaved (MopWorkspace owns `dirty` + auto-save). */
   markDirty: () => void;
   selectedDeviceIds: Set<string>;
@@ -142,24 +138,6 @@ export interface MopPlanTestTerminalState {
   testOutputRef: RefObject<HTMLPreElement | null>;
 }
 
-export interface MopPlanConfigTemplateState {
-  sourceType: StepSourceType;
-  setSourceType: (v: StepSourceType) => void;
-  configTemplatesList: ConfigTemplate[];
-  configTemplatesLoading: boolean;
-  configTemplateSearch: string;
-  setConfigTemplateSearch: (v: string) => void;
-  selectedConfigTemplate: ConfigTemplate | null;
-  setSelectedConfigTemplate: (v: ConfigTemplate | null) => void;
-  configVariables: Record<string, string>;
-  setConfigVariables: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  renderedConfig: string | null;
-  setRenderedConfig: (v: string | null) => void;
-  renderingConfig: boolean;
-  handleRenderConfigTemplate: () => void;
-  handleUseConfigAsMop: () => void;
-}
-
 export interface MopPlanSourcesState {
   quickActions: QuickAction[];
   scripts: Script[];
@@ -196,7 +174,6 @@ export interface UseMopPlanReturn {
   paste: MopPlanPasteState;
   actions: MopPlanActions;
   testTerminal: MopPlanTestTerminalState;
-  configTemplate: MopPlanConfigTemplateState;
   sources: MopPlanSourcesState;
   variables: MopPlanVariablesState;
 }
@@ -222,7 +199,7 @@ function rekeyDeviceVariables(dv: MopDeviceVariables, oldName: string, newName: 
 // Hook
 // ============================================================================
 
-export function useMopPlan({ isEnterprise, hasStacks, markDirty, selectedDeviceIds, selectedDeviceList }: UseMopPlanArgs): UseMopPlanReturn {
+export function useMopPlan({ markDirty, selectedDeviceIds, selectedDeviceList }: UseMopPlanArgs): UseMopPlanReturn {
   // Step state
   const [steps, setSteps] = useState<MopStep[]>([]);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
@@ -230,23 +207,7 @@ export function useMopPlan({ isEnterprise, hasStacks, markDirty, selectedDeviceI
   const [pasteMode, setPasteMode] = useState<MopStepType | null>(null);
   const [pasteText, setPasteText] = useState('');
 
-  // Template source state (enterprise mode)
-  const [sourceType, setSourceType] = useState<StepSourceType>('manual');
-
-  // Config templates list (replaces useConfigTemplates hook)
-  const [configTemplatesList, setConfigTemplatesList] = useState<ConfigTemplate[]>([]);
-  const [configTemplatesLoading, setConfigTemplatesLoading] = useState(false);
-
-  // Config template state
-  const [selectedConfigTemplate, setSelectedConfigTemplate] = useState<ConfigTemplate | null>(null);
-  const [configVariables, setConfigVariables] = useState<Record<string, string>>({});
-  const [renderedConfig, setRenderedConfig] = useState<string | null>(null);
-  const [renderingConfig, setRenderingConfig] = useState(false);
-
-  // Template search state
-  const [configTemplateSearch, setConfigTemplateSearch] = useState('');
-
-  // Per-device step management (for stack templates that render per device)
+  // Per-device step management (Change.device_overrides)
   const [perDeviceSteps, setPerDeviceSteps] = useState<Record<string, MopStep[]>>({});
   const [activeDevicePill, setActiveDevicePill] = useState<string | null>(null);
 
@@ -279,16 +240,6 @@ export function useMopPlan({ isEnterprise, hasStacks, markDirty, selectedDeviceI
     listQuickActions().then(setQuickActions).catch(console.error);
     listScripts().then(setScripts).catch(console.error);
   }, []);
-
-  // Load config templates (replaces useConfigTemplates hook)
-  useEffect(() => {
-    if (!isEnterprise || !hasStacks) return;
-    setConfigTemplatesLoading(true);
-    listConfigTemplates()
-      .then(setConfigTemplatesList)
-      .catch(() => setConfigTemplatesList([]))
-      .finally(() => setConfigTemplatesLoading(false));
-  }, [isEnterprise, hasStacks]);
 
   const loadScriptParams = useCallback(async (scriptId: string) => {
     if (scriptParams[scriptId]) return;
@@ -453,42 +404,6 @@ export function useMopPlan({ isEnterprise, hasStacks, markDirty, selectedDeviceI
     setPasteMode(null);
     setPasteText('');
   }, [pasteMode, pasteText, steps, perDeviceSteps, hasPerDeviceSteps, activeDevicePill, setActiveSteps]);
-
-  // Config template: render preview
-  const handleRenderConfigTemplate = useCallback(async () => {
-    if (!selectedConfigTemplate) return;
-    setRenderingConfig(true);
-    try {
-      const result = await renderConfigTemplate(selectedConfigTemplate.id, { variables: configVariables });
-      setRenderedConfig(result.rendered);
-    } catch (err) {
-      console.error('Failed to render template:', err);
-      setRenderedConfig(`Error: ${getErrorMessage(err, 'Render failed')}`);
-    } finally {
-      setRenderingConfig(false);
-    }
-  }, [selectedConfigTemplate, configVariables]);
-
-  // Config template: add a single deploy step to MOP
-  const handleUseConfigAsMop = useCallback(() => {
-    if (!selectedConfigTemplate) return;
-    const order = steps.length;
-    const step: MopStep = {
-      ...createMopStep('change', `Deploy template: ${selectedConfigTemplate.name}`, order, `Deploy config template "${selectedConfigTemplate.name}" to device`),
-      execution_source: 'deploy_template',
-      deploy_metadata: {
-        template_id: selectedConfigTemplate.id,
-        variables: configVariables,
-      },
-    };
-
-    setSteps(prev => [...prev, step]);
-    markDirty();
-    // Reset template selection
-    setSelectedConfigTemplate(null);
-    setConfigVariables({});
-    setRenderedConfig(null);
-  }, [selectedConfigTemplate, configVariables, steps.length, markDirty]);
 
   // Test terminal target: the explicit pick while it is still selected,
   // otherwise the only selected device (auto-chosen), otherwise none.
@@ -751,23 +666,6 @@ export function useMopPlan({ isEnterprise, hasStacks, markDirty, selectedDeviceI
       handleOutputMouseDown,
       selectionPopover,
       testOutputRef,
-    },
-    configTemplate: {
-      sourceType,
-      setSourceType,
-      configTemplatesList,
-      configTemplatesLoading,
-      configTemplateSearch,
-      setConfigTemplateSearch,
-      selectedConfigTemplate,
-      setSelectedConfigTemplate,
-      configVariables,
-      setConfigVariables,
-      renderedConfig,
-      setRenderedConfig,
-      renderingConfig,
-      handleRenderConfigTemplate,
-      handleUseConfigAsMop,
     },
     sources: {
       quickActions,

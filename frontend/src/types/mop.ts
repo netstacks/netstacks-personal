@@ -37,9 +37,6 @@ export type ExecutionPhase = 'device_selection' | 'configuration' | 'pre_checks'
 // Risk level for enterprise change management
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
-// How steps were generated
-export type StepSourceType = 'manual' | 'config_template';
-
 // AI Pilot autonomy levels (1 = most supervised, 4 = fully autonomous)
 export type AiAutonomyLevel = 1 | 2 | 3 | 4;
 
@@ -47,7 +44,7 @@ export type AiAutonomyLevel = 1 | 2 | 3 | 4;
 export type OnFailureBehavior = 'pause' | 'skip' | 'abort';
 
 // How a step is executed (mirrors MopStep.execution_source)
-export type StepExecutionSource = 'cli' | 'quick_action' | 'script' | 'deploy_template' | 'deployment_link';
+export type StepExecutionSource = 'cli' | 'quick_action' | 'script';
 
 // One evaluated expected_output assertion (agent: finalize_step_execution).
 // `TEXT:` results are advisory — they never change the step status.

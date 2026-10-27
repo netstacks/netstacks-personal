@@ -5,7 +5,7 @@
  * Why this exists
  * ---------------
  * Every Monaco editor in the app (DocumentTabEditor, ScriptEditor,
- * TemplateDetailTab, WorkspaceCodeEditor) reads its font here so they all
+ * BackupHistoryTab, WorkspaceCodeEditor) reads its font here so they all
  * honor Settings → Appearance → Editor Font Size / Font Family and the
  * View → Zoom step, and stay in lockstep.
  *

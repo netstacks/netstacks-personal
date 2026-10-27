@@ -81,12 +81,7 @@ export interface ActiveContext {
     | 'api-response'
     | 'incident-detail'
     | 'alert-detail'
-    | 'stack-detail'
     | 'backup-history'
-    | 'config-template'
-    | 'config-stack'
-    | 'config-instance'
-    | 'config-deployment'
     | null
 
   /** Active tab's stable id, or null. */

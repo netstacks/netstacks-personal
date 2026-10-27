@@ -1853,10 +1853,6 @@ pub struct MopStep {
     pub device_scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_ids: Option<Vec<String>>,
-    // Config-deploy source payload: { template_id, deployment_id, instance_id, variables }.
-    // Opaque to the backend; round-tripped so the UI can re-hydrate the deploy-template card.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deploy_metadata: Option<serde_json::Value>,
 }
 
 fn new_uuid_string() -> String {
@@ -3734,8 +3730,6 @@ pub struct MopPackageStep {
     pub device_scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_ids: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deploy_metadata: Option<serde_json::Value>,
 }
 
 /// Embedded document in a MOP package

@@ -27,7 +27,7 @@ export interface MopStep {
   ai_feedback?: string; // AI analysis of command output during execution
 
   // Execution source: how this step runs
-  execution_source?: 'cli' | 'quick_action' | 'script' | 'deploy_template' | 'deployment_link';  // default: 'cli'
+  execution_source?: 'cli' | 'quick_action' | 'script';  // default: 'cli'
 
   // Quick Action source
   quick_action_id?: string;
@@ -36,14 +36,6 @@ export interface MopStep {
   // Script source
   script_id?: string;
   script_args?: Record<string, unknown>;
-
-  // Config deployment source (deploy_template or deployment_link)
-  deploy_metadata?: {
-    template_id?: string;
-    deployment_id?: string;
-    instance_id?: string;
-    variables?: Record<string, string>;
-  };
 
   // Pairing: auto-create mirror step in paired phase
   paired_step_id?: string;

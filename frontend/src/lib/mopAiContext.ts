@@ -53,11 +53,9 @@ export interface MopAiContextInput {
   tags?: string[];
   /** Base steps (all sections). */
   steps: MopStep[];
-  /** Per-device step lists keyed by device/session id (stack templates). */
+  /** Per-device step lists keyed by device/session id (Change.device_overrides). */
   deviceOverrides?: Record<string, MopStep[]>;
   devices: MopAiDevice[];
-  /** Config-template variables ({{name}} → value) when a template source is active. */
-  variables?: Record<string, string>;
   /** Declared plan variables (P1-11): name / default / required / description. */
   planVariables?: MopVariable[];
   /** Resolved `{{name}}` map per plan device id (`deviceVariableMap`), rendered for in-scope devices. */
@@ -412,8 +410,6 @@ export function buildMopAiContext(input: MopAiContextInput, options: MopAiContex
   lines.push(`Platforms in scope: ${platforms.length ? platforms.join(', ') : 'unknown (no CLI flavor set on the selected sessions)'}`);
 
   // Variables
-  const vars = Object.entries(input.variables || {}).filter(([k]) => k.trim());
-  if (vars.length) lines.push(`Variables: ${vars.map(([k, v]) => `{{${k}}}=${v}`).join(' ')}`);
   lines.push(...renderPlanVariables(input.planVariables, input.deviceVariableMaps, input.devices));
 
   // Sections

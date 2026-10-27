@@ -25,6 +25,19 @@ interface AgentWithMetrics extends ProfilingAgent {
   healthScore: number | null;
 }
 
+/** Average of the numeric health scores, or null when none is reported. The
+ *  devices endpoint returns assignment rows, which may carry no score at all,
+ *  so anything that is not a finite number is ignored (it used to yield NaN). */
+function averageHealth(scores: ReadonlyArray<unknown>): number | null {
+  const valid = scores.filter((h): h is number => typeof h === 'number' && Number.isFinite(h));
+  return valid.length > 0 ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+}
+
+/** "87%", or "—" when no health score is available. */
+function formatHealth(score: number | null): string {
+  return score !== null && Number.isFinite(score) ? `${(score * 100).toFixed(0)}%` : '—';
+}
+
 export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
   onOpenChat,
   adminUiBaseUrl,
@@ -63,13 +76,7 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
             ]);
 
             // Calculate average health score from devices
-            const healthScores = devices
-              .map((d) => d.health_score)
-              .filter((h): h is number => h !== null);
-            const avgHealth =
-              healthScores.length > 0
-                ? healthScores.reduce((a, b) => a + b, 0) / healthScores.length
-                : null;
+            const avgHealth = averageHealth(devices.map((d) => d.health_score));
 
             // Count unacknowledged anomalies
             const unacknowledgedCount = anomalies.filter((a) => !a.acknowledged).length;
@@ -197,10 +204,10 @@ export const ProfilingAgentsPanel: React.FC<ProfilingAgentsPanelProps> = ({
                   <div className="profiling-agent-name">{agent.name}</div>
                   <div className="profiling-agent-meta">
                     {agent.deviceCount} device{agent.deviceCount !== 1 ? 's' : ''}
-                    {agent.healthScore !== null && (
+                    {agent.deviceCount > 0 && (
                       <span className="profiling-agent-health">
                         {' '}
-                        · Health: {(agent.healthScore * 100).toFixed(0)}%
+                        · Health: {formatHealth(agent.healthScore)}
                       </span>
                     )}
                   </div>

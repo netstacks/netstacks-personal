@@ -31,7 +31,6 @@ import AgentRunTab from './components/AgentRunTab'
 import { useAgentTasksStore } from './hooks/useAgentTasks'
 import { useAssistantName, useAssistantNameStore } from './stores/assistantName'
 import ApiResponseTab from './components/ApiResponseTab'
-import ConfigPanel from './components/config/ConfigPanel'
 import { PluginPanel } from './components/PluginPanel'
 import { IncidentsPanel } from './components/IncidentsPanel'
 import { AlertsPanel } from './components/AlertsPanel'
@@ -39,10 +38,6 @@ import { ProfilingAgentsPanel } from './components/ProfilingAgentsPanel'
 import { ProfilingAgentChat } from './components/ProfilingAgentChat'
 import IncidentDetailTab from './components/IncidentDetailTab'
 import AlertDetailTab from './components/AlertDetailTab'
-import StackDetailTab from './components/config/StackDetailTab'
-import TemplateDetailTab from './components/config/TemplateDetailTab'
-import InstanceDetailTab from './components/config/InstanceDetailTab'
-import DeploymentDetailTab from './components/config/DeploymentDetailTab'
 import BackupHistoryTab from './components/BackupHistoryTab'
 // Note: TopologyCanvas and TopologyCanvas3D are used in TopologyTabEditor
 import DocumentTabEditor from './components/DocumentTabEditor'
@@ -194,7 +189,7 @@ import ModalFrame from './components/ModalFrame'
 const isTauri = '__TAURI_INTERNALS__' in window
 
 // Tab type discriminator
-type TabType = 'terminal' | 'document' | 'topology' | 'device-detail' | 'link-detail' | 'mop' | 'sftp-editor' | 'script' | 'api-response' | 'api-request' | 'settings' | 'incident-detail' | 'alert-detail' | 'stack-detail' | 'backup-history' | 'config-template' | 'config-stack' | 'config-instance' | 'config-deployment' | 'workspace' | 'scratchpad' | 'agent-run' | 'ai-chat'
+type TabType = 'terminal' | 'document' | 'topology' | 'device-detail' | 'link-detail' | 'mop' | 'sftp-editor' | 'script' | 'api-response' | 'api-request' | 'settings' | 'incident-detail' | 'alert-detail' | 'backup-history' | 'workspace' | 'scratchpad' | 'agent-run' | 'ai-chat'
 
 // Status for document tabs
 type DocumentStatus = 'saved' | 'modified' | 'new'
@@ -303,15 +298,6 @@ interface Tab {
   // Incident/Alert detail
   incidentId?: string
   alertId?: string
-  // Stack detail tab
-  stackDetailTemplateId?: string
-  stackDetailInstanceId?: string
-  // Config management tabs
-  configTemplateId?: string
-  configStackId?: string
-  configInstanceId?: string
-  configInstanceStackId?: string
-  configDeploymentId?: string
   // Workspace tab
   workspaceConfig?: WorkspaceConfig
   // Scratchpad tab — content is owned by the tab itself; passed once
@@ -582,13 +568,6 @@ const Icons = {
       <path d="M14 12l2 2-2 2" />
     </svg>
   ),
-  stacks: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <rect x="3" y="10" width="18" height="4" rx="1" />
-      <rect x="3" y="16" width="18" height="4" rx="1" />
-    </svg>
-  ),
   quickActions: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -651,7 +630,7 @@ const defaultPluginIcon = (
   </svg>
 )
 
-type ViewType = 'sessions' | 'topology' | 'docs' | 'changes' | 'agents' | 'stacks' | 'workspaces' | string
+type ViewType = 'sessions' | 'topology' | 'docs' | 'changes' | 'agents' | 'workspaces' | string
 
 function AppContent() {
   const [activeView, setActiveView] = useState<ViewType>('sessions')
@@ -697,15 +676,14 @@ function AppContent() {
     if (canDocs) { setActiveView('docs'); return }
   }, [capabilitiesLoaded, initialViewSet, showSessionsTab, showDevicesTab, canTopology, canDocs])
 
-  // Filter out 'stacks' (has dedicated StacksPanel) and admin-only panels like pipeline-rules
+  // Filter out admin-only panels like pipeline-rules
   // Incidents and alerts have dedicated panels but still need activity bar icons
   const allPluginPanels = getPluginPanels().filter(pp =>
-    pp.pluginName !== 'stacks' && pp.panel.id !== 'pipeline-rules'
+    pp.panel.id !== 'pipeline-rules'
   )
   const pluginPanels = allPluginPanels.filter(pp =>
     pp.pluginName !== 'incidents' && pp.pluginName !== 'alerts' && pp.pluginName !== 'profiling-agents'
   )
-  const canStacks = isEnterprise && hasFeature('service_stacks')
   const canSftp = hasFeature('local_sftp') || hasFeature('central_sftp')
 
   // SFTP store subscriptions
@@ -1682,7 +1660,6 @@ function AppContent() {
       case 'docs': return 'Documents'
       case 'changes': return 'Changes'
       case 'agents': return 'Agents'
-      case 'stacks': return 'Stacks'
       case 'sftp': return 'SFTP Browser'
       case 'workspaces': return 'Workspaces'
       default: {
@@ -2403,101 +2380,6 @@ ${netboxSourcesList.length > 0 ? `\n### NetBox Sources:\n${netboxSourcesList.map
       title: 'Alert...',
       status: 'loading' as DetailStatus,
       alertId: id,
-    }
-    setTabs(prev => [...prev, tab])
-    setActiveTabId(tab.id)
-  }, [tabs])
-
-  // Handle opening a config template in a dedicated tab
-  const handleOpenConfigTemplateTab = useCallback((templateId: string, templateName: string) => {
-    const existing = tabs.find(t => t.type === 'config-template' && t.configTemplateId === templateId)
-    if (existing) { setActiveTabId(existing.id); return }
-    const tab: Tab = {
-      id: `config-template-${templateId}`,
-      type: 'config-template',
-      title: `Template: ${templateName}`,
-      status: 'connected' as DetailStatus,
-      configTemplateId: templateId,
-    }
-    setTabs(prev => [...prev, tab])
-    setActiveTabId(tab.id)
-  }, [tabs])
-
-  // Handle creating a new config template tab
-  const handleCreateConfigTemplate = useCallback(() => {
-    const tabId = `config-template-new-${Date.now()}`
-    const tab: Tab = {
-      id: tabId,
-      type: 'config-template',
-      title: 'New Template',
-      status: 'connected' as DetailStatus,
-      configTemplateId: '',
-    }
-    setTabs(prev => [...prev, tab])
-    setActiveTabId(tabId)
-  }, [])
-
-  // Handle creating a new config stack tab
-  const handleCreateConfigStack = useCallback(() => {
-    const tabId = `config-stack-new-${Date.now()}`
-    const tab: Tab = {
-      id: tabId,
-      type: 'config-stack',
-      title: 'New Stack',
-      status: 'connected' as DetailStatus,
-      configStackId: '',
-    }
-    setTabs(prev => [...prev, tab])
-    setActiveTabId(tabId)
-  }, [])
-
-  // Handle opening a config stack in a dedicated tab
-  const handleOpenConfigStackTab = useCallback((stackId: string, stackName: string) => {
-    const existing = tabs.find(t => t.type === 'config-stack' && t.configStackId === stackId)
-    if (existing) { setActiveTabId(existing.id); return }
-    const tab: Tab = {
-      id: `config-stack-${stackId}`,
-      type: 'config-stack',
-      title: `Stack: ${stackName}`,
-      status: 'connected' as DetailStatus,
-      configStackId: stackId,
-    }
-    setTabs(prev => [...prev, tab])
-    setActiveTabId(tab.id)
-  }, [tabs])
-
-  // Handle opening a config instance in a dedicated tab
-  const handleOpenInstanceTab = useCallback((instanceId: string, instanceName: string, stackId?: string) => {
-    if (instanceId) {
-      const existing = tabs.find(t => t.type === 'config-instance' && t.configInstanceId === instanceId)
-      if (existing) {
-        setActiveTabId(existing.id)
-        return
-      }
-    }
-    const tabId = instanceId ? `config-instance-${instanceId}` : `config-instance-new-${Date.now()}`
-    const newTab: Tab = {
-      id: tabId,
-      type: 'config-instance',
-      title: instanceName || 'New Instance',
-      status: 'connected' as DetailStatus,
-      configInstanceId: instanceId || undefined,
-      configInstanceStackId: stackId,
-    }
-    setTabs(prev => [...prev, newTab])
-    setActiveTabId(tabId)
-  }, [tabs])
-
-  // Handle opening a deployment detail in a dedicated tab
-  const handleOpenDeploymentTab = useCallback((deploymentId: string, deploymentName: string) => {
-    const existing = tabs.find(t => t.type === 'config-deployment' && t.configDeploymentId === deploymentId)
-    if (existing) { setActiveTabId(existing.id); return }
-    const tab: Tab = {
-      id: `config-deployment-${deploymentId}`,
-      type: 'config-deployment',
-      title: `Deployment: ${deploymentName}`,
-      status: 'connected' as DetailStatus,
-      configDeploymentId: deploymentId,
     }
     setTabs(prev => [...prev, tab])
     setActiveTabId(tab.id)
@@ -5729,7 +5611,7 @@ def main(command: str = "show version"):
     const activeTab = tabs.find(t => t.id === activeTabId)
     if (!activeTab) return false
     const savable = isDocumentTab(activeTab) || isScriptTab(activeTab) || isMopTab(activeTab)
-      || activeTab.type === 'sftp-editor' || activeTab.type === 'workspace' || activeTab.type === 'config-template'
+      || activeTab.type === 'sftp-editor' || activeTab.type === 'workspace'
     if (!savable) return false
 
     const event = new CustomEvent('netstacks:save-document', { detail: { tabId: activeTabId } })
@@ -7248,64 +7130,6 @@ def main(command: str = "show version"):
           onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
         />
       )
-    } else if (tab.type === 'stack-detail' && tab.stackDetailTemplateId) {
-      return (
-        <StackDetailTab
-          stackId={tab.stackDetailTemplateId}
-          onOpenInstanceTab={handleOpenInstanceTab}
-          onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
-        />
-      )
-    } else if (tab.type === 'config-template') {
-      return (
-        <TemplateDetailTab
-          tabId={tab.id}
-          templateId={tab.configTemplateId || ''}
-          onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
-          onDeleted={() => closeTab(tab.id)}
-        />
-      )
-    } else if (tab.type === 'config-stack') {
-      return (
-        <StackDetailTab
-          stackId={tab.configStackId || ''}
-          onOpenInstanceTab={handleOpenInstanceTab}
-          onOpenDeploymentTab={handleOpenDeploymentTab}
-          onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
-          onDeleted={() => closeTab(tab.id)}
-        />
-      )
-    } else if (tab.type === 'config-instance') {
-      return (
-        <InstanceDetailTab
-          instanceId={tab.configInstanceId}
-          stackId={tab.configInstanceStackId}
-          onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
-          onDeleted={() => closeTab(tab.id)}
-          onOpenDeploymentTab={handleOpenDeploymentTab}
-          onOpenMopTab={(executionId, name) => {
-            const tabId = `mop-exec-${executionId}`
-            const existing = tabs.find(t => t.id === tabId)
-            if (existing) { setActiveTabId(existing.id); return }
-            const newTab: Tab = {
-              id: tabId,
-              type: 'mop' as TabType,
-              title: name,
-              status: 'ready' as DetailStatus,
-              mopExecutionId: executionId,
-            }
-            setTabs(prev => [...prev, newTab])
-            setActiveTabId(tabId)
-          }}
-        />
-      )
-    } else if (tab.type === 'config-deployment' && tab.configDeploymentId) {
-      return (
-        <DeploymentDetailTab
-          deploymentId={tab.configDeploymentId}
-          onTitleChange={(title) => setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, title } : t))}
-        />
-      )
     } else if (tab.type === 'workspace' && tab.workspaceConfig) {
       return (
         <WorkspaceTab
@@ -7390,7 +7214,6 @@ def main(command: str = "show version"):
     ...(canDocs ? [{ id: 'docs' as ViewType, label: 'Documents', icon: Icons.docs, testId: 'nav-docs' }] : []),
     ...(canChanges && showChangesTab ? [{ id: 'changes' as ViewType, label: 'Changes', icon: Icons.changes, testId: 'nav-changes' }] : []),
     ...(canAgents && showAgentsTab ? [{ id: 'agents' as ViewType, label: 'Agents', icon: Icons.agents, testId: 'nav-agents' }] : []),
-    ...(canStacks ? [{ id: 'stacks' as ViewType, label: 'Stacks', icon: Icons.stacks }] : []),
     ...allPluginPanels.map((pp) => ({
       id: `plugin:${pp.pluginName}:${pp.panel.id}` as ViewType,
       label: pp.panel.label,
@@ -7409,7 +7232,7 @@ def main(command: str = "show version"):
        — the Controller serves no /workspace routes (git ops, local
        file ops), so in enterprise this panel loads and every call
        fails. Every other item here is already guarded (showSessionsTab,
-       canTopology, canDocs, canChanges, canAgents, canStacks,
+       canTopology, canDocs, canChanges, canAgents,
        sftpConnectionCount); the matching Settings tab IS gated the same
        way at SettingsPanel.tsx:534. */
     ...(!isEnterprise ? [{
@@ -7660,9 +7483,6 @@ def main(command: str = "show version"):
             )}
             {canAgents && activeView === 'agents' && (
               <AgentsPanel onOpenAgentRun={handleOpenAgentRunTab} />
-            )}
-            {activeView === 'stacks' && canStacks && (
-              <ConfigPanel onOpenTemplateTab={handleOpenConfigTemplateTab} onOpenStackTab={handleOpenConfigStackTab} onOpenInstanceTab={handleOpenInstanceTab} onCreateTemplate={handleCreateConfigTemplate} onCreateStack={handleCreateConfigStack} />
             )}
             {/* M1: the panel itself. Its backing surface (F2 git ops, F3 local
                 file ops) does not exist on the Controller, so in enterprise it

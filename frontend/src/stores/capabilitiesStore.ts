@@ -263,7 +263,6 @@ export function useCapability(featureName: FeatureName): CapabilityCheck {
     'rbac',
     'audit_logging',
     'templates',
-    'service_stacks',
     'mops',
     'scheduled_tasks',
     'alerts',

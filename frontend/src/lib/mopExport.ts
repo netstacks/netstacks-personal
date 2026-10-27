@@ -22,13 +22,12 @@ export async function exportMopPackage(mopId: string): Promise<MopPackage> {
       order?: number; step_type: string; command: string; description?: string; expected_output?: string;
       execution_source?: string; quick_action_id?: string; quick_action_variables?: Record<string, string>;
       script_id?: string; script_args?: Record<string, unknown>; paired_step_id?: string; output_format?: 'text' | 'json';
-      deploy_metadata?: Record<string, unknown>; device_scope?: string; device_ids?: string[];
+      device_scope?: string; device_ids?: string[];
     };
     const pkg = mop.package_data as {
       mop?: { name?: string; description?: string; steps?: PkgStep[] };
       metadata?: Record<string, unknown>;
       execution_defaults?: Record<string, unknown>;
-      linked_stack?: Record<string, unknown>;
     };
     const rawSteps = pkg?.mop?.steps || [];
 
@@ -54,7 +53,6 @@ export async function exportMopPackage(mopId: string): Promise<MopPackage> {
           script_args: s.script_args,
           paired_step_id: s.paired_step_id,
           output_format: s.output_format,
-          deploy_metadata: s.deploy_metadata as MopPackageStep['deploy_metadata'],
           device_scope: (s.device_scope as 'all' | 'specific') || 'all',
           device_ids: s.device_ids,
         })),
@@ -70,7 +68,6 @@ export async function exportMopPackage(mopId: string): Promise<MopPackage> {
         custom: {},
       },
       execution_defaults: pkg?.execution_defaults as MopPackage['execution_defaults'],
-      linked_stack: pkg?.linked_stack as MopPackage['linked_stack'],
     };
   }
 
@@ -96,7 +93,6 @@ export async function importMopPackage(pkg: MopPackage): Promise<MopImportResult
         },
         metadata: pkg.metadata,
         execution_defaults: pkg.execution_defaults,
-        linked_stack: pkg.linked_stack,
       },
     });
     return {

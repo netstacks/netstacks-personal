@@ -30,24 +30,15 @@ export const ProfilingAgentChat: React.FC<ProfilingAgentChatProps> = ({
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Get or create user ID
-  const getUserId = (): string => {
-    const existing = localStorage.getItem('profiling-agent-user-id');
-    if (existing) return existing;
-
-    const newId = crypto.randomUUID();
-    localStorage.setItem('profiling-agent-user-id', newId);
-    return newId;
-  };
-
-  // Load chat context on mount
+  // Load chat context on mount. The conversation belongs to the signed-in
+  // user: the Controller's plugin proxy injects X-User-Id, so no client-side
+  // identity is sent.
   useEffect(() => {
     let cancelled = false;
     setInitialLoading(true);
     (async () => {
       try {
-        const userId = getUserId();
-        const context = await getChatContext(agentId, userId);
+        const context = await getChatContext(agentId);
         if (cancelled) return;
         setDeviceStates(context.device_states || []);
         setAnomalies(context.anomalies || []);
@@ -83,8 +74,7 @@ export const ProfilingAgentChat: React.FC<ProfilingAgentChatProps> = ({
     setLoading(true);
 
     try {
-      const userId = getUserId();
-      const response = await sendChatMessage(agentId, messageText, userId);
+      const response = await sendChatMessage(agentId, messageText);
 
       const assistantMessage: ChatMessage = {
         role: 'assistant',

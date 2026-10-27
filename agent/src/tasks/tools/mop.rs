@@ -166,7 +166,6 @@ fn new_mop_step(
         ai_feedback: None,
         device_scope: None,
         device_ids: None,
-        deploy_metadata: None,
     }
 }
 

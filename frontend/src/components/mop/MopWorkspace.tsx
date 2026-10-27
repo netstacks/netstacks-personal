@@ -71,7 +71,6 @@ import {
   type ControllerExecLogSummary,
 } from '../../api/controllerMop';
 import { useAuthStore } from '../../stores/authStore';
-import { useCapabilitiesStore } from '../../stores/capabilitiesStore';
 import { createDocument, updateDocument, type Document } from '../../api/docs';
 import { resolveDocSaveTarget } from '../../lib/docSaveTargets';
 import { generateMopDocument, type MopDocumentData } from '../../lib/mopDocumentGenerator';
@@ -267,8 +266,6 @@ function emptyChange(): Change {
 export default function MopWorkspace({ tabId, planId, executionId, onTitleChange, onDirtyChange, onDelete, onOpenDocument }: MopWorkspaceProps) {
   const { mode } = useMode();
   const isEnterprise = mode === 'enterprise';
-  const hasFeature = useCapabilitiesStore((s) => s.hasFeature);
-  const hasStacks = isEnterprise && hasFeature('service_stacks');
 
   // Active sub-tab — 'execute' for an execution tab, 'plan' for an existing
   // plan, 'devices' for a brand-new MOP
@@ -314,9 +311,9 @@ export default function MopWorkspace({ tabId, planId, executionId, onTitleChange
     return sessions.filter(s => selectedDeviceIds.has(s.id));
   }, [isEnterprise, enterpriseDevices, sessions, selectedDeviceIds]);
 
-  // Plan-editing state: steps, sections, paste mode, test terminal, step
-  // sources and the config-template source (components/mop/useMopPlan.ts).
-  const mopPlan = useMopPlan({ isEnterprise, hasStacks, markDirty, selectedDeviceIds, selectedDeviceList });
+  // Plan-editing state: steps, sections, paste mode, test terminal and step
+  // sources (components/mop/useMopPlan.ts).
+  const mopPlan = useMopPlan({ markDirty, selectedDeviceIds, selectedDeviceList });
   const {
     steps,
     setSteps,
@@ -333,7 +330,6 @@ export default function MopWorkspace({ tabId, planId, executionId, onTitleChange
   const { activeDevicePill } = mopPlan.selection;
   const { setPasteMode, setPasteText } = mopPlan.paste;
   const { setActiveSteps, updateStepField } = mopPlan.actions;
-  const { selectedConfigTemplate, configVariables } = mopPlan.configTemplate;
   const { quickActions, scripts } = mopPlan.sources;
   const { variables: planVariables, setVariables, deviceVariables, setDeviceVariables, setDeviceVariable } = mopPlan.variables;
 
@@ -1373,7 +1369,6 @@ export default function MopWorkspace({ tabId, planId, executionId, onTitleChange
       steps,
       deviceOverrides: hasPerDeviceSteps ? perDeviceSteps : undefined,
       devices: mopAiDevices,
-      variables: selectedConfigTemplate ? configVariables : undefined,
       planVariables,
       deviceVariableMaps: variableMaps,
       execution: execution
@@ -1382,7 +1377,7 @@ export default function MopWorkspace({ tabId, planId, executionId, onTitleChange
       ...overrides,
     };
     return buildMopAiContext(input, opts);
-  }, [nameValue, descriptionValue, riskLevel, changeTicket, parsedTags, steps, hasPerDeviceSteps, perDeviceSteps, mopAiDevices, selectedConfigTemplate, configVariables, planVariables, variableMaps, execution, executionDevices, execState.stepsByDevice, deviceDiffs]);
+  }, [nameValue, descriptionValue, riskLevel, changeTicket, parsedTags, steps, hasPerDeviceSteps, perDeviceSteps, mopAiDevices, planVariables, variableMaps, execution, executionDevices, execState.stepsByDevice, deviceDiffs]);
   useEffect(() => {
     aiContextRef.current = buildAiContext;
   }, [buildAiContext]);
@@ -2109,7 +2104,6 @@ ${commands.join('\n')}`,
       plan={mopPlan}
       enterprise={{
         isEnterprise,
-        hasStacks,
         approvalStatus,
         syncStatus,
         controllerMopId,
@@ -2434,7 +2428,7 @@ ${commands.join('\n')}`,
           <AskAiHelp
             topic="this MOP"
             prompt={`Help me with this Method of Procedure in NetStacks: "${nameValue || 'Untitled MOP'}", status ${plan?.status || 'draft'}, ${selectedDeviceIds.size} device(s), ${stepCount} step(s), risk ${riskLevel}, currently on the ${activeTab} tab. `
-              + 'Explain the workflow (pick devices → plan pre-checks, change and post-checks with rollback → execute with the AI Pilot levels), how config templates and variables fit in, and what a solid MOP for this kind of change should include. Look up NetStacks docs if useful.'}
+              + 'Explain the workflow (pick devices → plan pre-checks, change and post-checks with rollback → execute with the AI Pilot levels), how plan variables fit in, and what a solid MOP for this kind of change should include. Look up NetStacks docs if useful.'}
           />
           <button
             className={`ns-btn mop-workspace-header-btn ${dirty ? 'ns-btn--primary' : ''}`}
