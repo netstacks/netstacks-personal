@@ -24,6 +24,7 @@ import { sendChatMessage } from '../api/ai'
 import { logger } from './logger'
 import { compileRegex } from './compileRegex'
 import { getErrorMessage } from '../api/errors'
+import { onDismissHovers, isHoverSuppressed } from './hoverDismiss'
 
 /** Aggregated result for one token — cached + fed to the AI digest. */
 interface EnrichResult {
@@ -32,6 +33,12 @@ interface EnrichResult {
   sources: Record<string, unknown>
   errors: Record<string, string>
 }
+
+/**
+ * How long a token the user dismissed (×, Ctrl/⌘, or a click on it) stays
+ * quiet. Resting on a different token's popup lifts it early.
+ */
+const SNOOZE_MS = 30_000
 
 interface CacheEntry {
   result?: EnrichResult
@@ -43,7 +50,7 @@ export interface EnrichPopupOptions {
   sessionId?: string | null
   /** Live CLI flavor accessor — matchers gate on it. */
   getCliFlavor?: () => string | null
-  /** Live settings accessor (hoverEnabled / aiDigestEnabled / disabledSources). */
+  /** Live settings accessor (hoverEnabled / hoverDelayMs / aiDigestEnabled / disabledSources). */
   getSettings: () => EnrichmentClientSettings
 }
 
@@ -66,6 +73,16 @@ export function installEnrichPopup(
   // responses (match/source/digest) from a previous token are dropped.
   let hoverGen = 0
   let disposed = false
+  // Token whose link the pointer is currently over (xterm hover → leave).
+  let pointerToken: string | null = null
+  // Token the popup is currently showing.
+  let shownToken: string | null = null
+  // Pending delayed show for pointerToken.
+  let pendingTimer: number | null = null
+  // Dismissed tokens → snooze expiry (epoch ms). xterm re-fires `hover` every
+  // time the pointer re-enters a link (or the buffer re-renders under it), so
+  // without this a closed popup pops straight back on the next mouse move.
+  const snoozed = new Map<string, number>()
 
   // ── Popup DOM ──────────────────────────────────────────────────────────
 
@@ -86,6 +103,29 @@ export function installEnrichPopup(
     popup.style.display = 'none'
     popup.innerHTML = ''
     userPositioned = false
+    shownToken = null
+  }
+
+  function cancelPending() {
+    if (pendingTimer !== null) window.clearTimeout(pendingTimer)
+    pendingTimer = null
+  }
+
+  function isSnoozed(token: string): boolean {
+    const until = snoozed.get(token)
+    if (until === undefined) return false
+    if (Date.now() < until) return true
+    snoozed.delete(token)
+    return false
+  }
+
+  /** User-initiated close: hide and keep the shown / pointed-at token quiet. */
+  function dismiss() {
+    cancelPending()
+    const until = Date.now() + SNOOZE_MS
+    if (shownToken) snoozed.set(shownToken, until)
+    if (pointerToken) snoozed.set(pointerToken, until)
+    hidePopup()
   }
 
   /** Clamp the popup so it stays within the terminal host area. */
@@ -133,7 +173,7 @@ export function installEnrichPopup(
   function addCloseButton(header: HTMLElement) {
     const closeBtn = el('button', 'ns-enrich-close-btn', '×')
     closeBtn.title = 'Close'
-    closeBtn.onclick = (e) => { e.stopPropagation(); e.preventDefault(); hidePopup() }
+    closeBtn.onclick = (e) => { e.stopPropagation(); e.preventDefault(); dismiss() }
     header.appendChild(closeBtn)
   }
 
@@ -352,9 +392,36 @@ export function installEnrichPopup(
 
   // ── Hover handler ──────────────────────────────────────────────────────
 
+  /**
+   * Pointer entered a token. Opens after the configured delay so a quick
+   * double-click / drag-select over an IP or MAC finishes before anything
+   * appears, and never while a button or Ctrl/⌘ is down.
+   */
+  function scheduleHover(token: string, event: MouseEvent) {
+    pointerToken = token
+    cancelPending()
+    if (!opts.getSettings().hoverEnabled) return
+    if (event.buttons !== 0 || isHoverSuppressed() || isSnoozed(token)) return
+    const open = () => {
+      pendingTimer = null
+      if (disposed || pointerToken !== token || isHoverSuppressed() || isSnoozed(token)) return
+      void handleHover(token, event)
+    }
+    const delay = opts.getSettings().hoverDelayMs
+    if (delay <= 0) open()
+    else pendingTimer = window.setTimeout(open, delay)
+  }
+
   async function handleHover(token: string, event: MouseEvent) {
     const settings = opts.getSettings()
     if (!settings.hoverEnabled) return
+
+    // Deliberately reading another token lifts earlier snoozes; only crossing
+    // one (shorter than the delay) does not.
+    for (const t of snoozed.keys()) {
+      if (t !== token) snoozed.delete(t)
+    }
+    shownToken = token
 
     // Cache hit — render instantly, no requests.
     const cached = cache.get(token)
@@ -498,12 +565,15 @@ export function installEnrichPopup(
             text: matchText,
             range,
             activate: () => { /* hover-only; no click action */ },
-            hover: (event) => { void handleHover(matchText, event) },
+            hover: (event) => { scheduleHover(matchText, event) },
             leave: () => {
+              cancelPending()
+              pointerToken = null
               // Small delay so the cursor can travel into the popup. A user-
-              // positioned (dragged) popup stays open until explicitly closed.
+              // positioned (dragged) popup stays open until explicitly closed,
+              // and a popup now owned by another token under the pointer stays.
               setTimeout(() => {
-                if (userPositioned) return
+                if (userPositioned || pointerToken) return
                 if (!popup.matches(':hover')) hidePopup()
               }, 150)
             },
@@ -534,12 +604,16 @@ export function installEnrichPopup(
   // Slight delay so the WS terminal init doesn't race the first fetch.
   const initTimer = window.setTimeout(refresh, 500)
 
-  // Hide on click outside the popup.
+  // Click outside the popup dismisses — and a click on a token (double-click
+  // to select, drag to highlight) means the user wants the text, not the card.
   const onDocMouseDown = (e: MouseEvent) => {
     if (popup.contains(e.target as Node)) return
-    hidePopup()
+    dismiss()
   }
   document.addEventListener('mousedown', onDocMouseDown)
+
+  // Ctrl / ⌘ tap dismisses (app-wide hover dismiss key).
+  const offDismissKey = onDismissHovers(dismiss)
 
   return {
     refresh,
@@ -547,6 +621,8 @@ export function installEnrichPopup(
     dispose() {
       disposed = true
       window.clearTimeout(initTimer)
+      cancelPending()
+      offDismissKey()
       disposeProviders()
       document.removeEventListener('mousemove', onDocMouseMove)
       document.removeEventListener('mouseup', onDocMouseUp)

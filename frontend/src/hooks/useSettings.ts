@@ -64,6 +64,8 @@ export interface AppSettings {
   // source names the user has disabled. The popover also respects hoverLookups
   // as a master "hover info" switch.
   'terminal.enrichment.hoverEnabled': boolean;
+  // ms the pointer must rest on a token before the popover opens (0 = instant).
+  'terminal.enrichment.hoverDelayMs': number;
   'terminal.enrichment.aiDigestEnabled': boolean;
   'terminal.enrichment.disabledSources': string[];
 
@@ -199,6 +201,7 @@ export const defaultSettings: AppSettings = {
   'terminal.lineNumbers': false,
   'terminal.hoverLookups': true,
   'terminal.enrichment.hoverEnabled': true,
+  'terminal.enrichment.hoverDelayMs': 500,
   'terminal.enrichment.aiDigestEnabled': false,
   'terminal.enrichment.disabledSources': [],
 

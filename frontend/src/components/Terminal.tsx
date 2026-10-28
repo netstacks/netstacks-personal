@@ -36,6 +36,7 @@ import { LocalFileOps } from '../lib/fileOps'
 import { createAgentHttpClient } from '../api/localClient'
 import { HighlightEngine, type AdHocHighlight, type DetectionRuleExtras } from '../lib/highlightEngine'
 import { installEnrichPopup, type EnrichPopupAPI } from '../lib/enrichPopup'
+import { onDismissHovers, isHoverSuppressed } from '../lib/hoverDismiss'
 import { AnsiHighlighter } from '../lib/ansiHighlighter'
 import { stripAnsi } from '../lib/ansi'
 import { useHighlightRules } from '../hooks/useHighlightRules'
@@ -2531,6 +2532,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         getSettings: () => ({
           hoverEnabled: settingsRef.current['terminal.enrichment.hoverEnabled'] !== false
             && settingsRef.current['terminal.hoverLookups'] !== false,
+          hoverDelayMs: settingsRef.current['terminal.enrichment.hoverDelayMs'] ?? 500,
           aiDigestEnabled: settingsRef.current['terminal.enrichment.aiDigestEnabled'] === true,
           disabledSources: (settingsRef.current['terminal.enrichment.disabledSources'] as string[] | undefined) ?? [],
         }),
@@ -3151,6 +3153,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
     let popup: HTMLElement | null = null
     let currentHighlightKey = ''
+    // Highlight closed with Ctrl/⌘ — stays closed until the pointer reaches
+    // a different highlight.
+    let dismissedKey = ''
     let lastMoveTime = 0
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -3185,6 +3190,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
       const key = `${hoveredHighlight.line}:${hoveredHighlight.start}`
       if (key === currentHighlightKey && popup) return // Already showing
+      if (key === dismissedKey || isHoverSuppressed() || e.buttons !== 0) return
+      dismissedKey = ''
       currentHighlightKey = key
 
       const tooltipText = hoveredHighlight.tooltip || ''
@@ -3255,10 +3262,17 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       }
     }
 
+    const offDismissKey = onDismissHovers(() => {
+      if (!popup) return
+      dismissedKey = currentHighlightKey
+      popup.remove(); popup = null; currentHighlightKey = ''
+    })
+
     container.addEventListener('mousemove', handleMouseMove)
     container.addEventListener('mouseleave', handleMouseLeave)
     container.addEventListener('click', handleClick)
     return () => {
+      offDismissKey()
       container.removeEventListener('mousemove', handleMouseMove)
       container.removeEventListener('mouseleave', handleMouseLeave)
       container.removeEventListener('click', handleClick)

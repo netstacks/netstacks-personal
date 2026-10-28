@@ -48,6 +48,8 @@ export interface EnrichSourceResponse {
 /** Per-feature client settings (drives popup gating + source filtering). */
 export interface EnrichmentClientSettings {
   hoverEnabled: boolean;
+  /** Pointer must rest on a token this long before the popover opens. */
+  hoverDelayMs: number;
   aiDigestEnabled: boolean;
   disabledSources: string[];
 }

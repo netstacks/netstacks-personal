@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   listMatchers,
   listSources,
@@ -40,6 +40,17 @@ import DialogFooter from './DialogFooter'
 import Tooltip from './Tooltip'
 const FORMAT_OPTIONS = ['string', 'datetime', 'uptime', 'bytes', 'status_pill']
 const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'DELETE']
+const HOVER_DELAY_OPTIONS = [0, 250, 500, 750, 1000, 1500]
+
+type EnrichmentConfig = [EnrichmentMatcher[], EnrichmentSource[], ApiResource[]]
+
+function fetchEnrichmentConfig(): Promise<EnrichmentConfig> {
+  return Promise.all([
+    listMatchers(),
+    listSources(),
+    listApiResources().catch(() => [] as ApiResource[]),
+  ])
+}
 
 /**
  * Settings → Enrichment. Full CRUD for the hover-enrichment system:
@@ -67,28 +78,37 @@ export default function SettingsEnrichment() {
   const [importOverwrite, setImportOverwrite] = useState(false)
   const importInputRef = useRef<HTMLInputElement | null>(null)
 
-  const disabledSources = settings['terminal.enrichment.disabledSources'] ?? []
+  const disabledSources = useMemo(
+    () => settings['terminal.enrichment.disabledSources'] ?? [],
+    [settings],
+  )
+
+  const applyConfig = useCallback(([m, s, r]: EnrichmentConfig) => {
+    setMatchers(m)
+    setSources(s)
+    setApiResources(r)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [m, s, r] = await Promise.all([
-        listMatchers(),
-        listSources(),
-        listApiResources().catch(() => [] as ApiResource[]),
-      ])
-      setMatchers(m)
-      setSources(s)
-      setApiResources(r)
+      applyConfig(await fetchEnrichmentConfig())
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [applyConfig])
 
-  useEffect(() => { void load() }, [load])
+  // Initial state is already loading / no error, so the mount fetch only sets
+  // state from its callbacks.
+  useEffect(() => {
+    fetchEnrichmentConfig()
+      .then(applyConfig)
+      .catch((err) => setError(getErrorMessage(err)))
+      .finally(() => setLoading(false))
+  }, [applyConfig])
 
   const afterMutation = useCallback(async () => {
     try { await reloadEnrichment() } catch { /* best-effort */ }
@@ -160,6 +180,21 @@ export default function SettingsEnrichment() {
               onChange={(v) => updateSetting('terminal.enrichment.hoverEnabled', v)}
               label="Enable hover enrichment"
             />
+          </SettingRow>
+          <SettingRow
+            label="Hover delay"
+            description="How long the pointer rests on a token before the popover opens, so double-click / drag-select isn't interrupted. Tap Ctrl or ⌘ to dismiss any hover; a closed token stays quiet for 30 s."
+          >
+            <select
+              aria-label="Hover delay"
+              className="ns-select"
+              value={settings['terminal.enrichment.hoverDelayMs'] ?? 500}
+              onChange={(e) => updateSetting('terminal.enrichment.hoverDelayMs', Number(e.target.value))}
+            >
+              {HOVER_DELAY_OPTIONS.map((ms) => (
+                <option key={ms} value={ms}>{ms === 0 ? 'Instant' : `${ms} ms`}</option>
+              ))}
+            </select>
           </SettingRow>
           <SettingRow label="Show AI Digest button (✦)" description="Summarizes enrichment data with AI.">
             <Switch
