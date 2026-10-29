@@ -1,16 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getAppRelaunch, stopSidecarForUpdate } from '../lib/appRelaunch';
 import './UpdateChecker.css';
 
-// Dynamic imports for Tauri plugins (only available in Tauri environment)
+// Dynamic import for the updater plugin (only available in Tauri environment)
 const getTauriModules = async () => {
   if (!('__TAURI_INTERNALS__' in window)) {
     return { check: null, relaunch: null };
   }
-  const [updater, process] = await Promise.all([
-    import('@tauri-apps/plugin-updater'),
-    import('@tauri-apps/plugin-process'),
-  ]);
-  return { check: updater.check, relaunch: process.relaunch };
+  const updater = await import('@tauri-apps/plugin-updater');
+  return { check: updater.check, relaunch: getAppRelaunch() };
 };
 
 interface UpdateInfo {
@@ -79,9 +77,11 @@ export default function UpdateChecker() {
         throw new Error('Update no longer available');
       }
 
-      // Download and install with progress tracking
+      // Download first (the app stays fully usable meanwhile), then stop the
+      // agent and install: the Windows installer must be able to overwrite
+      // netstacks-agent.exe, and the updater exits without our exit hook.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await update.downloadAndInstall((event: any) => {
+      await update.download((event: any) => {
         if (event.event === 'Started') {
           setProgress({ total: event.data.contentLength || 0, downloaded: 0 });
         } else if (event.event === 'Progress') {
@@ -94,7 +94,19 @@ export default function UpdateChecker() {
         }
       });
 
-      // Relaunch app after successful install
+      await stopSidecarForUpdate();
+      try {
+        await update.install();
+      } catch (installErr) {
+        // The agent is already stopped, so the app can't keep running as-is:
+        // relaunch on the current version (the update is offered again).
+        console.error('Update install failed after stopping the agent:', installErr);
+        await relaunch();
+        return;
+      }
+
+      // Relaunch app after successful install (on Windows the installer has
+      // already taken over and relaunches the app itself).
       await relaunch();
     } catch (err) {
       console.error('Update install failed:', err);

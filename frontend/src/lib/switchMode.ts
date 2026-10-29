@@ -11,17 +11,7 @@
 import { saveAppConfig, validateControllerUrl } from './appConfig';
 import { ControllerUrlError } from '../types/config';
 import { getErrorMessage } from '../api/errors';
-
-/**
- * Dynamic import of @tauri-apps/plugin-process. Mirrors the pattern in
- * UpdateChecker — returns null relaunch when running outside Tauri (the
- * web-served dev shell) so the helper degrades gracefully.
- */
-async function getRelaunch(): Promise<(() => Promise<void>) | null> {
-  if (!('__TAURI_INTERNALS__' in window)) return null;
-  const proc = await import('@tauri-apps/plugin-process');
-  return proc.relaunch;
-}
+import { getAppRelaunch } from './appRelaunch';
 
 /**
  * Save the new controller URL and relaunch the app. Returns a friendly
@@ -43,7 +33,7 @@ export async function switchToEnterprise(controllerUrl: string): Promise<string>
   } catch (err) {
     throw new Error(getErrorMessage(err, 'Failed to save controller URL'));
   }
-  const relaunch = await getRelaunch();
+  const relaunch = getAppRelaunch();
   if (relaunch) {
     await relaunch();
     // relaunch() returns before exit but the process is dying — give the
@@ -64,7 +54,7 @@ export async function switchToStandalone(): Promise<string> {
   } catch (err) {
     throw new Error(getErrorMessage(err, 'Failed to switch to standalone mode'));
   }
-  const relaunch = await getRelaunch();
+  const relaunch = getAppRelaunch();
   if (relaunch) {
     await relaunch();
     return 'Restarting…';
