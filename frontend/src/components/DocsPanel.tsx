@@ -1,5 +1,5 @@
 import AITabInput from './AITabInput';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import './DocsPanel.css';
 import ContextMenu, { type MenuItem } from './ContextMenu';
 import {
@@ -18,6 +18,7 @@ import { showToast } from './Toast';
 import { useCapabilitiesStore } from '../stores/capabilitiesStore';
 import { Icon } from '@iconify/react';
 import { getIconForFile } from 'vscode-icons-js';
+import { DEFAULT_FILE_ICON, useFileIconsReady } from '../lib/iconifyInit';
 
 import { getErrorMessage } from '../api/errors'
 import DialogFooter from './DialogFooter';
@@ -180,6 +181,7 @@ const CONTENT_TYPE_OPTIONS: { value: ContentType; label: string }[] = [
 function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanelProps) {
   const newDocFormRef = useRef<HTMLFormElement>(null);
   const hasFeature = useCapabilitiesStore((s) => s.hasFeature);
+  const fileIconsReady = useFileIconsReady();
   const visibleCategories = CATEGORY_ORDER.filter((cat) => {
     if (cat === 'mops') return hasFeature('mops');
     if (cat === 'troubleshooting') return hasFeature('local_ai_tools');
@@ -291,26 +293,44 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
     }
   }, [fetchDocuments]);
 
+  // Initial load: state starts as loading / no error, so the effect only
+  // sets state from its callbacks (fetchDocuments is for later refreshes).
   useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+    listDocuments()
+      .then(setDocuments)
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to load documents')))
+      .finally(() => setLoading(false));
+  }, []);
 
   // Expand a category and bring its header into view (Quick Look shortcuts).
-  const focusCategory = useCallback((category: DocumentCategory) => {
+  const expandCategory = useCallback((category: DocumentCategory) => {
     setExpandedCategories((prev) => {
       if (prev.has(category)) return prev;
       const next = new Set(prev);
       next.add(category);
       return next;
     });
+  }, []);
+  const scrollToCategory = useCallback((category: DocumentCategory) => {
     const el = sectionRefs.current[category];
     if (el) el.scrollIntoView({ block: 'nearest' });
     else pendingScrollRef.current = category;
   }, []);
+  const focusCategory = useCallback((category: DocumentCategory) => {
+    expandCategory(category);
+    scrollToCategory(category);
+  }, [expandCategory, scrollToCategory]);
 
+  // initialCategory: expand during render (no effect round-trip); scrolling
+  // is DOM work, so it stays in an effect.
+  const [prevInitialCategory, setPrevInitialCategory] = useState<DocumentCategory | undefined>(undefined);
+  if (initialCategory !== prevInitialCategory) {
+    setPrevInitialCategory(initialCategory);
+    if (initialCategory) expandCategory(initialCategory);
+  }
   useEffect(() => {
-    if (initialCategory) focusCategory(initialCategory);
-  }, [initialCategory, focusCategory]);
+    if (initialCategory) scrollToCategory(initialCategory);
+  }, [initialCategory, scrollToCategory]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -494,16 +514,16 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
   };
 
   // Group documents by category
-  const documentsByCategory = new Map<DocumentCategory, Document[]>();
-  CATEGORY_ORDER.forEach((category) => {
-    documentsByCategory.set(category, []);
-  });
-  documents.forEach((doc) => {
-    const list = documentsByCategory.get(doc.category);
-    if (list) {
-      list.push(doc);
-    }
-  });
+  const documentsByCategory = useMemo(() => {
+    const byCategory = new Map<DocumentCategory, Document[]>();
+    CATEGORY_ORDER.forEach((category) => {
+      byCategory.set(category, []);
+    });
+    documents.forEach((doc) => {
+      byCategory.get(doc.category)?.push(doc);
+    });
+    return byCategory;
+  }, [documents]);
 
   // Auto-expand categories that have documents (once after first load)
   useEffect(() => {
@@ -515,7 +535,7 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
       setExpandedCategories(new Set(pending ? [...nonEmpty, pending] : nonEmpty));
     }
     setHasAutoExpanded(true);
-  }, [loading, hasAutoExpanded]);
+  }, [loading, hasAutoExpanded, documentsByCategory]);
 
   // Deferred scroll: the section list only renders once loading finishes.
   // Declared after the auto-expand effect so it reads the pending category first.
@@ -545,10 +565,11 @@ function DocsPanel({ onOpenDocument, onNewDocument, initialCategory }: DocsPanel
     }
     const hasExt = /\.[A-Za-z0-9]{1,5}$/.test(doc.name);
     const lookupName = hasExt ? doc.name : `${doc.name}.${contentTypeExt[doc.content_type] ?? 'txt'}`;
-    const svgName = getIconForFile(lookupName);
+    // Default glyph until the lazily-loaded vscode-icons collection is registered.
+    const svgName = fileIconsReady ? getIconForFile(lookupName) : undefined;
     const iconName = svgName
       ? `vscode-icons:${svgName.replace(/\.svg$/, '').replace(/_/g, '-')}`
-      : 'vscode-icons:default-file';
+      : DEFAULT_FILE_ICON;
     return <Icon icon={iconName} width={16} height={16} />;
   };
 

@@ -13,6 +13,9 @@ import MarkdownViewer from './MarkdownViewer'
 import AIApprovalCard from './AIApprovalCard'
 import './AIInlinePopup.css'
 import Tooltip from './Tooltip'
+import AIActivityGroup from './AIActivityGroup'
+import './AIChatMarkdown.css'
+import { groupActivity } from '../lib/aiActivity'
 
 // Available session info for the agent
 interface AvailableSession {
@@ -70,7 +73,6 @@ const AIInlinePopup = ({
   const hasSentRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const [input, setInput] = useState('')
-  const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set())
 
   // Provider/Model state (initialized from settings)
   const [selectedProvider, setSelectedProvider] = useState<AiProviderType | null>(null)
@@ -227,19 +229,6 @@ const AIInlinePopup = ({
     }
   }, [messages, context, onContinueInPanel, onClose])
 
-  // Toggle command result expansion
-  const toggleResultExpanded = useCallback((id: string) => {
-    setExpandedResults(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }, [])
-
   // Reset state when closed. Stop FIRST — a loop left running would keep
   // executing tool commands on the terminal.
   const [wasOpenForReset, setWasOpenForReset] = useState(isOpen)
@@ -247,7 +236,6 @@ const AIInlinePopup = ({
     setWasOpenForReset(isOpen)
     if (!isOpen) {
       setInput('')
-      setExpandedResults(new Set())
     }
   }
   useEffect(() => {
@@ -344,6 +332,10 @@ const AIInlinePopup = ({
   if (!isOpen) return null
 
   const isLoading = agentState === 'thinking' || agentState === 'executing'
+  // Runs of tool calls / reasoning render as one activity card.
+  const transcript = groupActivity(messages)
+  const lastItem = transcript[transcript.length - 1]
+  const liveActivity = isLoading && lastItem?.kind === 'activity' ? lastItem : null
 
   return (
     <div
@@ -392,7 +384,11 @@ const AIInlinePopup = ({
 
       {/* Messages area - shows full conversation */}
       <div className="ai-inline-popup-messages">
-        {messages.map((msg) => {
+        {transcript.map((item) => {
+          if (item.kind === 'activity') {
+            return <AIActivityGroup key={item.id} msgs={item.msgs} live={item === liveActivity} />
+          }
+          const msg = item.msg
           if (msg.type === 'user') {
             return (
               <div key={msg.id} className="ai-popup-message ai-popup-message-user">
@@ -407,25 +403,6 @@ const AIInlinePopup = ({
                 </div>
               </div>
             )
-          } else if (msg.type === 'command-result') {
-            const isExpanded = expandedResults.has(msg.id)
-            const output = msg.output || msg.content
-            const lineCount = output.split('\n').length
-            return (
-              <div key={msg.id} className={`ai-popup-message ai-popup-message-result ${isExpanded ? 'expanded' : ''}`}>
-                <div className="ai-popup-result-header" onClick={() => toggleResultExpanded(msg.id)}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" className="ai-popup-result-chevron">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                  <code className="ai-popup-command">{msg.command}</code>
-                  {msg.sessionName && <span className="ai-popup-session-name">from {msg.sessionName}</span>}
-                  <span className="ai-popup-line-count">{lineCount} lines</span>
-                </div>
-                {isExpanded && (
-                  <pre className="ai-popup-output">{output}</pre>
-                )}
-              </div>
-            )
           } else if (msg.type === 'error') {
             return (
               <div key={msg.id} className="ai-popup-message ai-popup-message-error">
@@ -436,7 +413,7 @@ const AIInlinePopup = ({
           return null
         })}
         <AIApprovalCard pending={pendingCommands} onApprove={approveCommands} onReject={rejectCommands} />
-        {isLoading && (
+        {isLoading && !liveActivity && (
           <div className="ai-popup-message ai-popup-message-assistant">
             <div className="ai-inline-popup-loading">
               <span></span>

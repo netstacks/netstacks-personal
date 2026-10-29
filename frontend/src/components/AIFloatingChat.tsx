@@ -14,6 +14,9 @@ import MarkdownViewer from './MarkdownViewer'
 import AIApprovalCard from './AIApprovalCard'
 import './AIFloatingChat.css'
 import Tooltip from './Tooltip'
+import AIActivityGroup from './AIActivityGroup'
+import './AIChatMarkdown.css'
+import { groupActivity } from '../lib/aiActivity'
 
 // Session info for the agent
 interface AvailableSession {
@@ -302,13 +305,6 @@ const AIFloatingChat = ({
           <MarkdownViewer content={msg.content} />
         </div>
       )
-    } else if (msg.type === 'command-result') {
-      return (
-        <div key={msg.id} className="ai-floating-chat-message command-result">
-          <code className="ai-floating-chat-command">{msg.command}</code>
-          <pre className="ai-floating-chat-output">{msg.output || msg.content}</pre>
-        </div>
-      )
     } else if (msg.type === 'error') {
       return (
         <div key={msg.id} className="ai-floating-chat-error">
@@ -323,6 +319,11 @@ const AIFloatingChat = ({
     }
     return null
   }
+
+  // Runs of tool calls / reasoning render as one activity card.
+  const transcript = groupActivity(messages)
+  const lastItem = transcript[transcript.length - 1]
+  const liveActivity = isLoading && lastItem?.kind === 'activity' ? lastItem : null
 
   if (!isOpen) return null
 
@@ -371,9 +372,11 @@ const AIFloatingChat = ({
       {/* Messages content area */}
       {hasContent && (
         <div className="ai-floating-chat-content">
-          {messages.map(msg => renderMessage(msg))}
+          {transcript.map(item => item.kind === 'activity'
+            ? <AIActivityGroup key={item.id} msgs={item.msgs} live={item === liveActivity} />
+            : renderMessage(item.msg))}
           <AIApprovalCard pending={pendingCommands} onApprove={approveCommands} onReject={rejectCommands} />
-          {isLoading && (
+          {isLoading && !liveActivity && (
             <div className="ai-floating-chat-message assistant">
               <div className="ai-floating-chat-loading">
                 <span></span><span></span><span></span>

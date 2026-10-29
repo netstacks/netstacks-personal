@@ -116,3 +116,46 @@ describe('useSettings font family migration', () => {
     expect(result.current.settings.fontFamily).toBe("'JetBrains Mono', Menlo, Monaco, monospace")
   })
 })
+
+describe('Anthropic max tokens raise', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('defaults to 32000', () => {
+    const { result } = renderHook(() => useSettings())
+    expect(result.current.settings['ai.maxTokens.anthropic']).toBe(32000)
+  })
+
+  it('carries a stored old default (4096) up once', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'ai.maxTokens.anthropic': 4096 }))
+    const { result } = renderHook(() => useSettings())
+    expect(result.current.settings['ai.maxTokens.anthropic']).toBe(32000)
+    expect(result.current.settings['ai.maxTokens.anthropicRaised']).toBe(true)
+  })
+
+  it('keeps a custom cap, and a deliberate 4096 after the raise', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'ai.maxTokens.anthropic': 8192 }))
+    expect(renderHook(() => useSettings()).result.current.settings['ai.maxTokens.anthropic']).toBe(8192)
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'ai.maxTokens.anthropic': 4096, 'ai.maxTokens.anthropicRaised': true }))
+    expect(renderHook(() => useSettings()).result.current.settings['ai.maxTokens.anthropic']).toBe(4096)
+  })
+})
+
+describe('background-task max tokens → provider default', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('moves the old 4096 default to 0 (provider default) once, keeps custom values', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'ai.agent.maxTokens': 4096 }))
+    expect(renderHook(() => useSettings()).result.current.settings['ai.agent.maxTokens']).toBe(0)
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'ai.agent.maxTokens': 8000 }))
+    expect(renderHook(() => useSettings()).result.current.settings['ai.agent.maxTokens']).toBe(8000)
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'ai.agent.maxTokens': 4096, 'ai.agent.maxTokensRaised': true }))
+    expect(renderHook(() => useSettings()).result.current.settings['ai.agent.maxTokens']).toBe(4096)
+  })
+})

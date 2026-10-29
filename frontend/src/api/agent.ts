@@ -23,6 +23,7 @@ export type AgentState =
 export type AgentMessageType =
   | 'user'              // User input message
   | 'agent-thinking'    // Agent reasoning/analysis
+  | 'reasoning'         // Model's summarized thinking ("Show AI Reasoning"); display only
   | 'command-request'   // Agent wants to run a command
   | 'command-result'    // Result of command execution
   | 'recommendation'    // Config recommendation (not executed)
@@ -130,6 +131,19 @@ export function createUserMessage(content: string): AgentMessage {
   return {
     id: generateMessageId(),
     type: 'user',
+    content,
+    timestamp: new Date(),
+  };
+}
+
+/**
+ * Create a reasoning message — the model's summarized thinking, shown when
+ * "Show AI Reasoning" is on. Display only: never sent back to the model.
+ */
+export function createReasoningMessage(content: string): AgentMessage {
+  return {
+    id: generateMessageId(),
+    type: 'reasoning',
     content,
     timestamp: new Date(),
   };

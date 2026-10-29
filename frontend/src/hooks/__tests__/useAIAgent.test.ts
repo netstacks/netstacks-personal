@@ -7,6 +7,7 @@ import {
   buildApprovalRequest,
   completeToolResults,
   skippedToolResults,
+  cutOffError,
   type ToolNameMap, consolePromptBlockReason } from '../useAIAgent';
 import { resolveCommandList } from '../../lib/aiPermissions';
 
@@ -154,5 +155,22 @@ describe('skippedToolResults — single-turn orphan guard (NS-AI-25)', () => {
 
   it('yields nothing when there were no tool_use blocks', () => {
     expect(skippedToolResults([])).toEqual([]);
+  });
+});
+
+describe('cutOffError — truncated / declined replies never end a turn silently', () => {
+  it('reports max_tokens, noting a cut-off tool call', () => {
+    expect(cutOffError('max_tokens', true)).toMatch(/output-token limit.*tool call was cut off/);
+    expect(cutOffError('max_tokens', false)).not.toMatch(/tool call/);
+  });
+
+  it('reports refusal', () => {
+    expect(cutOffError('refusal', false)).toMatch(/declined/);
+  });
+
+  it('is null for normal stops', () => {
+    for (const r of ['end_turn', 'tool_use', 'stop_sequence', null, undefined]) {
+      expect(cutOffError(r, true)).toBeNull();
+    }
   });
 });

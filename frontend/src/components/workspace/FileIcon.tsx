@@ -1,5 +1,11 @@
 import { Icon } from '@iconify/react'
 import { getIconForFile, getIconForFolder, getIconForOpenFolder } from 'vscode-icons-js'
+import {
+  DEFAULT_FILE_ICON,
+  DEFAULT_FOLDER_ICON,
+  DEFAULT_FOLDER_OPENED_ICON,
+  useFileIconsReady,
+} from '../../lib/iconifyInit'
 
 interface FileIconProps {
   name: string
@@ -17,13 +23,29 @@ function toIconifyName(svgName: string | undefined, fallback: string): string {
   return `vscode-icons:${base}`
 }
 
-export default function FileIcon({ name, isDir, isExpanded }: FileIconProps) {
-  const iconName = isDir
+function resolveIconName(name: string, isDir: boolean, isExpanded?: boolean): string {
+  return isDir
     ? toIconifyName(
         isExpanded ? getIconForOpenFolder(name) : getIconForFolder(name),
         'default-folder',
       )
     : toIconifyName(getIconForFile(name), 'default-file')
+}
+
+/**
+ * Until the full collection is registered only the default glyphs exist
+ * locally; asking for anything else would trigger a (CSP-blocked) CDN fetch.
+ */
+function defaultIconName(isDir: boolean, isExpanded?: boolean): string {
+  if (!isDir) return DEFAULT_FILE_ICON
+  return isExpanded ? DEFAULT_FOLDER_OPENED_ICON : DEFAULT_FOLDER_ICON
+}
+
+export default function FileIcon({ name, isDir, isExpanded }: FileIconProps) {
+  const iconsReady = useFileIconsReady()
+  const iconName = iconsReady
+    ? resolveIconName(name, isDir, isExpanded)
+    : defaultIconName(isDir, isExpanded)
 
   return (
     <span className="workspace-file-entry-icon">

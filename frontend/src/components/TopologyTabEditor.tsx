@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import TopologyCanvas from './TopologyCanvas';
-import TopologyCanvas3D from './TopologyCanvas3D';
 import DeviceTooltip from './DeviceTooltip';
 import DeviceDetailCard from './DeviceDetailCard';
 import LinkTooltip from './LinkTooltip';
@@ -54,6 +53,11 @@ import './TopologyTabEditor.css';
 import { getErrorMessage } from '../api/errors'
 import { logger } from '../lib/logger'
 import Tooltip from './Tooltip';
+
+// 3D view pulls in three / @react-three/fiber / drei. Load it only when the
+// user switches to the 3D branch so the default 2D path stays lean.
+const TopologyCanvas3D = lazy(() => import('./TopologyCanvas3D'));
+
 /**
  * Build LinkEnrichment from device interfaces when not pre-built in store.
  *
@@ -2724,26 +2728,28 @@ export default function TopologyTabEditor({
             highlights={aiHighlight?.colors}
           />
         ) : (
-          <TopologyCanvas3D
-            topology={filteredTopology!}
-            visibleLayers={visibleLayers}
-            selectedDeviceId={selectedDeviceId}
-            selectedDeviceIds={selectedDeviceIds}
-            onDeviceClick={handleDeviceClick}
-            onDeviceDoubleClick={onDeviceDoubleClick}
-            onDeviceContextMenu={handleDeviceContextMenuWrapper}
-            onConnectionClick={handleConnectionClick}
-            onDevicePositionChange={handleDevicePositionChange}
-            onGroupPositionChange={handleGroupPositionChange}
-            drawingConnection={drawingConnection}
-            connectionSource={connectionSource}
-            onDeviceClickForConnection={handleDeviceClickForConnection}
-            onCanvasContextMenu={handleCanvasContextMenu}
-            liveStats={isLiveActive ? activeLiveStats : undefined}
-            deviceStats={isLiveActive ? activeDeviceStats : undefined}
-            marqueeEnabled={currentTool === 'select'}
-            onMarqueeSelect={(ids, additive) => setSelectedDeviceIds(prev => additive ? new Set([...prev, ...ids]) : ids)}
-          />
+          <Suspense fallback={<div className="topology-canvas-3d-loading loading-spinner">Loading 3D view...</div>}>
+            <TopologyCanvas3D
+              topology={filteredTopology!}
+              visibleLayers={visibleLayers}
+              selectedDeviceId={selectedDeviceId}
+              selectedDeviceIds={selectedDeviceIds}
+              onDeviceClick={handleDeviceClick}
+              onDeviceDoubleClick={onDeviceDoubleClick}
+              onDeviceContextMenu={handleDeviceContextMenuWrapper}
+              onConnectionClick={handleConnectionClick}
+              onDevicePositionChange={handleDevicePositionChange}
+              onGroupPositionChange={handleGroupPositionChange}
+              drawingConnection={drawingConnection}
+              connectionSource={connectionSource}
+              onDeviceClickForConnection={handleDeviceClickForConnection}
+              onCanvasContextMenu={handleCanvasContextMenu}
+              liveStats={isLiveActive ? activeLiveStats : undefined}
+              deviceStats={isLiveActive ? activeDeviceStats : undefined}
+              marqueeEnabled={currentTool === 'select'}
+              onMarqueeSelect={(ids, additive) => setSelectedDeviceIds(prev => additive ? new Set([...prev, ...ids]) : ids)}
+            />
+          </Suspense>
         )}
 
         {/* AI highlight chip - shows what the AI highlighted and lets the user dismiss it */}

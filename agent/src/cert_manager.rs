@@ -78,7 +78,8 @@ impl CertManager {
             // Decrypt private key
             let encrypted = crypto::EncryptedData::from_bytes(&row.private_key_encrypted)
                 .map_err(|e| format!("Decrypt error: {}", e))?;
-            let private_key_pem = crypto::decrypt(&encrypted, master_password)
+            let private_key_pem = crypto::derive_vault(master_password, &encrypted.salt)
+                .and_then(|vault| crypto::decrypt_with_vault(&encrypted, &vault))
                 .map_err(|e| format!("Decrypt error: {}", e))?;
 
             let cert_expiry = row.cert_expiry
@@ -118,7 +119,9 @@ impl CertManager {
             .map_err(|e| format!("Public key export error: {}", e))?;
 
         // Encrypt private key for storage
-        let encrypted = crypto::encrypt(&private_key_pem, master_password)
+        let salt = crypto::generate_salt();
+        let encrypted = crypto::derive_vault(master_password, &salt)
+            .and_then(|vault| crypto::encrypt_with_vault(&private_key_pem, &vault, &salt))
             .map_err(|e| format!("Encrypt error: {}", e))?;
 
         // Store in DB

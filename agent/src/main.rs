@@ -1948,8 +1948,8 @@ fn create_app(app_state: Arc<AppState>, pool: SqlitePool, lsp_state: LspState) -
         set_global_routes(all_routes);
     }
 
-    let (api_router, _) = api_composed.into_inner_with_routes();
-    let (ws_router, _) = ws_composed.into_inner_with_routes();
+    let api_router = api_composed.into_router();
+    let ws_router = ws_composed.into_router();
 
     let authenticated = api_router.layer(axum::middleware::from_fn_with_state(
         app_state.clone(),

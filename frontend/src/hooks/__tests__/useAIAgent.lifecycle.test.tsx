@@ -184,3 +184,48 @@ describe('useAIAgent: AI Terminal Mode follows the setting without a remount', (
     expect(chatRequests[1].tools.map((t) => t.name)).toContain('write_file');
   });
 });
+
+describe('useAIAgent: reasoning ("Show AI Reasoning") and cut-off replies', () => {
+  it('streaming: thinking deltas become a reasoning message above the reply, never sent back', async () => {
+    setGlobalSettings({ ...defaultSettings, 'ai.defaultProvider': 'openai', 'ai.showThinking': true });
+    const fetchMock = sseFetch([
+      { type: 'thinking_delta', text: 'Check the ' },
+      { type: 'thinking_delta', text: 'platform first.' },
+      { type: 'content_delta', text: 'It is Ubuntu.' },
+      { type: 'done', stop_reason: 'end_turn', usage: null },
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useAIAgent({ streaming: true }));
+    await act(async () => { await result.current.sendMessage('what is it?'); });
+    expect(result.current.messages.map((m) => [m.type, m.content])).toEqual([
+      ['user', 'what is it?'],
+      ['reasoning', 'Check the platform first.'],
+      ['agent-thinking', 'It is Ubuntu.'],
+    ]);
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+    expect(body.show_thinking).toBe(true);
+    expect(JSON.stringify(body.messages)).not.toContain('platform first');
+  });
+
+  it('non-streaming: a returned summary is shown; the flag is off by default', async () => {
+    chatReplies.push({ ...DONE('done'), thinking: 'Weighed two options.' });
+    const { result } = renderHook(() => useAIAgent({}));
+    await act(async () => { await result.current.sendMessage('go'); });
+    expect(result.current.messages.map((m) => m.type)).toEqual(['user', 'reasoning', 'agent-thinking']);
+    expect(chatRequests[0]).not.toHaveProperty('show_thinking');
+  });
+
+  it('streaming: max_tokens with a half-built tool call shows why and runs nothing', async () => {
+    vi.stubGlobal('fetch', sseFetch([
+      { type: 'content_delta', text: "I'll write it now." },
+      { type: 'tool_use_start', id: 't1', name: 'create_mop' },
+      { type: 'tool_input_delta', delta: '{"name":"Up' },
+      { type: 'done', stop_reason: 'max_tokens', usage: null },
+    ]));
+    const { result } = renderHook(() => useAIAgent({ streaming: true }));
+    await act(async () => { await result.current.sendMessage('make a MOP'); });
+    expect(result.current.agentState).toBe('error');
+    expect(result.current.messages.at(-1)?.content).toMatch(/output-token limit.*tool call was cut off/);
+    expect(result.current.messages.some((m) => m.type === 'command-result')).toBe(false);
+  });
+});

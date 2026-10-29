@@ -1,7 +1,37 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import type { Options as RehypeHighlightOptions } from 'rehype-highlight';
+import { common } from 'lowlight';
 import './MarkdownViewer.css';
+
+// Register only the grammars NetStacks actually renders (docs, AI replies,
+// workspace previews) instead of lowlight's full 37-grammar common set, so
+// each render's highlighter setup stays small. Picked from `common` so no
+// grammar outside the set rehype-highlight already bundles is pulled in.
+// Grammar aliases still apply (sh/zsh, console, py, yml, html/svg, js/jsx,
+// ts/tsx, toml, text/txt, md). Fences in any other language (e.g. `cisco`)
+// are left unhighlighted — rehype-highlight records a vfile message for an
+// unregistered language rather than throwing. Auto-detect stays off.
+const highlightLanguages: NonNullable<RehypeHighlightOptions['languages']> = {
+  bash: common.bash,
+  shell: common.shell,
+  python: common.python,
+  json: common.json,
+  yaml: common.yaml,
+  xml: common.xml,
+  javascript: common.javascript,
+  typescript: common.typescript,
+  ini: common.ini,
+  diff: common.diff,
+  markdown: common.markdown,
+  plaintext: common.plaintext,
+};
+
+const remarkPlugins = [remarkGfm];
+const rehypePlugins: [[typeof rehypeHighlight, RehypeHighlightOptions]] = [
+  [rehypeHighlight, { languages: highlightLanguages, detect: false }],
+];
 
 interface MarkdownViewerProps {
   content: string;
@@ -47,8 +77,8 @@ export default function MarkdownViewer({
   return (
     <div className="markdown-viewer">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={{
           // Custom table styling
           table: ({ children }) => (

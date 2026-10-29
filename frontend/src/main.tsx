@@ -17,7 +17,6 @@ import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution';
 // JSON language service (schema validation + format, via json.worker).
 import 'monaco-editor/esm/vs/language/json/monaco.contribution';
 import { registerNetstacksLanguages } from './languages';
-import { registerIconifyCollections } from './lib/iconifyInit';
 import './index.css';
 import './components/dialog.css';
 import './components/primitives.css';
@@ -86,8 +85,8 @@ self.MonacoEnvironment = {
 // JSON is left to Monaco's built-in json.worker.
 registerNetstacksLanguages(monaco);
 
-// Register iconify icon collections (vscode-icons for file-type icons).
-registerIconifyCollections();
+// File-type icons (vscode-icons) are registered lazily by their consumers
+// via useFileIconsReady() in lib/iconifyInit — not at startup.
 
 // Create TanStack Query client with sensible defaults
 const queryClient = new QueryClient({

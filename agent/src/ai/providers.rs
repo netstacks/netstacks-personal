@@ -347,7 +347,42 @@ fn anthropic_temperature(model: &str, options: &Option<AgentChatOptions>) -> Opt
     options
         .as_ref()
         .and_then(|o| o.temperature)
-        .filter(|_| model_accepts_sampling_params(model))
+        .filter(|_| model_accepts_sampling_params(model) && anthropic_thinking(model, options).is_none())
+}
+
+/// Adaptive thinking exists on Opus/Sonnet 4.6+, Opus/Sonnet 5.x and the
+/// Fable/Mythos tier. Haiku and older models take only a fixed
+/// `budget_tokens`, so they never get the `thinking` param.
+fn model_supports_adaptive_thinking(model: &str) -> bool {
+    let id = bare_claude_model_id(model);
+    if id.contains("fable") || id.contains("mythos") {
+        return true;
+    }
+    let mut parts = id.split('-');
+    if parts.next() != Some("claude") {
+        return false;
+    }
+    let family = parts.next().unwrap_or("");
+    let Some(major) = parts.next().and_then(|p| p.parse::<u32>().ok()) else {
+        return false;
+    };
+    let minor = parts
+        .next()
+        .filter(|p| p.len() <= 2)
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    matches!(family, "opus" | "sonnet") && (major, minor) >= (4, 6)
+}
+
+/// The `thinking` request param when the user turned on "Show AI Reasoning":
+/// adaptive with a summarized display (current models default to `omitted`,
+/// i.e. empty thinking text). Display only — thinking blocks are never
+/// replayed, because the chat rebuilds its history every turn and the
+/// preserved-thinking check rejects replayed blocks after such edits.
+fn anthropic_thinking(model: &str, options: &Option<AgentChatOptions>) -> Option<serde_json::Value> {
+    let wanted = options.as_ref().is_some_and(|o| o.show_thinking);
+    (wanted && model_supports_adaptive_thinking(model))
+        .then(|| serde_json::json!({ "type": "adaptive", "display": "summarized" }))
 }
 
 /// OpenAI reasoning-family models (o1/o3/o4…, gpt-5*) take
@@ -404,6 +439,18 @@ pub(crate) const GEMINI_API_KEY_HEADER: &str = "x-goog-api-key";
 /// (`message_stop`, a Gemini `finishReason`, an OpenAI `finish_reason` or
 /// `[DONE]`). Reporting it beats showing a silently truncated answer.
 const STREAM_TRUNCATED_MESSAGE: &str = "Stream ended before the model finished";
+
+/// Provider HTTP clients bound the connect and each read (the idle gap between
+/// chunks), never the whole request: a streamed reply with a large output cap
+/// legitimately runs for minutes, and a whole-request timeout cut it off
+/// mid-stream. Long local-model / non-streaming waits get the same idle bound.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Anthropic output cap when the caller sends none. Current Claude models
+/// think on every turn and that thinking counts against `max_tokens`, so the
+/// old 4096 cap ran out before large tool calls (e.g. create_mop) were emitted.
+const ANTHROPIC_DEFAULT_MAX_TOKENS: u32 = 32_000;
 
 fn default_verify_ssl() -> bool {
     true
@@ -512,6 +559,9 @@ pub enum StreamEvent {
     /// A chunk of text content from the AI
     #[serde(rename = "content_delta")]
     ContentDelta { text: String },
+    /// A chunk of the model's summarized reasoning ("Show AI Reasoning").
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { text: String },
     /// AI wants to start a tool call
     #[serde(rename = "tool_use_start")]
     ToolUseStart { id: String, name: String },
@@ -537,6 +587,9 @@ pub enum StreamEvent {
 pub struct AgentChatOptions {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
+    /// "Show AI Reasoning": ask models that support it for a readable
+    /// summary of their thinking (display only — see `anthropic_thinking`).
+    pub show_thinking: bool,
 }
 
 /// Trait for AI providers
@@ -631,7 +684,8 @@ impl AnthropicProvider {
     ) -> Result<Self, AiError> {
         let effective_url = base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string());
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -688,6 +742,9 @@ struct VertexAnthropicAgentRequest {
     /// `model_accepts_sampling_params`.
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f64>,
+    /// See `anthropic_thinking`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<serde_json::Value>,
 }
 
 /// Anthropic API request format with tools (for agent chat)
@@ -704,6 +761,9 @@ pub struct AnthropicAgentRequest {
     /// `model_accepts_sampling_params`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    /// See `anthropic_thinking`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -838,6 +898,10 @@ enum AnthropicStreamContentBlock {
     },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
+    /// `thinking` / `redacted_thinking` and any future block type: content
+    /// (if any) arrives via deltas; nothing to do at block start.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Deserialize)]
@@ -847,6 +911,12 @@ enum AnthropicStreamDelta {
     TextDelta { text: String },
     #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+    /// `signature_delta` and any future delta type — the signature only
+    /// matters for replaying thinking blocks, which the chat never does.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1124,7 +1194,7 @@ impl AiProvider for AnthropicProvider {
         tools: Option<Vec<serde_json::Value>>,
         options: Option<AgentChatOptions>,
     ) -> Result<AgentResponse, AiError> {
-        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(ANTHROPIC_DEFAULT_MAX_TOKENS);
 
         // Convert generic messages to Anthropic format
         let anthropic_messages: Vec<AnthropicAgentMessage> = messages
@@ -1165,6 +1235,7 @@ impl AiProvider for AnthropicProvider {
             messages: anthropic_messages,
             tools,
             temperature: anthropic_temperature(&self.model, &options),
+            thinking: anthropic_thinking(&self.model, &options),
         };
 
         let response = self
@@ -1221,7 +1292,8 @@ impl AiProvider for AnthropicProvider {
                     content,
                     is_error,
                 }),
-                ContentBlock::Thinking { .. } => None,
+                ContentBlock::Thinking { thinking, signature } => (!thinking.is_empty())
+                    .then_some(AgentContentBlock::Thinking { thinking, signature }),
             })
             .collect();
 
@@ -1246,7 +1318,7 @@ impl AiProvider for AnthropicProvider {
         tools: Option<Vec<serde_json::Value>>,
         options: Option<AgentChatOptions>,
     ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
-        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(ANTHROPIC_DEFAULT_MAX_TOKENS);
 
         // Convert generic messages to Anthropic format
         let anthropic_messages: Vec<serde_json::Value> = messages
@@ -1310,6 +1382,11 @@ impl AiProvider for AnthropicProvider {
             body.as_object_mut()
                 .unwrap()
                 .insert("temperature".to_string(), serde_json::json!(t));
+        }
+        if let Some(thinking) = anthropic_thinking(&self.model, &options) {
+            body.as_object_mut()
+                .unwrap()
+                .insert("thinking".to_string(), thinking);
         }
         if let Some(t) = tools {
             if !t.is_empty() {
@@ -1398,7 +1475,8 @@ impl OpenAIProvider {
         verify_ssl: bool,
     ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -1431,7 +1509,8 @@ impl OpenAIProvider {
         let token_manager = super::oauth2::OAuth2TokenManager::get_or_create_shared(oauth2_config);
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -1456,7 +1535,8 @@ impl OpenAIProvider {
         verify_ssl: bool,
     ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -2429,6 +2509,7 @@ impl OpenAIProvider {
             tools: tools.filter(|t| !t.is_empty()),
             stream: None,
             temperature: anthropic_temperature(&self.model, &options),
+            thinking: anthropic_thinking(&self.model, &options),
         };
 
         let url = build_model_action_url(&self.base_url, &self.model, "rawPredict");
@@ -2515,6 +2596,7 @@ impl OpenAIProvider {
             tools: tools.filter(|t| !t.is_empty()),
             stream: Some(true),
             temperature: anthropic_temperature(&self.model, &options),
+            thinking: anthropic_thinking(&self.model, &options),
         };
 
         let url = build_model_stream_url(&self.base_url, &self.model, "streamRawPredict");
@@ -2792,7 +2874,8 @@ fn anthropic_block_to_agent_block(b: ContentBlock) -> Option<AgentContentBlock> 
             content,
             is_error,
         }),
-        ContentBlock::Thinking { .. } => None,
+        ContentBlock::Thinking { thinking, signature } => (!thinking.is_empty())
+            .then_some(AgentContentBlock::Thinking { thinking, signature }),
     }
 }
 
@@ -2972,8 +3055,9 @@ where
                                 tool_use_indices.insert(index);
                                 yield Ok(StreamEvent::ToolUseStart { id, name });
                             }
-                            // Text arrives via deltas.
-                            AnthropicStreamContentBlock::Text { .. } => {}
+                            // Text and thinking arrive via deltas.
+                            AnthropicStreamContentBlock::Text { .. }
+                            | AnthropicStreamContentBlock::Other => {}
                         }
                     }
                     AnthropicStreamEvent::ContentBlockDelta { delta, .. } => {
@@ -2984,6 +3068,12 @@ where
                             AnthropicStreamDelta::InputJsonDelta { partial_json } => {
                                 yield Ok(StreamEvent::ToolInputDelta { delta: partial_json });
                             }
+                            AnthropicStreamDelta::ThinkingDelta { thinking } => {
+                                if !thinking.is_empty() {
+                                    yield Ok(StreamEvent::ThinkingDelta { text: thinking });
+                                }
+                            }
+                            AnthropicStreamDelta::Other => {}
                         }
                     }
                     AnthropicStreamEvent::ContentBlockStop { index } => {
@@ -3681,7 +3771,8 @@ impl OllamaProvider {
         verify_ssl: bool,
     ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120)) // Longer timeout for local models
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -4215,7 +4306,8 @@ impl OpenRouterProvider {
         verify_ssl: bool,
     ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -4615,7 +4707,8 @@ impl LiteLLMProvider {
         verify_ssl: bool,
     ) -> Result<Self, AiError> {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120)) // Longer timeout for proxied requests
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .danger_accept_invalid_certs(!verify_ssl)
             .build()
             .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
@@ -5484,7 +5577,27 @@ mod tests {
         Some(AgentChatOptions {
             temperature: Some(t),
             max_tokens: None,
+            show_thinking: false,
         })
+    }
+
+    #[test]
+    fn thinking_param_only_when_requested_and_supported() {
+        let opts = |show: bool| Some(AgentChatOptions { temperature: Some(0.5), max_tokens: None, show_thinking: show });
+        for model in ["claude-opus-5-5", "claude-sonnet-4-6", "claude-opus-4-8@20260101", "anthropic.claude-sonnet-5-5", "claude-fable-5-1"] {
+            assert_eq!(
+                anthropic_thinking(model, &opts(true)),
+                Some(serde_json::json!({ "type": "adaptive", "display": "summarized" })),
+                "{model}"
+            );
+            assert!(anthropic_thinking(model, &opts(false)).is_none(), "{model}");
+        }
+        for model in ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet", "gpt-4o"] {
+            assert!(anthropic_thinking(model, &opts(true)).is_none(), "{model}");
+        }
+        // Thinking on drops the sampling param (Sonnet 4.6 otherwise takes it).
+        assert_eq!(anthropic_temperature("claude-sonnet-4-6", &opts(false)), Some(0.5));
+        assert!(anthropic_temperature("claude-sonnet-4-6", &opts(true)).is_none());
     }
 
     #[test]
@@ -5497,6 +5610,7 @@ mod tests {
                 messages: Vec::new(),
                 tools: None,
                 temperature: anthropic_temperature(model, &options),
+                thinking: None,
             })
             .unwrap()
         };
@@ -5513,6 +5627,7 @@ mod tests {
                 tools: None,
                 stream: None,
                 temperature: anthropic_temperature(model, &temp_options(0.3)),
+                thinking: None,
             })
             .unwrap()
         };
@@ -5667,6 +5782,34 @@ mod tests {
             let events = collect_events(parse_anthropic_sse_stream(fixture_stream(ANTHROPIC_PARTIAL), label)).await;
             assert_truncated(&events);
         }
+    }
+
+    #[tokio::test]
+    async fn anthropic_stream_surfaces_thinking_and_skips_signature() {
+        let body = concat!(
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Check the platform first.\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"abc\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"xyz\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":2}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n",
+        );
+        let events = collect_events(parse_anthropic_sse_stream(fixture_stream(body), "Anthropic")).await;
+        assert_done(&events, "Hello", "end_turn");
+        let thinking: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                Ok(StreamEvent::ThinkingDelta { text }) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(thinking, ["Check the platform first."]);
     }
 
     #[tokio::test]

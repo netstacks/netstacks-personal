@@ -34,6 +34,8 @@ import type { CertStatus } from '../api/cert'
 import { listMcpServers, connectMcpServer, type McpServer } from '../api/mcp'
 import Tooltip from './Tooltip'
 
+const MCP_POLL_INTERVAL_MS = 15000
+
 // SVG Icons
 const Icons = {
   connection: (
@@ -317,12 +319,21 @@ export default function StatusBar({
   const hasFeature = useCapabilitiesStore(state => state.hasFeature)
   const instanceName = capabilities?.instance_name || 'Controller'
 
-  // Certificate status (enterprise mode) — derived from auth store cert info
+  // Certificate status (enterprise mode) — derived from auth store cert info.
+  // `now` is state, refreshed each minute while a cert is shown, so render
+  // stays pure and an expiry still flips the indicator without a reload.
   const certInfo = useAuthStore((state) => state.certInfo)
+  const [now, setNow] = useState(() => Date.now())
+  const watchCert = isEnterprise && isAuthenticated && !!certInfo
+  useEffect(() => {
+    if (!watchCert) return
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [watchCert])
   const certStatus: CertStatus | null = (() => {
     if (!isEnterprise || !isAuthenticated || !certInfo) return null
     const validBefore = new Date(certInfo.valid_before)
-    const isValid = validBefore.getTime() > Date.now()
+    const isValid = validBefore.getTime() > now
     return {
       valid: isValid,
       expires_at: certInfo.valid_before,
@@ -387,19 +398,31 @@ export default function StatusBar({
     }
   }, [])
 
-  // Fetch MCP servers (standalone mode only) with polling
-  const fetchMcpServers = useCallback(() => {
-    if (isEnterprise) return
-    listMcpServers()
-      .then(setMcpServers)
-      .catch(() => { /* MCP API unavailable */ })
-  }, [isEnterprise])
-
+  // Fetch MCP servers with polling — only while the indicator can actually
+  // render (standalone mode, status bar enabled, AI tools available), and
+  // paused while the window is hidden (refreshes as soon as it is shown).
+  const pollMcp = !isEnterprise && settings.enabled && hasFeature('local_ai_tools')
   useEffect(() => {
+    if (!pollMcp) return
+    let cancelled = false
+    const fetchMcpServers = () => {
+      if (document.hidden) return
+      listMcpServers()
+        .then((servers) => { if (!cancelled) setMcpServers(servers) })
+        .catch(() => { /* MCP API unavailable */ })
+    }
+    const onVisibilityChange = () => {
+      if (!document.hidden) fetchMcpServers()
+    }
     fetchMcpServers()
-    const interval = setInterval(fetchMcpServers, 15000) // Poll every 15s
-    return () => clearInterval(interval)
-  }, [fetchMcpServers])
+    const interval = setInterval(fetchMcpServers, MCP_POLL_INTERVAL_MS)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [pollMcp])
 
   // Click-outside handler for MCP popover
   useEffect(() => {

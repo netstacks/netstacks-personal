@@ -84,8 +84,13 @@ pub struct AppState {
     pub mop_phase_locks: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
+/// Short-lived store for oversized AI SSH output, paged back out through
+/// `get_ssh_output`. Entries expire after 5 minutes; the cache also holds at
+/// most `max_entries` entries and `max_bytes` of output in total.
 pub struct OutputCache {
     entries: std::collections::HashMap<String, CachedOutput>,
+    max_entries: usize,
+    max_bytes: usize,
 }
 
 struct CachedOutput {
@@ -94,28 +99,57 @@ struct CachedOutput {
 }
 
 impl OutputCache {
+    /// Hard caps to prevent unbounded growth.
+    const MAX_ENTRIES: usize = 200;
+    const MAX_BYTES: usize = 256 * 1024 * 1024;
+
     pub fn new() -> Self {
+        Self::with_limits(Self::MAX_ENTRIES, Self::MAX_BYTES)
+    }
+
+    fn with_limits(max_entries: usize, max_bytes: usize) -> Self {
         Self {
             entries: std::collections::HashMap::new(),
+            max_entries,
+            max_bytes,
         }
     }
 
-    pub fn insert(&mut self, request_id: String, output: String) {
-        self.entries
-            .retain(|_, v| v.created_at.elapsed() < std::time::Duration::from_secs(300));
-        // Hard cap: keep at most 200 entries and 256 MB total to prevent unbounded growth.
-        const MAX_ENTRIES: usize = 200;
-        const MAX_BYTES: usize = 256 * 1024 * 1024;
-        let total_bytes: usize = self.entries.values().map(|v| v.full_output.len()).sum();
-        if self.entries.len() >= MAX_ENTRIES || total_bytes + output.len() > MAX_BYTES {
-            // Evict the oldest entry.
-            if let Some(oldest_key) = self
+    /// Cache `output` under `request_id`, evicting the oldest entries until
+    /// both the entry-count and total-byte limits hold with it included.
+    ///
+    /// An output larger than the whole byte budget is not cached (and nothing
+    /// is evicted for it); returns `false` so the caller does not hand out a
+    /// `request_id` that would never resolve.
+    pub fn insert(&mut self, request_id: String, output: String) -> bool {
+        if output.len() > self.max_bytes {
+            tracing::warn!(
+                bytes = output.len(),
+                max_bytes = self.max_bytes,
+                "AI SSH output exceeds the output cache byte cap; not caching"
+            );
+            return false;
+        }
+        self.entries.retain(|k, v| {
+            k != &request_id && v.created_at.elapsed() < std::time::Duration::from_secs(300)
+        });
+        let mut total_bytes: usize = self.entries.values().map(|v| v.full_output.len()).sum();
+        while self.entries.len() >= self.max_entries
+            || total_bytes + output.len() > self.max_bytes
+        {
+            // Evict the oldest entry. The cache cannot be empty here: an
+            // empty cache satisfies both limits (max_entries >= 1, and the
+            // oversized-value case returned above).
+            let Some(oldest_key) = self
                 .entries
                 .iter()
                 .min_by_key(|(_, v)| v.created_at)
                 .map(|(k, _)| k.clone())
-            {
-                self.entries.remove(&oldest_key);
+            else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&oldest_key) {
+                total_bytes -= evicted.full_output.len();
             }
         }
         self.entries.insert(
@@ -125,6 +159,7 @@ impl OutputCache {
                 created_at: std::time::Instant::now(),
             },
         );
+        true
     }
 
     pub fn get_page(&self, request_id: &str, offset: usize, limit: usize) -> Option<OutputPage> {
@@ -4346,18 +4381,27 @@ pub async fn ai_ssh_execute(
     const MAX_INLINE_BYTES: usize = 8000;
     let (final_output, req_id) = if aggregated_output.len() > MAX_INLINE_BYTES {
         let request_id = uuid::Uuid::new_v4().to_string();
-        state
+        // Copy out the inline head, then move the full transcript into the
+        // cache instead of cloning it.
+        let truncated = aggregated_output[..aggregated_output.floor_char_boundary(MAX_INLINE_BYTES)]
+            .to_string();
+        let remaining = aggregated_output.len() - truncated.len();
+        let cached = state
             .output_cache
             .write()
             .await
-            .insert(request_id.clone(), aggregated_output.clone());
-        let truncated =
-            &aggregated_output[..aggregated_output.floor_char_boundary(MAX_INLINE_BYTES)];
-        let remaining = aggregated_output.len() - truncated.len();
-        (
-            format!("{}\n\n[OUTPUT TRUNCATED — {} more bytes. Use get_ssh_output with request_id=\"{}\" to fetch remaining.]", truncated, remaining, request_id),
-            Some(request_id),
-        )
+            .insert(request_id.clone(), aggregated_output);
+        if cached {
+            (
+                format!("{}\n\n[OUTPUT TRUNCATED — {} more bytes. Use get_ssh_output with request_id=\"{}\" to fetch remaining.]", truncated, remaining, request_id),
+                Some(request_id),
+            )
+        } else {
+            (
+                format!("{}\n\n[OUTPUT TRUNCATED — {} more bytes. The full output is too large to keep for get_ssh_output; re-run with narrower commands (e.g. filter with `| include`).]", truncated, remaining),
+                None,
+            )
+        }
     } else {
         (aggregated_output, None)
     };
@@ -16333,6 +16377,72 @@ mod tests {
         assert!(!empty.stats);
         let enabled: LibreNmsLinksQuery = serde_json::from_str(r#"{"stats": true}"#).unwrap();
         assert!(enabled.stats);
+    }
+
+    /// Insert `len` bytes under `key`, then pin its timestamp `age_ms` in the
+    /// past so eviction order doesn't depend on Instant resolution.
+    fn cache_put(cache: &mut OutputCache, key: &str, len: usize, age_ms: u64) -> bool {
+        let ok = cache.insert(key.to_string(), "x".repeat(len));
+        if let Some(entry) = cache.entries.get_mut(key) {
+            entry.created_at = std::time::Instant::now() - std::time::Duration::from_millis(age_ms);
+        }
+        ok
+    }
+
+    #[test]
+    fn output_cache_evicts_until_byte_cap_holds() {
+        let mut cache = OutputCache::with_limits(10, 100);
+        assert!(cache_put(&mut cache, "a", 30, 3_000));
+        assert!(cache_put(&mut cache, "b", 30, 2_000));
+        assert!(cache_put(&mut cache, "c", 30, 1_000));
+
+        // 90 + 50 > 100: one eviction (a) still leaves 110, so b must go too.
+        assert!(cache_put(&mut cache, "d", 50, 0));
+        assert!(cache.get_page("a", 0, 10).is_none());
+        assert!(cache.get_page("b", 0, 10).is_none());
+        assert!(cache.get_page("c", 0, 10).is_some());
+        assert_eq!(cache.get_page("d", 0, 100).unwrap().total_bytes, 50);
+        let total: usize = cache.entries.values().map(|v| v.full_output.len()).sum();
+        assert_eq!(total, 80);
+    }
+
+    #[test]
+    fn output_cache_enforces_entry_cap() {
+        let mut cache = OutputCache::with_limits(2, 1_000);
+        assert!(cache_put(&mut cache, "a", 1, 2_000));
+        assert!(cache_put(&mut cache, "b", 1, 1_000));
+        assert!(cache_put(&mut cache, "c", 1, 0));
+        assert_eq!(cache.entries.len(), 2);
+        assert!(cache.get_page("a", 0, 1).is_none());
+        assert!(cache.get_page("b", 0, 1).is_some());
+        assert!(cache.get_page("c", 0, 1).is_some());
+    }
+
+    #[test]
+    fn output_cache_rejects_value_larger_than_byte_cap() {
+        let mut cache = OutputCache::with_limits(10, 100);
+        assert!(cache_put(&mut cache, "a", 30, 1_000));
+
+        // Oversized: refused, and nothing is evicted on its behalf.
+        assert!(!cache_put(&mut cache, "big", 101, 0));
+        assert!(cache.get_page("big", 0, 10).is_none());
+        assert!(cache.get_page("a", 0, 10).is_some());
+
+        // Exactly the cap fits once everything older is evicted.
+        assert!(cache_put(&mut cache, "full", 100, 0));
+        assert!(cache.get_page("a", 0, 10).is_none());
+        assert_eq!(cache.get_page("full", 0, 1_000).unwrap().total_bytes, 100);
+    }
+
+    #[test]
+    fn output_cache_reinsert_same_key_does_not_double_count() {
+        let mut cache = OutputCache::with_limits(10, 100);
+        assert!(cache_put(&mut cache, "a", 60, 1_000));
+        assert!(cache_put(&mut cache, "b", 30, 500));
+        // Replacing a's 60 bytes with 70: 30 + 70 fits without evicting b.
+        assert!(cache_put(&mut cache, "a", 70, 0));
+        assert!(cache.get_page("b", 0, 10).is_some());
+        assert_eq!(cache.get_page("a", 0, 100).unwrap().total_bytes, 70);
     }
 }
 

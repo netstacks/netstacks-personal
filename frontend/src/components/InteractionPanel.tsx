@@ -8,13 +8,16 @@
  *   - `question`: the agent's `ask_user` free-form question — answer with text
  *     or a suggested choice chip.
  *
- * Polls the (now typed) pending-interactions list every 750ms, handles the
- * whole QUEUE (not just the first item), and short-circuits in enterprise mode
- * (the Controller owns interactions there).
+ * Polls the (now typed) pending-interactions list every 750ms while anything
+ * is queued or an agent task is running, backs off to IDLE_POLL_MAX_MS once
+ * the queue has stayed empty for a while, and pauses entirely while the
+ * window is hidden. Handles the whole QUEUE (not just the first item), and
+ * short-circuits in enterprise mode (the Controller owns interactions there).
  */
 import { useEffect, useRef, useState } from 'react';
 import { useMode } from '../hooks/useMode';
 import { useActiveContextStore } from '../commands';
+import { useAgentTasksStore } from '../hooks/useAgentTasks';
 import {
   listAllPendingInteractions,
   resolveInteraction,
@@ -27,6 +30,18 @@ import './InteractionPanel.css';
 const AI_TAB_TYPES = new Set(['agent-run', 'ai-chat']);
 
 const POLL_INTERVAL_MS = 750;
+/** Ceiling for the idle backoff (empty queue, no running agent task). */
+const IDLE_POLL_MAX_MS = 5000;
+/** Empty polls tolerated at the fast rate before backing off (~6 s). */
+const IDLE_GRACE_POLLS = 8;
+
+/** Content equality for poll payloads, so an unchanged queue (the common
+ *  empty → empty case) keeps the previous state and skips a re-render. */
+function sameQueue(a: PendingInteraction[], b: PendingInteraction[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.length === 0 || JSON.stringify(a) === JSON.stringify(b);
+}
 
 export default function InteractionPanel() {
   const { isEnterprise } = useMode();
@@ -36,28 +51,90 @@ export default function InteractionPanel() {
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // A running agent task is the thing that parks interactions: keep the fast
+  // rate while one runs, and snap back to it the moment one starts.
+  const agentRunningCount = useAgentTasksStore((s) => s.tasks.filter((t) => t.status === 'running').length);
+  const agentRunningRef = useRef(agentRunningCount > 0);
+  const wakeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (isEnterprise) return; // enterprise has no local interaction surface
+    let cancelled = false;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = POLL_INTERVAL_MS;
+    let emptyPolls = 0;
+
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    // Sequential setTimeout chain (no overlapping requests); stops while the
+    // window is hidden — the visibilitychange handler restarts it.
+    const schedule = () => {
+      clearTimer();
+      if (cancelled || document.hidden) return;
+      timer = setTimeout(() => void tick(), delay);
+    };
     const tick = async () => {
+      timer = null;
+      if (cancelled || document.hidden) return;
+      inFlight = true;
       try {
-        setQueue(await listAllPendingInteractions());
+        const next = await listAllPendingInteractions();
+        if (cancelled) return;
+        setQueue((prev) => (sameQueue(prev, next) ? prev : next));
+        if (next.length > 0 || agentRunningRef.current) {
+          emptyPolls = 0;
+          delay = POLL_INTERVAL_MS;
+        } else if (++emptyPolls > IDLE_GRACE_POLLS) {
+          delay = Math.min(delay * 2, IDLE_POLL_MAX_MS);
+        }
       } catch {
         /* transient; keep the last queue */
+      } finally {
+        inFlight = false;
+        schedule();
       }
     };
+    // Back to the fast rate with an immediate poll (unless one is in flight —
+    // it reschedules at the reset delay when it settles).
+    const wake = () => {
+      emptyPolls = 0;
+      delay = POLL_INTERVAL_MS;
+      if (inFlight) return;
+      clearTimer();
+      void tick();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) clearTimer();
+      else wake();
+    };
+
+    wakeRef.current = wake;
+    document.addEventListener('visibilitychange', onVisibilityChange);
     void tick();
-    timer.current = setInterval(() => void tick(), POLL_INTERVAL_MS);
     return () => {
-      if (timer.current) clearInterval(timer.current);
+      cancelled = true;
+      wakeRef.current = null;
+      clearTimer();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [isEnterprise]);
 
-  // Reset collapsed state when switching to an AI tab so the panel re-expands.
   useEffect(() => {
+    const wasRunning = agentRunningRef.current;
+    agentRunningRef.current = agentRunningCount > 0;
+    if (agentRunningCount > 0 && !wasRunning) wakeRef.current?.();
+  }, [agentRunningCount]);
+
+  // Re-expand when switching to an AI tab (adjusted during render, not in an
+  // effect, so there is no extra collapsed render first).
+  const [wasAiTab, setWasAiTab] = useState(isAiTab);
+  if (isAiTab !== wasAiTab) {
+    setWasAiTab(isAiTab);
     if (isAiTab) setCollapsed(false);
-  }, [isAiTab]);
+  }
 
   const current = queue[0] ?? null;
   if (isEnterprise || !current) return null;

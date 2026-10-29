@@ -5,11 +5,19 @@
 //! Captures (path, methods) per `.route()` call. `nest_tracked()` merges another
 //! tracked router and prepends the nesting prefix to every captured path so the
 //! aggregated list reflects the full URL surface.
+//!
+//! Route capture shares the `/api/dev/routes` cfg gate (debug builds, or the
+//! `dev-routes` feature). Without it, `TrackedRouter` is a pass-through: routes
+//! register exactly the same, but no method inference, string allocation or
+//! metadata bookkeeping happens.
 
 use axum::routing::{MethodRouter, Router};
+#[cfg(any(debug_assertions, feature = "dev-routes"))]
 use serde::Serialize;
+#[cfg(any(debug_assertions, feature = "dev-routes"))]
 use std::sync::{Arc, Mutex};
 
+#[cfg(any(debug_assertions, feature = "dev-routes"))]
 #[derive(Debug, Clone, Serialize)]
 pub struct RouteInfo {
     pub path: String,
@@ -18,6 +26,7 @@ pub struct RouteInfo {
 
 pub struct TrackedRouter<S = ()> {
     inner: Router<S>,
+    #[cfg(any(debug_assertions, feature = "dev-routes"))]
     routes: Arc<Mutex<Vec<RouteInfo>>>,
 }
 
@@ -28,29 +37,36 @@ where
     pub fn new() -> Self {
         Self {
             inner: Router::new(),
+            #[cfg(any(debug_assertions, feature = "dev-routes"))]
             routes: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    /// Register a route. Captures (path, methods) into the internal log.
-    /// Methods are inferred from the MethodRouter's debug repr (axum 0.7 doesn't
-    /// expose a public accessor) — see `infer_methods()`.
+    /// Register a route. When route capture is compiled in, records
+    /// (path, methods) into the internal log. Methods are inferred from the
+    /// MethodRouter's debug repr (axum 0.7 doesn't expose a public accessor)
+    /// — see `infer_methods()`.
     pub fn route(self, path: &str, method_router: MethodRouter<S>) -> Self {
-        let methods = infer_methods(&method_router);
-        self.routes.lock().unwrap_or_else(|e| e.into_inner()).push(RouteInfo {
-            path: path.to_string(),
-            methods,
-        });
+        #[cfg(any(debug_assertions, feature = "dev-routes"))]
+        {
+            let methods = infer_methods(&method_router);
+            self.routes.lock().unwrap_or_else(|e| e.into_inner()).push(RouteInfo {
+                path: path.to_string(),
+                methods,
+            });
+        }
         Self {
             inner: self.inner.route(path, method_router),
+            #[cfg(any(debug_assertions, feature = "dev-routes"))]
             routes: self.routes,
         }
     }
 
     /// Nest another TrackedRouter and merge its captured routes with the prefix.
     pub fn nest_tracked(self, prefix: &str, other: TrackedRouter<S>) -> Self {
-        let (other_router, other_routes) = other.into_inner_with_routes();
-        {
+        #[cfg(any(debug_assertions, feature = "dev-routes"))]
+        let other_router = {
+            let (other_router, other_routes) = other.into_inner_with_routes();
             let mut log = self.routes.lock().unwrap_or_else(|e| e.into_inner());
             for r in other_routes {
                 log.push(RouteInfo {
@@ -58,9 +74,13 @@ where
                     methods: r.methods,
                 });
             }
-        }
+            other_router
+        };
+        #[cfg(not(any(debug_assertions, feature = "dev-routes")))]
+        let other_router = other.into_router();
         Self {
             inner: self.inner.nest(prefix, other_router),
+            #[cfg(any(debug_assertions, feature = "dev-routes"))]
             routes: self.routes,
         }
     }
@@ -72,11 +92,19 @@ where
     {
         TrackedRouter {
             inner: self.inner.with_state(state),
+            #[cfg(any(debug_assertions, feature = "dev-routes"))]
             routes: self.routes,
         }
     }
 
+    /// Consume self, returning the inner Router (any captured routes are
+    /// dropped).
+    pub fn into_router(self) -> Router<S> {
+        self.inner
+    }
+
     /// Consume self, returning the inner Router and the captured routes.
+    #[cfg(any(debug_assertions, feature = "dev-routes"))]
     pub fn into_inner_with_routes(self) -> (Router<S>, Vec<RouteInfo>) {
         let routes = std::mem::take(&mut *self.routes.lock().unwrap_or_else(|e| e.into_inner()));
         (self.inner, routes)
@@ -108,6 +136,7 @@ where
 ///
 /// This is brittle — if axum changes the Debug format, the wrapper's unit tests
 /// catch it (they assert against every common verb). Update the needle and re-run.
+#[cfg(any(debug_assertions, feature = "dev-routes"))]
 fn infer_methods<S>(router: &MethodRouter<S>) -> Vec<String> {
     let dbg = format!("{:?}", router);
     let mut methods = Vec::new();

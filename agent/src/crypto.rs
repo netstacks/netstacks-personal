@@ -82,21 +82,6 @@ pub fn derive_vault(password: &str, salt: &[u8; SALT_SIZE]) -> Result<Credential
     Ok(mk.create_vault()?)
 }
 
-/// Encrypt plaintext using a master password (slow per-call Argon2id derivation)
-pub fn encrypt(plaintext: &str, master_password: &str) -> Result<EncryptedData, CryptoError> {
-    let salt = generate_salt();
-    let vault = derive_vault(master_password, &salt)?;
-    let blob = vault.encrypt(plaintext.as_bytes())?;
-    Ok(EncryptedData { salt, blob })
-}
-
-/// Decrypt ciphertext using a master password (slow per-call Argon2id derivation)
-pub fn decrypt(encrypted: &EncryptedData, master_password: &str) -> Result<String, CryptoError> {
-    let vault = derive_vault(master_password, &encrypted.salt)?;
-    let plaintext = vault.decrypt(&encrypted.blob)?;
-    String::from_utf8(plaintext).map_err(|_| CryptoError::DecryptionFailed)
-}
-
 /// Encrypt plaintext using a pre-derived vault (fast path — use after unlock)
 pub fn encrypt_with_vault(
     plaintext: &str,
@@ -121,26 +106,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encrypt_decrypt_roundtrip() {
-        let plaintext = "my_secret_password";
-        let master_password = "master_password_long_enough";
-
-        let encrypted = encrypt(plaintext, master_password).unwrap();
-        let decrypted = decrypt(&encrypted, master_password).unwrap();
-
-        assert_eq!(plaintext, decrypted);
-    }
-
-    #[test]
     fn test_wrong_password_fails() {
-        let plaintext = "my_secret_password";
         let master_password = "master_password_long_enough";
         let wrong_password = "different_password_entirely";
 
-        let encrypted = encrypt(plaintext, master_password).unwrap();
-        let result = decrypt(&encrypted, wrong_password);
+        let salt = generate_salt();
+        let vault = derive_vault(master_password, &salt).unwrap();
+        let encrypted = encrypt_with_vault("my_secret_password", &vault, &salt).unwrap();
 
-        assert!(result.is_err());
+        // Same salt (as read back from the blob), wrong password.
+        let wrong = derive_vault(wrong_password, &encrypted.salt).unwrap();
+        assert!(decrypt_with_vault(&encrypted, &wrong).is_err());
+    }
+
+    #[test]
+    fn test_different_salt_does_not_decrypt() {
+        let master_password = "master_password_long_enough";
+        let salt = generate_salt();
+        let vault = derive_vault(master_password, &salt).unwrap();
+        let encrypted = encrypt_with_vault("payload", &vault, &salt).unwrap();
+
+        let other = derive_vault(master_password, &generate_salt()).unwrap();
+        assert!(decrypt_with_vault(&encrypted, &other).is_err());
     }
 
     #[test]
@@ -148,10 +135,14 @@ mod tests {
         let plaintext = "my_secret_password";
         let master_password = "master_password_long_enough";
 
-        let encrypted = encrypt(plaintext, master_password).unwrap();
-        let bytes = encrypted.to_bytes();
+        let salt = generate_salt();
+        let vault = derive_vault(master_password, &salt).unwrap();
+        let bytes = encrypt_with_vault(plaintext, &vault, &salt).unwrap().to_bytes();
         let restored = EncryptedData::from_bytes(&bytes).unwrap();
-        let decrypted = decrypt(&restored, master_password).unwrap();
+
+        // Re-derive from the persisted salt, as unlock() does.
+        let rederived = derive_vault(master_password, &restored.salt).unwrap();
+        let decrypted = decrypt_with_vault(&restored, &rederived).unwrap();
 
         assert_eq!(plaintext, decrypted);
     }

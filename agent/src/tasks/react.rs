@@ -73,8 +73,9 @@ async fn record_step(
 /// Default maximum iterations to prevent infinite loops
 const DEFAULT_MAX_ITERATIONS: usize = 15;
 
-/// Default maximum tokens for AI response
-const DEFAULT_MAX_TOKENS: usize = 4096;
+/// Default maximum tokens for AI response: 0 = the provider's own default
+/// (Claude thinks on every turn and needs far more than the old 4096).
+const DEFAULT_MAX_TOKENS: usize = 0;
 
 /// Default temperature
 const DEFAULT_TEMPERATURE: f64 = 0.7;
@@ -382,15 +383,18 @@ pub async fn execute_react_loop_with_agent(
         "Starting ReAct loop"
     );
 
+    let show_thinking = load_setting_bool(data_provider, "ai.showThinking", false).await;
     let options = AgentChatOptions {
         temperature: Some(agent_config.temperature),
-        max_tokens: Some(agent_config.max_tokens as u32),
+        // 0 = the provider's own default (32k for Claude, which thinks on
+        // every turn; 4096 elsewhere).
+        max_tokens: (agent_config.max_tokens > 0).then_some(agent_config.max_tokens as u32),
+        show_thinking,
     };
 
     // Append the non-interactive operating guide so every agent (default or
     // user-declared) understands how to reach the user + use its tools. Editable
     // in Settings → Prompts; falls back to the built-in default.
-    let show_thinking = load_setting_bool(data_provider, "ai.showThinking", false).await;
     let operating_guide = load_setting_string(data_provider, "ai.agent_operating_guide")
         .await
         .unwrap_or_else(|| DEFAULT_AGENT_OPERATING_GUIDE.to_string());
@@ -970,7 +974,7 @@ mod loop_tests {
         let settings = LoopSettings {
             system_prompt: "s".into(),
             tools_json: vec![],
-            options: AgentChatOptions { temperature: None, max_tokens: None },
+            options: AgentChatOptions { temperature: None, max_tokens: None, show_thinking: false },
             max_iterations,
             show_thinking: false,
         };

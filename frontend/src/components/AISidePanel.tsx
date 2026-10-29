@@ -36,6 +36,9 @@ import type { NetBoxNeighbor } from '../api/netbox'
 // Re-export for App.tsx
 import { logger } from '../lib/logger'
 import Tooltip from './Tooltip'
+import AIActivityGroup from './AIActivityGroup'
+import './AIChatMarkdown.css'
+import { groupActivity } from '../lib/aiActivity'
 import ModalFrame from './ModalFrame'
 import { userScopedKey } from '../lib/userScope'
 import { formatChatCapture, selectUncaptured } from '../lib/aiChatCapture'
@@ -177,7 +180,7 @@ type AgentState = 'idle' | 'thinking' | 'executing' | 'waiting_approval' | 'erro
 
 interface DisplayMessage {
   id: string
-  type: 'user' | 'agent' | 'command-request' | 'command-result' | 'error' | 'system'
+  type: 'user' | 'agent' | 'reasoning' | 'command-request' | 'command-result' | 'error' | 'system'
   content: string
   timestamp: Date
   command?: string
@@ -187,6 +190,12 @@ interface DisplayMessage {
   /** Non-zero = the tool call failed (NS-AI-37). */
   exitCode?: number
 }
+
+const PANEL_WIDTH_KEY = 'netstacks-ai-panel-width'
+const PANEL_MIN_WIDTH = 320
+/** The panel may take all but this much of the window (the terminal keeps the rest). */
+const PANEL_MIN_REMAINDER = 360
+const panelMaxWidth = () => Math.max(PANEL_MIN_WIDTH, window.innerWidth - PANEL_MIN_REMAINDER)
 
 const STATE_LABELS: Record<AgentState, string> = {
   idle: 'Ready',
@@ -255,7 +264,11 @@ const AISidePanel = ({
   const isTab = variant === 'tab'
   const assistantName = useAssistantName()
   // Panel state
-  const [width, setWidth] = useState(380)
+  const [width, setWidth] = useState(() => {
+    const stored = Number(localStorage.getItem(PANEL_WIDTH_KEY))
+    return stored >= PANEL_MIN_WIDTH ? stored : 380
+  })
+  useEffect(() => { localStorage.setItem(PANEL_WIDTH_KEY, String(width)) }, [width])
   const [isResizing, setIsResizing] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isPinned, setIsPinned] = useState(defaultPinned)
@@ -740,6 +753,7 @@ const AISidePanel = ({
       const type: DisplayMessage['type'] =
         msg.type === 'user' ? 'user' :
         msg.type === 'command-result' ? 'command-result' :
+        msg.type === 'reasoning' ? 'reasoning' :
         msg.type === 'error' ? 'error' :
         'agent'
 
@@ -1048,7 +1062,7 @@ const AISidePanel = ({
 
     const handleMouseMove = (e: MouseEvent) => {
       const newWidth = window.innerWidth - e.clientX
-      setWidth(Math.max(320, Math.min(650, newWidth)))
+      setWidth(Math.max(PANEL_MIN_WIDTH, Math.min(panelMaxWidth(), newWidth)))
     }
 
     const handleMouseUp = () => setIsResizing(false)
@@ -1119,6 +1133,12 @@ const AISidePanel = ({
   // show EITHER the thinking dots (pre-token) OR the streaming cursor (mid-text)
   // — never both, and never an empty bubble with a lone cursor.
   const lastDisplayMsg = displayMessages[displayMessages.length - 1]
+  // Runs of tool calls / reasoning render as one activity card. An agent
+  // bubble still empty (pre-first-token) is hidden — the working indicator
+  // covers that moment instead of a blank bubble.
+  const transcript = groupActivity(displayMessages.filter(m => !(m.type === 'agent' && !m.content?.trim())))
+  const lastItem = transcript[transcript.length - 1]
+  const liveActivity = isAgentWorking && lastItem?.kind === 'activity' ? lastItem : null
   const isStreamingText =
     isAgentWorking && lastDisplayMsg?.type === 'agent' && !!lastDisplayMsg.content?.trim()
 
@@ -1165,7 +1185,7 @@ const AISidePanel = ({
       {/* Collapsed panel: a tab in the right-edge dock (docked panel only) */}
       {isOpen && isCollapsed && !isTab && edgeTabTarget && createPortal(
         <button type="button" className="panel-tab" onClick={() => setIsCollapsed(false)} aria-label={`${assistantName} chat`}>
-          AI
+          <span className="panel-tab-label">{assistantName || 'AI'}</span>
           {agentState !== 'idle' && <span className={`panel-tab-status ${agentState}`} />}
           {displayMessages.length > 1 && (
             <span className="panel-tab-badge">{displayMessages.length - 1}</span>
@@ -1179,7 +1199,8 @@ const AISidePanel = ({
         data-testid="ai-panel"
         className={`ai-side-panel ${isTab ? 'tab-mode' : ''} ${isResizing ? 'resizing' : ''} ${!isTab && !isPinned ? 'floating' : ''} ${!isTab && !showPanel ? 'closed' : ''}`}
         style={isTab ? undefined : {
-          width: showPanel ? width : 0,
+          // Re-clamped at render so a stored width never exceeds a smaller window.
+          width: showPanel ? Math.min(width, panelMaxWidth()) : 0,
         }}
       >
       {/* Resize handle (docked panel only) */}
@@ -1525,11 +1546,16 @@ const AISidePanel = ({
 
       {/* Messages */}
       <div className="ai-side-panel-messages" data-testid="ai-messages" ref={messagesRef}>
-        {displayMessages
-          // Hide an agent bubble while it's still empty (pre-first-token) — the
-          // thinking dots cover that moment instead of a blank bubble.
-          .filter(m => !(m.type === 'agent' && !m.content?.trim()))
-          .map(msg => (
+        {transcript.map(item => {
+          if (item.kind === 'activity') {
+            return (
+              <div key={item.id} className="ai-side-panel-message message-activity">
+                <AIActivityGroup msgs={item.msgs} live={item === liveActivity} />
+              </div>
+            )
+          }
+          const msg = item.msg
+          return (
           <div key={msg.id} className={`ai-side-panel-message message-${msg.type}`} onContextMenu={(e) => handleMessageContextMenu(e, msg)}>
             {msg.type === 'system' && (
               <div className="ai-side-panel-system-message">
@@ -1596,35 +1622,6 @@ const AISidePanel = ({
                 {msg.content && <div className="ai-side-panel-command-note">{msg.content}</div>}
               </div>
             )}
-            {msg.type === 'command-result' && (() => {
-              // Failed tool calls get a red ✕ and their result expanded; successful
-              // ones keep the check and fold the result away (NS-AI-37).
-              const failed = (msg.exitCode ?? 0) !== 0
-              const output = (msg.output || '').trim()
-              return (
-                <details className={`ai-side-panel-command-result${failed ? ' failed' : ''}`} open={failed}>
-                  <Tooltip label={failed ? 'Tool call failed — click for details' : 'Click to show the result'}><summary className={`ai-side-panel-command-inline${failed ? ' failed' : ''}`}>
-                    {failed ? (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="15" y1="9" x2="9" y2="15" />
-                        <line x1="9" y1="9" x2="15" y2="15" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                        <polyline points="22 4 12 14.01 9 11.01" />
-                      </svg>
-                    )}
-                    {msg.command && <code>{msg.command}</code>}
-                    {msg.sessionName && <span className="ai-cmd-session">{msg.sessionName}</span>}
-                  </summary></Tooltip>
-                  {output && (
-                    <pre className="ai-side-panel-command-output">{output.length > 4000 ? `${output.slice(0, 4000)}\n… (${output.length} chars)` : output}</pre>
-                  )}
-                </details>
-              )
-            })()}
             {msg.type === 'error' && (
               <div className="ai-side-panel-error">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
@@ -1636,13 +1633,14 @@ const AISidePanel = ({
               </div>
             )}
           </div>
-        ))}
+          )
+        })}
 
         <AIApprovalCard pending={pendingCommands} onApprove={approveCommands} onReject={rejectCommands} />
 
         {/* Thinking dots — only before the reply starts streaming (so it's
             never shown alongside the streaming cursor). */}
-        {isAgentWorking && !isStreamingText && (
+        {isAgentWorking && !isStreamingText && !liveActivity && (
           <div className="ai-side-panel-message assistant">
             <div className="ai-side-panel-loading">
               <span></span>

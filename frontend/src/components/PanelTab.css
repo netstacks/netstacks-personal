@@ -50,6 +50,13 @@
   white-space: nowrap;
 }
 
+/* A long custom assistant name must not run the tab down the window edge. */
+.panel-tab-label {
+  max-height: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .panel-tab:hover {
   --panel-tab-fill: var(--color-fill);
   color: var(--color-text-primary);

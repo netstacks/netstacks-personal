@@ -1728,7 +1728,7 @@ export default function AISettingsTab() {
           </SettingRow>
           <SettingRow
             label="Show AI Reasoning"
-            description="Display the AI's internal chain-of-thought as a 'thinking' step in the agent glass-box view. Only visible when the active model returns extended thinking blocks (e.g. Claude on Vertex with extended thinking enabled). Has no effect on models that don't support it."
+            description="Show a summary of the AI's reasoning as a folded 'Thinking' block in the AI chats, and as a 'thinking' step in background-task activity. Works with Claude Opus / Sonnet 4.6 and newer (direct or on Vertex); other models ignore it. On Opus / Sonnet 4.6–4.8 this also turns thinking on, which adds some latency and cost."
           >
             <Switch
               checked={!!settings['ai.showThinking']}
@@ -1930,14 +1930,14 @@ export default function AISettingsTab() {
               <span className="ai-agent-slider-value">{settings['ai.agent.temperature'].toFixed(1)}</span>
             </span>
           </SettingRow>
-          <SettingRow label="Max Tokens" description="Maximum tokens per AI response">
+          <SettingRow label="Max Tokens" description="Maximum tokens per AI response. 0 = the provider's default (32,000 for Claude, whose thinking counts against this limit).">
             <input aria-label="Max Tokens"
               type="number"
-              min="256"
-              max="32000"
+              min="0"
+              max="128000"
               step="256"
               value={settings['ai.agent.maxTokens']}
-              onChange={(e) => updateAgentSetting('ai.agent.maxTokens', parseInt(e.target.value) || 4096)}
+              onChange={(e) => updateAgentSetting('ai.agent.maxTokens', parseInt(e.target.value) || 0)}
               className="ns-input ai-agent-number-input"
             />
           </SettingRow>

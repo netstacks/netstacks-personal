@@ -856,6 +856,9 @@ pub struct AgentChatRequest {
     /// Explicit opt-in to the AI Engineer onboarding interview (see `ChatRequest::onboarding`).
     #[serde(default)]
     pub onboarding: bool,
+    /// "Show AI Reasoning": ask for a readable summary of the model's thinking.
+    #[serde(default)]
+    pub show_thinking: bool,
 }
 
 /// A message in the agent chat (can contain tool results)
@@ -903,6 +906,9 @@ pub struct AgentChatResponse {
     pub tool_use: Vec<ToolUseResponse>,
     /// Stop reason: "end_turn", "tool_use", etc.
     pub stop_reason: Option<String>,
+    /// Summarized reasoning, when requested via `show_thinking`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
     /// Token usage for this request (if available from provider)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
@@ -1040,6 +1046,7 @@ pub(crate) struct AgentChatContext {
     pub messages: Vec<AgentMessage>,
     pub tools: Option<Vec<serde_json::Value>>,
     pub max_tokens: Option<u32>,
+    pub show_thinking: bool,
     /// True only for an opted-in onboarding turn while no profile is complete.
     pub onboarding_mode: bool,
     pub provider_override: Option<String>,
@@ -1071,6 +1078,7 @@ pub(crate) async fn prepare_agent_chat(
     let req_system_prompt = req.system_prompt;
     let tools = req.tools;
     let max_tokens = req._max_tokens;
+    let show_thinking = req.show_thinking;
 
     // AUDIT FIX (EXEC-002): the request body's `allow_config_changes` is
     // ignored for safety reasons. Config mode is now governed exclusively by
@@ -1213,6 +1221,7 @@ The user has enabled AI Config Mode. The previous read-only safety rules are OVE
         messages,
         tools,
         max_tokens,
+        show_thinking,
         onboarding_mode,
         provider_override,
         model_override,
@@ -1240,9 +1249,10 @@ pub async fn agent_chat(
             ctx.system_prompt.clone(),
             ctx.messages,
             ctx.tools,
-            ctx.max_tokens.map(|mt| AgentChatOptions {
+            Some(AgentChatOptions {
                 temperature: None,
-                max_tokens: Some(mt),
+                max_tokens: ctx.max_tokens,
+                show_thinking: ctx.show_thinking,
             }),
         )
         .await
@@ -1256,6 +1266,7 @@ pub async fn agent_chat(
 
     // Extract text and tool_use from response
     let mut text_parts: Vec<String> = Vec::new();
+    let mut thinking_parts: Vec<String> = Vec::new();
     let mut tool_use: Vec<ToolUseResponse> = Vec::new();
 
     for block in response.content {
@@ -1265,6 +1276,9 @@ pub async fn agent_chat(
             }
             AgentContentBlock::ToolUse { id, name, input } => {
                 tool_use.push(ToolUseResponse { id, name, input });
+            }
+            AgentContentBlock::Thinking { thinking, .. } => {
+                thinking_parts.push(thinking);
             }
             _ => {}
         }
@@ -1291,6 +1305,7 @@ pub async fn agent_chat(
         text,
         tool_use,
         stop_reason: response.stop_reason,
+        thinking: (!thinking_parts.is_empty()).then(|| thinking_parts.join("\n\n")),
         usage: response.usage,
     }))
 }
@@ -1379,9 +1394,10 @@ pub async fn agent_chat_stream_handler(
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, AiApiError> {
     let ctx = prepare_agent_chat(&state, req).await?;
 
-    let options = ctx.max_tokens.map(|mt| AgentChatOptions {
+    let options = Some(AgentChatOptions {
         temperature: None,
-        max_tokens: Some(mt),
+        max_tokens: ctx.max_tokens,
+        show_thinking: ctx.show_thinking,
     });
 
     // Move all owned data into the async stream so there are no lifetime issues.

@@ -57,6 +57,7 @@ import {
   type PendingCommand,
   createUserMessage,
   createThinkingMessage,
+  createReasoningMessage,
   createCommandResultMessage,
   createErrorMessage,
   createRecommendationMessage,
@@ -119,6 +120,8 @@ interface TokenUsage {
 
 interface AgentChatResponse {
   text: string | null;
+  /** Summarized reasoning when `show_thinking` was requested. */
+  thinking?: string;
   tool_use: ToolUseResponse[];
   stop_reason: string | null;
   usage?: TokenUsage;
@@ -126,13 +129,14 @@ interface AgentChatResponse {
 
 // SSE streaming event types from the backend
 interface StreamEventContentDelta { type: 'content_delta'; text: string }
+interface StreamEventThinkingDelta { type: 'thinking_delta'; text: string }
 interface StreamEventToolUseStart { type: 'tool_use_start'; id: string; name: string }
 interface StreamEventToolInputDelta { type: 'tool_input_delta'; delta: string }
 interface StreamEventToolUseEnd { type: 'tool_use_end' }
 interface StreamEventDone { type: 'done'; stop_reason: string | null; usage: { input_tokens: number; output_tokens: number; total_tokens?: number } | null }
 interface StreamEventError { type: 'error'; message: string }
 
-type StreamEvent = StreamEventContentDelta | StreamEventToolUseStart | StreamEventToolInputDelta | StreamEventToolUseEnd | StreamEventDone | StreamEventError
+type StreamEvent = StreamEventContentDelta | StreamEventThinkingDelta | StreamEventToolUseStart | StreamEventToolInputDelta | StreamEventToolUseEnd | StreamEventDone | StreamEventError
 
 // Cumulative token usage tracking
 
@@ -492,6 +496,25 @@ export const STREAM_INCOMPLETE_ERROR =
 /** Shown when the provider answers a fresh prompt with no text and no tool calls. */
 export const EMPTY_RESPONSE_ERROR =
   'The AI returned an empty response. Try again, or check the provider and model in Settings → AI.';
+
+/**
+ * Error for a reply the provider cut off (`max_tokens` — OpenAI `length` and
+ * Gemini `MAX_TOKENS` are normalised to it by the agent) or declined
+ * (`refusal`); null for a normal stop. Without this a reply that ran out of
+ * output budget while thinking / composing a large tool call (create_mop,
+ * write_file, …) ended the turn silently with nothing done.
+ */
+export function cutOffError(stopReason: string | null | undefined, hadToolCalls: boolean): string | null {
+  if (stopReason === 'max_tokens') {
+    return 'The AI hit its output-token limit before it finished'
+      + (hadToolCalls ? ', so its last tool call was cut off and not run' : '')
+      + '. Raise Max Tokens for this provider in Settings → AI and try again.';
+  }
+  if (stopReason === 'refusal') {
+    return 'The model declined to continue this request. Rephrase it and try again.';
+  }
+  return null;
+}
 
 // Truncate tool result content to prevent context overflow.
 // ~4 chars per token, 30K chars ≈ 7,500 tokens — leaves room for tools + conversation.
@@ -3403,6 +3426,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}): UseAIAgentReturn {
       provider?: string;
       model?: string;
       max_tokens?: number;
+      show_thinking?: boolean;
       system_prompt?: string;
       onboarding?: boolean;
     } = { messages, tools };
@@ -3490,6 +3514,11 @@ Guidelines:
     if (model) {
       requestBody.model = model;
     }
+    // "Show AI Reasoning": the agent asks supporting models for a readable
+    // summary of their thinking (display only).
+    if (settings['ai.showThinking']) {
+      requestBody.show_thinking = true;
+    }
 
     try {
       const response = await getClient().http.post('/ai/agent-chat', requestBody, { signal });
@@ -3524,6 +3553,7 @@ Guidelines:
       provider?: string;
       model?: string;
       max_tokens?: number;
+      show_thinking?: boolean;
       system_prompt?: string;
       onboarding?: boolean;
     } = { messages, tools };
@@ -3609,6 +3639,11 @@ Guidelines:
     }
     if (model) {
       requestBody.model = model;
+    }
+    // "Show AI Reasoning": the agent asks supporting models for a readable
+    // summary of their thinking (display only).
+    if (settings['ai.showThinking']) {
+      requestBody.show_thinking = true;
     }
 
     // Use fetch for streaming (not Axios — Axios doesn't support ReadableStream)
@@ -3776,6 +3811,23 @@ Guidelines:
           }
         }
 
+        if (response.thinking) {
+          addMessage(createReasoningMessage(response.thinking));
+        }
+
+        // Truncated / declined reply: keep its text, never run its tool calls
+        // (their inputs may be partial), and say why the turn stopped.
+        const cutOff = cutOffError(response.stop_reason, response.tool_use.length > 0);
+        if (cutOff) {
+          if (response.text) {
+            addMessage(createThinkingMessage(response.text));
+            conversationRef.current.push({ role: 'assistant', content: [{ type: 'text', text: response.text }] });
+          }
+          addMessage(createErrorMessage(cutOff));
+          setAgentState('error');
+          break;
+        }
+
         if (!response.text && response.tool_use.length === 0 && !toolsRanThisTurn) {
           addMessage(createErrorMessage(EMPTY_RESPONSE_ERROR));
           setAgentState('error');
@@ -3922,6 +3974,10 @@ Guidelines:
         }
         const pendingToolCalls: StreamToolCall[] = [];
         let currentToolCall: StreamToolCall | null = null;
+        // Summarized reasoning for this response ("Show AI Reasoning") — its
+        // own message, placed above the reply text it led to.
+        let reasoningId: string | null = null;
+        let reasoningText = '';
 
         // Consume the SSE stream
         for await (const event of callAgentApiStream(conversationRef.current, tools, signal)) {
@@ -3937,6 +3993,23 @@ Guidelines:
                 ));
               }
               break;
+
+            case 'thinking_delta': {
+              reasoningText += event.text;
+              const text = reasoningText;
+              if (reasoningId === null) {
+                const msg = createReasoningMessage(text);
+                reasoningId = msg.id;
+                setMessages(prev => {
+                  const at = prev.findIndex(m => m.id === placeholderId);
+                  return at < 0 ? [...prev, msg] : [...prev.slice(0, at), msg, ...prev.slice(at)];
+                });
+              } else {
+                const id = reasoningId;
+                setMessages(prev => prev.map(m => (m.id === id ? { ...m, content: text } : m)));
+              }
+              break;
+            }
 
             case 'tool_use_start':
               currentToolCall = { id: event.id, name: event.name, inputJson: '' };
@@ -4013,6 +4086,20 @@ Guidelines:
               totalTokens,
             });
           }
+        }
+
+        // Truncated / declined reply: keep its text, never run its tool calls
+        // (their inputs may be partial JSON), and say why the turn stopped.
+        // A call cut off mid-input never got its tool_use_end, so it is
+        // still in currentToolCall rather than pendingToolCalls.
+        const cutOff = cutOffError(stopReason, pendingToolCalls.length > 0 || currentToolCall !== null);
+        if (cutOff) {
+          if (fullText) {
+            conversationRef.current.push({ role: 'assistant', content: [{ type: 'text', text: fullText }] });
+          }
+          addMessage(createErrorMessage(cutOff));
+          setAgentState('error');
+          break;
         }
 
         // Build assistant content blocks for conversation history

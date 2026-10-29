@@ -680,6 +680,12 @@
   gap: 12px;
 }
 
+/* Messages keep their natural height; the column scrolls instead of
+   squeezing (and clipping) them. */
+.ai-side-panel-messages > * {
+  flex-shrink: 0;
+}
+
 .ai-side-panel-message {
   display: flex;
   flex-direction: column;
@@ -780,68 +786,6 @@
   margin-top: 8px;
   font-size: 12px;
   color: var(--color-text-secondary);
-}
-
-/* Compact inline command result badge */
-.ai-side-panel-command-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  background: var(--color-bg-primary);
-  border-radius: var(--radius-control);
-  font-size: 11px;
-  color: var(--color-success);
-  margin: 2px 0;
-}
-
-.ai-side-panel-command-inline code {
-  color: var(--color-text-primary);
-  font-family: var(--font-family-mono);
-  font-size: 11px;
-  background: none;
-  padding: 0;
-}
-
-.ai-side-panel-command-inline .ai-cmd-session {
-  color: var(--color-text-muted);
-  font-size: 10px;
-  margin-left: 2px;
-}
-
-/* Tool-result rows: collapsible result, red state on failure (NS-AI-37) */
-.ai-side-panel-command-result {
-  margin: 2px 0;
-}
-.ai-side-panel-command-result > summary {
-  list-style: none;
-}
-.ai-side-panel-command-result > summary::-webkit-details-marker {
-  display: none;
-}
-.ai-side-panel-command-inline.failed {
-  color: var(--color-error);
-  background: rgba(var(--color-error-rgb), 0.08);
-}
-.ai-side-panel-command-output {
-  margin: 2px 0 4px;
-  padding: 6px 10px;
-  max-height: 240px;
-  overflow: auto;
-  overscroll-behavior: contain;
-  font-family: var(--font-family-mono);
-  font-size: 11px;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-primary);
-  border-left: 2px solid var(--color-border);
-  border-radius: 0 4px 4px 0;
-}
-.ai-side-panel-command-result.failed .ai-side-panel-command-output {
-  color: var(--color-text-primary);
-  border-left-color: var(--color-error);
 }
 
 .ai-side-panel-code {

@@ -168,3 +168,11 @@
 .undo-all-ai-btn svg {
   flex-shrink: 0;
 }
+
+/* Suspense fallback while the lazily-loaded 3D canvas chunk downloads */
+.topology-canvas-3d-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

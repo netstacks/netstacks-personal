@@ -120,12 +120,17 @@ export interface AppSettings {
   'ai.maxTokens.ollama': number;
   'ai.maxTokens.litellm': number;
   'ai.maxTokens.custom': number;
+  // One-time marker: stored 4096 Anthropic caps (the old default) were raised
+  // to the new default. Set so a deliberate 4096 afterwards sticks.
+  'ai.maxTokens.anthropicRaised': boolean;
 
   // AI Agent settings
   'ai.agent.provider': AiProviderType | null; // null = use default provider
   'ai.agent.model': string | null; // null = use default model for provider
   'ai.agent.temperature': number; // 0.0 - 1.0
-  'ai.agent.maxTokens': number; // Max tokens per response
+  'ai.agent.maxTokens': number; // Max tokens per response (0 = provider default)
+  // One-time marker: the old 4096 default became 0 (provider default).
+  'ai.agent.maxTokensRaised': boolean;
   'ai.agent.maxIterations': number; // Max ReAct loop iterations
   'ai.agent.systemPrompt': string; // Custom system prompt
 
@@ -169,6 +174,8 @@ export interface AppSettings {
   // checking is always on; per-session opt-in is the only escape hatch.
 }
 
+
+const ANTHROPIC_DEFAULT_MAX_TOKENS = 32000;
 export const defaultSettings: AppSettings = {
   // Appearance
   // Fluent body text is 14px; macOS/Linux UI text is 13px.
@@ -241,18 +248,22 @@ export const defaultSettings: AppSettings = {
   'ai.models.custom': [],
 
   // Per-provider max tokens (0 = no limit / use provider default)
-  'ai.maxTokens.anthropic': 4096,
+  // Claude models think on every turn and that thinking counts against the
+  // cap; 4096 ran out before large tool calls (create_mop) were emitted.
+  'ai.maxTokens.anthropic': ANTHROPIC_DEFAULT_MAX_TOKENS,
   'ai.maxTokens.openai': 4096,
   'ai.maxTokens.openrouter': 4096,
   'ai.maxTokens.ollama': 0,
   'ai.maxTokens.litellm': 4096,
   'ai.maxTokens.custom': 4096,
+  'ai.maxTokens.anthropicRaised': true,
 
   // AI Agent settings
   'ai.agent.provider': null,
   'ai.agent.model': null,
   'ai.agent.temperature': 0.7,
-  'ai.agent.maxTokens': 4096,
+  'ai.agent.maxTokens': 0,
+  'ai.agent.maxTokensRaised': true,
   'ai.agent.maxIterations': 15,
   'ai.agent.systemPrompt': 'You are a network automation assistant. You help users gather information from network devices using SSH commands. You have access to tools for querying devices and executing read-only commands. Be concise and focus on the task at hand.',
   'ai.topology.allowStructuralEdits': false,
@@ -305,6 +316,16 @@ function migrateSettings(stored: Record<string, unknown>): Record<string, unknow
   if ('ai.agent.provider' in stored && stored['ai.agent.provider']) {
     delete stored['ai.agent.provider'];
     delete stored['ai.agent.model'];
+  }
+  // The Anthropic output cap default went 4096 → 32000; carry users still on
+  // the old default along once.
+  if (stored['ai.maxTokens.anthropicRaised'] !== true) {
+    if (stored['ai.maxTokens.anthropic'] === 4096) stored['ai.maxTokens.anthropic'] = ANTHROPIC_DEFAULT_MAX_TOKENS;
+    stored['ai.maxTokens.anthropicRaised'] = true;
+  }
+  if (stored['ai.agent.maxTokensRaised'] !== true) {
+    if (stored['ai.agent.maxTokens'] === 4096) stored['ai.agent.maxTokens'] = 0;
+    stored['ai.agent.maxTokensRaised'] = true;
   }
   // "System Default" used to be stored as a literal font stack; it is now ''
   // so the platform --font-family token applies.
