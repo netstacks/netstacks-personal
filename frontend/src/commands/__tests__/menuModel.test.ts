@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MENU_MODEL } from '../menuModel'
-import { MENU_ID_TO_COMMAND } from '../menuBridge'
+import { MENU_ID_TO_COMMAND } from '../menuIds'
 
 describe('MENU_MODEL', () => {
   it('has the expected top-level sections in order', () => {

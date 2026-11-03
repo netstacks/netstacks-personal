@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ACTION_LINKS, actionForCommand, defaultAccelerator, toAccelerator } from '../keybindingLinks'
-import { MENU_ID_TO_COMMAND } from '../menuBridge'
+import { MENU_ID_TO_COMMAND } from '../menuIds'
 import { MENU_MODEL } from '../menuModel'
 import { DEFAULT_KEYBINDINGS, type KeyboardAction } from '../../hooks/useKeyboard'
 

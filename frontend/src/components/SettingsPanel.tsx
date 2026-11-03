@@ -256,6 +256,14 @@ const defaultSettings: Setting[] = [
     value: false,
   },
   {
+    id: 'terminal.gpuRendering',
+    category: 'Terminal',
+    label: 'GPU-Accelerated Rendering',
+    description: 'Draw terminals with the GPU (WebGL). Turn off if text ever turns into garbled fragments — View → Redraw Terminal also fixes a garbled screen.',
+    type: 'boolean',
+    value: true,
+  },
+  {
     id: 'terminal.hoverLookups',
     category: 'Terminal',
     label: 'Hover Lookups',

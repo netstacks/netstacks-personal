@@ -56,6 +56,8 @@ export interface AppSettings {
   // macOS: sidebar views as a source list instead of the icon activity bar.
   'ui.macSourceList': boolean;
   'terminal.lineNumbers': boolean;
+  // GPU (WebGL) terminal rendering; off = xterm's DOM renderer.
+  'terminal.gpuRendering': boolean;
   // Show a small popup with vendor info on hovered MAC addresses and
   // reverse-DNS results on hovered IP addresses. Same lookups the right-
   // click context menu items use.
@@ -206,6 +208,7 @@ export const defaultSettings: AppSettings = {
   'ui.glassEffects': true,
   'ui.macSourceList': true,
   'terminal.lineNumbers': false,
+  'terminal.gpuRendering': true,
   'terminal.hoverLookups': true,
   'terminal.enrichment.hoverEnabled': true,
   'terminal.enrichment.hoverDelayMs': 500,

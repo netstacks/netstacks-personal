@@ -200,10 +200,30 @@ export interface TerminalHandle {
   isRecording: () => boolean
   /** Reconnect to the session */
   reconnect: () => void
+  /** Rebuild the GPU glyph cache and repaint (a garbled screen). */
+  redraw: () => void
   /** Open the in-terminal find bar (Edit → Find / Cmd+F) */
   openSearch: () => void
   /** Open the Save Output to Docs dialog (Cmd+Shift+S) */
   openSaveToDocs: () => void
+}
+
+/**
+ * Load xterm's WebGL renderer into `terminal`, tracking it in `ref`. On a
+ * lost GPU context it is disposed and xterm falls back to the DOM renderer.
+ */
+function loadWebglRenderer(terminal: XTerm, ref: { current: WebglAddon | null }): void {
+  try {
+    const addon = new WebglAddon()
+    addon.onContextLoss(() => {
+      if (ref.current === addon) ref.current = null
+      addon.dispose()
+    })
+    terminal.loadAddon(addon)
+    ref.current = addon
+  } catch {
+    // WebGL not available — falls back to default DOM renderer
+  }
 }
 
 const DEFAULT_RECONNECT_DELAY = 5
@@ -725,6 +745,22 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   clearNextStepSuggestionsRef.current = clearNextStepSuggestions
 
   // Expose imperative handle for external command execution (AI agent)
+  // Drop the WebGL renderer's cached glyphs, re-fit and repaint. The macOS
+  // WebView can discard GPU memory without a context-loss event (sleep/wake,
+  // app hidden/occluded, GPU switch), after which every cell draws a fragment
+  // of the wrong glyph until the atlas is rebuilt.
+  const redrawTerminal = useCallback(() => {
+    const term = terminalRef.current
+    if (!term) return
+    webglAddonRef.current?.clearTextureAtlas()
+    try {
+      fitAddonRef.current?.fit()
+    } catch {
+      // Ignore fit errors during initialization
+    }
+    term.refresh(0, term.rows - 1)
+  }, [])
+
   useImperativeHandle(ref, () => ({
     sendCommand: async (command: string, timeoutMs: number = SEND_COMMAND_MAX_WAIT_MS): Promise<string> => {
       return new Promise((resolve, reject) => {
@@ -848,13 +884,15 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
         reconnectFnRef.current()
       }
     },
+
+    redraw: redrawTerminal,
     openSearch: (): void => {
       setShowFindBar(true)
     },
     openSaveToDocs: (): void => {
       openSaveToDocsDialogRef.current()
     },
-  }), [sessionId])
+  }), [sessionId, redrawTerminal])
 
   // Fit the grid to the container. The backend hears about it from the
   // terminal's onResize handlers (standalone / enterprise / jumpbox), so every
@@ -2514,17 +2552,9 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // Open terminal in container
     terminal.open(containerRef.current)
 
-    // Enable GPU-accelerated rendering (WebGL)
-    try {
-      const webglAddon = new WebglAddon()
-      webglAddon.onContextLoss(() => {
-        webglAddonRef.current = null
-        webglAddon.dispose()
-      })
-      terminal.loadAddon(webglAddon)
-      webglAddonRef.current = webglAddon
-    } catch {
-      // WebGL not available — falls back to default DOM renderer
+    // GPU-accelerated rendering (WebGL) unless turned off in Settings.
+    if (settingsRef.current['terminal.gpuRendering'] !== false) {
+      loadWebglRenderer(terminal, webglAddonRef)
     }
 
     // Store refs
@@ -2700,11 +2730,19 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
 
     // Resize observer (debounced via rAF to avoid per-pixel thrashing)
     let resizeRafId: number | null = null
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeRafId !== null) return
+    // A hidden tab (display: none) measures 0 wide; when it is shown again
+    // its glyphs may be stale, so rebuild them rather than just re-fitting.
+    let wasHidden = false
+    const resizeObserver = new ResizeObserver((entries) => {
+      const hidden = (entries[entries.length - 1]?.contentRect.width ?? 0) === 0
+      const reshown = wasHidden && !hidden
+      wasHidden = hidden
+      if (resizeRafId !== null && !reshown) return
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId)
       resizeRafId = requestAnimationFrame(() => {
         resizeRafId = null
-        handleResize()
+        if (reshown) redrawTerminal()
+        else handleResize()
       })
     })
     resizeObserver.observe(containerRef.current)
@@ -2717,11 +2755,15 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // renderer's cached glyphs are stale then, and text stayed misaligned
     // until the window was resized by hand.
     const refreshGlyphs = () => {
-      if (terminalRef.current !== terminal) return
-      webglAddonRef.current?.clearTextureAtlas()
-      handleResize()
-      terminal.refresh(0, terminal.rows - 1)
+      if (terminalRef.current === terminal) redrawTerminal()
     }
+    // …and whenever the screen may have gone stale: the window regains focus
+    // or the page becomes visible again (wake, unhide, Space switch).
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshGlyphs()
+    }
+    window.addEventListener('focus', refreshGlyphs)
+    document.addEventListener('visibilitychange', onVisibility)
     void document.fonts?.ready.then(refreshGlyphs)
     document.fonts?.addEventListener('loadingdone', refreshGlyphs)
     let dprQuery: MediaQueryList | null = null
@@ -2741,6 +2783,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       document.fonts?.removeEventListener('loadingdone', refreshGlyphs)
+      window.removeEventListener('focus', refreshGlyphs)
+      document.removeEventListener('visibilitychange', onVisibility)
       dprQuery?.removeEventListener('change', onDprChange)
       if (terminalEl) {
         terminalEl.removeEventListener('contextmenu', handleContextMenu)
@@ -2782,7 +2826,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       setTerminalInstance(null)
       terminal.dispose()
     }
-  }, [id, handleResize, clearCountdownInterval, flushLogBuffer])
+  }, [id, handleResize, redrawTerminal, clearCountdownInterval, flushLogBuffer])
 
   // Connect on mount after terminal is ready (use ref to prevent reconnection loops)
   // Deferred via setTimeout(0) so React StrictMode's rapid unmount/remount cycle
@@ -2880,6 +2924,22 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       terminalRef.current.refresh(0, terminalRef.current.rows - 1)
     }
   }, [fontSize, fontFamily, settings])
+
+  // Settings → Terminal → GPU-accelerated rendering, applied live: off
+  // switches to xterm's DOM renderer (an escape hatch for GPUs/WebViews that
+  // still corrupt the glyph cache).
+  const gpuRendering = settings['terminal.gpuRendering'] !== false
+  useEffect(() => {
+    const term = terminalRef.current
+    if (!term) return
+    if (gpuRendering && !webglAddonRef.current) {
+      loadWebglRenderer(term, webglAddonRef)
+    } else if (!gpuRendering && webglAddonRef.current) {
+      webglAddonRef.current.dispose()
+      webglAddonRef.current = null
+    }
+    term.refresh(0, term.rows - 1)
+  }, [gpuRendering])
 
   // Update scrollback when the session setting changes
   useEffect(() => {

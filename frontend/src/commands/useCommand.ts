@@ -34,16 +34,19 @@
  * automatically.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useCommandStore } from './registry'
 import type { Command } from './types'
 
 export function useCommand(cmd: Command): void {
   // Hold the latest command in a ref so the registered closure always
   // sees fresh state without re-registering on every render. The
-  // registry stores a wrapper that delegates to the ref.
+  // registry stores a wrapper that delegates to the ref. Updated after each
+  // commit (before any event can run a command), not during render.
   const cmdRef = useRef(cmd)
-  cmdRef.current = cmd
+  useLayoutEffect(() => {
+    cmdRef.current = cmd
+  })
 
   useEffect(() => {
     const { register } = useCommandStore.getState()

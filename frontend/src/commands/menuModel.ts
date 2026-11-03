@@ -1,7 +1,7 @@
 /**
  * Structure of the Windows/Linux HTML menu bar. Mirrors the native
  * macOS menu built in src-tauri/src/main.rs::build_menu. Command ids
- * match the right-hand side of MENU_ID_TO_COMMAND (menuBridge.ts);
+ * match the right-hand side of MENU_ID_TO_COMMAND (menuIds.ts);
  * labels + accelerators are read from the registered Command objects.
  */
 export type MenuEntry =
@@ -35,6 +35,7 @@ export const MENU_MODEL: MenuSection[] = [
   { title: 'View', entries: [
     cmd('view.command-palette'), sep,
     cmd('view.toggle-sidebar'), cmd('view.toggle-ai-panel'), sep,
+    cmd('view.redraw-terminal'), sep,
     cmd('view.zoom-reset'), cmd('view.zoom-in'), cmd('view.zoom-out'), sep,
     pre('fullscreen'),
   ]},

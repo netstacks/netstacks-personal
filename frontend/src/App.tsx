@@ -6299,6 +6299,14 @@ def main(command: str = "show version"):
     run: () => toggleAiPanel(),
   })
   useCommand({
+    id: 'view.redraw-terminal', label: 'Redraw Terminal', category: 'view',
+    description: 'Rebuild the terminal\'s glyphs and repaint — fixes a garbled screen without resizing the window',
+    when: (ctx) => ctx.activeTabType === 'terminal',
+    run: () => {
+      if (activeTabId) terminalRefs.current.get(activeTabId)?.redraw()
+    },
+  })
+  useCommand({
     id: 'view.zoom-reset', label: 'Actual Size', category: 'view',
     accelerator: defaultAccelerator('zoomReset'),
     run: () => updateAppSetting('view.zoomStep', 0),
