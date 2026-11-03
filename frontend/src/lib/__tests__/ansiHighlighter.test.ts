@@ -99,3 +99,45 @@ describe('AnsiHighlighter — escape-sequence safety', () => {
 function RESET_TAIL() {
   return '\x1b[0m'
 }
+
+describe('AnsiHighlighter — restores the stream\'s own colours after a match', () => {
+  const running = () => rule({ pattern: 'running', foreground: '#00ffff' })
+
+  it('re-applies the app background after a highlighted word (Claude Code prompt band)', () => {
+    const h = new AnsiHighlighter()
+    h.setRules([running()])
+    const bg = `${ESC}[48;5;238m`
+    const out = h.process(`${bg}1 monitor still running and more`)
+    // The highlight closes with a reset, then the app's own SGR is replayed.
+    expect(out).toContain(`running${ESC}[0m${bg} and more`)
+  })
+
+  it('replays every SGR since the last reset, in order', () => {
+    const h = new AnsiHighlighter()
+    h.setRules([running()])
+    const out = h.process(`${ESC}[1m${ESC}[38;2;10;20;30m${ESC}[48;5;0mrunning!`)
+    // 48;5;0 is colour index 0, not a reset.
+    expect(out).toContain(`running${ESC}[0m${ESC}[1m${ESC}[38;2;10;20;30m${ESC}[48;5;0m!`)
+  })
+
+  it('forgets earlier state after the stream resets', () => {
+    const h = new AnsiHighlighter()
+    h.setRules([running()])
+    const out = h.process(`${ESC}[41mred${ESC}[0m running`)
+    expect(out.endsWith(`running${ESC}[0m`)).toBe(true)
+  })
+
+  it('a combined reset+set sequence is replayed alone', () => {
+    const h = new AnsiHighlighter()
+    h.setRules([running()])
+    const out = h.process(`${ESC}[41m${ESC}[0;1;32mrunning.`)
+    expect(out).toContain(`running${ESC}[0m${ESC}[0;1;32m.`)
+  })
+
+  it('keeps state across chunks', () => {
+    const h = new AnsiHighlighter()
+    h.setRules([running()])
+    h.process(`${ESC}[7m`)
+    expect(h.process('still running.')).toContain(`running${ESC}[0m${ESC}[7m.`)
+  })
+})

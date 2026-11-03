@@ -108,15 +108,8 @@ fn build_server_config(cert_pem: &str, key_pem: &str) -> Result<Arc<ServerConfig
     Ok(Arc::new(config))
 }
 
+/// Generate a self-signed TLS certificate for localhost + 127.0.0.1.
 fn generate_cert() -> Result<(String, String), anyhow::Error> {
-    generate_cert_with_sans(&[])
-}
-
-/// Generate a self-signed TLS certificate.
-///
-/// Always includes localhost + 127.0.0.1. `extra_sans` adds additional
-/// DNS names or IP addresses (parsed automatically from strings).
-fn generate_cert_with_sans(extra_sans: &[String]) -> Result<(String, String), anyhow::Error> {
     let not_after = rcgen::date_time_ymd(
         (1970 + SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() / 31_557_600 + 10) as i32,
         1,
@@ -126,25 +119,10 @@ fn generate_cert_with_sans(extra_sans: &[String]) -> Result<(String, String), an
     let mut params = CertificateParams::new(vec!["localhost".to_string()])?;
     params.subject_alt_names.push(SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)));
 
-    for san in extra_sans {
-        let san = san.trim();
-        if san.is_empty() { continue; }
-        if let Ok(ip) = san.parse::<IpAddr>() {
-            params.subject_alt_names.push(SanType::IpAddress(ip));
-        } else {
-            params.subject_alt_names.push(SanType::DnsName(san.to_string().try_into()?));
-        }
-    }
-
     params.not_after = not_after;
 
-    let cn = if extra_sans.is_empty() {
-        "NetStacks Local Agent"
-    } else {
-        "NetStacks Remote Agent"
-    };
     let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, cn);
+    dn.push(DnType::CommonName, "NetStacks Local Agent");
     params.distinguished_name = dn;
 
     let key_pair = KeyPair::generate()?;
@@ -153,43 +131,3 @@ fn generate_cert_with_sans(extra_sans: &[String]) -> Result<(String, String), an
     Ok((cert.pem(), key_pair.serialize_pem()))
 }
 
-/// Load or generate a TLS cert with extra SANs (for remote mode).
-/// Reuses the existing cert if valid — the user only has to approve
-/// the OS trust dialog once per remote host.
-pub async fn load_or_generate_remote(extra_sans: Vec<String>) -> Result<LocalTls, anyhow::Error> {
-    let dir = data_dir();
-    std::fs::create_dir_all(&dir)?;
-
-    let cert_path = dir.join("remote.crt");
-    let key_path = dir.join("remote.key");
-
-    if cert_path.exists() && key_path.exists() && !expiring_soon(&cert_path) {
-        let cert_pem = std::fs::read_to_string(&cert_path)?;
-        let key_pem = std::fs::read_to_string(&key_path)?;
-        match build_server_config(&cert_pem, &key_pem) {
-            Ok(server_config) => {
-                tracing::info!("Loaded existing remote TLS cert from {}", cert_path.display());
-                return Ok(LocalTls { cert_pem, server_config });
-            }
-            Err(e) => tracing::warn!("Failed to load existing remote TLS cert, regenerating: {}", e),
-        }
-    }
-
-    let (cert_pem, key_pem) = tokio::task::spawn_blocking(move || generate_cert_with_sans(&extra_sans))
-        .await
-        .map_err(|e| anyhow::anyhow!("TLS cert generation task panicked: {}", e))??;
-
-    std::fs::write(&cert_path, &cert_pem)?;
-    std::fs::write(&key_path, &key_pem)?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))?;
-    }
-
-    let server_config = build_server_config(&cert_pem, &key_pem)?;
-    tracing::info!("Generated new remote TLS certificate");
-
-    Ok(LocalTls { cert_pem, server_config })
-}

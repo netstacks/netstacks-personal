@@ -32,6 +32,7 @@ import { convertToPng, copyToClipboard, getImageFromClipboard, readClipboardText
 import type { ClipProvenance } from '../types/clip'
 import { advancedPasteEnabled, preparePasteText, shouldConfirmPaste } from '../lib/clipTransforms'
 import { openExternalUrl } from '../lib/openExternal'
+import { decodeOsc52Payload } from '../lib/osc52'
 import { LocalFileOps } from '../lib/fileOps'
 import { createAgentHttpClient } from '../api/localClient'
 import { HighlightEngine, type AdHocHighlight, type DetectionRuleExtras } from '../lib/highlightEngine'
@@ -299,6 +300,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
   const gutterRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const webglAddonRef = useRef<WebglAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const countdownIntervalRef = useRef<number | null>(null)
@@ -854,18 +856,13 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     },
   }), [sessionId])
 
+  // Fit the grid to the container. The backend hears about it from the
+  // terminal's onResize handlers (standalone / enterprise / jumpbox), so every
+  // refit — window, pane, font size, zoom — reaches the PTY.
   const handleResize = useCallback(() => {
     if (fitAddonRef.current && terminalRef.current) {
       try {
         fitAddonRef.current.fit()
-        // Send resize to backend
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const { cols, rows } = terminalRef.current
-          wsRef.current.send(JSON.stringify({
-            type: 'Resize',
-            data: { cols, rows }
-          }))
-        }
       } catch {
         // Ignore fit errors during initialization
       }
@@ -1173,6 +1170,20 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     ensureTerminalDropTarget()
     return () => { terminalImageDropHandlers.delete(id) }
   }, [id])
+
+  // Standalone (agent WebSocket) resize: tell the PTY whenever the grid
+  // changes, whatever caused it. Only the window-resize path used to send it,
+  // so a font-size / zoom change left the remote app wrapping at the old
+  // width until the window was resized.
+  useEffect(() => {
+    if (isEnterpriseMode || isJumpboxMode || !terminalInstance) return
+    const disposable = terminalInstance.onResize(({ cols, rows }) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'Resize', data: { cols, rows } }))
+      }
+    })
+    return () => disposable.dispose()
+  }, [isEnterpriseMode, isJumpboxMode, terminalInstance])
 
   // Enterprise SSH resize handler
   useEffect(() => {
@@ -2401,8 +2412,7 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       const pd = data.slice(semi + 1)
       if (!pd || pd === '?') return false // ignore read requests
       try {
-        const text = atob(pd)
-        void copyToClipboard(text, { source: 'app-copy' })
+        void copyToClipboard(decodeOsc52Payload(pd), { source: 'app-copy' })
       } catch {
         // malformed base64 — ignore
       }
@@ -2508,9 +2518,11 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     try {
       const webglAddon = new WebglAddon()
       webglAddon.onContextLoss(() => {
+        webglAddonRef.current = null
         webglAddon.dispose()
       })
       terminal.loadAddon(webglAddon)
+      webglAddonRef.current = webglAddon
     } catch {
       // WebGL not available — falls back to default DOM renderer
     }
@@ -2700,10 +2712,36 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
     // Window resize
     window.addEventListener('resize', handleResize)
 
+    // Re-measure when web fonts finish loading (cell metrics change) and when
+    // the window moves to a display with another pixel ratio: the WebGL
+    // renderer's cached glyphs are stale then, and text stayed misaligned
+    // until the window was resized by hand.
+    const refreshGlyphs = () => {
+      if (terminalRef.current !== terminal) return
+      webglAddonRef.current?.clearTextureAtlas()
+      handleResize()
+      terminal.refresh(0, terminal.rows - 1)
+    }
+    void document.fonts?.ready.then(refreshGlyphs)
+    document.fonts?.addEventListener('loadingdone', refreshGlyphs)
+    let dprQuery: MediaQueryList | null = null
+    const onDprChange = () => {
+      refreshGlyphs()
+      watchDpr()
+    }
+    const watchDpr = () => {
+      dprQuery?.removeEventListener('change', onDprChange)
+      dprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      dprQuery.addEventListener('change', onDprChange, { once: true })
+    }
+    watchDpr()
+
     return () => {
       if (resizeRafId !== null) cancelAnimationFrame(resizeRafId)
       resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
+      document.fonts?.removeEventListener('loadingdone', refreshGlyphs)
+      dprQuery?.removeEventListener('change', onDprChange)
       if (terminalEl) {
         terminalEl.removeEventListener('contextmenu', handleContextMenu)
         terminalEl.removeEventListener('keydown', handleKeyDown)
@@ -2836,7 +2874,8 @@ const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({
       const effectiveFontFamily = fontFamily || settings['terminal.fontFamily'] || platformMonoFont()
       terminalRef.current.options.fontSize = effectiveFontSize
       terminalRef.current.options.fontFamily = effectiveFontFamily
-      // Re-fit terminal to account for font size changes
+      // New glyphs: drop the WebGL atlas, then re-fit (onResize tells the PTY)
+      webglAddonRef.current?.clearTextureAtlas()
       fitAddonRef.current.fit()
       terminalRef.current.refresh(0, terminalRef.current.rows - 1)
     }

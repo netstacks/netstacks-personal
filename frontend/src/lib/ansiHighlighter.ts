@@ -21,6 +21,8 @@ const RESET = '\x1b[0m'
 // Cap matches per line so a pathological regex on a long line doesn't generate
 // thousands of overlapping matches.
 const MAX_MATCHES_PER_LINE = 64
+// SGR sequences remembered since the last reset (replayed after a highlight).
+const MAX_TRACKED_SGR = 32
 
 /**
  * Escape-sequence parser state. We only need enough of the VT500 state machine
@@ -35,6 +37,11 @@ export class AnsiHighlighter {
   // Parser state, carried across process() calls so a sequence split across two
   // PTY chunks is still recognized (and left untouched) on both sides.
   private mode: EscMode = 'ground'
+  // The stream's own SGR (colour/style) sequences since its last reset. A
+  // highlight ends with a reset, so these are replayed after it — otherwise
+  // the remote app's background/colours were wiped for the rest of the line
+  // (e.g. Claude Code's prompt background stopping mid-line at a match).
+  private sgr: string[] = []
 
   setRules(rules: HighlightRule[]): void {
     this.compiled = []
@@ -126,6 +133,7 @@ export class AnsiHighlighter {
             // intermediate byte (e.g. ESC ( B) — stay, await final
           } else {
             // final byte of a short escape (e.g. ESC c, ESC 7) — done
+            if (c === 'c') this.sgr = [] // RIS: full reset
             flushEsc()
             this.mode = 'ground'
           }
@@ -135,6 +143,7 @@ export class AnsiHighlighter {
           esc += c
           // params 0x30–0x3f, intermediates 0x20–0x2f, final 0x40–0x7e
           if (code >= 0x40 && code <= 0x7e) {
+            if (c === 'm') this.trackSgr(esc)
             flushEsc()
             this.mode = 'ground'
           }
@@ -168,6 +177,20 @@ export class AnsiHighlighter {
     flushText()
     flushEsc()
     return out
+  }
+
+  /** Remember a complete `ESC [ … m` from the stream (see `sgr`). */
+  private trackSgr(seq: string): void {
+    const params = seq.slice(2, -1)
+    if (!/^[0-9;:]*$/.test(params)) return // private / non-SGR form
+    if (/^0*$/.test(params)) {
+      this.sgr = [] // plain reset: nothing to restore
+    } else if (sgrResets(params)) {
+      this.sgr = [seq] // resets, then sets: replaying it alone is exact
+    } else {
+      this.sgr.push(seq)
+      if (this.sgr.length > MAX_TRACKED_SGR) this.sgr.shift()
+    }
   }
 
   /** Highlight a run of printable text, keeping per-line regex semantics. */
@@ -224,12 +247,29 @@ export class AnsiHighlighter {
       if (m.start > pos) out.push(line.slice(pos, m.start))
       out.push(m.prefix)
       out.push(line.slice(m.start, m.end))
-      out.push(RESET)
+      out.push(RESET + this.sgr.join(''))
       pos = m.end
     }
     if (pos < line.length) out.push(line.slice(pos))
     return out.join('')
   }
+}
+
+/**
+ * True if an SGR parameter list contains a reset (`0` / empty). Skips the
+ * arguments of extended colours (`38;5;n`, `38;2;r;g;b`, same for 48/58) so a
+ * colour index of 0 isn't mistaken for a reset.
+ */
+function sgrResets(params: string): boolean {
+  const ps = params.split(';')
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i]
+    if (p === '' || /^0+$/.test(p)) return true
+    if ((p === '38' || p === '48' || p === '58') && i + 1 < ps.length) {
+      i += ps[i + 1] === '5' ? 2 : ps[i + 1] === '2' ? 4 : 0
+    }
+  }
+  return false
 }
 
 function buildRegex(rule: HighlightRule): RegExp | null {

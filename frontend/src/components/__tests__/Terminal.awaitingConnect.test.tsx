@@ -38,7 +38,7 @@ vi.mock('@xterm/xterm', () => {
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} proposeDimensions() { return { cols: 80, rows: 24 } } dispose() {} } }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class { dispose() {} } }))
 vi.mock('@xterm/addon-search', () => ({ SearchAddon: class { findNext() { return false } findPrevious() { return false } clearDecorations() {} onDidChangeResults() { return { dispose() {} } } dispose() {} } }))
-vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class { onContextLoss() { return { dispose() {} } } dispose() {} } }))
+vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class { onContextLoss() { return { dispose() {} } } clearTextureAtlas() {} dispose() {} } }))
 
 vi.mock('../../api/client', () => {
   const http = {

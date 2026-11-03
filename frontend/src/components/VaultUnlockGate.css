@@ -300,3 +300,10 @@
   text-align: center;
   margin-top: 4px;
 }
+
+/* Remote window: the vault belongs to the server, not this computer. */
+.vault-remote-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--vg-text-muted, var(--vg-text-secondary));
+}

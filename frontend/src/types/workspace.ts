@@ -167,7 +167,9 @@ export interface WorkspaceConfig {
   // Python execution preference
   pythonRunMode?: 'native' | 'netstacks' | null
 
-  // Remote agent connection (persisted for reconnect)
+  // Live remote agent connection (the local end of its SSH tunnel). Valid
+  // while the app runs — e.g. for saving the scratchpad into the workspace —
+  // and re-established on every open, never reused across restarts.
   remoteAgentHost?: string
   remoteAgentPort?: number
   remoteAgentToken?: string

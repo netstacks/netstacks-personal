@@ -35,11 +35,30 @@ pub async fn run_local_forward(
     cancel: CancellationToken,
     counters: ForwardCounters,
 ) -> Result<(), String> {
-    let ForwardCounters { tx: bytes_tx, rx: bytes_rx } = counters;
     let addr = format!("{}:{}", bind_address, local_port);
     let listener = TcpListener::bind(&addr)
         .await
         .map_err(|e| format!("Failed to bind {}: {}", addr, e))?;
+    serve_local_forward(conn, listener, remote_host, remote_port, cancel, counters).await;
+    Ok(())
+}
+
+/// Serve a local forward on an already-bound `listener` (e.g. bound to port 0
+/// so the caller can read the OS-assigned port first). Returns when `cancel`
+/// fires.
+pub async fn serve_local_forward(
+    conn: Arc<Mutex<PooledConnection>>,
+    listener: TcpListener,
+    remote_host: &str,
+    remote_port: u16,
+    cancel: CancellationToken,
+    counters: ForwardCounters,
+) {
+    let ForwardCounters { tx: bytes_tx, rx: bytes_rx } = counters;
+    let addr = listener
+        .local_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
 
     tracing::info!(
         "Local forward listening on {} -> {}:{}",
@@ -92,8 +111,6 @@ pub async fn run_local_forward(
             }
         }
     }
-
-    Ok(())
 }
 
 /// Bridge a single TCP connection to an SSH direct-tcpip channel.

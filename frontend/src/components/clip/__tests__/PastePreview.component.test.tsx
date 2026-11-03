@@ -30,4 +30,20 @@ describe('PastePreview (editable)', () => {
     fireEvent.keyDown(screen.getByTestId('paste-preview-editor'), { key: 'Enter', ctrlKey: true })
     expect(onPaste).toHaveBeenCalledWith('a\r\nb')
   })
+
+  it('opens focused on the dialog so a plain Enter pastes as-is', () => {
+    const onPaste = vi.fn()
+    render(<PastePreview text={'a\nb'} flavor="linux" targetName="srv" initialRaw onPaste={onPaste} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Paste preview' })
+    expect(document.activeElement).toBe(dialog)
+    fireEvent.keyDown(dialog, { key: 'Enter' })
+    expect(onPaste).toHaveBeenCalledWith('a\nb')
+  })
+
+  it('a plain Enter inside the editor edits instead of pasting', () => {
+    const onPaste = vi.fn()
+    render(<PastePreview text={'a\nb'} flavor="linux" targetName="srv" initialRaw onPaste={onPaste} onClose={() => {}} />)
+    fireEvent.keyDown(screen.getByTestId('paste-preview-editor'), { key: 'Enter' })
+    expect(onPaste).not.toHaveBeenCalled()
+  })
 })

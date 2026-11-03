@@ -17,7 +17,6 @@ import type {
 } from '../types/workspace'
 
 import { getErrorMessage } from '../api/errors'
-import { logger } from '../lib/logger'
 interface UseWorkspaceOptions {
   config: WorkspaceConfig
 }
@@ -229,7 +228,10 @@ export function useWorkspace({ config }: UseWorkspaceOptions): UseWorkspaceRetur
   const [state, setState] = useState<WorkspaceState>(() => createInitialState(config))
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stateRef = useRef(state)
-  stateRef.current = state
+  // Kept current after every render for the save timer / unmount save.
+  useEffect(() => {
+    stateRef.current = state
+  })
 
   const remoteHttp = useMemo(() => {
     if (config.mode === 'remote' && state.remoteAgentHost && state.remoteAgentPort && state.remoteAgentToken) {
@@ -289,39 +291,16 @@ export function useWorkspace({ config }: UseWorkspaceOptions): UseWorkspaceRetur
   // Deploy counter — incremented by retry button to re-trigger the deploy effect
   const [deployAttempt, setDeployAttempt] = useState(0)
 
-  // Deploy remote agent for remote workspaces. Health-checks saved connection
-  // first; falls through to deploy if stale or missing.
+  // Connect a remote workspace through the local agent. It reuses its live
+  // SSH tunnel to an already-running remote agent (fast, no upload) or
+  // deploys one; the tunnel's local port changes between app runs, so a
+  // saved connection is never reused.
   useEffect(() => {
     if (config.mode !== 'remote' || !config.sessionId) return
 
     let mounted = true
 
     const tryConnect = async () => {
-      // If we have saved connection info, health-check before trusting it
-      if (config.remoteAgentHost && config.remoteAgentPort && config.remoteAgentToken) {
-        try {
-          const remoteHttp = createAgentHttpClient(
-            `https://${config.remoteAgentHost}:${config.remoteAgentPort}`,
-            config.remoteAgentToken,
-          )
-          await remoteHttp.get('/health', { timeout: 5000 })
-          if (!mounted) return
-          setState(prev => ({
-            ...prev,
-            remoteAgentStatus: 'connected',
-            remoteAgentHost: config.remoteAgentHost,
-            remoteAgentPort: config.remoteAgentPort,
-            remoteAgentToken: config.remoteAgentToken,
-            remoteAgentId: config.remoteAgentId,
-          }))
-          return
-        } catch {
-          if (!mounted) return
-          logger.log('[workspace] Saved remote agent connection stale — redeploying')
-        }
-      }
-
-      // Deploy fresh
       try {
         setState(prev => ({ ...prev, remoteAgentStatus: 'deploying' }))
         const result = await deployRemoteAgent(config.sessionId!)
@@ -337,8 +316,8 @@ export function useWorkspace({ config }: UseWorkspaceOptions): UseWorkspaceRetur
         }))
       } catch (err) {
         if (!mounted) return
-        const serverMsg = (err as any)?.response?.data?.error
-        const detail = serverMsg || (getErrorMessage(err, 'Failed to deploy remote agent'))
+        // getErrorMessage prefers the agent's `{error}` body over axios' status text.
+        const detail = getErrorMessage(err, 'Failed to deploy remote agent')
         console.error('[workspace] Remote agent deploy failed:', detail, err)
         setState(prev => ({
           ...prev,

@@ -91,6 +91,10 @@ export interface ActiveContext {
    *  terminal tab or status is unknown). */
   terminalStatus: 'connecting' | 'connected' | 'disconnected' | 'error' | null
 
+  /** The active tab is a connected SSH session to a saved session — what the
+   *  remote-agent commands need (not a local shell, Telnet or console). */
+  activeSshSession: boolean
+
   /** True if the active document/script/etc. has unsaved edits. */
   isDirty: boolean
 

@@ -6183,26 +6183,27 @@ def main(command: str = "show version"):
     category: 'workspace',
     description: 'Deploy a remote agent to the active SSH server and open it as a workspace tab',
     // Enterprise mode is a thin shell — it must never deploy an agent.
-    when: (ctx) => !ctx.isEnterprise && ctx.activeTabType === 'terminal' && ctx.terminalStatus === 'connected',
+    when: (ctx) => !ctx.isEnterprise && ctx.activeSshSession,
     run: () => setDeployAgentDialogOpen(true),
   })
   useCommand({
     id: 'workspace.openRemoteWindow',
     label: 'Open Remote Window…',
     category: 'workspace',
-    description: 'Open a full NetStacks window connected to a remote agent on the active SSH server',
+    description: 'Open a full NetStacks window running on the active SSH server (over an SSH tunnel)',
     // Enterprise mode is a thin shell — it must never deploy an agent.
-    when: (ctx) => !ctx.isEnterprise && ctx.activeTabType === 'terminal' && ctx.terminalStatus === 'connected',
+    when: (ctx) => !ctx.isEnterprise && ctx.activeSshSession,
     run: async () => {
       const sessionId = activeTabSessionId
       if (!sessionId) return
+      // First run uploads + starts the agent on the server (several seconds).
+      showToast('Starting NetStacks on the server…', 'info')
       try {
-        const { deployRemoteAgent, ensureRemoteCertTrusted } = await import('./api/remoteAgent')
+        const { deployRemoteAgent, ensureRemoteCertTrusted, remoteWindowParams } = await import('./api/remoteAgent')
         const result = await deployRemoteAgent(sessionId)
         await ensureRemoteCertTrusted(result)
-        const params = `remoteAgentUrl=${encodeURIComponent(`https://${result.host}:${result.port}`)}&remoteAgentToken=${encodeURIComponent(result.auth_token)}`
         const { invoke } = await import('@tauri-apps/api/core')
-        await invoke('open_new_window', { urlParams: params })
+        await invoke('open_new_window', { urlParams: remoteWindowParams(result) })
       } catch (err) {
         console.error('[App] Failed to open remote window:', err)
         showToast('Failed to open remote window: ' + (getErrorMessage(err, String(err))), 'error')
@@ -7189,6 +7190,8 @@ def main(command: str = "show version"):
       terminalStatus: activeTab?.type === 'terminal'
         ? (activeTab.status as ActiveContext['terminalStatus']) ?? null
         : null,
+      activeSshSession: activeTab?.type === 'terminal' && activeTab.status === 'connected'
+        && !!activeTab.sessionId && (activeTab.protocol ?? 'ssh') === 'ssh',
       // Per-tab dirty state isn't tracked in App.tsx yet — surfaces that
       // own dirty state (DocumentTabEditor, MopWorkspace, ScriptEditor)
       // will overwrite this via setContext when they mount/update.
@@ -7435,16 +7438,14 @@ def main(command: str = "show version"):
                 onOpenRemoteWindow={async (sessionId) => {
                   setRemoteWindowDeploying(true)
                   try {
-                    const { deployRemoteAgent, ensureRemoteCertTrusted } = await import('./api/remoteAgent')
+                    const { deployRemoteAgent, ensureRemoteCertTrusted, remoteWindowParams } = await import('./api/remoteAgent')
                     const result = await deployRemoteAgent(sessionId)
                     await ensureRemoteCertTrusted(result)
-                    const params = `remoteAgentUrl=${encodeURIComponent(`https://${result.host}:${result.port}`)}&remoteAgentToken=${encodeURIComponent(result.auth_token)}`
                     const { invoke } = await import('@tauri-apps/api/core')
-                    await invoke('open_new_window', { urlParams: params })
+                    await invoke('open_new_window', { urlParams: remoteWindowParams(result) })
                   } catch (err) {
                     console.error('[App] Failed to open remote window:', err)
-                    const detail = (err as any)?.response?.data?.error || (getErrorMessage(err, String(err)))
-                    showToast('Failed to open remote window: ' + detail, 'error')
+                    showToast('Failed to open remote window: ' + getErrorMessage(err, String(err)), 'error')
                   } finally {
                     setRemoteWindowDeploying(false)
                   }

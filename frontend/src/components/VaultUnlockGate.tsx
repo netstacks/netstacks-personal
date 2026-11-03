@@ -8,6 +8,7 @@ import './VaultUnlockGate.css';
 import { getErrorMessage } from '../api/errors'
 import { logger } from '../lib/logger'
 import { switchToEnterprise } from '../lib/switchMode'
+import { getRemoteAgentHost } from '../api/client'
 interface VaultUnlockGateProps {
   children: ReactNode;
 }
@@ -48,32 +49,36 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
   const [enterpriseSwitching, setEnterpriseSwitching] = useState(false);
   const [enterpriseSwitchError, setEnterpriseSwitchError] = useState<string | null>(null);
 
-  const checkVaultStatus = useCallback(async () => {
-    try {
-      logger.log('Checking vault status...');
-      const status = await getVaultStatus();
-      logger.log('Vault status:', status);
-      if (status.unlocked) {
-        setState('unlocked');
-      } else if (!status.has_master_password) {
-        setState('setup');
-      } else {
-        setState('unlock');
-      }
-    } catch (err) {
-      console.error('Failed to check vault status:', err);
-      // Show error and allow retry instead of assuming unlock
-      setError('Cannot connect to backend. Please ensure the app is running correctly.');
+  const applyVaultStatus = useCallback((status: Awaited<ReturnType<typeof getVaultStatus>>) => {
+    logger.log('Vault status:', status);
+    if (status.unlocked) {
+      setState('unlocked');
+    } else if (!status.has_master_password) {
+      setState('setup');
+    } else {
       setState('unlock');
     }
   }, []);
+  const onVaultStatusError = useCallback((err: unknown) => {
+    console.error('Failed to check vault status:', err);
+    // Show error and allow retry instead of assuming unlock
+    setError('Cannot connect to backend. Please ensure the app is running correctly.');
+    setState('unlock');
+  }, []);
+
+  const checkVaultStatus = useCallback(
+    () => getVaultStatus().then(applyVaultStatus).catch(onVaultStatusError),
+    [applyVaultStatus, onVaultStatusError],
+  );
 
   useEffect(() => {
-    // Only check vault status in Personal mode
+    // Only check vault status in Personal mode. State is set only from the
+    // request's callbacks.
     if (!isEnterprise) {
-      checkVaultStatus();
+      logger.log('Checking vault status...');
+      getVaultStatus().then(applyVaultStatus).catch(onVaultStatusError);
     }
-  }, [checkVaultStatus, isEnterprise]);
+  }, [applyVaultStatus, onVaultStatusError, isEnterprise]);
 
   // Check biometric availability whenever the unlock screen is shown.
   useEffect(() => {
@@ -268,11 +273,18 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
   // in both modes — the rest of the chrome (logo, container, dark theme)
   // stays identical so switching views feels like a panel swap, not a
   // separate screen.
+  // A remote window runs on a server's own agent, with that server's own
+  // vault — say so, so it isn't mistaken for this computer's vault.
+  const remoteHost = getRemoteAgentHost();
   const subtitle = gateView === 'controller'
     ? "Enter your organization's Controller URL"
-    : state === 'setup'
-      ? 'Create a master password to protect your credentials'
-      : 'Enter your master password to unlock';
+    : remoteHost
+      ? state === 'setup'
+        ? `Create a master password for the vault on ${remoteHost}`
+        : `Unlock the vault on ${remoteHost}`
+      : state === 'setup'
+        ? 'Create a master password to protect your credentials'
+        : 'Enter your master password to unlock';
 
   return (
     <div className="vault-gate">
@@ -300,6 +312,11 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
           </div>
           <h1>NetStacks</h1>
           <p className="vault-subtitle">{subtitle}</p>
+          {remoteHost && (
+            <p className="vault-subtitle vault-remote-note">
+              This server keeps its own sessions and credentials, separate from this computer.
+            </p>
+          )}
         </div>
 
         {gateView === 'vault' ? (
@@ -465,7 +482,7 @@ export default function VaultUnlockGate({ children }: VaultUnlockGateProps) {
               </div>
             )}
 
-            {resetStep === 0 && (
+            {resetStep === 0 && !remoteHost && (
             <div className="vault-mode-switch">
               <button
                 type="button"

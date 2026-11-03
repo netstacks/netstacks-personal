@@ -2,8 +2,9 @@
  * Paste dialog (docs/clipboard-history-plan.md §4.4): the clipboard text on the
  * left is EDITABLE (SecureCRT-style "confirm multi-line paste"), the right pane
  * shows exactly what the selected preset will send with control characters
- * made visible and changed lines highlighted. Confirm pastes the right-hand
- * text into the target terminal; Ctrl+Enter is the keyboard shortcut.
+ * made visible and changed lines highlighted. Enter pastes straight away;
+ * click into the text to edit it (Enter then adds lines, Ctrl/Cmd+Enter
+ * pastes).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CliFlavor } from '../../types/enrichment'
@@ -47,16 +48,27 @@ export default function PastePreview({ text, flavor, targetName, initialRaw = fa
   const resultLines = useMemo(() => result.split('\n'), [result])
   const added = useMemo(() => addedLines(draft.split('\n'), resultLines), [draft, resultLines])
 
-  const editorRef = useRef<HTMLTextAreaElement>(null)
+  // Focus the dialog, not the editor: a plain Enter then pastes as-is.
+  // Editing is opt-in by clicking into the text.
+  const dialogRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    editorRef.current?.focus()
+    dialogRef.current?.focus()
   }, [])
   const canPaste = result.length > 0
   const onEditorKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canPaste) {
       e.preventDefault()
+      e.stopPropagation()
       onPaste(result)
     }
+  }
+  const onDialogKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' || e.defaultPrevented || !canPaste) return
+    // Inside the editor Enter adds a line; on the preset picker / buttons it
+    // keeps its own meaning.
+    if ((e.target as HTMLElement).closest('textarea, select, button')) return
+    e.preventDefault()
+    onPaste(result)
   }
 
   const { backdropProps, contentProps } = useOverlayDismiss({ onDismiss: onClose })
@@ -69,7 +81,7 @@ export default function PastePreview({ text, flavor, targetName, initialRaw = fa
 
   return (
     <div className="command-palette-overlay" {...backdropProps}>
-      <div className="paste-preview movable-popup" role="dialog" aria-label="Paste preview" style={style} {...contentProps}>
+      <div ref={dialogRef} tabIndex={-1} onKeyDown={onDialogKeyDown} className="paste-preview movable-popup" role="dialog" aria-label="Paste preview" style={style} {...contentProps}>
         <Tooltip label="Drag to move"><div className="paste-preview-head movable-popup-titlebar" onMouseDown={onHeaderMouseDown}>
           <div>
             <strong>Paste into {targetName}</strong>
@@ -96,7 +108,6 @@ export default function PastePreview({ text, flavor, targetName, initialRaw = fa
               )}
             </div>
             <textarea data-ai-fill="off"
-              ref={editorRef}
               className="paste-preview-editor"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -119,7 +130,7 @@ export default function PastePreview({ text, flavor, targetName, initialRaw = fa
         <DialogFooter
           primary={{ label: `Paste ${resultLineCount} ${resultLineCount === 1 ? 'line' : 'lines'}`, onClick: () => onPaste(result), disabled: !canPaste }}
           onCancel={onClose}
-          leading={<span className="paste-preview-legend">Edit on the left · right shows what is sent · ␍ carriage return · → tab · · trailing space · <span className="added">changed by preset</span> · <kbd>Ctrl+↵</kbd> paste</span>}
+          leading={<span className="paste-preview-legend">Edit on the left · right shows what is sent · ␍ carriage return · → tab · · trailing space · <span className="added">changed by preset</span> · <kbd>↵</kbd> paste · editing: <kbd>Ctrl+↵</kbd></span>}
         />
         <Tooltip label="Drag to resize"><div className="movable-popup-resize" onMouseDown={onResizeMouseDown} /></Tooltip>
       </div>

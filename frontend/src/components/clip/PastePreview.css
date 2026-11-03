@@ -94,3 +94,8 @@
 .paste-preview-revert {
   margin-left: 8px;
 }
+
+/* The dialog itself takes focus on open (Enter pastes); no focus ring. */
+.paste-preview:focus {
+  outline: none;
+}

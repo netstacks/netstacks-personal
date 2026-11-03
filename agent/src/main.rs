@@ -427,27 +427,13 @@ async fn async_main() {
     // and tracing subscriber are initialized later in this function).
     std::env::remove_var("NETSTACKS_AUTH_TOKEN");
 
-    // Load or generate the localhost TLS certificate.
+    // Load or generate the localhost TLS certificate (localhost + 127.0.0.1).
+    // Remote agents use it too: the app always reaches them through an SSH
+    // tunnel to 127.0.0.1, never by the server's own name.
     // Cert PEM is base64-encoded on one line so Tauri can parse it from stdout.
-    // Load or generate TLS certificate.
-    // In remote mode with NETSTACKS_TLS_SANS set, generate a fresh cert
-    // with additional SANs for the remote host's IP/hostname.
-    let extra_sans: Vec<String> = std::env::var("NETSTACKS_TLS_SANS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let local_tls = if !extra_sans.is_empty() {
-        tls::load_or_generate_remote(extra_sans)
-            .await
-            .expect("Failed to initialize remote TLS cert")
-    } else {
-        tls::load_or_generate()
-            .await
-            .expect("Failed to initialize localhost TLS")
-    };
+    let local_tls = tls::load_or_generate()
+        .await
+        .expect("Failed to initialize localhost TLS");
     let cert_b64 = base64::engine::general_purpose::STANDARD.encode(local_tls.cert_pem.as_bytes());
     println!("NETSTACKS_TLS_CERT={}", cert_b64);
 
@@ -740,10 +726,10 @@ async fn async_main() {
     let app = create_app(app_state, pool, lsp_state);
 
     // Determine bind address and port.
-    // --remote: bind 0.0.0.0 (accept external connections)
-    // default: bind 127.0.0.1 (loopback only, sidecar mode)
+    // Default bind is 127.0.0.1 in every mode — remote agents are reached
+    // through an SSH tunnel to the server's loopback (remote_agents.rs).
     // --port <N>: override port (default 0 = OS-assigned ephemeral)
-    // --bind <addr>: override bind address
+    // --bind <addr>: override bind address (e.g. 0.0.0.0 for a manual setup)
     let args: Vec<String> = std::env::args().collect();
     let remote_mode = args.contains(&"--remote".to_string());
     let cli_port: u16 = args
@@ -758,13 +744,7 @@ async fn async_main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|v| v.parse().ok());
 
-    let bind_ip = cli_bind.unwrap_or({
-        if remote_mode {
-            std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED) // 0.0.0.0
-        } else {
-            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) // 127.0.0.1
-        }
-    });
+    let bind_ip = cli_bind.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
     let addr = SocketAddr::new(bind_ip, cli_port);
 
     // Single-instance enforcement: evict orphaned agents that hold our lockfile port.

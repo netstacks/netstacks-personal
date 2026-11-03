@@ -34,10 +34,15 @@ export async function initializeClient(): Promise<ClientInitResult> {
   if (remoteAgentUrl && remoteAgentToken) {
     logger.log('[client] Remote agent window — connecting to', remoteAgentUrl);
     currentMode = 'standalone';
-    try {
-      remoteAgentHost = new URL(remoteAgentUrl).hostname;
-    } catch {
-      remoteAgentHost = remoteAgentUrl;
+    // The URL is the local end of the SSH tunnel (127.0.0.1); the label names
+    // the server the agent actually runs on.
+    remoteAgentHost = params.get('remoteAgentLabel');
+    if (!remoteAgentHost) {
+      try {
+        remoteAgentHost = new URL(remoteAgentUrl).hostname;
+      } catch {
+        remoteAgentHost = remoteAgentUrl;
+      }
     }
     clientInstance = createRemoteAgentClient(remoteAgentUrl, remoteAgentToken);
     return {
