@@ -1,0 +1,6 @@
+/* Settings → AI Engineer (enterprise): read-only profile values. */
+.enterprise-ai-profile-value {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  text-transform: capitalize;
+}

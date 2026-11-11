@@ -1,0 +1,74 @@
+.clipboard-int-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.clipboard-preset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.clipboard-preset-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.clipboard-preset-name {
+  font-weight: 600;
+  max-width: 320px;
+}
+
+.clipboard-preset-row {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: flex-start;
+}
+
+.clipboard-preset-row-label {
+  flex: none;
+  width: 190px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  padding-top: 3px;
+}
+
+.clipboard-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.clipboard-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.clipboard-chip.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint-10);
+}
+
+.clipboard-transforms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+}
+
+.clipboard-transform {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+}

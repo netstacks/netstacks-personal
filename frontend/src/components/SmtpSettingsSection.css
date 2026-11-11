@@ -1,0 +1,10 @@
+/* Settings → Integrations → Email Notifications */
+.smtp-port-presets {
+  display: flex;
+  gap: 2px;
+}
+
+.settings-form-row > .smtp-port {
+  flex: 0 0 150px;
+  min-width: 0;
+}

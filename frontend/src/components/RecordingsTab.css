@@ -1,0 +1,52 @@
+/* Inline player modal */
+
+.recordings-player-modal {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  width: 90vw;
+  max-width: 1200px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.recordings-player-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recordings-player-body {
+  flex: 1;
+  overflow: hidden;
+}
+
+.recordings-player-title {
+  margin-right: auto;
+  padding-left: var(--spacing-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.recordings-log-loading {
+  padding: var(--spacing-lg);
+}
+
+.recordings-log-view {
+  max-height: 70vh;
+  margin: 0;
+  padding: var(--spacing-lg);
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

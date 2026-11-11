@@ -1,0 +1,655 @@
+.highlighting-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.highlighting-search {
+  flex: 1;
+  min-width: 180px;
+}
+
+.highlighting-toolbar-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.highlighting-file-input {
+  display: none;
+}
+
+/* Master/detail: rule list beside the rule editor, each scrolling inside a
+ * fixed-height pane so the editor stays in view. */
+.highlighting-content {
+  display: flex;
+  gap: var(--spacing-md);
+  height: min(640px, 70vh);
+}
+
+/* Left column - Rule list */
+.rules-list-container {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rules-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.rules-list-empty {
+  padding: var(--spacing-lg);
+  background: var(--color-bg-secondary);
+}
+
+
+/* Category group */
+.rules-category-group {
+  background: var(--color-bg-secondary);
+}
+
+.rules-category-group:first-child {
+  border-radius: 5px 5px 0 0;
+}
+
+.rules-category-group:last-child {
+  border-radius: 0 0 5px 5px;
+}
+
+.rules-category-group:only-child {
+  border-radius: 5px;
+}
+
+.rules-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary);
+  transition: background var(--transition-fast);
+}
+
+.rules-category-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.rules-category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.rules-category-chevron {
+  color: var(--color-text-secondary);
+  transition: transform var(--transition-fast);
+}
+
+.rules-category-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.rules-category-count {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+.rules-category-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.rules-category-items.collapsed {
+  display: none;
+}
+
+/* Rule item */
+.rule-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--color-bg-secondary);
+  transition: background var(--transition-fast);
+  gap: 10px;
+}
+
+.rule-item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.rule-item.selected {
+  background: var(--color-bg-tertiary);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 10px;
+}
+
+.rule-item.disabled {
+  opacity: 0.5;
+}
+
+.rule-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rule-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rule-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-pattern {
+  font-size: 10px;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Right column - Rule editor */
+.rule-editor-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-secondary);
+}
+
+.rule-editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+
+.rule-editor-empty p {
+  margin: 0 0 8px 0;
+}
+
+.rule-editor-empty p:last-child {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.rule-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rule-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+}
+
+.rule-editor-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.rule-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.rule-editor-content {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+}
+
+/* Form styles */
+.rule-form-group {
+  margin-bottom: 16px;
+}
+
+.rule-form-group:last-child {
+  margin-bottom: 0;
+}
+
+.rule-form-label {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.rule-form-input-number {
+  width: 100px;
+}
+
+.rule-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.rule-form-row > * {
+  flex: 1;
+}
+
+/* Checkbox row */
+.rule-form-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.rule-form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-form-checkbox input {
+  width: 14px;
+  height: 14px;
+}
+
+.rule-form-checkbox span {
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+/* Colors section */
+.rule-colors-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rule-colors-row {
+  display: flex;
+  gap: 24px;
+}
+
+/* Regex test area */
+.rule-test-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.rule-test-result {
+  padding: 10px 12px;
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-primary);
+  min-height: 20px;
+  word-break: break-all;
+}
+
+.rule-test-result .highlight {
+  padding: 1px 0;
+  border-radius: 2px;
+}
+
+.rule-test-error {
+  color: var(--color-error);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+/* Delete confirmation */
+
+.delete-confirm-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  padding: 20px 24px;
+  width: 90%;
+  max-width: 400px;
+  animation: slideUp 0.2s ease;
+}
+
+.delete-confirm-dialog h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.delete-confirm-dialog p {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+/* Import Dialog */
+.import-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  width: 90%;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s ease;
+}
+
+.import-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.import-dialog-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.import-dialog-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Preset List */
+.preset-list {
+  width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preset-list-header {
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.preset-item {
+  padding: 12px 16px;
+  transition: background var(--transition-fast);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.preset-item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.preset-item.selected {
+  background: var(--color-bg-tertiary);
+  border-left: 2px solid var(--color-accent);
+  padding-left: 14px;
+}
+
+.preset-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 4px;
+}
+
+.preset-item-desc {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.preset-item-count {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+/* Preset Rules */
+.preset-rules {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.preset-rules-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.preset-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.preset-rules-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 0;
+}
+
+.preset-rules-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.preset-rules-empty p {
+  margin: 0;
+}
+
+/* Preset Rule Item */
+.preset-rule-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  gap: 10px;
+  transition: background var(--transition-fast);
+}
+
+.preset-rule-item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.preset-rule-item.duplicate {
+  opacity: 0.5;
+}
+
+.preset-rule-checkbox {
+  flex-shrink: 0;
+}
+
+.preset-rule-checkbox input {
+  width: 14px;
+  height: 14px;
+}
+
+.preset-rule-checkbox input:disabled {
+  cursor: not-allowed;
+}
+
+.preset-rule-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.preset-rule-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preset-rule-name {
+  font-size: 12px;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-rule-pattern {
+  font-size: 10px;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-rule-duplicate {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Import Success */
+.import-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(var(--color-success-rgb), 0.1);
+  border-top: 1px solid rgba(var(--color-success-rgb), 0.2);
+  color: var(--color-success);
+  font-size: 12px;
+}
+
+/* File Import Rules Container */
+.file-import-rules {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* File Import Warnings */
+.file-import-warnings {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(var(--color-warning-rgb), 0.1);
+  border-bottom: 1px solid rgba(var(--color-warning-rgb), 0.2);
+  color: var(--color-warning);
+  font-size: 11px;
+}
+
+.file-import-warnings svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.file-import-warnings p {
+  margin: 0 0 4px 0;
+}
+
+.file-import-warnings p:last-child {
+  margin-bottom: 0;
+}
+
+/* Preset Rule Category Badge */
+.preset-rule-category {
+  font-size: 9px;
+  padding: 2px 6px;
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.highlighting-search {
+  flex: 1;
+}
+
+.pattern-type-toggle {
+  margin-top: 8px;
+}
+
+.rule-form-input,
+.rule-test-input {
+  width: 100%;
+}

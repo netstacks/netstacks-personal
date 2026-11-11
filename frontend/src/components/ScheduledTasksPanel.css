@@ -1,0 +1,179 @@
+.scheduled-tasks-panel {
+  padding: var(--spacing-md);
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg-primary);
+}
+
+.scheduled-tasks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.scheduled-tasks-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.scheduled-tasks-loading,
+.scheduled-tasks-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.scheduled-tasks-empty p {
+  margin: var(--spacing-xs) 0;
+}
+
+.scheduled-tasks-error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: rgba(var(--color-error-rgb), 0.1);
+  color: var(--color-error);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+
+.scheduled-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.scheduled-task-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border);
+}
+
+.scheduled-task-item.paused {
+  opacity: 0.7;
+}
+
+.scheduled-task-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.scheduled-task-name {
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: 4px;
+}
+
+.scheduled-task-schedule {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 2px;
+}
+
+.scheduled-task-cron {
+  color: var(--color-accent);
+}
+
+.scheduled-task-timezone {
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
+.scheduled-task-next {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.scheduled-task-paused-label {
+  color: var(--color-warning);
+  font-style: italic;
+}
+
+.scheduled-task-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Dialog */
+
+.schedule-dialog {
+  width: 480px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.schedule-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.schedule-dialog-header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.schedule-dialog form {
+  padding: var(--spacing-md);
+}
+
+.schedule-dialog-field {
+  margin-bottom: var(--spacing-md);
+}
+
+.schedule-dialog-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
+}
+
+.schedule-dialog-field input,
+.schedule-dialog-field select,
+.schedule-dialog-field textarea {
+  width: 100%;
+}
+
+.schedule-dialog-field textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.schedule-dialog-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.schedule-dialog-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.schedule-dialog-error {
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  background: rgba(var(--color-error-rgb), 0.1);
+  color: var(--color-error);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}

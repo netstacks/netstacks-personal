@@ -1,0 +1,187 @@
+/* Feature B: human-in-the-loop interaction panel (approval / question). */
+.interaction-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.interaction-panel {
+  pointer-events: auto;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.interaction-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.interaction-kind-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+.interaction-kind-badge.kind-approval {
+  background: rgba(var(--color-warning-rgb), 0.18);
+  color: var(--color-warning);
+}
+.interaction-kind-badge.kind-question {
+  background: var(--color-accent-tint-20);
+  color: var(--color-text-accent);
+}
+
+.interaction-queue-count {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.interaction-prompt {
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.interaction-tool {
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-warning);
+}
+
+.interaction-tool-input {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-control);
+  padding: 6px;
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.interaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.interaction-chip {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.interaction-chip:hover:not(:disabled) {
+  background: var(--color-accent-tint-15);
+}
+
+.interaction-answer {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.interaction-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Corner badge — shown when a pending interaction exists but user isn't on the AI tab */
+.interaction-corner-badge {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition: background 0.15s;
+}
+.interaction-corner-badge:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+}
+.interaction-corner-badge.kind-question {
+  border-color: var(--color-accent);
+}
+.interaction-corner-badge.kind-approval {
+  border-color: var(--color-warning);
+}
+
+.interaction-corner-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  flex-shrink: 0;
+  animation: ip-pulse 1.6s ease-in-out infinite;
+}
+.interaction-corner-badge.kind-question .interaction-corner-dot {
+  background: var(--color-accent);
+}
+.interaction-corner-badge.kind-approval .interaction-corner-dot {
+  background: var(--color-warning);
+}
+@keyframes ip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.interaction-corner-label {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.interaction-corner-count {
+  background: var(--color-bg-tertiary);
+  border-radius: 8px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Collapse button inside the full panel (visible when off-AI-tab and panel is open) */
+.interaction-collapse-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.interaction-collapse-btn:hover {
+  color: var(--color-text);
+}

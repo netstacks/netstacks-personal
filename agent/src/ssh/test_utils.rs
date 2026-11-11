@@ -1,0 +1,421 @@
+#![cfg(test)]
+//! Shared test scaffolding for SSH module tests.
+//!
+//! This module provides reusable test servers, key generation, and utilities
+//! for tests across `jump.rs`, `mod.rs` (SshSession), and future modules
+//! (`terminal.rs`, `tunnels`, e2e).
+
+use russh::keys::ssh_key;
+use russh::keys::PrivateKey;
+use russh::server::{Auth, Config as ServerConfig, Msg, Server, Session};
+use russh::{Channel, ChannelId};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+/// Canned response for an exec request the test server should serve.
+#[derive(Clone, Default)]
+pub(crate) struct ExecResponse {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub exit_status: u32,
+}
+
+/// Map of exec command -> canned response. The match is against the full
+/// exec command string sent by the client.
+pub(crate) type ExecResponder = Arc<dyn Fn(&str) -> Option<ExecResponse> + Send + Sync>;
+
+/// Scripted PTY shell: the server prints `prompt` on shell open, echoes
+/// each input line, answers it with `responder(line)`, then prints the
+/// prompt again. Lets shell-driven code (Session Guard probes, MOP runs)
+/// be tested against canned device output.
+#[derive(Clone)]
+pub(crate) struct ShellScript {
+    pub prompt: String,
+    pub responder: Arc<dyn Fn(&str) -> String + Send + Sync>,
+    /// Optional low-level override consulted first. Returning `Some(chunks)`
+    /// makes the server echo the line and then write each `(delay, text)`
+    /// chunk verbatim after sleeping `delay` — no automatic prompt, so a
+    /// test can script a hung command, a `--More--` pager, or a
+    /// `Enter value:` line that is NOT a prompt. A bare space typed with no
+    /// pending input (pager continue) is delivered as the line `" "`.
+    pub raw_responder: Option<RawShellResponder>,
+}
+
+pub(crate) type RawShellResponder =
+    Arc<dyn Fn(&str) -> Option<Vec<(std::time::Duration, String)>> + Send + Sync>;
+
+/// Configuration for the test SSH server.
+#[derive(Clone)]
+pub(crate) struct TestServerConfig {
+    /// If Some, accept password auth with this (username, password).
+    pub accept_password: Option<(String, String)>,
+    /// If Some, accept publickey auth from this username (any key).
+    pub accept_key_user: Option<String>,
+    /// Whether to allow direct-tcpip channels.
+    pub allow_direct_tcpip: bool,
+    /// If Some, called for every exec_request. Returning Some(response)
+    /// makes the server emit that stdout/stderr + exit status. Returning
+    /// None makes the server reject the exec (channel close, no exit).
+    pub exec_responder: Option<ExecResponder>,
+    /// If true, send `eof` BEFORE `exit-status` (mimicking OpenSSH server
+    /// behavior). If false, default order: data → exit-status → eof → close.
+    /// Used to regression-test the channel-handling loop against both orders.
+    pub eof_before_exit_status: bool,
+    /// Host key for the server.
+    pub host_key: PrivateKey,
+    /// If Some, `shell_request` gets a scripted device-style shell instead
+    /// of the bare `READY` banner.
+    pub shell: Option<ShellScript>,
+}
+
+/// Test server handler — implements both `Server` and `Handler`.
+/// The Server trait creates new Handler instances for each client; we
+/// just clone ourselves since the config is shared via Arc.
+#[derive(Clone)]
+pub(crate) struct TestServer {
+    pub cfg: Arc<TestServerConfig>,
+    /// Partial input line for the scripted shell (per client).
+    shell_line: String,
+}
+
+impl TestServer {
+    fn new(cfg: Arc<TestServerConfig>) -> Self {
+        TestServer {
+            cfg,
+            shell_line: String::new(),
+        }
+    }
+}
+
+impl Server for TestServer {
+    type Handler = Self;
+    fn new_client(&mut self, _peer: Option<SocketAddr>) -> Self::Handler {
+        self.clone()
+    }
+}
+
+impl russh::server::Handler for TestServer {
+    type Error = russh::Error;
+
+    async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
+        if let Some((u, p)) = &self.cfg.accept_password {
+            if user == u && password == p {
+                return Ok(Auth::Accept);
+            }
+        }
+        Ok(Auth::reject())
+    }
+
+    async fn auth_publickey(
+        &mut self,
+        user: &str,
+        _public_key: &ssh_key::PublicKey,
+    ) -> Result<Auth, Self::Error> {
+        if let Some(accept_user) = &self.cfg.accept_key_user {
+            if user == accept_user {
+                return Ok(Auth::Accept);
+            }
+        }
+        Ok(Auth::reject())
+    }
+
+    async fn channel_open_session(
+        &mut self,
+        _channel: Channel<Msg>,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        // Accept session channels (target needs this for shell).
+        Ok(true)
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        if !self.cfg.allow_direct_tcpip {
+            return Ok(false);
+        }
+
+        // Connect to the actual target and bridge data through this channel.
+        let addr = format!("{}:{}", host_to_connect, port_to_connect);
+        let stream = match TcpStream::connect(&addr).await {
+            Ok(s) => s,
+            Err(_) => return Ok(false),
+        };
+
+        tokio::spawn(async move {
+            let _ = pump_channel_to_socket(channel, stream).await;
+        });
+        Ok(true)
+    }
+
+    async fn shell_request(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Emit a "READY\n" banner that the test checks for (or the scripted
+        // shell's prompt). Spawn the write so we don't block the handler.
+        let handle = session.handle();
+        let banner = match &self.cfg.shell {
+            Some(script) => script.prompt.clone().into_bytes(),
+            None => b"READY\n".to_vec(),
+        };
+        tokio::spawn(async move {
+            let _ = handle.data(channel, banner.into()).await;
+        });
+        Ok(())
+    }
+
+    async fn pty_request(
+        &mut self,
+        _channel: ChannelId,
+        _term: &str,
+        _col_width: u32,
+        _row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _modes: &[(russh::Pty, u32)],
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let Some(script) = self.cfg.shell.clone() else {
+            return Ok(());
+        };
+        for b in data {
+            match b {
+                b' ' if self.shell_line.is_empty() && script.raw_responder.is_some() => {
+                    let raw = script.raw_responder.clone().expect("checked is_some");
+                    match raw(" ") {
+                        Some(chunks) => {
+                            write_raw_chunks(session.handle(), channel, String::new(), chunks)
+                        }
+                        None => self.shell_line.push(' '),
+                    }
+                }
+                b'\n' | b'\r' => {
+                    let line = std::mem::take(&mut self.shell_line);
+                    if let Some(chunks) = script
+                        .raw_responder
+                        .as_ref()
+                        .and_then(|raw| raw(line.trim()))
+                    {
+                        write_raw_chunks(session.handle(), channel, format!("{line}\r\n"), chunks);
+                        continue;
+                    }
+                    let mut output = (script.responder)(line.trim());
+                    if !output.is_empty() && !output.ends_with('\n') {
+                        output.push_str("\r\n");
+                    }
+                    let reply = format!("{line}\r\n{output}{}", script.prompt);
+                    let handle = session.handle();
+                    tokio::spawn(async move {
+                        let _ = handle.data(channel, reply.into_bytes().into()).await;
+                    });
+                }
+                _ => self.shell_line.push(*b as char),
+            }
+        }
+        Ok(())
+    }
+
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let cmd = String::from_utf8_lossy(data).to_string();
+        let responder = self.cfg.exec_responder.clone();
+        let eof_first = self.cfg.eof_before_exit_status;
+        let handle = session.handle();
+        tokio::spawn(async move {
+            let response = responder.as_ref().and_then(|r| r(&cmd)).unwrap_or_default();
+            if !response.stdout.is_empty() {
+                let _ = handle.data(channel, response.stdout.into()).await;
+            }
+            if !response.stderr.is_empty() {
+                // ext = 1 = stderr per RFC 4254
+                let _ = handle
+                    .extended_data(channel, 1, response.stderr.into())
+                    .await;
+            }
+            if eof_first {
+                let _ = handle.eof(channel).await;
+                let _ = handle
+                    .exit_status_request(channel, response.exit_status)
+                    .await;
+            } else {
+                let _ = handle
+                    .exit_status_request(channel, response.exit_status)
+                    .await;
+                let _ = handle.eof(channel).await;
+            }
+            let _ = handle.close(channel).await;
+        });
+        Ok(())
+    }
+}
+
+/// Write `echo` then each raw chunk after its delay, off the handler task.
+fn write_raw_chunks(
+    handle: russh::server::Handle,
+    channel: ChannelId,
+    echo: String,
+    chunks: Vec<(std::time::Duration, String)>,
+) {
+    tokio::spawn(async move {
+        if !echo.is_empty() {
+            let _ = handle.data(channel, echo.into_bytes().into()).await;
+        }
+        for (delay, text) in chunks {
+            tokio::time::sleep(delay).await;
+            let _ = handle.data(channel, text.into_bytes().into()).await;
+        }
+    });
+}
+
+/// Bridge a russh server channel <-> a real TCP socket.
+/// Used by the jump server to forward client traffic to the target.
+pub(crate) async fn pump_channel_to_socket(
+    mut channel: Channel<Msg>,
+    mut stream: TcpStream,
+) -> std::io::Result<()> {
+    let mut buf = vec![0u8; 8192];
+    loop {
+        tokio::select! {
+            msg = channel.wait() => {
+                match msg {
+                    Some(russh::ChannelMsg::Data { data }) => {
+                        stream.write_all(&data).await?;
+                    }
+                    None | Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => break,
+                    _ => {}
+                }
+            }
+            n = stream.read(&mut buf) => {
+                match n? {
+                    0 => break,
+                    n => {
+                        channel.data(&buf[..n]).await
+                            .map_err(|e| std::io::Error::other(
+                                e.to_string()
+                            ))?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Start a russh server on an ephemeral port. Returns its bound address.
+pub(crate) async fn start_test_server(cfg: TestServerConfig) -> SocketAddr {
+    let host_key = cfg.host_key.clone();
+    let server_config = Arc::new(ServerConfig {
+        keys: vec![host_key],
+        // Short auth rejection times so failure tests don't take forever.
+        auth_rejection_time: std::time::Duration::from_millis(10),
+        auth_rejection_time_initial: Some(std::time::Duration::from_millis(0)),
+        ..Default::default()
+    });
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = TestServer::new(Arc::new(cfg));
+
+    tokio::spawn(async move {
+        loop {
+            let (sock, peer) = match listener.accept().await {
+                Ok(x) => x,
+                Err(_) => break,
+            };
+            let mut srv = server.clone();
+            let handler = russh::server::Server::new_client(&mut srv, Some(peer));
+            let cfg = server_config.clone();
+            tokio::spawn(async move {
+                let _ = russh::server::run_stream(cfg, sock, handler).await;
+            });
+        }
+    });
+
+    addr
+}
+
+/// Generate an ephemeral Ed25519 key for testing.
+/// Host key for fake test servers. One key is shared by every server in the
+/// test process: servers bind random loopback ports, and if the OS hands a
+/// later test a port an earlier test already trusted (TOFU), a *different*
+/// key would be refused as "host key changed". Tests that need a genuinely
+/// distinct key can call `PrivateKey::random` directly.
+pub(crate) fn ephemeral_ed25519() -> PrivateKey {
+    static SHARED: std::sync::OnceLock<PrivateKey> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            PrivateKey::random(&mut rand::rngs::OsRng, ssh_key::Algorithm::Ed25519).unwrap()
+        })
+        .clone()
+}
+
+/// Write a temporary key file for publickey auth tests. Returns the path.
+pub(crate) fn write_temp_key(key: &PrivateKey) -> std::path::PathBuf {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let path = dir.join("id_test");
+    let pem = key.to_openssh(ssh_key::LineEnding::LF).unwrap();
+    std::fs::write(&path, pem.as_bytes()).unwrap();
+    path
+}
+
+/// Convenience helper: start a jump host and a target host with password auth
+/// and direct-tcpip allowed on the jump.
+///
+/// Returns (jump_addr, target_addr).
+///
+/// This is the common pattern for jump-chain tests:
+/// - Jump accepts (jump_user, jump_pw) password auth + allows forwarding
+/// - Target accepts (target_user, target_pw) password auth + denies forwarding
+pub(crate) async fn start_jump_and_target(
+    jump_user: &str,
+    jump_pw: &str,
+    target_user: &str,
+    target_pw: &str,
+) -> (SocketAddr, SocketAddr) {
+    let jump_addr = start_test_server(TestServerConfig {
+        accept_password: Some((jump_user.into(), jump_pw.into())),
+        accept_key_user: None,
+        allow_direct_tcpip: true,
+        exec_responder: None,
+        eof_before_exit_status: false,
+        shell: None,
+        host_key: ephemeral_ed25519(),
+    })
+    .await;
+
+    let target_addr = start_test_server(TestServerConfig {
+        accept_password: Some((target_user.into(), target_pw.into())),
+        accept_key_user: None,
+        allow_direct_tcpip: false,
+        exec_responder: None,
+        eof_before_exit_status: false,
+        shell: None,
+        host_key: ephemeral_ed25519(),
+    })
+    .await;
+
+    (jump_addr, target_addr)
+}

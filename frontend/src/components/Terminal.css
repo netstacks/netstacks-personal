@@ -1,0 +1,839 @@
+/* Terminal Component Styles */
+
+.terminal-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  /* Background is set by xterm.js theme - don't override it here */
+}
+
+.terminal-content-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.terminal-content-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-line-numbers {
+  white-space: pre;
+  text-align: right;
+  padding: var(--spacing-xs) 6px var(--spacing-xs) 4px;
+  font-size: 10px;
+  line-height: inherit;
+  color: var(--color-text-muted);
+  background: rgba(0, 0, 0, 0.15);
+  border-right: 1px solid var(--color-border);
+  user-select: none;
+  pointer-events: none;
+  min-width: 28px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.terminal-content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-xs);
+  overflow: hidden;
+}
+
+/* Override xterm.js styles to fit our container */
+.terminal-content .xterm {
+  height: 100%;
+  padding: var(--spacing-xs);
+}
+
+.terminal-content .xterm-viewport {
+  background-color: transparent;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+
+/* Terminal tabs styling */
+.terminal-tabs {
+  display: flex;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 35px;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-tab.active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.terminal-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.terminal-tab:hover .terminal-tab-close {
+  opacity: 1;
+}
+
+.terminal-tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.terminal-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-tab-add:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Logging indicator */
+.terminal-logging-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  /* Logging is informational (accent); recording keeps the red "live" look. */
+  background: var(--color-accent-tint-20);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+  border-radius: 12px;
+  color: var(--color-text-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  animation: logging-pulse 1.5s ease-in-out infinite;
+}
+
+.terminal-logging-indicator svg {
+  fill: #ef4444;
+}
+
+@keyframes logging-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Recording indicator (asciicast) */
+.terminal-recording-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(var(--color-error-rgb), 0.2);
+  border: 1px solid rgba(var(--color-error-rgb), 0.4);
+  border-radius: 12px;
+  color: var(--color-error);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  animation: recording-pulse 1.5s ease-in-out infinite;
+}
+
+.terminal-recording-indicator svg {
+  fill: #ef4444;
+}
+
+@keyframes recording-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* When both logging and recording are active, stack them */
+.terminal-container:has(.terminal-logging-indicator) .terminal-recording-indicator {
+  top: 36px;
+}
+
+/* Capture mode indicator (>> docs/path) */
+.terminal-capture-indicator {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--color-accent-tint-15);
+  border: 1px solid var(--color-accent-tint-45);
+  border-radius: 16px;
+  color: var(--color-text-accent);
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+}
+
+.terminal-capture-indicator-pulse {
+  position: absolute;
+  inset: -2px;
+  border-radius: 18px;
+  border: 2px solid var(--color-accent-tint-45);
+  animation: capture-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes capture-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+.terminal-capture-indicator svg {
+  flex-shrink: 0;
+  stroke: var(--color-accent);
+}
+
+.terminal-capture-path {
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: var(--color-text-accent);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-capture-bytes {
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  color: var(--color-text-accent);
+  padding: 2px 6px;
+  background: var(--color-accent-tint-20);
+  border-radius: var(--radius-panel);
+}
+
+.terminal-capture-complete,
+.terminal-capture-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.terminal-capture-complete {
+  background: rgba(var(--color-success-rgb), 0.2);
+  color: var(--color-success);
+}
+
+.terminal-capture-complete:hover {
+  background: rgba(var(--color-success-rgb), 0.4);
+  transform: scale(1.1);
+}
+
+.terminal-capture-cancel {
+  background: rgba(var(--color-error-rgb), 0.2);
+  color: var(--color-error);
+}
+
+.terminal-capture-cancel:hover {
+  background: rgba(var(--color-error-rgb), 0.4);
+  transform: scale(1.1);
+}
+
+.terminal-capture-complete svg,
+.terminal-capture-cancel svg {
+  stroke-width: 2.5;
+}
+
+/* Fix xterm.js decoration container positioning - must overlay terminal content */
+.xterm .xterm-screen .xterm-decoration-container {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Highlight decoration overlay styles */
+.xterm .xterm-decoration-container .highlight-decoration {
+  position: absolute;
+  z-index: 5;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* AI overlord decorations need pointer events and visible overflow for popups */
+.xterm .xterm-decoration-container .highlight-decoration.ai-overlord-highlight {
+  pointer-events: auto !important;
+  overflow: visible !important;
+  z-index: 20;
+}
+
+/* Ensure highlight colors override terminal theme */
+.xterm .xterm-decoration-container .highlight-decoration[style*="background"] {
+  opacity: 0.9;
+}
+
+/* AI highlight specific styles */
+.xterm .xterm-decoration-container .ai-highlight {
+  border-bottom: 2px dotted currentColor;
+  cursor: help;
+  pointer-events: auto;
+}
+
+/* AI Overlord gutter icon annotations */
+.xterm .xterm-decoration-container .ai-overlord-gutter {
+  position: absolute;
+  z-index: 10;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  background: transparent !important;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  transition: transform 0.15s ease;
+}
+
+.xterm .xterm-decoration-container .ai-overlord-gutter:hover {
+  transform: scale(1.3);
+}
+
+/* Overlord-specific highlight: more prominent than standard AI highlights */
+.xterm .xterm-decoration-container .ai-overlord-highlight {
+  border-bottom: 2px solid currentColor;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
+}
+
+.xterm .xterm-decoration-container .ai-overlord-highlight:hover {
+  opacity: 1 !important;
+  filter: brightness(1.3);
+}
+
+/* Allow overlord popups to overflow the decoration container */
+.xterm .xterm-screen .xterm-decoration-container {
+  overflow: visible !important;
+}
+
+/* Terminal hover popup — tiny tooltip above the hovered MAC / IP.
+   Shared style: shows OUI vendor for MACs, reverse-DNS for IPs. */
+.terminal-hover-popup {
+  position: fixed;
+  transform: translateY(-100%);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 3px 8px;
+  font-family: var(--font-family);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: var(--z-popover);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* AI Overlord hover popup */
+.ai-overlord-popup {
+  position: fixed;
+  transform: translateY(-100%);
+  min-width: 280px;
+  max-width: 420px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  font-family: var(--font-family);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: var(--z-popover);
+  pointer-events: none;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.ai-overlord-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-overlord-popup-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #000;
+}
+
+.ai-overlord-popup-label {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+}
+
+.ai-overlord-popup-body {
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-overlord-popup-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+.terminal-save-dialog-path {
+  font-family: var(--font-family-mono);
+}
+
+/* Enterprise SSH Badge (Phase 42) */
+.terminal-proxy-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--color-accent-tint-15);
+  border: 1px solid var(--color-accent-tint-45);
+  color: var(--color-text-accent);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.terminal-proxy-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Jump (Bastion) badge — top-right pill, distinct hue from the
+   Controller pill so both can show simultaneously. Same visual language. */
+.terminal-jump-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(var(--color-warning-rgb), 0.15);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.4);
+  color: var(--color-warning);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* OOB console pill — same placement as the jump badge, violet so the two
+   read differently when stacked. */
+.terminal-console-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(167, 139, 250, 0.15);
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  color: #a78bfa;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.terminal-jump-badge::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #f59e0b;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+/* Enterprise SSH Reconnecting Overlay (Phase 42) */
+.terminal-reconnecting-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  color: var(--color-text-primary);
+}
+
+.terminal-reconnecting-content {
+  text-align: center;
+  padding: 24px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  max-width: 400px;
+}
+
+.terminal-reconnecting-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--color-text-primary);
+}
+
+.terminal-reconnecting-message {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-bottom: 16px;
+}
+
+.terminal-reconnecting-attempts {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+}
+
+.terminal-reconnect-btn {
+  margin-top: 16px;
+  padding: 8px 20px;
+  background: var(--color-primary);
+  color: var(--color-text-on-accent);
+  border: none;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.terminal-reconnect-btn:hover {
+  background: #2563eb;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.terminal-reconnect-btn:active {
+  transform: scale(0.98);
+}
+
+
+/* === Hover enrichment popover (ported from netstacks-vsce) === */
+/* Positioning/sizing only — the frosted-glass skin comes from the shared
+   `.popover-card` class (see popoverCard.css), which this element also carries. */
+.ns-enrich-popup {
+  position: absolute;
+  z-index: 100;
+  min-width: 160px;
+  max-width: 340px;
+  pointer-events: auto;
+}
+.ns-enrich-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  background: var(--color-fill-subtle);
+  border-bottom: 1px solid var(--color-border);
+}
+.ns-enrich-header-draggable {
+  cursor: grab;
+  user-select: none;
+}
+.ns-enrich-header-draggable:active { cursor: grabbing; }
+.ns-enrich-close-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+.ns-enrich-close-btn:hover {
+  color: var(--vscode-foreground);
+  background: var(--color-fill);
+}
+.ns-enrich-title {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--vscode-foreground);
+  word-break: break-all;
+}
+.ns-enrich-type-badge {
+  font-size: 9px;
+  padding: 0 5px;
+  border-radius: 2px;
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+  text-transform: lowercase;
+}
+.ns-enrich-digest-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--vscode-charts-yellow);
+  border-radius: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+}
+.ns-enrich-digest-btn:hover {
+  background: rgba(var(--color-warning-rgb), 0.15);
+}
+
+/* sections — tag chip sits inline with first row, not on its own line */
+.ns-enrich-section {
+  border-bottom: 1px solid var(--color-border);
+  padding: 3px 7px 4px;
+}
+.ns-enrich-section:last-child { border-bottom: none; }
+.ns-enrich-section-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+.ns-enrich-section-tag {
+  font-size: 8px;
+  padding: 0 4px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.ns-enrich-tag-builtin { background: var(--color-fill); color: var(--color-text-secondary); }
+.ns-enrich-tag-crawler { background: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
+.ns-enrich-tag-netbox { background: var(--color-accent-tint-20); color: var(--color-text-accent); }
+.ns-enrich-tag-default { background: var(--color-fill); color: var(--color-text-secondary); }
+.ns-enrich-tag-error { background: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
+.ns-enrich-error-text { color: var(--color-error); font-style: italic; }
+
+/* Per-section "view raw" toggle — small {} button on the section header */
+.ns-enrich-raw-toggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--font-family-mono);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  line-height: 1.2;
+}
+.ns-enrich-raw-toggle:hover {
+  background: var(--color-fill);
+  color: var(--vscode-foreground);
+}
+.ns-enrich-raw-toggle.active {
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+  border-color: rgba(var(--color-success-rgb), 0.3);
+}
+
+/* Raw-debug fallback: snippet that expands to the full JSON response. Used
+   when a per-source renderer doesn't recognize the shape — gives us a way
+   to see what the upstream actually sent and refine renderers from there. */
+.ns-enrich-raw-summary {
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  padding: 2px 0;
+  list-style: none;
+  outline: none;
+  word-break: break-all;
+}
+.ns-enrich-raw-summary:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.ns-enrich-raw-summary::before {
+  content: '▸ ';
+  color: var(--vscode-charts-yellow);
+}
+details[open] .ns-enrich-raw-summary::before { content: '▾ '; }
+.ns-enrich-raw-summary::-webkit-details-marker { display: none; }
+.ns-enrich-raw-full {
+  margin: 4px 0 0;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 3px;
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--vscode-foreground);
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ns-enrich-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ns-enrich-row {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+}
+.ns-enrich-row-label {
+  color: var(--vscode-descriptionForeground);
+  min-width: 56px;
+  flex-shrink: 0;
+}
+.ns-enrich-row-value {
+  flex: 1;
+  color: var(--vscode-foreground);
+  word-break: break-word;
+}
+.ns-enrich-pill {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 600;
+}
+.ns-enrich-pill-up { background: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
+.ns-enrich-pill-down { background: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
+.ns-enrich-pill-warn { background: rgba(var(--color-warning-rgb), 0.18); color: var(--color-warning); }
+.ns-enrich-pill-info { background: var(--color-accent-tint-20); color: var(--color-text-accent); }
+
+.ns-enrich-empty {
+  padding: 6px 8px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  text-align: center;
+  font-size: 11px;
+}
+.ns-enrich-loading {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  justify-content: center;
+}
+.ns-enrich-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+  animation: ns-enrich-pulse 1.2s ease-in-out infinite;
+}
+.ns-enrich-dot:nth-child(2) { animation-delay: 0.2s; }
+.ns-enrich-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ns-enrich-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+/* Per-section spinner — small inline dots in the section header while
+   that one source is still in flight. Replaced in-place when its data
+   (or error) arrives. */
+.ns-enrich-section-spinner {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+  align-items: center;
+}
+.ns-enrich-section-spinner .ns-enrich-dot {
+  width: 4px;
+  height: 4px;
+}
+
+.ns-enrich-digest {
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.ns-enrich-digest-footer {
+  padding: 2px 8px 4px;
+  font-size: 9px;
+  color: var(--vscode-descriptionForeground);
+  text-align: right;
+}

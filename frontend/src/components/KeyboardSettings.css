@@ -1,0 +1,27 @@
+/* Settings → Keyboard: shortcut chips and the key-capture field. */
+.keyboard-kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+}
+
+.keyboard-kbd.customized {
+  border-color: var(--color-accent);
+  color: var(--color-text-accent);
+}
+
+.keyboard-edit-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.keyboard-binding-input {
+  font-family: var(--font-family-mono);
+  text-align: center;
+}

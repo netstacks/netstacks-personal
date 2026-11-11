@@ -1,0 +1,70 @@
+/* Settings → Prompts */
+.prompts-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.prompts-favorite {
+  color: var(--color-warning);
+}
+
+.prompt-editor {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  width: 500px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.prompt-editor-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 500;
+}
+
+.prompt-editor-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.prompt-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prompt-editor-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.prompt-editor-field textarea {
+  resize: vertical;
+  min-height: 150px;
+}
+
+.prompt-editor-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prompt-editor-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.prompt-editor-checkbox span {
+  font-size: 13px;
+  color: var(--text-primary);
+}

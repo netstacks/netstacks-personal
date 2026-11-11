@@ -1,0 +1,178 @@
+/* TopologyTabEditor styles */
+
+.topology-tab-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.topology-tab-editor.loading,
+.topology-tab-editor.error,
+.topology-tab-editor.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-spinner {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.error-message {
+  color: var(--error);
+  padding: 16px;
+}
+
+.empty-message {
+  color: var(--text-secondary);
+}
+
+/* Canvas container */
+.topology-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* AI highlight chip - what the AI highlighted on the canvas, dismissible */
+.ai-highlight-chip {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 6px 8px 6px 12px;
+  background: rgba(156, 39, 176, 0.15);
+  border: 1px solid rgba(156, 39, 176, 0.4);
+  border-radius: var(--radius-panel);
+  color: #ce93d8;
+  font-size: 12px;
+  z-index: 50;
+}
+
+.ai-highlight-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-highlight-chip-clear {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid rgba(156, 39, 176, 0.5);
+  border-radius: var(--radius-panel);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-highlight-chip-clear:hover,
+.ai-highlight-chip-clear:focus-visible {
+  background: rgba(156, 39, 176, 0.25);
+}
+
+/* AI Action Toast - shows when AI modifies topology */
+.ai-action-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--color-bg-primary);
+  border: 1px solid rgba(156, 39, 176, 0.5);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  animation: topology-toast-in 0.2s ease;
+}
+
+@keyframes topology-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(156, 39, 176, 0.2);
+  border-radius: var(--radius-control);
+  color: #ce93d8;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast-source {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  background: rgba(156, 39, 176, 0.2);
+  color: #ce93d8;
+  border-radius: 3px;
+}
+
+.toast-description {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* Undo All AI button (floating) */
+.undo-all-ai-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(156, 39, 176, 0.15);
+  border: 1px solid rgba(156, 39, 176, 0.4);
+  border-radius: var(--radius-panel);
+  color: #ce93d8;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  z-index: 100;
+}
+
+.undo-all-ai-btn:hover {
+  background: rgba(156, 39, 176, 0.25);
+  border-color: rgba(156, 39, 176, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.undo-all-ai-btn svg {
+  flex-shrink: 0;
+}
+
+/* Suspense fallback while the lazily-loaded 3D canvas chunk downloads */
+.topology-canvas-3d-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

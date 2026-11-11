@@ -1,0 +1,45 @@
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+.docs/
+
+# Hidden local/tooling directories
+.idea/
+.vscode/
+.planning/
+.playwright/
+.playwright-mcp/
+.worktrees/
+.claude/worktrees/
+.superpowers/
+.netstacks/
+
+# OS/editor artifacts
+.DS_Store
+*.swp
+*.swo
+
+# CI runner
+actions-runner/
+
+# Build artifacts
+builds/output/
+agent/target/
+frontend/dist/
+frontend/dist-web/
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/
+
+# NSO Python type stubs (yang2stubs output)
+typings/
+
+# Dependencies
+node_modules
+
+# Narrated walkthrough videos (large binaries, produced by netstacks-website/tools/capture)
+/videos/
+
+# Local build logs and Vite cache
+agent/.last-*.log
+agent/.vite/

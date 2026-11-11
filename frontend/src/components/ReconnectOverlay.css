@@ -1,0 +1,90 @@
+/* Reconnect Overlay Styles */
+
+.reconnect-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  animation: reconnect-fade-in 0.2s ease;
+}
+
+@keyframes reconnect-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.reconnect-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) calc(var(--spacing-lg) * 2);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-panel);
+  max-width: 350px;
+  text-align: center;
+  animation: reconnect-slide-up 0.2s ease;
+}
+
+@keyframes reconnect-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reconnect-overlay-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--color-warning);
+}
+
+.reconnect-overlay-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.reconnect-overlay-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.reconnect-overlay-message {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+}
+
+.reconnect-countdown {
+  font-weight: 600;
+  color: var(--color-accent);
+  font-family: var(--font-family-mono);
+}
+
+.reconnect-attempts {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.reconnect-overlay-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}

@@ -1,0 +1,71 @@
+.sidebar-sections {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+}
+
+.sidebar-sections-bar {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--color-fill-subtle);
+  outline: none;
+}
+
+.sidebar-section {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 0;
+  min-width: 22px;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.sidebar-section svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Hairline separators between icons, hidden next to the selected one. */
+.sidebar-section + .sidebar-section::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.sidebar-section[aria-selected='true']::before,
+.sidebar-section[aria-selected='true'] + .sidebar-section::before {
+  display: none;
+}
+
+.sidebar-section:hover {
+  color: var(--color-text-primary);
+}
+
+.sidebar-section[aria-selected='true'] {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+/* Inactive window: selection turns neutral grey, as in Xcode/Finder. */
+:root[data-window-focused='false'] .sidebar-section[aria-selected='true'] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar-sections-bar:focus-visible {
+  box-shadow: var(--focus-ring);
+}

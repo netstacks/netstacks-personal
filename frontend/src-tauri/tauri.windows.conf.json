@@ -1,0 +1,18 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "NetStacks",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600,
+        "decorations": true,
+        "transparent": true,
+        "backgroundColor": "#1e1e1e",
+        "visible": false
+      }
+    ]
+  }
+}

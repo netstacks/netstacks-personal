@@ -1,0 +1,6 @@
+    Line       User       Host(s)              Idle       Location
+   1 vty 0     admin      idle                 00:03:12 10.20.4.55
+*  2 vty 1     admin      idle                 00:00:00 10.20.4.55
+
+  Interface    User               Mode         Idle     Peer Address
+

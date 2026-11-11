@@ -1,0 +1,123 @@
+/* CommandWarningDialog - VS Code style warning modal */
+
+.command-warning-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-top: 3px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  width: 480px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: warning-slide-up 0.2s ease;
+}
+
+@keyframes warning-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.command-warning-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.command-warning-icon {
+  font-size: 24px;
+}
+
+.command-warning-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.command-warning-command {
+  padding: 12px 20px;
+  background: var(--vscode-textCodeBlock-background);
+  margin: 16px 20px;
+  border-radius: var(--radius-control);
+}
+
+.command-warning-command code {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  color: var(--vscode-textLink-foreground);
+  word-break: break-all;
+}
+
+.command-warning-list {
+  padding: 0 20px 16px;
+}
+
+.command-warning-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--vscode-foreground);
+}
+
+.command-warning-item .warning-bullet {
+  flex-shrink: 0;
+}
+
+.command-warning-item.severity-high {
+  color: var(--color-error);
+}
+
+.command-warning-item.severity-medium {
+  color: var(--color-warning);
+}
+
+.command-warning-item.severity-low {
+  color: var(--color-text-secondary);
+}
+
+.command-warning-alternatives {
+  padding: 12px 20px;
+  background: var(--vscode-textCodeBlock-background);
+  margin: 0 20px 16px;
+  border-radius: var(--radius-control);
+}
+
+.alternatives-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.alternative-button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 6px;
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: var(--radius-control);
+  text-align: left;
+  transition: background-color 0.15s;
+}
+
+.alternative-button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.alternative-button code {
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  color: var(--vscode-textLink-foreground);
+}

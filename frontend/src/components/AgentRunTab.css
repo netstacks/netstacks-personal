@@ -1,0 +1,320 @@
+/* AgentRunTab — full-window agent run view. */
+.agent-run-tab {
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-run-empty {
+  align-items: center;
+  justify-content: center;
+}
+.agent-run-empty-inner {
+  margin: auto;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+/* Centered, responsive content column (chat layout) shared by header, body,
+   and composer. Caps at 920px, centers via margin auto, shrinks on resize. */
+.agent-run-center {
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 0 22px;
+}
+
+.agent-run-head {
+  padding: 9px 0 9px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.agent-run-head-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 9px;
+  border-radius: var(--radius-control);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+.agent-run-status.status-running { background: rgba(var(--color-success-rgb), 0.16); color: var(--color-success); }
+.agent-run-status.status-completed { background: rgba(var(--color-success-rgb), 0.14); color: var(--color-success); }
+.agent-run-status.status-failed { background: rgba(var(--color-error-rgb), 0.16); color: var(--color-error); }
+.agent-run-status.status-cancelled { background: var(--color-fill); color: var(--color-text-tertiary); }
+.agent-run-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: agent-run-pulse 1.6s ease-out infinite;
+}
+@keyframes agent-run-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--color-success-rgb, 78, 201, 176), 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(var(--color-success-rgb, 78, 201, 176), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--color-success-rgb, 78, 201, 176), 0); }
+}
+
+.agent-run-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Workflow = activity feed (left) beside the sub-agent graph (right), with a
+   draggable divider. 'Workflow' view shows just the graph (full width). */
+.agent-run-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.agent-run-split-main {
+  min-width: 0;
+  min-height: 0;
+}
+.agent-run-split-graph {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+.agent-run-divider {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: var(--color-border-subtle);
+  touch-action: none;
+}
+.agent-run-divider:hover { background: var(--color-accent); }
+
+/* Artifacts tray — a small, always-accessible list of docs this run saved.
+   Opening one reuses the app's document tab + split-screen. */
+.agent-run-artifacts { position: relative; }
+.agent-run-artifacts-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  animation: ns-pop-down 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
+}
+.agent-run-artifact-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+.agent-run-artifact-card:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+.agent-run-artifact-name { font-size: 12.5px; font-weight: 500; word-break: break-word; }
+.agent-run-artifact-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-tertiary);
+}
+
+/* Single-line prompt button (full text in a click popover) keeps the header
+   to one compact row. */
+.agent-run-prompt-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.agent-run-prompt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-run-prompt:hover { color: var(--color-accent); }
+.agent-run-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.agent-run-prompt-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 31;
+  min-width: 280px;
+  max-width: 560px;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.agent-run-prompt-pop-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 6px;
+}
+.agent-run-prompt-pop-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-run-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.agent-run-body .agent-run-center {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+  padding-bottom: 28px;
+}
+
+/* Composer / session input pinned to the bottom (chat-style). */
+.agent-run-composer {
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-secondary);
+  padding: 7px 0 7px;
+}
+.agent-run-ask-prompt {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-run-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.agent-run-chip {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.agent-run-chip:hover:not(:disabled) { background: var(--color-accent-tint-15); }
+.agent-run-input-row { display: flex; gap: 8px; align-items: flex-end; }
+.agent-run-input {
+  flex: 1;
+  resize: none;
+  max-height: 140px;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.agent-run-approval-args {
+  margin: 0 0 8px;
+  max-height: 160px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-family: var(--font-family-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-run-approval-actions { justify-content: flex-end; }
+.agent-run-working { display: flex; align-items: center; gap: 10px; }
+.agent-run-working-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.agent-run-working-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  animation: agent-run-pulse 1.6s ease-out infinite;
+}
+
+.agent-run-result {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  padding: 12px 14px 14px;
+}
+.agent-run-result-error { border-color: rgba(var(--color-error-rgb), 0.3); }
+.agent-run-result-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 8px;
+}
+.agent-run-result-error .agent-run-result-label { color: var(--color-error); }
+.agent-run-result-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+}
+.agent-run-result-text { font-family: inherit; }
+pre.agent-run-result-body { font-family: var(--font-family-mono); font-size: 12px; }

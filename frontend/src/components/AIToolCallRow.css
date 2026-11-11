@@ -1,0 +1,119 @@
+/* Rows inside an AI activity group (tool calls + reasoning share these). */
+.ai-row-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 18px;
+}
+
+.ai-row-chevron {
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: auto;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+details:hover > summary > .ai-row-chevron,
+details[open] > summary > .ai-row-chevron {
+  opacity: 1;
+}
+
+details[open] > summary > .ai-row-chevron {
+  transform: rotate(90deg);
+}
+
+/* One tool call. */
+.ai-tool-call {
+  min-width: 0;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+
+.ai-tool-call-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.ai-tool-call-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-tool-call-summary:hover {
+  background: var(--color-bg-hover);
+}
+
+.ai-tool-call.empty .ai-tool-call-summary {
+  cursor: default;
+}
+
+.ai-tool-call.empty .ai-tool-call-summary:hover {
+  background: none;
+}
+
+.ai-tool-call .ai-row-icon {
+  color: var(--color-success);
+}
+
+.ai-tool-call.failed .ai-row-icon {
+  color: var(--color-error);
+}
+
+/* The call itself wraps (batched commands are one per line) — never clipped. */
+.ai-tool-call-command {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-family-mono);
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--color-text-primary);
+  background: none;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-tool-call.failed .ai-tool-call-command {
+  color: var(--color-error);
+}
+
+.ai-tool-call-session {
+  flex-shrink: 0;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  line-height: 18px;
+  color: var(--color-text-muted);
+}
+
+.ai-tool-call-output {
+  margin: 2px 6px 6px 28px;
+  padding: 6px 10px;
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  border-radius: 4px;
+}
+
+.ai-tool-call.failed .ai-tool-call-output {
+  color: var(--color-text-primary);
+  background: rgba(var(--color-error-rgb), 0.08);
+}

@@ -1,0 +1,341 @@
+/* Session Settings Dialog Styles */
+
+.settings-dialog {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--glass-highlight);
+  width: 90%;
+  max-width: 600px;
+  /* One height for every tab (content scrolls) so switching tabs never
+   * resizes or re-centres the dialog. */
+  height: min(640px, 85vh);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s ease;
+}
+.settings-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+
+.settings-dialog-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: default;
+}
+
+/* Drag indicator dots */
+.settings-dialog-header::before {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 8px;
+  margin-right: 8px;
+  background-image: radial-gradient(circle, var(--color-text-tertiary) 1.5px, transparent 1.5px);
+  background-size: 6px 4px;
+  opacity: 0.6;
+}
+
+.settings-dialog-header h2 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tabs */
+.settings-dialog-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+  /* Same surface as the rest of the modal — the active-tab underline is the
+     only indicator, so the tab strip doesn't read as a separate colored band. */
+  background: transparent;
+}
+
+.settings-dialog-tab {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-family: var(--font-family);
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.settings-dialog-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.settings-dialog-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* Content */
+.settings-dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--spacing-lg);
+}
+
+.settings-dialog-error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(var(--color-error-rgb), 0.15);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-control);
+  color: var(--color-error);
+  font-size: var(--font-size-small);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Scoped to the dialog so it doesn't collide with the global
+   `.settings-tab-content` in App.css (used for full-page settings tabs), which
+   would otherwise leak `background: var(--color-bg-primary)`, `height: 100%`
+   and `overflow: hidden` into the modal body — making it a darker grey than the
+   rest of the modal and clipping content. */
+.settings-dialog .settings-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  background: transparent;
+  height: auto;
+  width: auto;
+  overflow: visible;
+}
+
+/* Form Elements */
+
+.settings-dialog .form-group.flex-grow {
+  flex: 1;
+}
+
+/* Radio Group */
+.radio-group {
+  display: flex;
+  gap: var(--spacing-lg);
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+.radio-label input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+
+/* Setting Row (for toggles) */
+
+/* Mapped Keys */
+.mapped-keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Snippets */
+.snippets-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.snippet-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-control);
+}
+
+/* Color Selector */
+
+.color-picker {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+  flex-shrink: 0;
+}
+
+.color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+/* Profile Section */
+.profile-section {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+}
+
+.profile-section h3 {
+  color: var(--color-accent);
+}
+
+/* Inherited field styling */
+input.inherited,
+select.inherited {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.radio-label.inherited span {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* Font Size Slider */
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.slider-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  min-width: 20px;
+  text-align: center;
+}
+
+.font-size-slider {
+  flex: 1;
+}
+
+/* Port Forwarding Styles (Phase 06.3) */
+.port-forwards-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.port-forward-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-control);
+}
+
+.port-forward-item.disabled {
+  opacity: 0.5;
+}
+
+.port-forward-item.disabled .port-forward-spec {
+  text-decoration: line-through;
+}
+
+.port-forward-type {
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-accent);
+  min-width: 72px;
+}
+
+.port-forward-spec {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+}
+
+.port-forward-add {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.port-forward-local {
+  width: 90px;
+}
+
+.port-forward-host {
+  width: 130px;
+}
+
+.port-forward-remote {
+  width: 70px;
+}
+
+.port-forward-arrow {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  color: var(--color-text-muted);
+}
+
+/* Auto Commands on Connect */
+.auto-commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.auto-command-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.auto-command-item code {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  color: var(--color-text-primary);
+}
+
+/* Inline profile creation shortcut (SSH tab) */
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-accent);
+  font-size: inherit;
+}
+
+.link-button:hover {
+  color: var(--color-accent-hover);
+}
+
+.port-forward-type-select {
+  width: 100px;
+}

@@ -1,0 +1,23 @@
+/* Settings → Enterprise: controller URL row, CA fingerprint, CA actions. */
+.settings-connection-url,
+.settings-connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.settings-connection-url .ns-input {
+  flex: 1;
+  min-width: 240px;
+}
+
+.settings-connection-fingerprint {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-control);
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  word-break: break-all;
+  user-select: all;
+}

@@ -1,0 +1,94 @@
+# NetStacks Terminal — Flatpak manifest (standalone / Personal Mode)
+#
+# Build with ./builds/build-flatpak.sh. Packaging only: no application source
+# is patched. Standalone is the app's default when no controllerUrl is
+# configured, and a fresh Flatpak data directory has none.
+#
+# Dependencies are fetched during the build (--share=network), the same way the
+# other Linux build scripts work. Flathub would require vendored sources instead.
+id: com.netstacks.terminal
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+command: netstacks
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # SSH keys and known_hosts, plus the usual transfer locations. Do not widen
+  # this to --filesystem=home: --persist is ignored with full home access, and
+  # the app would then share its database and agent lock with a native install.
+  - --filesystem=~/.ssh
+  - --filesystem=xdg-documents
+  - --filesystem=xdg-download
+  # The agent and shell build paths from $HOME/.local/share; keep them per-app.
+  - --persist=.local/share
+  # Local terminal tabs run on the host (see netstacks-host-shell.sh).
+  - --talk-name=org.freedesktop.Flatpak
+  - --env=SHELL=/app/bin/netstacks-host-shell
+
+modules:
+  - name: netstacks
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
+      build-args:
+        - --share=network
+      env:
+        CARGO_HOME: /run/build/netstacks/cargo
+        npm_config_cache: /run/build/netstacks/npm
+        # Merged over tauri.conf.json. Updates arrive through flatpak, not the
+        # AppImage updater. The window array is replaced whole, so it repeats
+        # tauri.conf.json with decorations off: the app's TopBar is the title bar.
+        TAURI_CONFIG: '{"plugins":{"updater":{"endpoints":[]}},"app":{"windows":[{"label":"main","title":"NetStacks","width":1400,"height":900,"minWidth":800,"minHeight":600,"decorations":false,"visible":false,"backgroundColor":"#1e1e1e"}]}}'
+    build-commands:
+      # The local agent. Tauri resolves the sidecar next to the main binary.
+      - cargo build --release --locked --manifest-path agent/Cargo.toml
+      - install -Dm755 agent/target/release/netstacks-agent /app/bin/netstacks-agent
+      - >-
+        install -Dm755 agent/target/release/netstacks-agent
+        frontend/src-tauri/binaries/netstacks-agent-$(rustc -vV | sed -n 's/^host: //p')
+      # The UI is embedded in the shell binary. Plain cargo is used because no
+      # Tauri bundle is produced; the custom-protocol feature is on by default.
+      - cd frontend && npm ci && npm run build
+      - cargo build --release --locked --manifest-path frontend/src-tauri/Cargo.toml
+      - install -Dm755 frontend/src-tauri/target/release/NetStacks /app/bin/NetStacks
+      # Sandbox integration
+      - install -Dm755 builds/flatpak/netstacks-launcher.sh /app/bin/netstacks
+      - install -Dm755 builds/flatpak/netstacks-host-shell.sh /app/bin/netstacks-host-shell
+      - install -Dm755 builds/flatpak/pkexec-shim.sh /app/bin/pkexec
+      - >-
+        gcc -shared -fPIC -O2 -Wall -o netstacks-trust-shim.so
+        builds/flatpak/netstacks-trust-shim.c $(pkg-config --cflags --libs gnutls) -ldl
+      - install -Dm755 netstacks-trust-shim.so /app/lib/netstacks-trust-shim.so
+      - gcc -O2 -Wall -o netstacks-no-ctty builds/flatpak/netstacks-no-ctty.c
+      - install -Dm755 netstacks-no-ctty /app/bin/netstacks-no-ctty
+      # Desktop integration
+      - install -Dm644 builds/flatpak/com.netstacks.terminal.desktop /app/share/applications/com.netstacks.terminal.desktop
+      - install -Dm644 builds/flatpak/com.netstacks.terminal.metainfo.xml /app/share/metainfo/com.netstacks.terminal.metainfo.xml
+      - install -Dm644 frontend/src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/com.netstacks.terminal.png
+      - install -Dm644 frontend/src-tauri/icons/64x64.png /app/share/icons/hicolor/64x64/apps/com.netstacks.terminal.png
+      - install -Dm644 frontend/src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/com.netstacks.terminal.png
+      - install -Dm644 frontend/src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/com.netstacks.terminal.png
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - builds/output
+          - agent/target
+          - frontend/node_modules
+          - frontend/dist
+          - frontend/dist-web
+          - frontend/src-tauri/target
+          - frontend/src-tauri/binaries
+      # Linux has no overlay title bar, so with the native frame off the TopBar
+      # needs its own window buttons. Applied to the Flatpak build only.
+      - type: patch
+        path: topbar-window-controls.patch

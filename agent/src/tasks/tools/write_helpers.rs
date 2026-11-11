@@ -1,0 +1,463 @@
+//! Shared helpers for AI write tools (write_file, edit_file, patch_file).
+//!
+//! Provides pure functions for filepath validation, command building, and
+//! content manipulation. Also provides a shared SSH execution function that
+//! bypasses the read-only CommandFilter, for use by write tools that generate
+//! their own safe commands.
+
+use std::path::Path;
+use std::sync::Arc;
+
+use base64::Engine as _;
+use std::time::Duration;
+use tracing::info;
+use uuid::Uuid;
+
+use crate::providers::DataProvider;
+use crate::ssh::{build_ssh_config_from_session, execute_command_on_session, CommandStatus};
+
+const SHELL_METACHARACTERS: &[char] = &[
+    ';', '|', '&', '$', '`', '\n', '\r', '\'', '"', '(', ')', '{', '}',
+];
+
+/// Maximum file size for edit operations (1 MB).
+pub const MAX_EDIT_FILE_SIZE: usize = 1_048_576;
+
+
+/// Paths the AI is never allowed to overwrite — system credential stores,
+/// boot/firmware/configuration paths on common network OSes, kernel/proc
+/// pseudo-filesystems, and platform-specific package metadata.
+///
+/// AUDIT FIX (EXEC-003): the original `validate_filepath` only rejected shell
+/// metacharacters and required an absolute path, with no allow/deny list. The
+/// AI could therefore overwrite `~/.ssh/authorized_keys`, `/etc/shadow`,
+/// `/etc/sudoers`, `/mnt/flash/startup-config`, etc. on the SSH-target. This
+/// list is a defense-in-depth deny list; ideally remote writes should also
+/// require an explicit per-call user confirmation.
+const FORBIDDEN_PATH_PREFIXES: &[&str] = &[
+    "/etc/passwd",
+    "/etc/shadow",
+    "/etc/gshadow",
+    "/etc/sudoers",
+    "/etc/sudoers.d/",
+    "/etc/ssh/",
+    "/etc/pam.d/",
+    "/etc/security/",
+    "/etc/cron.d/",
+    "/etc/cron.daily/",
+    "/etc/cron.hourly/",
+    "/etc/cron.monthly/",
+    "/etc/cron.weekly/",
+    "/etc/crontab",
+    "/etc/systemd/",
+    "/etc/init.d/",
+    "/etc/rc.d/",
+    "/etc/profile",
+    "/etc/profile.d/",
+    "/etc/bashrc",
+    "/etc/zshrc",
+    "/root/",
+    "/boot/",
+    "/dev/",
+    "/proc/",
+    "/sys/",
+    "/var/lib/dpkg/",
+    "/var/lib/rpm/",
+    "/var/run/",
+    "/run/",
+    // Network-OS specific config / firmware paths
+    "/mnt/flash/startup-config",
+    "/mnt/flash/.extensions/",
+    "/var/db/juniper/",
+    "/config/juniper.conf",
+    "/config/db/",
+    "/var/log/messages",
+    "/var/log/auth.log",
+];
+
+/// Substrings (anywhere in the path) that are also forbidden — primarily SSH
+/// authorized_keys files in any user's home, and shell rc files.
+const FORBIDDEN_PATH_SUBSTRINGS: &[&str] = &[
+    "/.ssh/authorized_keys",
+    "/.ssh/id_",
+    "/.ssh/known_hosts",
+    "/.bash_profile",
+    "/.bashrc",
+    "/.zshrc",
+    "/.profile",
+    "/.kshrc",
+    "/.cshrc",
+];
+
+/// Validate and normalize a remote filepath.
+///
+/// Rejects empty paths, paths containing shell metacharacters, non-absolute
+/// paths, paths whose components include `..`, and any path on the
+/// destructive-target deny list.
+pub fn validate_filepath(filepath: &str) -> Result<String, String> {
+    let trimmed = filepath.trim();
+    if trimmed.is_empty() {
+        return Err("filepath must not be empty".to_string());
+    }
+
+    // Reject shell metacharacters
+    for ch in SHELL_METACHARACTERS {
+        if trimmed.contains(*ch) {
+            return Err(format!(
+                "filepath contains disallowed character '{}'",
+                ch.escape_default()
+            ));
+        }
+    }
+
+    // Reject `..` components — collapsing them would silently change the
+    // intended target. The caller must supply the exact path it means.
+    let path = Path::new(trimmed);
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(
+                "filepath must not contain '..' components — supply the exact absolute path"
+                    .to_string(),
+            );
+        }
+    }
+
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        normalized.push(component);
+    }
+
+    let result = normalized.to_string_lossy().to_string();
+    if !result.starts_with('/') {
+        return Err("filepath must be an absolute path (start with '/')".to_string());
+    }
+
+    // Deny-list check
+    for forbidden in FORBIDDEN_PATH_PREFIXES {
+        if result == *forbidden || result.starts_with(forbidden) {
+            return Err(format!(
+                "filepath '{}' targets a protected system path; AI write is not permitted",
+                result
+            ));
+        }
+    }
+    for forbidden in FORBIDDEN_PATH_SUBSTRINGS {
+        if result.contains(forbidden) {
+            return Err(format!(
+                "filepath '{}' contains a protected substring; AI write is not permitted",
+                result
+            ));
+        }
+    }
+
+    Ok(result)
+}
+
+/// Build a shell command that writes `content` to `filepath` atomically.
+///
+/// The command base64-encodes the content, writes to a temporary file in the
+/// same directory, then atomically moves it into place.
+///
+/// Returns a shell command string like:
+/// ```text
+/// printf '%s' '<b64>' | base64 -d > '<tmp>' && mv '<tmp>' '<filepath>'
+/// ```
+pub fn build_write_command(filepath: &str, content: &str) -> Result<String, String> {
+    let filepath = validate_filepath(filepath)?;
+
+    let dir = Path::new(&filepath)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/".to_string());
+
+    let tmp_name = format!(".netstacks_tmp_{}", Uuid::new_v4());
+    let tmp_path = format!("{}/{}", dir, tmp_name);
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
+
+    Ok(format!(
+        "printf '%s' '{}' | base64 -d > '{}' && mv '{}' '{}'",
+        b64, tmp_path, tmp_path, filepath
+    ))
+}
+
+/// Build a command to read a file from the remote device.
+///
+/// Returns: `cat '<filepath>'`
+pub fn build_read_file_command(filepath: &str) -> Result<String, String> {
+    let filepath = validate_filepath(filepath)?;
+    Ok(format!("cat '{}'", filepath))
+}
+
+/// Build a sed in-place edit command.
+///
+/// AUDIT FIX (EXEC-005): the previous implementation only blocked single
+/// quotes, leaving the GNU sed `e` (execute), `w` (write), and `r` (read)
+/// flags as direct RCE primitives, plus newline/`;`-separated multi-statement
+/// programs and addresses. This validator now accepts ONLY a single
+/// substitution of the form `s<sep>PATTERN<sep>REPLACEMENT<sep>FLAGS` where:
+///   * the separator is `/`, `#`, `|`, or `,`
+///   * `PATTERN` and `REPLACEMENT` may not contain newlines
+///   * `FLAGS` is a (possibly empty) subset of `g`, `i`, `I`, `p`, plus an
+///     optional decimal occurrence count (e.g. `2g`)
+///
+/// All other sed features — `e`/`w`/`r` flags, `;`, newline-separated
+/// programs, `d`/`a`/`c`/`i`/`p` standalone commands, address ranges, branch
+/// labels, hold-space ops — are rejected.
+///
+/// Returns: `sed -i '<expr>' '<filepath>'`
+pub fn build_sed_command(filepath: &str, sed_expression: &str) -> Result<String, String> {
+    let filepath = validate_filepath(filepath)?;
+
+    // Cheap pre-checks: shell-breaking characters and multi-statement payloads.
+    if sed_expression.contains('\'') {
+        return Err("sed expression must not contain single quotes".to_string());
+    }
+    if sed_expression.contains('\n') || sed_expression.contains('\r') {
+        return Err("sed expression must not contain newlines".to_string());
+    }
+    if sed_expression.contains(';') {
+        return Err("sed expression must not contain ';' (multi-statement)".to_string());
+    }
+
+    let trimmed = sed_expression.trim();
+    let mut chars = trimmed.chars();
+    let s_char = chars
+        .next()
+        .ok_or_else(|| "sed expression must not be empty".to_string())?;
+    if s_char != 's' {
+        return Err("only 's///' substitutions are allowed".to_string());
+    }
+    let sep = chars
+        .next()
+        .ok_or_else(|| "sed expression must include a separator after 's'".to_string())?;
+    if !matches!(sep, '/' | '#' | '|' | ',') {
+        return Err(format!("unsupported sed separator '{}'", sep));
+    }
+
+    // Split the rest by the chosen separator, respecting backslash-escapes.
+    let rest: String = chars.collect();
+    let mut parts: Vec<String> = Vec::with_capacity(3);
+    let mut current = String::new();
+    let mut escape = false;
+    for ch in rest.chars() {
+        if escape {
+            current.push(ch);
+            escape = false;
+            continue;
+        }
+        if ch == '\\' {
+            current.push(ch);
+            escape = true;
+            continue;
+        }
+        if ch == sep {
+            parts.push(std::mem::take(&mut current));
+            continue;
+        }
+        current.push(ch);
+    }
+    parts.push(current);
+
+    if parts.len() != 3 {
+        return Err(format!(
+            "sed expression must be exactly 's{sep}PATTERN{sep}REPLACEMENT{sep}FLAGS' (got {} parts)",
+            parts.len()
+        ));
+    }
+
+    let flags = &parts[2];
+    for ch in flags.chars() {
+        match ch {
+            'g' | 'i' | 'I' | 'p' => {}
+            d if d.is_ascii_digit() => {}
+            'e' => {
+                return Err("sed flag 'e' (execute) is not allowed — would yield RCE".to_string())
+            }
+            'w' => return Err("sed flag 'w' (write) is not allowed".to_string()),
+            'r' => return Err("sed flag 'r' (read) is not allowed".to_string()),
+            'M' | 'm' => return Err("sed flag 'M'/'m' is not allowed".to_string()),
+            other => return Err(format!("sed flag '{}' is not allowed", other)),
+        }
+    }
+
+    Ok(format!("sed -i '{}' '{}'", trimmed, filepath))
+}
+
+/// Apply a search-and-replace edit to file content.
+///
+/// `old_text` must appear exactly once in `content`. If it appears zero
+/// times or more than once, an error is returned.
+pub fn apply_edit(content: &str, old_text: &str, new_text: &str) -> Result<String, String> {
+    if old_text.is_empty() {
+        return Err("old_text must not be empty".to_string());
+    }
+
+    let count = content.matches(old_text).count();
+    match count {
+        0 => Err("old_text not found in file content".to_string()),
+        1 => Ok(content.replacen(old_text, new_text, 1)),
+        n => Err(format!(
+            "old_text found {} times in file content — must match exactly once",
+            n
+        )),
+    }
+}
+
+/// Execute a command on a remote device via SSH (no CommandFilter).
+///
+/// Used by write tools that generate their own safe commands. This mirrors
+/// the SSH execution path in `SshCommandTool` but skips read-only command
+/// filtering.
+///
+/// # Arguments
+/// * `provider` - Data provider (decrypts vault credentials correctly)
+/// * `session_id` - The session ID to connect to
+/// * `command` - The shell command to execute
+/// * `timeout` - Maximum time to wait for the command to complete
+///
+/// # Returns
+/// The command's stdout output on success, or an error message string.
+pub async fn execute_ssh_for_session(
+    provider: &Arc<dyn DataProvider>,
+    session_id: &str,
+    command: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    let session = provider
+        .get_session(session_id)
+        .await
+        .map_err(|e| format!("Session lookup failed: {}", e))?;
+
+    let profile = provider
+        .get_profile(&session.profile_id)
+        .await
+        .map_err(|e| format!("Profile lookup failed: {}", e))?;
+
+    let credential = provider
+        .get_profile_credential(&session.profile_id)
+        .await
+        .map_err(|e| format!("Credential lookup failed: {}", e))?;
+
+    let host = session.host.clone();
+    let name = session.name.clone();
+    let config = build_ssh_config_from_session(&session, &profile, credential.as_ref())?;
+
+    info!(
+        session_id = %session_id,
+        host = %host,
+        command_len = command.len(),
+        "write_helpers: executing SSH command"
+    );
+
+    let result = execute_command_on_session(
+        config,
+        session_id.to_string(),
+        name,
+        command.to_string(),
+        timeout,
+    )
+    .await;
+
+    match result.status {
+        CommandStatus::Success => Ok(result.output),
+        CommandStatus::AuthFailed => Err(format!(
+            "SSH authentication failed for {}: {}",
+            host,
+            result.error.unwrap_or_default()
+        )),
+        CommandStatus::Timeout => Err(format!(
+            "SSH command timed out after {}s on {}",
+            timeout.as_secs(),
+            host
+        )),
+        CommandStatus::Error | CommandStatus::NotRun => Err(format!(
+            "SSH command failed on {}: {}",
+            host,
+            result.error.unwrap_or_default()
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_filepath_valid() {
+        assert_eq!(
+            validate_filepath("/etc/config.txt").unwrap(),
+            "/etc/config.txt"
+        );
+        assert_eq!(
+            validate_filepath("/home/user/file").unwrap(),
+            "/home/user/file"
+        );
+    }
+
+    #[test]
+    fn test_validate_filepath_rejects_empty() {
+        assert!(validate_filepath("").is_err());
+        assert!(validate_filepath("   ").is_err());
+    }
+
+    #[test]
+    fn test_validate_filepath_rejects_relative() {
+        assert!(validate_filepath("relative/path").is_err());
+    }
+
+    #[test]
+    fn test_validate_filepath_rejects_metacharacters() {
+        assert!(validate_filepath("/etc/foo;bar").is_err());
+        assert!(validate_filepath("/etc/foo|bar").is_err());
+        assert!(validate_filepath("/etc/foo$(cmd)").is_err());
+        assert!(validate_filepath("/etc/foo`cmd`").is_err());
+        assert!(validate_filepath("/etc/foo&bar").is_err());
+    }
+
+    #[test]
+    fn test_build_write_command() {
+        let cmd = build_write_command("/tmp/test.txt", "hello").unwrap();
+        assert!(cmd.contains("base64 -d"));
+        assert!(cmd.contains("/tmp/test.txt"));
+        assert!(cmd.contains(".netstacks_tmp_"));
+    }
+
+    #[test]
+    fn test_build_read_file_command() {
+        let cmd = build_read_file_command("/etc/hosts").unwrap();
+        assert_eq!(cmd, "cat '/etc/hosts'");
+    }
+
+    #[test]
+    fn test_build_sed_command() {
+        let cmd = build_sed_command("/etc/config", "s/old/new/g").unwrap();
+        assert_eq!(cmd, "sed -i 's/old/new/g' '/etc/config'");
+    }
+
+    #[test]
+    fn test_build_sed_command_rejects_single_quotes() {
+        assert!(build_sed_command("/etc/config", "s/old/'new'/g").is_err());
+    }
+
+    #[test]
+    fn test_apply_edit_single_match() {
+        let result = apply_edit("hello world", "world", "rust").unwrap();
+        assert_eq!(result, "hello rust");
+    }
+
+    #[test]
+    fn test_apply_edit_no_match() {
+        assert!(apply_edit("hello world", "missing", "rust").is_err());
+    }
+
+    #[test]
+    fn test_apply_edit_multiple_matches() {
+        assert!(apply_edit("aaa", "a", "b").is_err());
+    }
+
+    #[test]
+    fn test_apply_edit_empty_old_text() {
+        assert!(apply_edit("hello", "", "world").is_err());
+    }
+}

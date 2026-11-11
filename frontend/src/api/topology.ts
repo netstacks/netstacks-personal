@@ -1,0 +1,1108 @@
+// Topology API for saved topologies with CRUD operations
+
+import type { Topology, DeviceType, DeviceStatus, Device, Connection, ConnectionStatus, CurveStyle, LineStyle } from '../types/topology';
+import type { Annotation } from '../types/annotations';
+import { createDocument, type Document } from './docs';
+import { getClient, getCurrentMode } from './client';
+import { createAnnotation, toElementData } from './annotations';
+
+/** Type-specific annotation payload accepted by `createAnnotation`. */
+type AnnotationElementData = Parameters<typeof createAnnotation>[2];
+
+// Types for API requests/responses
+import { logger } from '../lib/logger'
+import { resolveDocSaveTarget } from '../lib/docSaveTargets'
+import { getErrorMessage } from './errors'
+export interface SavedTopologyListItem {
+  id: string;
+  name: string;
+  shared?: boolean;
+  owner_id?: string;
+  folder_id: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateConnectionRequest {
+  source_device_id: string;
+  target_device_id: string;
+  source_interface?: string;
+  target_interface?: string;
+  label?: string;
+  // Enhanced routing and styling (Phase 27-02)
+  waypoints?: string;      // JSON array of {x, y}
+  curve_style?: string;    // straight, curved, orthogonal
+  bundle_id?: string;
+  bundle_index?: number;
+  color?: string;
+  line_style?: string;     // solid, dashed, dotted
+  line_width?: number;
+  notes?: string;
+}
+
+// List all saved topologies
+export async function listTopologies(params?: { shared?: boolean; owner?: string }): Promise<SavedTopologyListItem[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.shared !== undefined) searchParams.set('shared', String(params.shared));
+  if (params?.owner) searchParams.set('owner', params.owner);
+  const query = searchParams.toString();
+  const { data } = await getClient().http.get(`/topologies${query ? `?${query}` : ''}`);
+  return data;
+}
+
+// Create new topology from connected sessions
+export async function createTopology(name: string, sessionIds: string[]): Promise<Topology> {
+  const { data } = await getClient().http.post('/topologies', { name, session_ids: sessionIds });
+  return transformBackendTopology(data);
+}
+
+// Backend response types (snake_case)
+interface BackendDevice {
+  id: string;
+  topology_id: string;
+  session_id?: string;
+  x: number;
+  y: number;
+  device_type: string;
+  name: string;
+  host: string;
+  created_at: string;
+  updated_at: string;
+  // Enrichment fields
+  platform?: string;
+  version?: string;
+  model?: string;
+  serial?: string;
+  vendor?: string;
+  primary_ip?: string;
+  uptime?: string;
+  status?: string;
+  site?: string;
+  role?: string;
+  profile_id?: string;
+  snmp_profile_id?: string;
+  notes?: string;
+}
+
+interface BackendConnection {
+  id: string;
+  topology_id: string;
+  source_device_id: string;
+  target_device_id: string;
+  source_interface?: string;
+  target_interface?: string;
+  protocol: string;
+  label?: string;
+  created_at: string;
+  // Enhanced routing and styling (Phase 27-02)
+  waypoints?: string;      // JSON array of {x, y}
+  curve_style?: string;    // straight, curved, orthogonal
+  bundle_id?: string;
+  bundle_index?: number;
+  color?: string;
+  line_style?: string;     // solid, dashed, dotted
+  line_width?: number;
+  notes?: string;
+}
+
+interface BackendTopology {
+  id: string;
+  name: string;
+  shared?: boolean;
+  owner_id?: string;
+  devices: BackendDevice[];
+  connections: BackendConnection[];
+  created_at: string;
+  updated_at: string;
+}
+
+function parseWaypoints(raw: string | undefined, connectionId: string): { x: number; y: number }[] | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn(`[topology] dropping malformed waypoints on connection ${connectionId}:`, err);
+    return undefined;
+  }
+}
+
+// Transform backend format (snake_case) to frontend format (camelCase)
+function transformBackendTopology(data: BackendTopology): Topology {
+  return {
+    id: data.id,
+    name: data.name,
+    source: 'discovery',
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    devices: (data.devices || []).map(d => ({
+      id: d.id,
+      name: d.name,
+      type: mapBackendDeviceType(d.device_type),
+      status: (d.status as 'online' | 'offline' | 'warning' | 'unknown') || 'unknown',
+      x: d.x,
+      y: d.y,
+      sessionId: d.session_id,
+      profileId: d.profile_id,
+      snmpProfileId: d.snmp_profile_id,
+      primaryIp: d.primary_ip || d.host,
+      platform: d.platform,
+      vendor: d.vendor,
+      version: d.version,
+      model: d.model,
+      serial: d.serial,
+      uptime: d.uptime,
+      site: d.site,
+      role: d.role,
+      notes: d.notes,
+      isNeighbor: d.notes === 'discovery:neighbor' ? true : undefined,
+    })),
+    connections: (data.connections || []).map(c => ({
+      id: c.id,
+      sourceDeviceId: c.source_device_id,
+      targetDeviceId: c.target_device_id,
+      sourceInterface: c.source_interface,
+      targetInterface: c.target_interface,
+      status: 'active' as const,
+      label: c.label,
+      // Enhanced routing and styling (Phase 27-02)
+      // A malformed waypoints blob on a single connection used to throw and
+      // break the whole topology load. Treat it as "no waypoints" instead.
+      waypoints: parseWaypoints(c.waypoints, c.id),
+      curveStyle: c.curve_style as 'straight' | 'curved' | 'orthogonal' | undefined,
+      bundleId: c.bundle_id,
+      bundleIndex: c.bundle_index,
+      color: c.color,
+      lineStyle: c.line_style as 'solid' | 'dashed' | 'dotted' | undefined,
+      lineWidth: c.line_width,
+      notes: c.notes,
+    })),
+  };
+}
+
+// Get full topology with devices and connections
+export async function getTopology(id: string): Promise<Topology> {
+  const { data } = await getClient().http.get(`/topologies/${id}`);
+  return transformBackendTopology(data);
+}
+
+// Update topology name
+export async function updateTopologyName(id: string, name: string): Promise<void> {
+  await getClient().http.put(`/topologies/${id}`, { name });
+}
+
+// Delete topology
+export async function deleteTopology(id: string): Promise<void> {
+  await getClient().http.delete(`/topologies/${id}`);
+}
+
+// Update device position
+export async function updateDevicePosition(topologyId: string, deviceId: string, x: number, y: number): Promise<void> {
+  await getClient().http.put(`/topologies/${topologyId}/devices/${deviceId}/position`, { x, y });
+}
+
+// Create a device in a topology (Phase 27-07)
+export interface CreateDeviceRequest {
+  name: string;
+  type: string;
+  x: number;
+  y: number;
+  session_id?: string;
+  site?: string;
+  role?: string;
+  status?: string;
+}
+
+export async function createDevice(topologyId: string, req: CreateDeviceRequest): Promise<{ id: string }> {
+  const { data } = await getClient().http.post(`/topologies/${topologyId}/devices`, {
+    name: req.name,
+    host: '', // No host for manually added devices
+    device_type: req.type,
+    x: req.x,
+    y: req.y,
+    session_id: req.session_id,
+    site: req.site,
+    role: req.role,
+    status: req.status,
+  });
+  return data;
+}
+
+// Update a device (Phase 27-07)
+export async function updateDevice(
+  topologyId: string,
+  deviceId: string,
+  updates: Partial<{
+    name: string;
+    type: string;
+    device_type: string;
+    status: string;
+    site: string;
+    role: string;
+    platform: string;
+    vendor: string;
+    version: string;
+    model: string;
+    serial: string;
+    uptime: string;
+    primary_ip: string;
+    notes: string;
+    profile_id: string;
+    snmp_profile_id: string;
+  }>
+): Promise<void> {
+  // The agent's details struct has `device_type`, not `type` — translate so
+  // a frontend-shaped `type` never gets silently dropped by serde.
+  const { type, ...rest } = updates;
+  const body = type !== undefined && rest.device_type === undefined
+    ? { ...rest, device_type: type }
+    : rest;
+  await getClient().http.put(`/topologies/${topologyId}/devices/${deviceId}/details`, body);
+}
+
+// Delete a device from a topology (Phase 27-07)
+export async function deleteDevice(topologyId: string, deviceId: string): Promise<void> {
+  await getClient().http.delete(`/topologies/${topologyId}/devices/${deviceId}`);
+}
+
+// ── Update conversion layer (frontend camelCase -> backend snake_case) ──
+//
+// Both backends — the standalone agent (`agent/src/models.rs`
+// UpdateConnectionRequest / UpdateTopologyDeviceDetails) and the Controller
+// (`crates/models/src/topology.rs` UpdateConnectionRequest /
+// UpdateDeviceDetailsRequest) — deserialize snake_case with no aliases and
+// silently ignore unknown keys. Every update must therefore go through this
+// table: a field that isn't listed here is not stored by either backend and
+// must never be reported as saved.
+
+/** Which backend the client is talking to. */
+export type TopologyBackend = 'standalone' | 'enterprise';
+
+/** Value shape a backend column accepts. */
+type UpdateFieldKind = 'string' | 'integer' | 'waypoints' | 'enum';
+
+interface UpdateFieldSpec {
+  /** snake_case key in the backend request struct */
+  wire: string;
+  kind: UpdateFieldKind;
+  /** Allowed values for `enum` fields */
+  values?: readonly string[];
+  /** Backends that persist this field (default: both) */
+  backends?: readonly TopologyBackend[];
+}
+
+export const TOPOLOGY_DEVICE_TYPES: readonly DeviceType[] = [
+  'router', 'switch', 'firewall', 'server', 'cloud', 'access-point',
+  'load-balancer', 'wan-optimizer', 'voice-gateway', 'wireless-controller',
+  'storage', 'virtual', 'sd-wan', 'iot', 'unknown',
+];
+export const DEVICE_STATUSES: readonly DeviceStatus[] = ['online', 'offline', 'warning', 'unknown'];
+export const CONNECTION_STATUSES: readonly ConnectionStatus[] = ['active', 'inactive', 'degraded'];
+export const CURVE_STYLES: readonly CurveStyle[] = ['straight', 'curved', 'orthogonal'];
+export const LINE_STYLES: readonly LineStyle[] = ['solid', 'dashed', 'dotted'];
+
+/**
+ * Mutable connection fields. Both backends store every one of these
+ * (`line_width` is i32 on the agent, f64 on the Controller, so only integers
+ * are accepted).
+ */
+export const CONNECTION_UPDATE_FIELDS = {
+  sourceInterface: { wire: 'source_interface', kind: 'string' },
+  targetInterface: { wire: 'target_interface', kind: 'string' },
+  label: { wire: 'label', kind: 'string' },
+  waypoints: { wire: 'waypoints', kind: 'waypoints' },
+  curveStyle: { wire: 'curve_style', kind: 'enum', values: CURVE_STYLES },
+  bundleId: { wire: 'bundle_id', kind: 'string' },
+  bundleIndex: { wire: 'bundle_index', kind: 'integer' },
+  color: { wire: 'color', kind: 'string' },
+  lineStyle: { wire: 'line_style', kind: 'enum', values: LINE_STYLES },
+  lineWidth: { wire: 'line_width', kind: 'integer' },
+  notes: { wire: 'notes', kind: 'string' },
+} as const satisfies Partial<Record<keyof Connection, UpdateFieldSpec>>;
+
+/**
+ * Connection fields the editor shows but neither backend stores (the
+ * connection row has no status column; every link loads as `active`).
+ * Updates to these are applied to the open view only.
+ */
+export const CONNECTION_LOCAL_ONLY_FIELDS = {
+  status: { wire: 'status', kind: 'enum', values: CONNECTION_STATUSES },
+} as const satisfies Partial<Record<keyof Connection, UpdateFieldSpec>>;
+
+/**
+ * Mutable device detail fields (`PUT .../devices/:id/details`). `name` is
+ * only accepted by the Controller; the profile IDs only by the agent.
+ */
+export const DEVICE_UPDATE_FIELDS = {
+  name: { wire: 'name', kind: 'string', backends: ['enterprise'] },
+  type: { wire: 'device_type', kind: 'enum', values: TOPOLOGY_DEVICE_TYPES },
+  status: { wire: 'status', kind: 'enum', values: DEVICE_STATUSES },
+  site: { wire: 'site', kind: 'string' },
+  role: { wire: 'role', kind: 'string' },
+  platform: { wire: 'platform', kind: 'string' },
+  vendor: { wire: 'vendor', kind: 'string' },
+  version: { wire: 'version', kind: 'string' },
+  model: { wire: 'model', kind: 'string' },
+  serial: { wire: 'serial', kind: 'string' },
+  uptime: { wire: 'uptime', kind: 'string' },
+  primaryIp: { wire: 'primary_ip', kind: 'string' },
+  notes: { wire: 'notes', kind: 'string' },
+  profileId: { wire: 'profile_id', kind: 'string', backends: ['standalone'] },
+  snmpProfileId: { wire: 'snmp_profile_id', kind: 'string', backends: ['standalone'] },
+} as const satisfies Partial<Record<keyof Device, UpdateFieldSpec>>;
+
+/** snake_case body for `PUT /topologies/:id/connections/:conn_id`. */
+export type ConnectionUpdateRequest = Partial<{
+  source_interface: string;
+  target_interface: string;
+  label: string;
+  waypoints: string;
+  curve_style: string;
+  bundle_id: string;
+  bundle_index: number;
+  color: string;
+  line_style: string;
+  line_width: number;
+  notes: string;
+}>;
+
+/** snake_case body for `PUT /topologies/:id/devices/:device_id/details`. */
+export type DeviceDetailsUpdateRequest = Partial<{
+  name: string;
+  device_type: string;
+  status: string;
+  site: string;
+  role: string;
+  platform: string;
+  vendor: string;
+  version: string;
+  model: string;
+  serial: string;
+  uptime: string;
+  primary_ip: string;
+  notes: string;
+  profile_id: string;
+  snmp_profile_id: string;
+}>;
+
+/** Outcome of converting a camelCase update for the backend. */
+export interface UpdateConversion<R> {
+  /** snake_case request body (only fields the active backend stores) */
+  request: R;
+  /** camelCase fields that will be saved */
+  persisted: string[];
+  /** Known fields the active backend does not store (view-only changes) */
+  notPersisted: string[];
+  /** Field names that aren't editable at all */
+  unknown: string[];
+  /** Known fields whose value has the wrong shape */
+  invalid: { field: string; reason: string }[];
+}
+
+/** Map the client's app mode to the backend that stores topologies. */
+export function currentTopologyBackend(): TopologyBackend {
+  return getCurrentMode() === 'enterprise' ? 'enterprise' : 'standalone';
+}
+
+function checkFieldValue(spec: UpdateFieldSpec, value: unknown): { ok: true; wire: unknown } | { ok: false; reason: string } {
+  switch (spec.kind) {
+    case 'string':
+      return typeof value === 'string' ? { ok: true, wire: value } : { ok: false, reason: 'must be a string' };
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value)
+        ? { ok: true, wire: value }
+        : { ok: false, reason: 'must be an integer' };
+    case 'enum':
+      return typeof value === 'string' && spec.values?.includes(value)
+        ? { ok: true, wire: value }
+        : { ok: false, reason: `must be one of: ${(spec.values ?? []).join(', ')}` };
+    case 'waypoints': {
+      const valid = Array.isArray(value) && value.every(p =>
+        p !== null && typeof p === 'object'
+        && typeof (p as { x?: unknown }).x === 'number'
+        && typeof (p as { y?: unknown }).y === 'number');
+      return valid
+        ? { ok: true, wire: JSON.stringify((value as { x: number; y: number }[]).map(p => ({ x: p.x, y: p.y }))) }
+        : { ok: false, reason: 'must be an array of {x, y} numbers' };
+    }
+  }
+}
+
+function convertUpdate<R>(
+  updates: Record<string, unknown>,
+  fields: Record<string, UpdateFieldSpec>,
+  localOnly: Record<string, UpdateFieldSpec>,
+  backend: TopologyBackend,
+): UpdateConversion<R> {
+  const request: Record<string, unknown> = {};
+  const out: UpdateConversion<R> = { request: request as R, persisted: [], notPersisted: [], unknown: [], invalid: [] };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) continue;
+    const spec = Object.hasOwn(fields, key) ? fields[key] : Object.hasOwn(localOnly, key) ? localOnly[key] : undefined;
+    if (!spec) {
+      out.unknown.push(key);
+      continue;
+    }
+    const checked = checkFieldValue(spec, value);
+    if (!checked.ok) {
+      out.invalid.push({ field: key, reason: checked.reason });
+      continue;
+    }
+    const stored = Object.hasOwn(fields, key) && (!spec.backends || spec.backends.includes(backend));
+    if (stored) {
+      request[spec.wire] = checked.wire;
+      out.persisted.push(key);
+    } else {
+      out.notPersisted.push(key);
+    }
+  }
+  return out;
+}
+
+/** Convert a camelCase `Partial<Connection>` to the backend update body. */
+export function toConnectionUpdateRequest(
+  updates: Partial<Connection> | Record<string, unknown>,
+  backend: TopologyBackend = currentTopologyBackend(),
+): UpdateConversion<ConnectionUpdateRequest> {
+  return convertUpdate(updates as Record<string, unknown>, CONNECTION_UPDATE_FIELDS, CONNECTION_LOCAL_ONLY_FIELDS, backend);
+}
+
+/** Convert a camelCase `Partial<Device>` to the backend details body. */
+export function toDeviceUpdateRequest(
+  updates: Partial<Device> | Record<string, unknown>,
+  backend: TopologyBackend = currentTopologyBackend(),
+): UpdateConversion<DeviceDetailsUpdateRequest> {
+  return convertUpdate(updates as Record<string, unknown>, DEVICE_UPDATE_FIELDS, {}, backend);
+}
+
+/** Error thrown when an update has unknown or malformed fields. */
+export class TopologyUpdateError extends Error {
+  readonly unknown: string[];
+  readonly invalid: { field: string; reason: string }[];
+  constructor(kind: 'device' | 'connection', unknown: string[], invalid: { field: string; reason: string }[]) {
+    const valid = Object.keys(kind === 'device' ? DEVICE_UPDATE_FIELDS : { ...CONNECTION_UPDATE_FIELDS, ...CONNECTION_LOCAL_ONLY_FIELDS });
+    const parts: string[] = [];
+    if (unknown.length > 0) parts.push(`unknown field(s): ${unknown.join(', ')}`);
+    for (const i of invalid) parts.push(`${i.field} ${i.reason}`);
+    super(`Invalid ${kind} update — ${parts.join('; ')}. Valid fields: ${valid.join(', ')}`);
+    this.name = 'TopologyUpdateError';
+    this.unknown = unknown;
+    this.invalid = invalid;
+  }
+}
+
+/** Which fields of an update were saved and which only changed the view. */
+export interface SavedUpdate {
+  persisted: string[];
+  notPersisted: string[];
+}
+
+/**
+ * Save a camelCase connection update. Throws `TopologyUpdateError` (before
+ * any request) on unknown/malformed fields; skips the PUT when nothing in
+ * the update is stored by the backend.
+ */
+export async function saveConnectionUpdate(
+  topologyId: string,
+  connectionId: string,
+  updates: Partial<Connection> | Record<string, unknown>,
+): Promise<SavedUpdate> {
+  const conv = toConnectionUpdateRequest(updates);
+  if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+    throw new TopologyUpdateError('connection', conv.unknown, conv.invalid);
+  }
+  if (conv.persisted.length > 0) {
+    await updateConnection(topologyId, connectionId, conv.request);
+  }
+  return { persisted: conv.persisted, notPersisted: conv.notPersisted };
+}
+
+/** Save a camelCase device details update (see `saveConnectionUpdate`). */
+export async function saveDeviceUpdate(
+  topologyId: string,
+  deviceId: string,
+  updates: Partial<Device> | Record<string, unknown>,
+): Promise<SavedUpdate> {
+  const conv = toDeviceUpdateRequest(updates);
+  if (conv.unknown.length > 0 || conv.invalid.length > 0) {
+    throw new TopologyUpdateError('device', conv.unknown, conv.invalid);
+  }
+  if (conv.persisted.length > 0) {
+    await updateDevice(topologyId, deviceId, conv.request);
+  }
+  return { persisted: conv.persisted, notPersisted: conv.notPersisted };
+}
+
+// Update a connection (Phase 27-07). Takes the snake_case wire body — use
+// `saveConnectionUpdate` for a camelCase `Partial<Connection>`.
+export async function updateConnection(
+  topologyId: string,
+  connectionId: string,
+  updates: ConnectionUpdateRequest,
+): Promise<void> {
+  await getClient().http.put(`/topologies/${topologyId}/connections/${connectionId}`, updates);
+}
+
+// Create connection between devices
+export async function createConnection(topologyId: string, req: CreateConnectionRequest): Promise<{ id: string }> {
+  const { data } = await getClient().http.post(`/topologies/${topologyId}/connections`, req);
+  return data;
+}
+
+// Request to add a neighbor device (discovered, not connected)
+export interface AddNeighborDeviceRequest {
+  name: string;
+  host: string;
+  device_type: string;
+  x?: number;
+  y?: number;
+  profile_id?: string;
+  snmp_profile_id?: string;
+}
+
+// Add a neighbor device (discovered via CDP/LLDP, not directly connected session)
+export async function addNeighborDevice(
+  topologyId: string,
+  request: AddNeighborDeviceRequest
+): Promise<{ id: string }> {
+  logger.log('[addNeighborDevice] Sending request:', { topologyId, request });
+  const { data } = await getClient().http.post(`/topologies/${topologyId}/devices`, request);
+  return data;
+}
+
+// Delete connection
+export async function deleteConnection(topologyId: string, connectionId: string): Promise<void> {
+  await getClient().http.delete(`/topologies/${topologyId}/connections/${connectionId}`);
+}
+
+/**
+ * Counterpart to TopologyTabEditor's exportToJson — parse a previously-
+ * exported topology JSON blob and create a fresh topology with new IDs.
+ *
+ * Accepts both the wrapped export shape `{ version, exportedAt,
+ * topology: {...} }` and a raw Topology object for flexibility. Throws
+ * with a user-readable message on bad shape; the caller surfaces it via
+ * showToast.
+ */
+export async function importTopologyFromJson(
+  jsonText: string,
+  options?: { nameOverride?: string },
+): Promise<Topology> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (err) {
+    throw new Error(`Not valid JSON: ${getErrorMessage(err, String(err))}`);
+  }
+
+  // Unwrap the export envelope if present.
+  const candidate = (parsed && typeof parsed === 'object' && 'topology' in parsed)
+    ? (parsed as { topology: unknown }).topology
+    : parsed;
+
+  if (!candidate || typeof candidate !== 'object') {
+    throw new Error('Expected an object at the top level of the topology JSON');
+  }
+
+  const topo = candidate as Partial<Topology> & { annotations?: unknown };
+  if (typeof topo.name !== 'string' || !topo.name.trim()) {
+    throw new Error('Topology JSON is missing a `name` string');
+  }
+  if (!Array.isArray(topo.devices)) {
+    throw new Error('Topology JSON is missing a `devices` array');
+  }
+  if (!Array.isArray(topo.connections)) {
+    throw new Error('Topology JSON is missing a `connections` array');
+  }
+  if (topo.annotations !== undefined && !Array.isArray(topo.annotations)) {
+    throw new Error('Topology JSON `annotations` must be an array');
+  }
+  const annotations = (topo.annotations ?? []) as Annotation[];
+
+  const imported: Topology = {
+    id: 'pending-import',
+    name: options?.nameOverride?.trim() || topo.name,
+    source: topo.source ?? 'discovery',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    devices: topo.devices as Topology['devices'],
+    connections: topo.connections as Topology['connections'],
+  };
+
+  // saveTemporaryTopology already creates + adds devices + creates
+  // connections + annotations with fresh IDs — exactly what we need for import.
+  return saveTemporaryTopology(imported, annotations);
+}
+
+/** Enrichment fields that survive a save (everything the details PUT accepts). */
+export type DeviceEnrichmentDetails = Partial<{
+  status: string;
+  site: string;
+  role: string;
+  platform: string;
+  vendor: string;
+  version: string;
+  model: string;
+  serial: string;
+  uptime: string;
+  notes: string;
+}>;
+
+/**
+ * Pick the enrichment fields off a Device that `addNeighborDevice` cannot
+ * carry, so they can be pushed via the details PUT after creation.
+ * Returns null when there is nothing to push.
+ */
+export function deviceEnrichmentDetails(device: Device): DeviceEnrichmentDetails | null {
+  const details: DeviceEnrichmentDetails = {};
+  if (device.status && device.status !== 'unknown') details.status = device.status;
+  if (device.site) details.site = device.site;
+  if (device.role) details.role = device.role;
+  if (device.platform) details.platform = device.platform;
+  if (device.vendor) details.vendor = device.vendor;
+  if (device.version) details.version = device.version;
+  if (device.model) details.model = device.model;
+  if (device.serial) details.serial = device.serial;
+  if (device.uptime) details.uptime = device.uptime;
+  const notes = device.notes ?? (device.isNeighbor ? 'discovery:neighbor' : undefined);
+  if (notes) details.notes = notes;
+  return Object.keys(details).length > 0 ? details : null;
+}
+
+/**
+ * Build the create-connection request for a saved copy of `conn`, remapping
+ * device IDs and carrying routing/styling so the round-trip is lossless.
+ * Returns null when either endpoint was not saved.
+ */
+export function connectionCreateRequest(
+  conn: Connection,
+  deviceIdMap: Map<string, string>,
+): CreateConnectionRequest | null {
+  const newSourceId = deviceIdMap.get(conn.sourceDeviceId);
+  const newTargetId = deviceIdMap.get(conn.targetDeviceId);
+  if (!newSourceId || !newTargetId) return null;
+  return {
+    source_device_id: newSourceId,
+    target_device_id: newTargetId,
+    source_interface: conn.sourceInterface,
+    target_interface: conn.targetInterface,
+    label: conn.label,
+    waypoints: conn.waypoints && conn.waypoints.length > 0 ? JSON.stringify(conn.waypoints) : undefined,
+    curve_style: conn.curveStyle,
+    bundle_id: conn.bundleId,
+    bundle_index: conn.bundleIndex,
+    color: conn.color,
+    line_style: conn.lineStyle,
+    line_width: conn.lineWidth,
+    notes: conn.notes,
+  };
+}
+
+/**
+ * Save a temporary topology to the database
+ * Creates the topology, adds all devices, and creates all connections
+ */
+export async function saveTemporaryTopology(
+  topology: Topology,
+  annotations: Annotation[] = [],
+): Promise<Topology> {
+  // Step 1: Create the topology (with empty session_ids since these are discovered devices)
+  const created = await createTopology(topology.name, []);
+
+  // Step 2: Map old device IDs to new device IDs
+  const deviceIdMap = new Map<string, string>();
+
+  // Step 3: Add each device, then push the enrichment the add endpoint can't carry
+  for (const device of topology.devices) {
+    const result = await addNeighborDevice(created.id, {
+      name: device.name,
+      host: device.primaryIp || '',
+      device_type: device.type || 'unknown',
+      x: device.x,
+      y: device.y,
+      profile_id: device.profileId,
+      snmp_profile_id: device.snmpProfileId,
+    });
+    deviceIdMap.set(device.id, result.id);
+
+    const details = deviceEnrichmentDetails(device);
+    if (details) {
+      await updateDevice(created.id, result.id, details);
+    }
+  }
+
+  // Step 4: Create each connection with mapped device IDs + routing/styling
+  for (const conn of topology.connections) {
+    const req = connectionCreateRequest(conn, deviceIdMap);
+    if (req) {
+      await createConnection(created.id, req);
+    }
+  }
+
+  // Step 5: Re-create annotations (text/shape/line) on the saved topology
+  for (const annotation of annotations) {
+    await createAnnotation(created.id, annotation.type, toElementData(annotation) as AnnotationElementData, annotation.zIndex);
+  }
+
+  // Step 6: Fetch and return the complete saved topology
+  return getTopology(created.id);
+}
+
+// === Topology Sharing (Enterprise Mode) ===
+
+/** Publish/unpublish a topology for team visibility */
+export async function shareTopology(topologyId: string, shared: boolean): Promise<void> {
+  await getClient().http.put(`/topologies/${topologyId}/share`, { shared });
+}
+
+// === Topology Snapshot Export (Phase 27-08) ===
+
+/**
+ * Topology snapshot for Phase 26 troubleshooting session integration
+ * Contains both visual SVG representation and structured JSON data
+ */
+export interface TopologySnapshot {
+  /** Source topology ID */
+  topologyId: string;
+  /** Topology name */
+  topologyName: string;
+  /** Timestamp when snapshot was created */
+  timestamp: string;
+  /** Devices included in snapshot */
+  devices: Topology['devices'];
+  /** Connections included in snapshot */
+  connections: Topology['connections'];
+  /** Annotations included in snapshot */
+  annotations: Annotation[];
+  /** SVG visual representation for embedding in documents */
+  svgData: string;
+  /** Full JSON export for re-import or analysis */
+  jsonData: string;
+}
+
+/**
+ * Generate SVG representation of a topology
+ * Creates a standalone SVG string suitable for embedding or export
+ */
+export function generateTopologySvg(
+  topology: Topology,
+  annotations: Annotation[] = []
+): string {
+  const width = 1000;
+  const height = 1000;
+  const deviceSize = 40;
+
+  // Interface status colors for SVG
+  const INTERFACE_STATUS_COLORS: Record<string, string> = {
+    'up': '#4caf50',
+    'down': '#f44336',
+    'admin-down': '#ff9800',
+    'unknown': '#9e9e9e',
+  };
+
+  // Escape XML special characters in text nodes.
+  const escapeXml = (text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  // Attribute values must escape the quote character that wraps them. We use
+  // double-quoted attrs throughout this generator, so escaping " is enough,
+  // but we still escape < and & for defense-in-depth against SVG injection
+  // from annotation color/style strings (which the editor accepts as free text).
+  const attr = (value: string | number | undefined): string => {
+    if (value === undefined || value === null) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/"/g, '&quot;');
+  };
+
+  // Build SVG content
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+  <style>
+    .device-label { font: 11px sans-serif; fill: white; }
+    .connection-line { stroke-width: 2; fill: none; }
+    .connection-label { font: 10px sans-serif; fill: #4caf50; }
+    .interface-label { font: 10px sans-serif; }
+    .interface-bg { fill: rgba(30, 30, 30, 0.85); }
+    .annotation-text { font-family: sans-serif; }
+  </style>
+  <rect width="100%" height="100%" fill="#1e1e1e"/>
+`;
+
+  // Draw grid
+  svg += '  <g class="grid" stroke="#2a2a2a" stroke-width="1">\n';
+  for (let i = 0; i <= 1000; i += 50) {
+    svg += `    <line x1="${i}" y1="0" x2="${i}" y2="1000"/>\n`;
+    svg += `    <line x1="0" y1="${i}" x2="1000" y2="${i}"/>\n`;
+  }
+  svg += '  </g>\n';
+
+  // Draw connections
+  svg += '  <g class="connections">\n';
+  for (const conn of topology.connections) {
+    const source = topology.devices.find(d => d.id === conn.sourceDeviceId);
+    const target = topology.devices.find(d => d.id === conn.targetDeviceId);
+    if (!source || !target) continue;
+
+    const color = conn.color || (conn.status === 'active' ? '#4caf50' : conn.status === 'degraded' ? '#ff9800' : '#666666');
+    const dashArray = conn.lineStyle === 'dashed' ? 'stroke-dasharray="8,4"' : conn.lineStyle === 'dotted' ? 'stroke-dasharray="2,4"' : '';
+
+    // Draw connection line
+    svg += `    <line x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}" stroke="${attr(color)}" ${dashArray} class="connection-line"/>\n`;
+
+    // Calculate label positions (15%/85% along line)
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const sourceRatio = length < 100 ? 0.25 : 0.15;
+    const targetRatio = length < 100 ? 0.75 : 0.85;
+
+    // Draw source interface label
+    if (conn.sourceInterface) {
+      const labelX = source.x + dx * sourceRatio;
+      const labelY = source.y + dy * sourceRatio;
+      const statusColor = INTERFACE_STATUS_COLORS['unknown'];
+      const labelText = conn.sourceInterface.length > 15 ? conn.sourceInterface.slice(0, 14) + '...' : conn.sourceInterface;
+      svg += `    <rect x="${labelX - 40}" y="${labelY - 7}" width="80" height="14" rx="3" class="interface-bg"/>\n`;
+      svg += `    <text x="${labelX}" y="${labelY + 3}" text-anchor="middle" fill="${statusColor}" class="interface-label">${escapeXml(labelText)}</text>\n`;
+    }
+
+    // Draw target interface label
+    if (conn.targetInterface) {
+      const labelX = source.x + dx * targetRatio;
+      const labelY = source.y + dy * targetRatio;
+      const statusColor = INTERFACE_STATUS_COLORS['unknown'];
+      const labelText = conn.targetInterface.length > 15 ? conn.targetInterface.slice(0, 14) + '...' : conn.targetInterface;
+      svg += `    <rect x="${labelX - 40}" y="${labelY - 7}" width="80" height="14" rx="3" class="interface-bg"/>\n`;
+      svg += `    <text x="${labelX}" y="${labelY + 3}" text-anchor="middle" fill="${statusColor}" class="interface-label">${escapeXml(labelText)}</text>\n`;
+    }
+
+    // Draw connection label at midpoint
+    if (conn.label) {
+      const midX = (source.x + target.x) / 2;
+      const midY = (source.y + target.y) / 2;
+      svg += `    <text x="${midX}" y="${midY}" text-anchor="middle" class="connection-label">${escapeXml(conn.label)}</text>\n`;
+    }
+  }
+  svg += '  </g>\n';
+
+  // Draw annotations
+  if (annotations.length > 0) {
+    svg += '  <g class="annotations">\n';
+    for (const annotation of annotations) {
+      if (annotation.type === 'text') {
+        const pos = annotation.position;
+        svg += `    <text x="${pos.x}" y="${pos.y}" `;
+        svg += `fill="${attr(annotation.color)}" `;
+        svg += `font-size="${attr(annotation.fontSize)}" `;
+        svg += `font-weight="${attr(annotation.fontWeight)}" `;
+        svg += `class="annotation-text">${escapeXml(annotation.content)}</text>\n`;
+      } else if (annotation.type === 'shape') {
+        const pos = annotation.position;
+        const size = annotation.size;
+        const fill = annotation.fillColor ? `fill="${attr(annotation.fillColor)}"` : 'fill="none"';
+        const stroke = `stroke="${attr(annotation.strokeColor)}" stroke-width="${attr(annotation.strokeWidth)}"`;
+        const dash = annotation.strokeStyle === 'dashed' ? 'stroke-dasharray="8,4"' : annotation.strokeStyle === 'dotted' ? 'stroke-dasharray="2,4"' : '';
+
+        if (annotation.shapeType === 'rectangle') {
+          svg += `    <rect x="${pos.x}" y="${pos.y}" width="${size.width}" height="${size.height}" ${fill} ${stroke} ${dash}/>\n`;
+        } else if (annotation.shapeType === 'circle') {
+          const rx = size.width / 2;
+          const ry = size.height / 2;
+          svg += `    <ellipse cx="${pos.x + rx}" cy="${pos.y + ry}" rx="${rx}" ry="${ry}" ${fill} ${stroke} ${dash}/>\n`;
+        }
+        // Add label inside shape if present
+        if (annotation.label) {
+          const cx = pos.x + size.width / 2;
+          const cy = pos.y + size.height / 2;
+          svg += `    <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="${attr(annotation.strokeColor)}" class="annotation-text">${escapeXml(annotation.label)}</text>\n`;
+        }
+      } else if (annotation.type === 'line') {
+        const points = annotation.points;
+        if (points.length >= 2) {
+          const stroke = `stroke="${attr(annotation.color)}" stroke-width="${attr(annotation.lineWidth)}"`;
+          const dash = annotation.lineStyle === 'dashed' ? 'stroke-dasharray="8,4"' : annotation.lineStyle === 'dotted' ? 'stroke-dasharray="2,4"' : '';
+          const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+          svg += `    <path d="${pathData}" fill="none" ${stroke} ${dash}/>\n`;
+        }
+      }
+    }
+    svg += '  </g>\n';
+  }
+
+  // Draw devices
+  svg += '  <g class="devices">\n';
+  for (const device of topology.devices) {
+    const statusColor = device.status === 'online' ? '#4caf50' : device.status === 'warning' ? '#ff9800' : device.status === 'offline' ? '#f44336' : '#888888';
+
+    // Device icon (simplified rectangle with status indicator)
+    svg += `    <g transform="translate(${device.x}, ${device.y})">\n`;
+    svg += `      <rect x="${-deviceSize/2}" y="${-deviceSize/2}" width="${deviceSize}" height="${deviceSize}" fill="#2d2d2d" stroke="${statusColor}" stroke-width="2" rx="4"/>\n`;
+
+    // Device type initial
+    const typeInitial = device.type.charAt(0).toUpperCase();
+    svg += `      <text x="0" y="4" text-anchor="middle" fill="${statusColor}" font-size="14" font-weight="bold">${typeInitial}</text>\n`;
+
+    // Device label
+    svg += `      <text x="0" y="${deviceSize/2 + 14}" text-anchor="middle" class="device-label">${escapeXml(device.name)}</text>\n`;
+    svg += '    </g>\n';
+  }
+  svg += '  </g>\n';
+
+  svg += '</svg>';
+
+  return svg;
+}
+
+/**
+ * Create a complete topology snapshot for Phase 26 troubleshooting session integration
+ * Returns SVG visual representation and JSON data for embedding in markdown documents
+ */
+export async function createTopologySnapshot(
+  topologyId: string,
+  annotations: Annotation[] = []
+): Promise<TopologySnapshot> {
+  // Fetch the topology data
+  const topology = await getTopology(topologyId);
+
+  // Generate SVG representation
+  const svgData = generateTopologySvg(topology, annotations);
+
+  // Create JSON export data
+  const exportData = {
+    version: '1.0',
+    exportedAt: new Date().toISOString(),
+    topology: {
+      id: topology.id,
+      name: topology.name,
+      source: topology.source,
+      createdAt: topology.createdAt,
+      updatedAt: topology.updatedAt,
+      devices: topology.devices,
+      connections: topology.connections,
+    },
+    annotations,
+  };
+
+  const jsonData = JSON.stringify(exportData, null, 2);
+
+  return {
+    topologyId,
+    topologyName: topology.name,
+    timestamp: new Date().toISOString(),
+    devices: topology.devices,
+    connections: topology.connections,
+    annotations,
+    svgData,
+    jsonData,
+  };
+}
+
+/**
+ * Save a topology snapshot to the Docs system for documentation/archival
+ */
+export async function saveTopologyToDocs(
+  topologyId: string,
+  annotations: Annotation[] = []
+): Promise<Document> {
+  const snapshot = await createTopologySnapshot(topologyId, annotations);
+
+  const { category, folder } = resolveDocSaveTarget('topologySnapshot');
+  return createDocument({
+    name: `${snapshot.topologyName} - ${new Date().toLocaleDateString()}`,
+    category,
+    content_type: 'json',
+    content: snapshot.jsonData,
+    parent_folder: folder,
+  });
+}
+
+/**
+ * Map backend device_type string to frontend DeviceType
+ */
+function mapBackendDeviceType(backendType: string): DeviceType {
+  const typeMap: Record<string, DeviceType> = {
+    'router': 'router',
+    'switch': 'switch',
+    'firewall': 'firewall',
+    'server': 'server',
+    'cloud': 'cloud',
+    'access-point': 'access-point',
+    'load-balancer': 'load-balancer',
+    'wan-optimizer': 'wan-optimizer',
+    'voice-gateway': 'voice-gateway',
+    'wireless-controller': 'wireless-controller',
+    'storage': 'storage',
+    'virtual': 'virtual',
+    'sd-wan': 'sd-wan',
+    'iot': 'iot',
+  };
+  return typeMap[backendType] || 'unknown';
+}
+
+// ── Topology Folder Types ──
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateFolderData {
+  name?: string;
+  parent_id?: string | null;
+  sort_order?: number;
+}
+
+export interface MoveFolderData {
+  parent_id: string | null;
+  sort_order: number;
+}
+
+// ── Topology Folder Operations ──
+
+export async function listTopologyFolders(): Promise<Folder[]> {
+  const { data } = await getClient().http.get('/topologies/folders');
+  return data;
+}
+
+export async function createTopologyFolder(name: string, parentId?: string): Promise<Folder> {
+  const { data } = await getClient().http.post('/topologies/folders', {
+    name,
+    parent_id: parentId || null,
+  });
+  return data;
+}
+
+export async function updateTopologyFolder(id: string, update: UpdateFolderData): Promise<Folder> {
+  const { data } = await getClient().http.put(`/topologies/folders/${id}`, update);
+  return data;
+}
+
+export async function deleteTopologyFolder(id: string): Promise<void> {
+  await getClient().http.delete(`/topologies/folders/${id}`);
+}
+
+export async function moveTopologyFolder(id: string, data: MoveFolderData): Promise<Folder> {
+  const { data: result } = await getClient().http.put(`/topologies/folders/${id}/move`, data);
+  return result;
+}
+
+export async function moveTopology(id: string, update: { folder_id: string | null; sort_order: number }): Promise<void> {
+  await getClient().http.put(`/topologies/${id}/move`, update);
+}
+
+export async function bulkDeleteTopologies(ids: string[]): Promise<{ deleted: number; failed: number }> {
+  const { data } = await getClient().http.post('/topologies/bulk-delete', { ids });
+  return data;
+}

@@ -1,0 +1,8 @@
+/* Settings → Troubleshooting */
+.settings-troubleshooting-timeout {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}

@@ -1,0 +1,211 @@
+/* AgentActivity — macOS/Xcode-style labeled card feed. */
+
+.agent-activity {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 6px 22px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+/* fill: grow to fill the container (run tab / node) instead of the compact
+   380px cap — feed scrolls internally so the page doesn't. */
+.agent-activity.fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.agent-activity.fill .agent-activity-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Header — title, live pulse, step count. */
+.agent-activity-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-fill-subtle);
+}
+.agent-activity-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--color-text);
+}
+.agent-activity-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.agent-activity-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-success);
+}
+.aa-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  animation: aa-pulse 1.6s ease-out infinite;
+}
+@keyframes aa-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--color-success-rgb, 78, 201, 176), 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(var(--color-success-rgb, 78, 201, 176), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--color-success-rgb, 78, 201, 176), 0); }
+}
+
+/* Feed — scrollable stack of step cards. */
+.agent-activity-feed {
+  /* Wrap the cards — the box grows to fit however many/whatever size; the
+     surrounding container does the scrolling. (Node boxes use .fill to cap +
+     scroll internally instead.) */
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* Step card */
+.aa-card {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  background: var(--color-bg-secondary);
+  padding: 8px 10px 9px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.aa-card:hover {
+  background: var(--color-bg-hover);
+}
+
+.aa-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.aa-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+.aa-chevron svg { transform: rotate(90deg); transition: transform 0.15s ease; }
+.aa-card.collapsed .aa-chevron svg { transform: rotate(0deg); }
+
+/* Tinted rounded-square leading icon (macOS app-icon feel). */
+.aa-ico {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.aa-ico svg { width: 13px; height: 13px; }
+
+.aa-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+.aa-tool {
+  font-family: var(--font-family-mono);
+  font-size: 10.5px;
+  color: var(--color-text-secondary);
+  background: var(--color-fill);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.aa-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Body */
+.aa-body { margin-top: 6px; padding-left: 30px; }
+.aa-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aa-code {
+  margin: 0;
+  font-family: var(--font-family-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--color-text);
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 7px;
+  padding: 6px 8px;
+}
+
+/* Command shown as a terminal row (before it runs) */
+.aa-cmd {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--color-warning);
+}
+.aa-prompt {
+  color: var(--color-warning);
+  font-weight: 700;
+  user-select: none;
+}
+
+/* ── Kind accents (icon tint + title color + left-edge + body) ── */
+.aa-thought .aa-ico   { background: var(--color-accent-tint-15); color: var(--color-accent); }
+.aa-thought .aa-title { color: var(--color-accent); }
+
+.aa-command .aa-ico   { background: rgba(var(--color-warning-rgb), 0.16); color: var(--color-warning); }
+.aa-command .aa-title { color: var(--color-warning); }
+/* Make command cards visually distinct — left accent + warm-tinted background */
+.aa-command.aa-card {
+  border-left: 3px solid rgba(var(--color-warning-rgb), 0.55);
+  background: rgba(var(--color-warning-rgb), 0.05);
+}
+.aa-command .aa-code {
+  background: rgba(var(--color-warning-rgb), 0.08);
+  border-color: rgba(var(--color-warning-rgb), 0.22);
+  color: var(--color-text);
+}
+
+.aa-tool_result .aa-ico   { background: rgba(var(--color-success-rgb), 0.16); color: var(--color-success); }
+.aa-tool_result .aa-title { color: var(--color-success); }
+
+.aa-error .aa-ico   { background: rgba(var(--color-error-rgb), 0.16); color: var(--color-error); }
+.aa-error .aa-title { color: var(--color-error); }
+/* Both classes on same element — use combined selector (no space) */
+.aa-error.aa-card   { border-color: rgba(var(--color-error-rgb), 0.28); }
+.aa-error .aa-code  { color: var(--color-error); }
+
+.aa-thinking .aa-ico   { background: var(--color-accent-tint-15); color: var(--color-accent); }
+.aa-thinking .aa-title { color: var(--color-accent); opacity: 0.75; }
+
+.aa-status .aa-ico   { background: var(--color-fill); color: var(--color-text-tertiary); }
+.aa-status .aa-title { color: var(--color-text-tertiary); }

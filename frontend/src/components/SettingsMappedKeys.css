@@ -1,0 +1,72 @@
+/* Settings → Mapped Keys */
+.mk-combo {
+  padding: 1px 6px;
+  border-radius: var(--radius-control);
+  background: var(--color-accent-tint-15);
+  color: var(--color-text-accent);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.mk-row-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+}
+
+.mk-capture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--spacing-xs);
+}
+
+.mk-capture-btn {
+  min-width: 160px;
+  padding: 4px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: center;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.mk-capture-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.mk-capture-btn.capturing {
+  border-style: solid;
+  border-color: var(--color-accent);
+  color: var(--color-text-accent);
+}
+
+.mk-command {
+  flex: 1;
+  min-width: 160px;
+  font-family: var(--font-family-mono);
+}
+
+.mk-combo-problem {
+  flex-basis: 100%;
+  font-size: var(--font-size-small);
+  color: var(--color-warning);
+}
+
+.mk-combo-problem.blocking {
+  color: var(--color-error);
+}

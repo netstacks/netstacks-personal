@@ -1,0 +1,111 @@
+/* UpdateChecker.css - Styles for the auto-update notification banner */
+
+.update-banner {
+  position: fixed;
+  bottom: 44px; /* Above status bar */
+  right: 24px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  padding: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  max-width: 360px;
+  min-width: 300px;
+  animation: update-checker-in 0.3s ease-out;
+}
+
+@keyframes update-checker-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.update-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.update-icon {
+  color: var(--accent-color);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+  border-radius: var(--radius-control);
+}
+
+.update-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.update-text strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.update-text span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.update-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-bar-container {
+  flex: 1;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-control);
+  height: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: var(--radius-control);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+
+.update-error {
+  color: var(--error-color);
+  font-size: 12px;
+  margin-top: 12px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--error-color) 10%, transparent);
+  border-radius: var(--radius-control);
+}

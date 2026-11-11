@@ -1,0 +1,258 @@
+.session-context-editor {
+  padding: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-header {
+  margin-bottom: 16px;
+}
+
+.context-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.context-description {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+/* Loading and Error States */
+.context-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--text-secondary);
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.context-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  border-radius: var(--radius-control);
+  color: var(--color-error);
+  font-size: 13px;
+}
+
+.error-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #f44336;
+  color: var(--color-text-on-accent);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Form */
+.context-form {
+  background: var(--bg-tertiary);
+  padding: 16px;
+  border-radius: var(--radius-panel);
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+}
+
+.context-form h4 {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.context-form .form-group {
+  margin-bottom: 12px;
+}
+
+.context-form .form-group label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Context List */
+.context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.no-context {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.no-context-icon {
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.no-context p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.no-context-hint {
+  margin-top: 4px !important;
+  font-size: 12px !important;
+  color: var(--text-tertiary) !important;
+}
+
+/* Context Entry */
+.context-entry {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  transition: border-color 0.2s;
+}
+
+.context-entry:hover {
+  border-color: var(--border-hover);
+}
+
+.context-entry.expanded {
+  border-color: var(--accent);
+}
+
+.context-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  gap: 12px;
+}
+
+.context-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.context-issue {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ticket-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.context-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Context Details */
+.context-details {
+  padding: 0 12px 12px 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 0;
+}
+
+.context-field {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.context-field label {
+  display: block;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.context-field span {
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.context-field pre {
+  background: var(--bg-primary);
+  padding: 10px;
+  border-radius: var(--radius-control);
+  margin: 4px 0 0 0;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  border: 1px solid var(--border);
+}
+
+.context-entry-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.context-form textarea.mono {
+  font-family: var(--font-family-mono);
+}

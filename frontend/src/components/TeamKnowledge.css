@@ -1,0 +1,128 @@
+.team-knowledge {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Card sits fully left of the dock (its containing block): the dock's padding
+ * box + its 1px divider + an 8px gap; top-aligned with the dock. */
+.team-knowledge-card {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 1px + 8px);
+  width: max-content;
+  max-width: 320px;
+  padding: var(--spacing-xs);
+  font-size: var(--font-size-small);
+  animation: team-knowledge-slide-in var(--transition-normal);
+}
+
+/* The 2-second announcement draws the eye with an accent border; the list does not. */
+.team-knowledge-card--announce {
+  border-color: var(--color-accent);
+}
+
+@keyframes team-knowledge-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.team-knowledge-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.team-knowledge-count {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.team-knowledge-list {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.team-knowledge-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.team-knowledge-entry {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.team-knowledge-entry:hover {
+  background: var(--color-bg-hover);
+}
+
+.team-knowledge-issue {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+/* The list is denser: two lines, the whole text on hover or focus. */
+.team-knowledge-list .team-knowledge-issue {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.team-knowledge-list .team-knowledge-entry:is(:hover, :focus-visible) .team-knowledge-issue {
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+}
+
+.team-knowledge-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--color-text-secondary);
+}
+
+.team-knowledge-ticket {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--color-fill-subtle);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+}
+
+/* Screen-reader-only live region for the announcement. */
+.team-knowledge-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

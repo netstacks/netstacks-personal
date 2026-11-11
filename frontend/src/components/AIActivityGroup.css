@@ -1,0 +1,96 @@
+/* A run of AI activity (tool calls + reasoning) in a chat transcript. */
+.ai-activity {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-bg-primary) 55%, transparent);
+  font-size: 12px;
+}
+
+.ai-activity-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-control);
+}
+
+.ai-activity-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-activity-summary:hover {
+  color: var(--color-text-primary);
+}
+
+.ai-activity-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.ai-activity-title {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.ai-activity-failed {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-error);
+}
+
+.ai-activity-latest {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.ai-activity-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--color-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.ai-activity[open] .ai-activity-chevron {
+  transform: rotate(180deg);
+}
+
+.ai-activity-spinner {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: ai-activity-spin 0.8s linear infinite;
+}
+
+@keyframes ai-activity-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-activity-spinner { animation: none; }
+}
+
+/* Rows hang off a thin rail, like a timeline. */
+.ai-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 8px 6px 15px;
+  padding-left: 8px;
+  border-left: 1px solid var(--color-border);
+}

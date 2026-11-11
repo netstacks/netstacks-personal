@@ -1,0 +1,213 @@
+/* SftpEditorTab - Plain text editor for remote files via SFTP */
+
+.sftp-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+/* Toolbar */
+.sftp-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}
+
+.sftp-editor-path {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sftp-editor-path-text {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sftp-editor-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.sftp-editor-badge.modified {
+  background: rgba(var(--color-warning-rgb), 0.2);
+  color: var(--color-warning);
+}
+
+.sftp-editor-badge.saving {
+  background: var(--color-accent-tint-20);
+  color: var(--color-accent);
+  animation: sftp-editor-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes sftp-editor-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sftp-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Error banner */
+.sftp-editor-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(var(--color-error-rgb), 0.15);
+  border-bottom: 1px solid rgba(var(--color-error-rgb), 0.3);
+  color: var(--color-error);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* Editor body: line gutter + textarea */
+.sftp-editor-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Line number gutter */
+.sftp-editor-gutter {
+  width: 56px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  user-select: none;
+  padding-top: 12px;
+}
+
+.sftp-editor-line-numbers {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  text-align: right;
+  padding-right: 12px;
+  white-space: pre;
+}
+
+/* Textarea */
+.sftp-editor-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 12px 16px;
+  margin: 0;
+  background: var(--color-bg-primary);
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.sftp-editor-textarea:focus {
+  outline: none;
+}
+
+.sftp-editor-textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Footer / status bar */
+.sftp-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.sftp-editor-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sftp-editor-status {
+  margin-left: auto;
+}
+
+.sftp-editor-status.modified {
+  color: #f1c40f;
+}
+
+.sftp-editor-status.saved {
+  color: var(--color-success);
+}
+
+/* Loading state */
+.sftp-editor-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--color-text-muted);
+}
+
+.sftp-editor-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: sftp-editor-spin 0.8s linear infinite;
+}
+
+@keyframes sftp-editor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error state (full-page, for initial load failure) */
+.sftp-editor-load-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--color-text-muted);
+}
+
+.sftp-editor-load-error-message {
+  color: var(--color-error);
+  font-size: 13px;
+  text-align: center;
+  max-width: 400px;
+}

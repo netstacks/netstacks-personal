@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Disable app sandbox for full SSH/terminal functionality -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <!-- Network client for SSH connections to remote hosts -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Network server for local WebSocket API communication -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- File access for SSH keys, configs, and user documents -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- Allow child processes (sidecar agent) to inherit entitlements -->
+    <key>com.apple.security.inherit</key>
+    <true/>
+</dict>
+</plist>

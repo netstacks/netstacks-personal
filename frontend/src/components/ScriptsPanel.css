@@ -1,0 +1,102 @@
+.scripts-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+.scripts-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.scripts-panel-status,
+.scripts-panel-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.scripts-panel-error {
+  color: var(--color-error);
+}
+
+.scripts-panel-error button {
+  margin-top: 8px;
+}
+
+.scripts-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 0;
+}
+
+.scripts-section-items {
+  padding: 0 4px;
+}
+
+.scripts-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin: 1px 0;
+  border-radius: var(--radius-control);
+  transition: background-color 0.15s;
+}
+
+.scripts-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.scripts-item-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.scripts-item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.scripts-item-name {
+  flex: 1;
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scripts-panel-ai {
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-category-purple) 100%);
+}
+
+.scripts-panel-ai:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-accent-hover) 0%, var(--color-category-purple) 100%);
+}
+
+/* The two labelled actions share the width and shrink in a narrow sidebar;
+ * refresh keeps its size so it never falls off the edge. */
+.scripts-panel-toolbar .ns-btn:not(.ns-icon-btn) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.scripts-panel-toolbar .ns-btn:not(.ns-icon-btn) span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scripts-panel-refresh {
+  flex: none;
+}

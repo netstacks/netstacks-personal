@@ -1,0 +1,5842 @@
+//! AI provider implementations
+//!
+//! Supports multiple AI providers with a common trait interface.
+//! - AnthropicProvider: Claude API (primary)
+//! - MockProvider: Placeholder responses when no API key configured
+
+use async_trait::async_trait;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use thiserror::Error;
+
+/// Errors from AI providers
+#[derive(Error, Debug)]
+pub enum AiError {
+    #[error("AI provider not configured: {0}")]
+    NotConfigured(String),
+    #[error("API request failed: {0}")]
+    RequestFailed(String),
+    /// Upstream rejected the credentials (HTTP 401/403).
+    #[error("AI provider rejected the API key: {0}")]
+    Unauthorized(String),
+    /// Upstream rejected the request itself (HTTP 400/404/422).
+    #[error("AI provider rejected the request: {0}")]
+    BadRequest(String),
+    #[error("Invalid response from AI provider: {0}")]
+    InvalidResponse(String),
+    #[error("Rate limited by AI provider")]
+    RateLimited,
+    #[error("Request timed out")]
+    Timeout,
+}
+
+impl AiError {
+    /// Map a non-success upstream HTTP status to the matching error variant so
+    /// the API layer can relay 401/400/429 instead of collapsing everything to
+    /// a 500 `PROVIDER_ERROR`.
+    pub fn from_http_status(status: reqwest::StatusCode, body: impl AsRef<str>) -> Self {
+        let msg = format!("HTTP {}: {}", status, body.as_ref());
+        match status {
+            reqwest::StatusCode::TOO_MANY_REQUESTS => AiError::RateLimited,
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+                AiError::Unauthorized(msg)
+            }
+            reqwest::StatusCode::BAD_REQUEST
+            | reqwest::StatusCode::NOT_FOUND
+            | reqwest::StatusCode::UNPROCESSABLE_ENTITY => AiError::BadRequest(msg),
+            _ => AiError::RequestFailed(msg),
+        }
+    }
+}
+
+/// A message in the chat conversation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String, // "user", "assistant", "system"
+    pub content: String,
+}
+
+/// Enhanced device context for network-aware AI assistance
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceContext {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub device_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>, // "IOS-XE", "NX-OS", "Junos"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>, // "Cisco", "Juniper", "Arista"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    pub status: String,
+}
+
+/// Protocol session on a connection
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProtocolSession {
+    pub protocol: String,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Connection context for topology link awareness
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionContext {
+    pub source_device: DeviceContext,
+    pub source_interface: String,
+    pub target_device: DeviceContext,
+    pub target_interface: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocols: Option<Vec<ProtocolSession>>,
+}
+
+/// Terminal context parsed from buffer
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_vendor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_platform: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recent_output: Option<String>, // Last ~50 lines
+}
+
+/// Session context entry - tribal knowledge about a device (Phase 14)
+///
+/// Field names stay snake_case (no rename_all): the frontend interface
+/// (frontend/src/api/ai.ts SessionContextEntry) and the sibling struct the
+/// sessions endpoint serializes (models.rs SessionContext) are both
+/// snake_case, so this must match or /ai/chat deserialization fails.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SessionContextEntry {
+    pub id: String,
+    pub issue: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_cause: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ticket_ref: Option<String>,
+    pub author: String,
+    pub created_at: String,
+}
+
+/// Enhanced context passed to the AI for network-aware responses
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiContext {
+    /// Selected text from the terminal
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_text: Option<String>,
+    /// Session name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_name: Option<String>,
+    /// Device context (from topology or detected)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceContext>,
+    /// Connection context (for topology link clicks)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionContext>,
+    /// Terminal context (parsed from buffer)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalContext>,
+    /// Session context - team knowledge for this device (Phase 14)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_context: Option<Vec<SessionContextEntry>>,
+    /// AI Engineer profile (loaded from DB, not from frontend request)
+    #[serde(skip)]
+    pub ai_profile: Option<super::profile::AiEngineerProfile>,
+    /// Which AI feature is making this request (controls profile segment selection)
+    #[serde(skip)]
+    pub feature: super::profile::AiFeature,
+}
+
+/// AI provider configuration (stored as JSON in settings)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "provider")]
+pub enum AiProviderConfig {
+    #[serde(rename = "anthropic")]
+    Anthropic {
+        api_key: String,
+        #[serde(default = "default_anthropic_model")]
+        model: String,
+        #[serde(default)]
+        base_url: Option<String>,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
+    },
+    #[serde(rename = "openai")]
+    OpenAI {
+        api_key: String,
+        #[serde(default = "default_openai_model")]
+        model: String,
+        #[serde(default)]
+        base_url: Option<String>,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
+    },
+    #[serde(rename = "ollama")]
+    Ollama {
+        #[serde(default = "default_ollama_model")]
+        model: String,
+        #[serde(default = "default_ollama_url")]
+        base_url: String,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
+    },
+    #[serde(rename = "openrouter")]
+    OpenRouter {
+        api_key: String,
+        #[serde(default = "default_openrouter_model")]
+        model: String,
+        #[serde(default)]
+        base_url: Option<String>,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
+    },
+    #[serde(rename = "litellm")]
+    LiteLLM {
+        #[serde(default = "default_litellm_model")]
+        model: String,
+        #[serde(default = "default_litellm_url")]
+        base_url: String,
+        #[serde(default)]
+        api_key: Option<String>,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
+    },
+    #[serde(rename = "custom")]
+    Custom {
+        api_key: String,
+        model: String,
+        base_url: String,
+        /// OAuth2 configuration for client_credentials auth (optional).
+        /// When set, OAuth2 tokens are used instead of the static api_key.
+        #[serde(default)]
+        oauth2: Option<super::oauth2::OAuth2Config>,
+        /// API format: "openai" (default) or "gemini" (Vertex AI / Google Gemini).
+        #[serde(default)]
+        api_format: Option<String>,
+        #[serde(default = "default_verify_ssl")]
+        verify_ssl: bool,
+    },
+}
+
+/// API format for custom providers.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ApiFormat {
+    /// OpenAI-compatible: POST {base_url}/chat/completions
+    OpenAI,
+    /// Gemini/Vertex AI: POST {base_url}/{model}:generateContent (auto-suffix
+    /// only added when the model name does not already contain ':').
+    Gemini,
+    /// Anthropic on Vertex AI: POST {base_url}/{model}:rawPredict with
+    /// Anthropic message body (anthropic_version + messages + max_tokens).
+    /// Auto-suffix `:rawPredict` only added when model lacks ':'.
+    VertexAnthropic,
+}
+
+/// Build a `{base_url}/{model}` URL, auto-appending `:{default_action}` only
+/// when the model name doesn't already contain a `:` action suffix. Lets
+/// users put `claude-sonnet-4-6:rawPredict` (or any other action) directly
+/// in the Model field for endpoints that need a non-default action.
+fn build_model_action_url(base_url: &str, model: &str, default_action: &str) -> String {
+    if model.contains(':') {
+        format!("{}/{}", base_url.trim_end_matches('/'), model)
+    } else {
+        format!(
+            "{}/{}:{}",
+            base_url.trim_end_matches('/'),
+            model,
+            default_action
+        )
+    }
+}
+
+/// Like `build_model_action_url`, but for STREAMING requests. If the user pinned
+/// a non-streaming action in the Model field (`:rawPredict` / `:generateContent`),
+/// map it to its streaming counterpart so streaming actually streams. Otherwise a
+/// pinned `:rawPredict` would send a streaming request to the unary endpoint,
+/// which returns a single JSON blob the SSE parser can't read (chat hangs on
+/// "thinking" while the non-streaming Test still passes).
+fn build_model_stream_url(base_url: &str, model: &str, default_stream_action: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    match model.split_once(':') {
+        Some((name, action)) => {
+            let streamed = match action {
+                "rawPredict" => "streamRawPredict",
+                "generateContent" => "streamGenerateContent",
+                other => other, // already a streaming or custom action — respect it
+            };
+            format!("{}/{}:{}", base, name, streamed)
+        }
+        None => format!("{}/{}:{}", base, model, default_stream_action),
+    }
+}
+
+/// Bare Claude model id: lowercased, without a router/vendor prefix
+/// (`anthropic/…`, `us.anthropic.…`), a Vertex `@version` or a `:action`
+/// suffix.
+fn bare_claude_model_id(model: &str) -> String {
+    let lower = model.trim().to_ascii_lowercase();
+    let after_slash = lower.rsplit('/').next().unwrap_or("");
+    let after_vendor = match after_slash.find("claude") {
+        Some(pos) => &after_slash[pos..],
+        None => after_slash,
+    };
+    after_vendor
+        .split([':', '@'])
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Whether an Anthropic model accepts `temperature` / `top_p`. Claude Opus
+/// 4.7 and later, every 5-series model, Fable and Mythos reject them with
+/// HTTP 400; Opus ≤ 4.6, Sonnet 4.x, Haiku 4.x and claude-3* accept them.
+/// Unknown names are treated as not accepting, since omitting the field is
+/// always safe.
+pub(crate) fn model_accepts_sampling_params(model: &str) -> bool {
+    let id = bare_claude_model_id(model);
+    if id.contains("fable") || id.contains("mythos") {
+        return false;
+    }
+    if id.starts_with("claude-3") {
+        return true;
+    }
+    let mut parts = id.split('-');
+    if parts.next() != Some("claude") {
+        return false;
+    }
+    let family = parts.next().unwrap_or("");
+    let Some(major) = parts.next().and_then(|p| p.parse::<u32>().ok()) else {
+        return false;
+    };
+    // A minor version is one or two digits; an 8-digit component is a date
+    // snapshot (`claude-opus-4-20250514` is Opus 4.0).
+    let minor = parts
+        .next()
+        .filter(|p| p.len() <= 2)
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    match (family, major) {
+        (_, m) if m >= 5 => false,
+        ("opus", 4) => minor < 7,
+        ("sonnet", 4) | ("haiku", 4) => true,
+        _ => false,
+    }
+}
+
+/// The caller's temperature, if the Anthropic `model` accepts one.
+fn anthropic_temperature(model: &str, options: &Option<AgentChatOptions>) -> Option<f64> {
+    options
+        .as_ref()
+        .and_then(|o| o.temperature)
+        .filter(|_| model_accepts_sampling_params(model) && anthropic_thinking(model, options).is_none())
+}
+
+/// Adaptive thinking exists on Opus/Sonnet 4.6+, Opus/Sonnet 5.x and the
+/// Fable/Mythos tier. Haiku and older models take only a fixed
+/// `budget_tokens`, so they never get the `thinking` param.
+fn model_supports_adaptive_thinking(model: &str) -> bool {
+    let id = bare_claude_model_id(model);
+    if id.contains("fable") || id.contains("mythos") {
+        return true;
+    }
+    let mut parts = id.split('-');
+    if parts.next() != Some("claude") {
+        return false;
+    }
+    let family = parts.next().unwrap_or("");
+    let Some(major) = parts.next().and_then(|p| p.parse::<u32>().ok()) else {
+        return false;
+    };
+    let minor = parts
+        .next()
+        .filter(|p| p.len() <= 2)
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    matches!(family, "opus" | "sonnet") && (major, minor) >= (4, 6)
+}
+
+/// The `thinking` request param when the user turned on "Show AI Reasoning":
+/// adaptive with a summarized display (current models default to `omitted`,
+/// i.e. empty thinking text). Display only — thinking blocks are never
+/// replayed, because the chat rebuilds its history every turn and the
+/// preserved-thinking check rejects replayed blocks after such edits.
+fn anthropic_thinking(model: &str, options: &Option<AgentChatOptions>) -> Option<serde_json::Value> {
+    let wanted = options.as_ref().is_some_and(|o| o.show_thinking);
+    (wanted && model_supports_adaptive_thinking(model))
+        .then(|| serde_json::json!({ "type": "adaptive", "display": "summarized" }))
+}
+
+/// OpenAI reasoning-family models (o1/o3/o4…, gpt-5*) take
+/// `max_completion_tokens` instead of `max_tokens` and reject a custom
+/// temperature.
+fn is_openai_reasoning_model(model: &str) -> bool {
+    let lower = model.trim().to_ascii_lowercase();
+    let id = lower.rsplit('/').next().unwrap_or("");
+    if id.starts_with("gpt-5") {
+        return true;
+    }
+    let mut chars = id.chars();
+    chars.next() == Some('o') && chars.next().is_some_and(|c| c.is_ascii_digit())
+}
+
+/// Token-limit and sampling fields of an OpenAI chat-completions request,
+/// shaped for `model`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OpenAiRequestShape {
+    max_tokens: Option<u32>,
+    max_completion_tokens: Option<u32>,
+    temperature: Option<f32>,
+}
+
+impl OpenAiRequestShape {
+    /// Classic shape (`max_tokens` + `temperature`) used by OpenAI-compatible
+    /// servers such as Ollama and LiteLLM.
+    fn classic(max_tokens: u32, temperature: f32) -> Self {
+        Self {
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
+            temperature: Some(temperature),
+        }
+    }
+
+    fn for_model(model: &str, max_tokens: u32, temperature: f32) -> Self {
+        if is_openai_reasoning_model(model) {
+            Self {
+                max_tokens: None,
+                max_completion_tokens: Some(max_tokens),
+                temperature: None,
+            }
+        } else {
+            Self::classic(max_tokens, temperature)
+        }
+    }
+}
+
+/// Header carrying a static Google (Gemini / AI Studio) API key. OAuth access
+/// tokens still go in `Authorization: Bearer`.
+pub(crate) const GEMINI_API_KEY_HEADER: &str = "x-goog-api-key";
+
+/// Error text for a stream that closed before its terminal event
+/// (`message_stop`, a Gemini `finishReason`, an OpenAI `finish_reason` or
+/// `[DONE]`). Reporting it beats showing a silently truncated answer.
+const STREAM_TRUNCATED_MESSAGE: &str = "Stream ended before the model finished";
+
+/// Provider HTTP clients bound the connect and each read (the idle gap between
+/// chunks), never the whole request: a streamed reply with a large output cap
+/// legitimately runs for minutes, and a whole-request timeout cut it off
+/// mid-stream. Long local-model / non-streaming waits get the same idle bound.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Anthropic output cap when the caller sends none. Current Claude models
+/// think on every turn and that thinking counts against `max_tokens`, so the
+/// old 4096 cap ran out before large tool calls (e.g. create_mop) were emitted.
+const ANTHROPIC_DEFAULT_MAX_TOKENS: u32 = 32_000;
+
+fn default_verify_ssl() -> bool {
+    true
+}
+
+// Keep in sync with frontend/src/lib/aiModelDefaults.ts (NS-AI-40).
+fn default_anthropic_model() -> String {
+    "claude-opus-5".to_string()
+}
+
+fn default_openai_model() -> String {
+    "gpt-4o".to_string()
+}
+
+fn default_ollama_model() -> String {
+    "llama3.2".to_string()
+}
+
+fn default_ollama_url() -> String {
+    "http://localhost:11434".to_string()
+}
+
+fn default_openrouter_model() -> String {
+    "anthropic/claude-sonnet-5".to_string()
+}
+
+fn default_litellm_model() -> String {
+    "gpt-4o".to_string()
+}
+
+fn default_litellm_url() -> String {
+    "http://localhost:4000".to_string()
+}
+
+// === Generic Agent Chat Types ===
+
+/// Generic message for agent chat (works with any provider)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentMessage {
+    pub role: String,
+    pub content: AgentContent,
+}
+
+/// Content can be text or array of content blocks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentContent {
+    Text(String),
+    Blocks(Vec<AgentContentBlock>),
+}
+
+/// Generic content block for agent chat
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AgentContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_error: Option<bool>,
+    },
+    /// Extended thinking block — present when model uses extended thinking (e.g. Vertex).
+    /// Ignored during processing; never forwarded to the frontend.
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+        #[serde(default)]
+        signature: String,
+    },
+}
+
+/// Token usage from AI provider
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    /// Total tokens (input + output) - some providers track this separately
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u32>,
+}
+
+/// Generic response from agent chat
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentResponse {
+    pub content: Vec<AgentContentBlock>,
+    pub stop_reason: Option<String>,
+    /// Token usage for this request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TokenUsage>,
+}
+
+/// Events emitted during streaming agent chat
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum StreamEvent {
+    /// A chunk of text content from the AI
+    #[serde(rename = "content_delta")]
+    ContentDelta { text: String },
+    /// A chunk of the model's summarized reasoning ("Show AI Reasoning").
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { text: String },
+    /// AI wants to start a tool call
+    #[serde(rename = "tool_use_start")]
+    ToolUseStart { id: String, name: String },
+    /// Incremental JSON input for the tool call
+    #[serde(rename = "tool_input_delta")]
+    ToolInputDelta { delta: String },
+    /// Tool input is complete
+    #[serde(rename = "tool_use_end")]
+    ToolUseEnd,
+    /// Stream is complete
+    #[serde(rename = "done")]
+    Done {
+        stop_reason: Option<String>,
+        usage: Option<TokenUsage>,
+    },
+    /// An error occurred
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+/// Options for agent chat requests (temperature, max_tokens overrides)
+#[derive(Debug, Clone)]
+pub struct AgentChatOptions {
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<u32>,
+    /// "Show AI Reasoning": ask models that support it for a readable
+    /// summary of their thinking (display only — see `anthropic_thinking`).
+    pub show_thinking: bool,
+}
+
+/// Trait for AI providers
+#[async_trait]
+pub trait AiProvider: Send + Sync {
+    /// Send a chat completion request
+    async fn chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError>;
+
+    /// Send an agent chat request with tool support
+    async fn agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Default implementation for providers that don't support tool calling
+        let _ = (system_prompt, messages, tools, options);
+        Err(AiError::NotConfigured(format!(
+            "{} does not support agent chat with tools",
+            self.provider_name()
+        )))
+    }
+
+    /// Stream agent chat responses as SSE events.
+    /// Default implementation calls `agent_chat` and emits synthetic events.
+    fn agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let fut = self.agent_chat(system_prompt, messages, tools, options);
+        Box::pin(async_stream::stream! {
+            match fut.await {
+                Ok(response) => {
+                    for block in &response.content {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                yield Ok(StreamEvent::ContentDelta { text: text.clone() });
+                            }
+                            AgentContentBlock::ToolUse { id, name, input } => {
+                                yield Ok(StreamEvent::ToolUseStart {
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                });
+                                yield Ok(StreamEvent::ToolInputDelta {
+                                    delta: serde_json::to_string(input).unwrap_or_default(),
+                                });
+                                yield Ok(StreamEvent::ToolUseEnd);
+                            }
+                            _ => {}
+                        }
+                    }
+                    yield Ok(StreamEvent::Done {
+                        stop_reason: response.stop_reason,
+                        usage: response.usage,
+                    });
+                }
+                Err(e) => {
+                    yield Ok(StreamEvent::Error { message: e.to_string() });
+                }
+            }
+        })
+    }
+
+    /// Get the provider name for display
+    fn provider_name(&self) -> &str;
+}
+
+// === Anthropic Provider ===
+
+/// Anthropic Claude API provider
+pub struct AnthropicProvider {
+    api_key: String,
+    model: String,
+    base_url: String,
+    client: reqwest::Client,
+}
+
+impl AnthropicProvider {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let effective_url = base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string());
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            api_key,
+            model: model.unwrap_or_else(default_anthropic_model),
+            base_url: effective_url,
+            client,
+        })
+    }
+}
+
+/// Anthropic API request format
+#[derive(Debug, Serialize)]
+struct AnthropicRequest {
+    model: String,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+}
+
+/// Anthropic-on-Vertex request format. Differs from native Anthropic in two
+/// ways: the model is in the URL (not the body), and an `anthropic_version`
+/// field selects the Vertex contract version.
+#[derive(Debug, Serialize)]
+struct VertexAnthropicRequest {
+    anthropic_version: String,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    messages: Vec<AnthropicMessage>,
+}
+
+/// Anthropic-on-Vertex request format for agent chat — supports tools and
+/// content-block messages (so tool_use round-trips work). Same wire shape as
+/// native Anthropic agent requests minus the `model` field (the model is in
+/// the URL on Vertex). Set `stream: Some(true)` for `:streamRawPredict`.
+#[derive(Debug, Serialize)]
+struct VertexAnthropicAgentRequest {
+    anthropic_version: String,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    messages: Vec<AnthropicAgentMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    /// Only set for models that accept sampling params — see
+    /// `model_accepts_sampling_params`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    /// See `anthropic_thinking`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<serde_json::Value>,
+}
+
+/// Anthropic API request format with tools (for agent chat)
+#[derive(Debug, Serialize)]
+pub struct AnthropicAgentRequest {
+    pub model: String,
+    pub max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    pub messages: Vec<AnthropicAgentMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<serde_json::Value>>,
+    /// Only set for models that accept sampling params — see
+    /// `model_accepts_sampling_params`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// See `anthropic_thinking`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicMessage {
+    role: String,
+    content: String,
+}
+
+/// Agent message that can contain tool_use/tool_result content blocks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicAgentMessage {
+    pub role: String,
+    pub content: AnthropicAgentContent,
+}
+
+/// Content can be a string or array of content blocks (for tool results)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AnthropicAgentContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+}
+
+/// A content block in Anthropic's API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_error: Option<bool>,
+    },
+    /// Extended thinking block — ignored, never sent to the tool loop.
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(default)]
+        thinking: String,
+        #[serde(default)]
+        signature: String,
+    },
+}
+
+/// Anthropic API response format
+#[derive(Debug, Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
+    #[serde(default)]
+    error: Option<AnthropicError>,
+}
+
+/// Anthropic API response format for agent (with tool_use support)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicAgentResponse {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub response_type: String,
+    pub role: String,
+    pub content: Vec<ContentBlock>,
+    pub model: String,
+    pub stop_reason: Option<String>,
+    pub stop_sequence: Option<String>,
+    pub usage: AnthropicUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicUsage {
+    /// Defaulted: a streaming `message_delta` may carry only `output_tokens`,
+    /// and a failed parse there would drop the event's `stop_reason`.
+    #[serde(default)]
+    pub input_tokens: u32,
+    #[serde(default)]
+    pub output_tokens: u32,
+}
+
+/// Anthropic streaming event types (SSE)
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum AnthropicStreamEvent {
+    #[serde(rename = "message_start")]
+    MessageStart { message: AnthropicStreamMessage },
+    #[serde(rename = "content_block_start")]
+    ContentBlockStart {
+        index: usize,
+        content_block: AnthropicStreamContentBlock,
+    },
+    #[serde(rename = "content_block_delta")]
+    ContentBlockDelta {
+        #[serde(rename = "index")]
+        _index: usize,
+        delta: AnthropicStreamDelta,
+    },
+    #[serde(rename = "content_block_stop")]
+    ContentBlockStop { index: usize },
+    #[serde(rename = "message_delta")]
+    MessageDelta {
+        delta: AnthropicMessageDelta,
+        usage: Option<AnthropicUsage>,
+    },
+    #[serde(rename = "message_stop")]
+    MessageStop,
+    #[serde(rename = "ping")]
+    Ping,
+    /// Mid-stream failure (`overloaded_error`, `api_error`, …).
+    #[serde(rename = "error")]
+    Error { error: AnthropicError },
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicStreamMessage {
+    usage: Option<AnthropicUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum AnthropicStreamContentBlock {
+    #[serde(rename = "text")]
+    Text {
+        #[serde(rename = "text")]
+        _text: String,
+    },
+    #[serde(rename = "tool_use")]
+    ToolUse { id: String, name: String },
+    /// `thinking` / `redacted_thinking` and any future block type: content
+    /// (if any) arrives via deltas; nothing to do at block start.
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum AnthropicStreamDelta {
+    #[serde(rename = "text_delta")]
+    TextDelta { text: String },
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta { partial_json: String },
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+    /// `signature_delta` and any future delta type — the signature only
+    /// matters for replaying thinking blocks, which the chat never does.
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicMessageDelta {
+    stop_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicContent {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicError {
+    #[serde(rename = "type")]
+    error_type: String,
+    message: String,
+}
+
+use super::profile::AiEngineerProfile;
+
+/// Default prompt used when no profile exists (pre-onboarding or fallback).
+const DEFAULT_SYSTEM_PROMPT: &str = "You are a CCIE-level network engineering assistant in NetStacks. Provide concise, practical help for network operations. Always verify device state with show commands before making assertions.";
+
+/// Build system prompt with profile-driven personality and context injection.
+///
+/// If a profile exists, compiles personality segments and knowledge packs
+/// before appending device/session context. Falls back to a default prompt
+/// if no profile is available. The `AiFeature` on the context controls
+/// which profile segments are included (Chat gets everything, Agents skip
+/// identity, ScriptGeneration gets lean packs, etc.).
+fn build_system_prompt(
+    context: &Option<AiContext>,
+    _profile: Option<&AiEngineerProfile>,
+) -> String {
+    // Use profile from context if available, falling back to explicit parameter
+    let ctx_profile = context.as_ref().and_then(|c| c.ai_profile.as_ref());
+    let profile = ctx_profile.or(_profile);
+    let feature = context.as_ref().map(|c| c.feature).unwrap_or_default();
+    let mut prompt = if let Some(prof) = profile {
+        // Profile exists: compile segments for this feature
+        // Use 8000 chars as default budget (~2000 tokens)
+        let max_chars = 8000;
+        prof.compile_for_feature(feature, max_chars)
+    } else {
+        // No profile yet: use default with safety rules
+        format!(
+            "{}\n\n{}",
+            super::safety::SAFETY_RULES,
+            DEFAULT_SYSTEM_PROMPT
+        )
+    };
+
+    prompt.push_str("\n\n");
+
+    if let Some(ctx) = context {
+        // Device context
+        if let Some(device) = &ctx.device {
+            prompt.push_str(&format!(
+                "Current device: {} ({}) at {}\n",
+                device.name,
+                device.vendor.as_deref().unwrap_or(&device.device_type),
+                device.primary_ip.as_deref().unwrap_or("unknown IP")
+            ));
+            if let Some(platform) = &device.platform {
+                prompt.push_str(&format!("Platform: {}\n", platform));
+            }
+            if let Some(site) = &device.site {
+                prompt.push_str(&format!("Site: {}\n", site));
+            }
+            if let Some(role) = &device.role {
+                prompt.push_str(&format!("Role: {}\n", role));
+            }
+            prompt.push_str(&format!("Status: {}\n", device.status));
+        }
+
+        // Connection context
+        if let Some(conn) = &ctx.connection {
+            prompt.push_str(&format!(
+                "Connection: {} ({}) <-> {} ({})\n",
+                conn.source_device.name,
+                conn.source_interface,
+                conn.target_device.name,
+                conn.target_interface
+            ));
+            prompt.push_str(&format!("Link status: {}\n", conn.status));
+            if let Some(protocols) = &conn.protocols {
+                let proto_list: Vec<String> = protocols
+                    .iter()
+                    .map(|p| format!("{}: {}", p.protocol, p.state))
+                    .collect();
+                if !proto_list.is_empty() {
+                    prompt.push_str(&format!("Protocols: {}\n", proto_list.join(", ")));
+                }
+            }
+        }
+
+        // Terminal context
+        if let Some(term) = &ctx.terminal {
+            if let Some(vendor) = &term.detected_vendor {
+                prompt.push_str(&format!("Detected vendor: {}\n", vendor));
+            }
+            if let Some(platform) = &term.detected_platform {
+                prompt.push_str(&format!("Detected platform: {}\n", platform));
+            }
+            if let Some(hostname) = &term.hostname {
+                prompt.push_str(&format!("Device hostname: {}\n", hostname));
+            }
+            if let Some(output) = &term.recent_output {
+                prompt.push_str(&format!(
+                    "\nRecent terminal output:\n```\n{}\n```\n",
+                    output
+                ));
+            }
+        }
+
+        // Selected text
+        if let Some(selected) = &ctx.selected_text {
+            prompt.push_str(&format!("\nUser selected text:\n```\n{}\n```\n", selected));
+        }
+
+        // Session name
+        if let Some(session) = &ctx.session_name {
+            prompt.push_str(&format!("Session: {}\n", session));
+        }
+
+        // Session context - team knowledge (Phase 14)
+        if let Some(session_ctx) = &ctx.session_context {
+            if !session_ctx.is_empty() {
+                prompt.push_str("\n## Team Knowledge for This Device\n");
+                prompt.push_str("Past troubleshooting notes from your team:\n");
+                for entry in session_ctx.iter().take(5) {
+                    prompt.push_str(&format!(
+                        "\n### {} (by {}, {})\n",
+                        entry.issue, entry.author, entry.created_at
+                    ));
+                    if let Some(root_cause) = &entry.root_cause {
+                        prompt.push_str(&format!("Root cause: {}\n", root_cause));
+                    }
+                    if let Some(resolution) = &entry.resolution {
+                        prompt.push_str(&format!("Resolution: {}\n", resolution));
+                    }
+                    if let Some(commands) = &entry.commands {
+                        prompt.push_str(&format!("Helpful commands:\n```\n{}\n```\n", commands));
+                    }
+                    if let Some(ticket) = &entry.ticket_ref {
+                        prompt.push_str(&format!("Related ticket: {}\n", ticket));
+                    }
+                }
+                prompt.push_str("\nProactively mention relevant past issues when they might help the engineer.\n");
+            }
+        }
+    }
+
+    prompt
+}
+
+/// System prompt actually sent to the model: the profile/safety prompt from
+/// `build_system_prompt`, followed by any `system` messages the caller put in
+/// `messages` (task instructions and output contracts from MOP AI actions,
+/// AI Pilot, onboarding, …).
+///
+/// Every provider used to either drop the caller's system messages
+/// (Anthropic / OpenAI-format) or drop the profile prompt in favour of them
+/// (Gemini / Vertex). The first left MOP calls with no instructions at all —
+/// "explain this command" reached the model as a bare command string — and
+/// the second lost the engineer persona and device context. Both halves are
+/// needed, in this order: persona and safety rules first, task last.
+fn compose_system_prompt(messages: &[ChatMessage], context: &Option<AiContext>) -> String {
+    let mut prompt = build_system_prompt(context, None);
+    let client_system: Vec<&str> = messages
+        .iter()
+        .filter(|m| m.role == "system")
+        .map(|m| m.content.trim())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if !client_system.is_empty() {
+        prompt = format!("{}\n\n{}", prompt.trim_end(), client_system.join("\n\n"));
+    }
+    prompt
+}
+
+#[async_trait]
+impl AiProvider for AnthropicProvider {
+    async fn chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        tracing::debug!("Anthropic request to {}", self.base_url);
+        // Build system prompt with enhanced context
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        // Convert messages to Anthropic format (filter out system messages, use them in system prompt)
+        let anthropic_messages: Vec<AnthropicMessage> = messages
+            .into_iter()
+            .filter(|m| m.role != "system")
+            .map(|m| AnthropicMessage {
+                role: if m.role == "user" {
+                    "user".to_string()
+                } else {
+                    "assistant".to_string()
+                },
+                content: m.content,
+            })
+            .collect();
+
+        let request = AnthropicRequest {
+            model: self.model.clone(),
+            max_tokens: 4096,
+            system: Some(system_prompt),
+            messages: anthropic_messages,
+            tools: None,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/v1/messages", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: AnthropicResponse = response
+            .json()
+            .await
+            .map_err(|e| AiError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type, error.message
+            )));
+        }
+
+        // Extract text from response
+        api_response
+            .content
+            .into_iter()
+            .find_map(|c| {
+                if c.content_type == "text" {
+                    c.text
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| AiError::InvalidResponse("No text content in response".to_string()))
+    }
+
+    async fn agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(ANTHROPIC_DEFAULT_MAX_TOKENS);
+
+        // Convert generic messages to Anthropic format
+        let anthropic_messages: Vec<AnthropicAgentMessage> = messages
+            .into_iter()
+            .map(|m| AnthropicAgentMessage {
+                role: m.role,
+                content: match m.content {
+                    AgentContent::Text(text) => AnthropicAgentContent::Text(text),
+                    AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
+                        blocks
+                            .into_iter()
+                            .filter_map(|b| match b {
+                                AgentContentBlock::Text { text } => Some(ContentBlock::Text { text }),
+                                AgentContentBlock::ToolUse { id, name, input } => {
+                                    Some(ContentBlock::ToolUse { id, name, input })
+                                }
+                                AgentContentBlock::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                    is_error,
+                                } => Some(ContentBlock::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                    is_error,
+                                }),
+                                AgentContentBlock::Thinking { .. } => None,
+                            })
+                            .collect(),
+                    ),
+                },
+            })
+            .collect();
+
+        let request = AnthropicAgentRequest {
+            model: self.model.clone(),
+            max_tokens,
+            system: Some(system_prompt),
+            messages: anthropic_messages,
+            tools,
+            temperature: anthropic_temperature(&self.model, &options),
+            thinking: anthropic_thinking(&self.model, &options),
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/v1/messages", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            tracing::error!(
+                "Anthropic agent_chat error: HTTP {} - {}",
+                status,
+                &error_text
+            );
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: AnthropicAgentResponse = response.json().await.map_err(|e| {
+            AiError::InvalidResponse(format!("Failed to parse agent response: {}", e))
+        })?;
+
+        // Convert Anthropic response to generic format
+        let content: Vec<AgentContentBlock> = api_response
+            .content
+            .into_iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(AgentContentBlock::Text { text }),
+                ContentBlock::ToolUse { id, name, input } => {
+                    Some(AgentContentBlock::ToolUse { id, name, input })
+                }
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => Some(AgentContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                }),
+                ContentBlock::Thinking { thinking, signature } => (!thinking.is_empty())
+                    .then_some(AgentContentBlock::Thinking { thinking, signature }),
+            })
+            .collect();
+
+        // Convert Anthropic usage to generic format
+        let usage = Some(TokenUsage {
+            input_tokens: api_response.usage.input_tokens,
+            output_tokens: api_response.usage.output_tokens,
+            total_tokens: Some(api_response.usage.input_tokens + api_response.usage.output_tokens),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason: api_response.stop_reason,
+            usage,
+        })
+    }
+
+    fn agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(ANTHROPIC_DEFAULT_MAX_TOKENS);
+
+        // Convert generic messages to Anthropic format
+        let anthropic_messages: Vec<serde_json::Value> = messages
+            .into_iter()
+            .map(|m| {
+                let content = match m.content {
+                    AgentContent::Text(text) => serde_json::Value::String(text),
+                    AgentContent::Blocks(blocks) => serde_json::json!(blocks
+                        .into_iter()
+                        .filter_map(|b| match b {
+                            AgentContentBlock::Text { text } => Some(serde_json::json!({
+                                "type": "text",
+                                "text": text,
+                            })),
+                            AgentContentBlock::ToolUse { id, name, input } => Some(serde_json::json!({
+                                "type": "tool_use",
+                                "id": id,
+                                "name": name,
+                                "input": input,
+                            })),
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => {
+                                let mut v = serde_json::json!({
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": content,
+                                });
+                                if let Some(err) = is_error {
+                                    v.as_object_mut()
+                                        .unwrap()
+                                        .insert("is_error".to_string(), serde_json::json!(err));
+                                }
+                                Some(v)
+                            }
+                            AgentContentBlock::Thinking { .. } => None,
+                        })
+                        .collect::<Vec<_>>()),
+                };
+                serde_json::json!({
+                    "role": m.role,
+                    "content": content,
+                })
+            })
+            .collect();
+
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "stream": true,
+            "messages": anthropic_messages,
+        });
+        if !system_prompt.is_empty() {
+            body.as_object_mut()
+                .unwrap()
+                .insert("system".to_string(), serde_json::json!(system_prompt));
+        }
+        if let Some(t) = anthropic_temperature(&self.model, &options) {
+            body.as_object_mut()
+                .unwrap()
+                .insert("temperature".to_string(), serde_json::json!(t));
+        }
+        if let Some(thinking) = anthropic_thinking(&self.model, &options) {
+            body.as_object_mut()
+                .unwrap()
+                .insert("thinking".to_string(), thinking);
+        }
+        if let Some(t) = tools {
+            if !t.is_empty() {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("tools".to_string(), serde_json::json!(t));
+            }
+        }
+
+        let url = format!("{}/v1/messages", self.base_url);
+        let api_key = self.api_key.clone();
+        let client = self.client.clone();
+
+        Box::pin(async_stream::stream! {
+            let response = client
+                .post(&url)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await;
+
+            let response = match response {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() {
+                        yield Err(AiError::Timeout);
+                    } else {
+                        yield Err(AiError::RequestFailed(e.to_string()));
+                    }
+                    return;
+                }
+            };
+
+            let status = response.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                yield Err(AiError::RateLimited);
+                return;
+            }
+            if !status.is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                yield Err(AiError::from_http_status(status, error_text));
+                return;
+            }
+
+            use futures::StreamExt;
+            let mut events = parse_anthropic_sse_stream(response.bytes_stream(), "Anthropic");
+            while let Some(event) = events.next().await {
+                yield event;
+            }
+        })
+    }
+
+    fn provider_name(&self) -> &str {
+        "Anthropic Claude"
+    }
+}
+
+// === OpenAI Provider ===
+
+/// OpenAI API provider (GPT-4, etc.)
+/// Also used for custom OpenAI-compatible providers, optionally with OAuth2 auth.
+/// Supports both OpenAI and Gemini (Vertex AI) request formats.
+pub struct OpenAIProvider {
+    api_key: String,
+    model: String,
+    base_url: String,
+    client: reqwest::Client,
+    /// Optional OAuth2 token manager for providers that use OAuth2 instead of
+    /// static API keys. Stored as `Arc` so multiple providers built per-request
+    /// share the same in-memory token cache (see
+    /// `OAuth2TokenManager::get_or_create_shared`).
+    oauth2: Option<Arc<super::oauth2::OAuth2TokenManager>>,
+    /// Optional custom headers to include on all API requests (e.g., user_email for Apigee).
+    custom_headers: std::collections::HashMap<String, String>,
+    /// API request format (OpenAI or Gemini/Vertex AI).
+    api_format: ApiFormat,
+}
+
+impl OpenAIProvider {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            api_key,
+            model: model.unwrap_or_else(default_openai_model),
+            base_url: base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            client,
+            oauth2: None,
+            custom_headers: std::collections::HashMap::new(),
+            api_format: ApiFormat::OpenAI,
+        })
+    }
+
+    /// Create a provider with OAuth2 client_credentials authentication.
+    ///
+    /// Reuses a process-wide `OAuth2TokenManager` for the given config so the
+    /// token cache survives per-request provider construction. Without this,
+    /// every chat turn would trigger a brand-new token fetch even though the
+    /// previously-issued token is still good for ~30 minutes.
+    pub fn with_oauth2(
+        model: String,
+        base_url: String,
+        oauth2_config: super::oauth2::OAuth2Config,
+        api_format: ApiFormat,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let custom_headers = oauth2_config.custom_headers.clone();
+        let token_manager = super::oauth2::OAuth2TokenManager::get_or_create_shared(oauth2_config);
+
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            api_key: String::new(),
+            model,
+            base_url,
+            client,
+            oauth2: Some(token_manager),
+            custom_headers,
+            api_format,
+        })
+    }
+
+    /// Create a provider with static API key and specific format.
+    pub fn with_format(
+        api_key: String,
+        model: String,
+        base_url: String,
+        api_format: ApiFormat,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            api_key,
+            model,
+            base_url,
+            client,
+            oauth2: None,
+            custom_headers: std::collections::HashMap::new(),
+            api_format,
+        })
+    }
+
+    /// Get the auth token — from OAuth2 token manager if configured, otherwise static API key.
+    async fn get_auth_token(&self) -> Result<String, AiError> {
+        if let Some(ref oauth2) = self.oauth2 {
+            oauth2
+                .get_token()
+                .await
+                .map_err(|e| AiError::RequestFailed(e.to_string()))
+        } else {
+            Ok(self.api_key.clone())
+        }
+    }
+
+    /// Build a request with auth headers and custom headers applied.
+    /// NOTE: do not set Content-Type here — `.json(&body)` already sets it.
+    /// Setting it twice causes reqwest to emit a duplicate Content-Type header,
+    /// which Apigee/Vertex rejects with a Pydantic body-validation error.
+    fn apply_headers(
+        &self,
+        mut request: reqwest::RequestBuilder,
+        token: &str,
+    ) -> reqwest::RequestBuilder {
+        request = if self.oauth2.is_none() && self.api_format == ApiFormat::Gemini {
+            // A static Gemini API key is not a bearer token: Google expects it
+            // in `x-goog-api-key` and rejects it as `Authorization: Bearer`.
+            request.header(GEMINI_API_KEY_HEADER, token)
+        } else {
+            request.header("Authorization", format!("Bearer {}", token))
+        };
+        for (key, value) in &self.custom_headers {
+            request = request.header(key.as_str(), value.as_str());
+        }
+        request
+    }
+}
+
+// ============================================================
+// Gemini / Vertex AI request/response types
+// ============================================================
+
+/// Gemini API request format (Vertex AI / Google AI Studio)
+#[derive(Debug, Serialize)]
+struct GeminiRequest {
+    contents: Vec<GeminiContent>,
+    #[serde(rename = "generationConfig", skip_serializing_if = "Option::is_none")]
+    generation_config: Option<GeminiGenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<GeminiToolDefinition>>,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiContent {
+    role: String,
+    parts: Vec<GeminiRequestPart>,
+}
+
+/// A part in a Gemini request — can be text, function call, or function response
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum GeminiRequestPart {
+    Text {
+        text: String,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: GeminiFunctionCall,
+    },
+    FunctionResponse {
+        #[serde(rename = "functionResponse")]
+        function_response: GeminiFunctionResponse,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct GeminiFunctionCall {
+    name: String,
+    args: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiFunctionResponse {
+    name: String,
+    response: serde_json::Value,
+}
+
+/// Gemini tool definition (wraps function declarations)
+#[derive(Debug, Serialize)]
+struct GeminiToolDefinition {
+    #[serde(rename = "functionDeclarations")]
+    function_declarations: Vec<GeminiFunctionDeclaration>,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiFunctionDeclaration {
+    name: String,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiGenerationConfig {
+    #[serde(rename = "maxOutputTokens", skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+}
+
+/// Gemini API response format
+#[derive(Debug, Deserialize)]
+struct GeminiResponse {
+    candidates: Option<Vec<GeminiCandidate>>,
+    #[serde(rename = "usageMetadata")]
+    usage_metadata: Option<GeminiUsageMetadata>,
+    error: Option<GeminiError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiCandidate {
+    content: Option<GeminiCandidateContent>,
+    #[serde(rename = "finishReason")]
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiCandidateContent {
+    parts: Option<Vec<GeminiResponsePart>>,
+}
+
+/// A part in a Gemini response — can be text or function call
+#[derive(Debug, Deserialize)]
+struct GeminiResponsePart {
+    text: Option<String>,
+    #[serde(rename = "functionCall")]
+    function_call: Option<GeminiFunctionCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiUsageMetadata {
+    #[serde(rename = "promptTokenCount", default)]
+    prompt_token_count: u32,
+    #[serde(rename = "candidatesTokenCount", default)]
+    candidates_token_count: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiError {
+    message: String,
+    #[serde(default)]
+    code: u16,
+}
+
+// ============================================================
+// OpenAI request/response types
+// ============================================================
+
+/// OpenAI API request format
+#[derive(Debug, Serialize)]
+struct OpenAIRequest {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    /// Replaces `max_tokens` for OpenAI reasoning models (o-series, gpt-5*).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+}
+
+/// OpenAI API request format with tools
+#[derive(Debug, Serialize)]
+struct OpenAIAgentRequest {
+    model: String,
+    messages: Vec<OpenAIAgentMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    /// Replaces `max_tokens` for OpenAI reasoning models (o-series, gpt-5*).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<OpenAITool>>,
+    /// Set to `true` for the streaming `/chat/completions?stream=true` path.
+    /// Reused by every OpenAI-compatible provider (OpenAI, Ollama, OpenRouter,
+    /// LiteLLM).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    /// Asks OpenAI-compatible servers to include `usage` on the final stream
+    /// chunk. Without this we don't know token counts after a streaming call.
+    /// Most OpenAI-compat servers (Ollama, OpenRouter, LiteLLM) silently
+    /// ignore the option if they don't support it.
+    #[serde(rename = "stream_options", skip_serializing_if = "Option::is_none")]
+    stream_options: Option<OpenAIStreamOptions>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAIStreamOptions {
+    include_usage: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAIMessage {
+    role: String,
+    content: String,
+}
+
+/// OpenAI message with tool call support
+#[derive(Debug, Clone, Serialize)]
+struct OpenAIAgentMessage {
+    role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAIToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+/// OpenAI tool definition (converted from Anthropic format)
+#[derive(Debug, Clone, Serialize)]
+struct OpenAITool {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OpenAIFunction,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OpenAIFunction {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<serde_json::Value>,
+}
+
+/// OpenAI tool call in response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OpenAIToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: OpenAIFunctionCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OpenAIFunctionCall {
+    name: String,
+    arguments: String,
+}
+
+/// OpenAI API response format
+#[derive(Debug, Deserialize)]
+struct OpenAIResponse {
+    /// Absent when the provider returns an `error` body with HTTP 200
+    /// (OpenRouter does this for upstream failures) — see `parse_openai_compat`.
+    #[serde(default)]
+    choices: Vec<OpenAIChoice>,
+    #[serde(default)]
+    error: Option<OpenAIError>,
+}
+
+/// OpenAI token usage
+#[derive(Debug, Deserialize)]
+struct OpenAIUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    #[serde(default)]
+    total_tokens: Option<u32>,
+}
+
+/// OpenAI API response with tool calls
+#[derive(Debug, Deserialize)]
+struct OpenAIAgentResponse {
+    #[serde(default)]
+    choices: Vec<OpenAIAgentChoice>,
+    #[serde(default)]
+    error: Option<OpenAIError>,
+    #[serde(default)]
+    usage: Option<OpenAIUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChoice {
+    /// Some gateways send `"message": null` on an errored choice.
+    #[serde(default, deserialize_with = "null_default")]
+    message: OpenAIResponseMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIAgentChoice {
+    #[serde(default, deserialize_with = "null_default")]
+    message: OpenAIAgentResponseMessage,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenAIResponseMessage {
+    content: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenAIAgentResponseMessage {
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OpenAIToolCall>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIError {
+    message: String,
+    #[serde(rename = "type")]
+    error_type: Option<String>,
+}
+
+/// Deserialize `null` as `T::default()` (serde's `default` only covers a
+/// missing field).
+fn null_default<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// Parse an OpenAI-compatible JSON body. Unlike `Response::json()`, a decode
+/// failure keeps the provider's own `error.message` when the body is an error
+/// envelope (OpenRouter returns those with HTTP 200), and otherwise quotes the
+/// start of the body so the failure can be diagnosed from the UI/log instead
+/// of reading as "error decoding response body".
+fn parse_openai_compat<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, AiError> {
+    match serde_json::from_str::<T>(body) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            if let Some(msg) = provider_error_message(body) {
+                return Err(AiError::RequestFailed(msg));
+            }
+            if let Some(msg) = html_body_message(body) {
+                return Err(AiError::InvalidResponse(msg));
+            }
+            let snippet: String = body.chars().take(300).collect();
+            Err(AiError::InvalidResponse(format!(
+                "Failed to parse response: {} — body starts: {}",
+                e,
+                snippet.trim()
+            )))
+        }
+    }
+}
+
+/// `error.message` (plus `error.code` when present) from an OpenAI-style error
+/// envelope, or `None` when the body is not one.
+fn provider_error_message(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let err = v.get("error")?;
+    let message = err
+        .get("message")
+        .and_then(|m| m.as_str())
+        .map(str::to_string)
+        .or_else(|| err.as_str().map(str::to_string))?;
+    Some(match err.get("code") {
+        Some(code) if !code.is_null() => format!("{} (code {})", message, code),
+        _ => message,
+    })
+}
+
+/// A web page where JSON was expected means the request hit a site, not an
+/// API — almost always a base URL missing its API path (OpenRouter's is
+/// `/api/v1`). Say so instead of quoting 300 characters of HTML.
+fn html_body_message(body: &str) -> Option<String> {
+    let head: String = body.trim_start().chars().take(64).collect::<String>().to_ascii_lowercase();
+    if head.starts_with("<!doctype html") || head.starts_with("<html") {
+        Some(
+            "Provider returned an HTML page instead of JSON. The provider's Base URL is \
+             probably missing its API path — OpenRouter expects https://openrouter.ai/api/v1, \
+             OpenAI https://api.openai.com/v1. Check Settings → AI → Base URL."
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
+/// Accept the base URLs people actually type for OpenRouter (`openrouter.ai`,
+/// `https://openrouter.ai`, `https://openrouter.ai/api`) and turn them into
+/// the API root. Anything else (a proxy or gateway) is returned unchanged,
+/// minus a trailing slash.
+pub(crate) fn normalize_openrouter_base_url(url: &str) -> String {
+    let trimmed = url.trim().trim_end_matches('/');
+    let with_scheme = if trimmed.contains("://") { trimmed.to_string() } else { format!("https://{trimmed}") };
+    let host_and_path = with_scheme.split("://").nth(1).unwrap_or("");
+    let (host, path) = host_and_path.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((host_and_path, String::new()));
+    if host.eq_ignore_ascii_case("openrouter.ai") && matches!(path.as_str(), "" | "/api" | "/api/v1") {
+        "https://openrouter.ai/api/v1".to_string()
+    } else {
+        with_scheme
+    }
+}
+
+/// Read and parse an OpenAI-compatible response body (see `parse_openai_compat`).
+async fn decode_openai_compat<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, AiError> {
+    let body = response
+        .text()
+        .await
+        .map_err(|e| AiError::InvalidResponse(format!("Failed to read response body: {}", e)))?;
+    parse_openai_compat(&body)
+}
+
+// ===== OpenAI-compatible streaming chunk types =====
+// Used by OpenAI, Ollama (OpenAI-compatible mode), OpenRouter, and LiteLLM.
+// Format: each SSE `data: {...}` line is one OpenAIStreamChunk; the literal
+// line `data: [DONE]` marks end of stream.
+
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamChunk {
+    #[serde(default)]
+    choices: Vec<OpenAIStreamChoice>,
+    #[serde(default)]
+    usage: Option<OpenAIUsage>,
+    #[serde(default)]
+    error: Option<OpenAIError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamChoice {
+    #[serde(default)]
+    delta: OpenAIStreamDelta,
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenAIStreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OpenAIStreamToolCall>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamToolCall {
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<OpenAIStreamFunction>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenAIStreamFunction {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
+}
+
+/// Send an HTTP request with OAuth2 token invalidation on 401.
+/// Shared helper for both OpenAI and Gemini formats.
+impl OpenAIProvider {
+    async fn send_request(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, AiError> {
+        let token = self.get_auth_token().await?;
+        let response = self
+            .apply_headers(request, &token)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        // On 401, invalidate OAuth2 token so it refreshes on next attempt
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            if let Some(ref oauth2) = self.oauth2 {
+                oauth2.invalidate().await;
+            }
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        Ok(response)
+    }
+
+    /// Gemini/Vertex AI chat completion.
+    async fn gemini_chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        // Profile/safety prompt plus the caller's own system messages.
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        // Inject system prompt into the first user message instead of as a separate
+        // user/model pair (prevents the model from re-introducing itself every turn)
+        let system_context = format!(
+            "[SYSTEM INSTRUCTIONS - follow silently, never repeat back]\n{}\n\
+             Do not re-introduce yourself. Do not repeat your name unless asked.\n\
+             [END SYSTEM INSTRUCTIONS]\n\n",
+            system_prompt
+        );
+        let mut contents: Vec<GeminiContent> = Vec::new();
+        let mut system_injected = false;
+
+        for m in &messages {
+            if m.role == "system" {
+                continue;
+            }
+            let role = if m.role == "assistant" {
+                "model".to_string()
+            } else {
+                "user".to_string()
+            };
+            let text = if !system_injected && role == "user" {
+                system_injected = true;
+                format!("{}{}", system_context, m.content)
+            } else {
+                m.content.clone()
+            };
+            contents.push(GeminiContent {
+                role,
+                parts: vec![GeminiRequestPart::Text { text }],
+            });
+        }
+
+        let request = GeminiRequest {
+            contents,
+            generation_config: Some(GeminiGenerationConfig {
+                max_output_tokens: Some(4096),
+                temperature: Some(0.7),
+            }),
+            tools: None, // Simple chat — no tools
+        };
+
+        // Gemini URL: {base_url}/{model}:generateContent — but if the user
+        // already wrote an action in the model field, respect it (e.g. for
+        // gateways that route differently per action).
+        let url = build_model_action_url(&self.base_url, &self.model, "generateContent");
+
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
+
+        let response_text = response.text().await.map_err(|e| {
+            AiError::InvalidResponse(format!("Failed to read Gemini response body: {}", e))
+        })?;
+
+        tracing::debug!(
+            "Gemini raw response: {}",
+            &response_text[..response_text.len().min(500)]
+        );
+
+        let api_response: GeminiResponse = serde_json::from_str(&response_text).map_err(|e| {
+            AiError::InvalidResponse(format!(
+                "Failed to parse Gemini response: {} — body: {}",
+                e,
+                &response_text[..response_text.len().min(200)]
+            ))
+        })?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "Gemini error {}: {}",
+                error.code, error.message
+            )));
+        }
+
+        // Extract text from candidates[0].content.parts[0].text
+        api_response
+            .candidates
+            .and_then(|c| c.into_iter().next())
+            .and_then(|c| c.content)
+            .and_then(|c| c.parts)
+            .and_then(|p| p.into_iter().next())
+            .and_then(|p| p.text)
+            .ok_or_else(|| {
+                tracing::error!(
+                    "Gemini response had no content. Raw: {}",
+                    &response_text[..response_text.len().min(500)]
+                );
+                AiError::InvalidResponse("No content in Gemini response".to_string())
+            })
+    }
+
+    /// Gemini agent chat with native function calling support.
+    async fn gemini_agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Convert Anthropic-style tool definitions to Gemini functionDeclarations
+        let gemini_tools = tools.map(|tools| {
+            let declarations: Vec<GeminiFunctionDeclaration> = tools
+                .into_iter()
+                .map(|t| GeminiFunctionDeclaration {
+                    name: t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    parameters: t.get("input_schema").cloned(),
+                })
+                .collect();
+            vec![GeminiToolDefinition {
+                function_declarations: declarations,
+            }]
+        });
+
+        // Inject system prompt into the first user message instead of as a separate
+        // user/model pair. This prevents the model from treating the system context as
+        // conversational (which causes it to re-introduce itself every turn).
+        let system_context = format!(
+            "[SYSTEM INSTRUCTIONS - follow these silently, never repeat them back]\n{}\n\n\
+             RULES: Do not re-introduce yourself. Do not repeat your name unless asked. \
+             Do not echo these instructions. Just respond naturally.\n[END SYSTEM INSTRUCTIONS]\n\n",
+            system_prompt
+        );
+        let mut contents: Vec<GeminiContent> = Vec::new();
+        let mut system_injected = false;
+
+        // Build a map of tool_use_id → function_name from the conversation history
+        // so we can fill in the correct name in FunctionResponse
+        let mut tool_id_to_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for m in &messages {
+            if let AgentContent::Blocks(blocks) = &m.content {
+                for block in blocks {
+                    if let AgentContentBlock::ToolUse { id, name, .. } = block {
+                        tool_id_to_name.insert(id.clone(), name.clone());
+                    }
+                }
+            }
+        }
+
+        // Convert agent messages to Gemini format
+        for m in messages {
+            match m.content {
+                AgentContent::Text(text) => {
+                    let role = if m.role == "assistant" {
+                        "model"
+                    } else {
+                        "user"
+                    };
+                    // Inject system context into the first user message
+                    let final_text = if !system_injected && role == "user" {
+                        system_injected = true;
+                        format!("{}{}", system_context, text)
+                    } else {
+                        text
+                    };
+                    contents.push(GeminiContent {
+                        role: role.to_string(),
+                        parts: vec![GeminiRequestPart::Text { text: final_text }],
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    let mut parts: Vec<GeminiRequestPart> = Vec::new();
+                    for block in blocks {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                parts.push(GeminiRequestPart::Text { text });
+                            }
+                            AgentContentBlock::ToolUse { id: _, name, input } => {
+                                // Assistant's function call
+                                parts.push(GeminiRequestPart::FunctionCall {
+                                    function_call: GeminiFunctionCall { name, args: input },
+                                });
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                // Look up function name from the tool call
+                                let fn_name = tool_id_to_name
+                                    .get(&tool_use_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                parts.push(GeminiRequestPart::FunctionResponse {
+                                    function_response: GeminiFunctionResponse {
+                                        name: fn_name,
+                                        response: serde_json::json!({ "result": content }),
+                                    },
+                                });
+                            }
+                            AgentContentBlock::Thinking { .. } => {}
+                        }
+                    }
+                    if !parts.is_empty() {
+                        let role = if m.role == "assistant" {
+                            "model"
+                        } else {
+                            "user"
+                        };
+                        contents.push(GeminiContent {
+                            role: role.to_string(),
+                            parts,
+                        });
+                    }
+                }
+            }
+        }
+
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let request = GeminiRequest {
+            contents,
+            generation_config: Some(GeminiGenerationConfig {
+                max_output_tokens: Some(max_tokens),
+                temperature: Some(temperature),
+            }),
+            tools: gemini_tools,
+        };
+
+        let url = build_model_action_url(&self.base_url, &self.model, "generateContent");
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
+
+        let response_text = response.text().await.map_err(|e| {
+            AiError::InvalidResponse(format!("Failed to read Gemini response: {}", e))
+        })?;
+
+        tracing::debug!(
+            "Gemini agent raw response: {}",
+            &response_text[..response_text.len().min(500)]
+        );
+
+        let api_response: GeminiResponse = serde_json::from_str(&response_text).map_err(|e| {
+            AiError::InvalidResponse(format!(
+                "Failed to parse Gemini response: {} — body: {}",
+                e,
+                &response_text[..response_text.len().min(200)]
+            ))
+        })?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "Gemini error {}: {}",
+                error.code, error.message
+            )));
+        }
+
+        // Extract content blocks from response (text and/or function calls)
+        let candidate = api_response
+            .candidates
+            .and_then(|c| c.into_iter().next())
+            .ok_or_else(|| {
+                AiError::InvalidResponse("No candidates in Gemini response".to_string())
+            })?;
+
+        let finish_reason = candidate.finish_reason.clone();
+        let mut content: Vec<AgentContentBlock> = Vec::new();
+
+        if let Some(gemini_content) = candidate.content {
+            if let Some(parts) = gemini_content.parts {
+                for part in parts {
+                    if let Some(text) = part.text {
+                        if !text.is_empty() {
+                            content.push(AgentContentBlock::Text { text });
+                        }
+                    }
+                    if let Some(fc) = part.function_call {
+                        content.push(AgentContentBlock::ToolUse {
+                            id: format!("call_{}", uuid::Uuid::new_v4()),
+                            name: fc.name,
+                            input: fc.args,
+                        });
+                    }
+                }
+            }
+        }
+
+        if content.is_empty() {
+            tracing::error!(
+                "Gemini agent response had no content. Raw: {}",
+                &response_text[..response_text.len().min(500)]
+            );
+            return Err(AiError::InvalidResponse(
+                "No content in Gemini agent response".to_string(),
+            ));
+        }
+
+        // Map finish_reason to stop_reason
+        // If there are tool calls, don't signal end_turn — the tool loop must continue
+        let has_tool_calls = content
+            .iter()
+            .any(|c| matches!(c, AgentContentBlock::ToolUse { .. }));
+        let stop_reason = finish_reason.map(|r| match r.as_str() {
+            "STOP" if has_tool_calls => "tool_use".to_string(),
+            "STOP" => "end_turn".to_string(),
+            "MAX_TOKENS" => "max_tokens".to_string(),
+            _ => r,
+        });
+
+        let usage = api_response.usage_metadata.map(|u| TokenUsage {
+            input_tokens: u.prompt_token_count,
+            output_tokens: u.candidates_token_count,
+            total_tokens: Some(u.prompt_token_count + u.candidates_token_count),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
+    }
+
+    /// Anthropic-on-Vertex chat completion. Uses `:rawPredict` action and the
+    /// Anthropic message body schema (model lives in the URL, not the body).
+    async fn vertex_anthropic_chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        let anthropic_messages: Vec<AnthropicMessage> = messages
+            .into_iter()
+            .filter(|m| m.role != "system")
+            .map(|m| AnthropicMessage {
+                role: if m.role == "user" {
+                    "user".to_string()
+                } else {
+                    "assistant".to_string()
+                },
+                content: m.content,
+            })
+            .collect();
+
+        let request = VertexAnthropicRequest {
+            anthropic_version: "vertex-2023-10-16".to_string(),
+            max_tokens: 4096,
+            system: Some(system_prompt),
+            messages: anthropic_messages,
+        };
+
+        let url = build_model_action_url(&self.base_url, &self.model, "rawPredict");
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
+
+        let response_text = response.text().await.map_err(|e| {
+            AiError::InvalidResponse(format!(
+                "Failed to read Vertex Anthropic response body: {}",
+                e
+            ))
+        })?;
+
+        let api_response: AnthropicResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AiError::InvalidResponse(format!(
+                    "Failed to parse Vertex Anthropic response: {} — body: {}",
+                    e,
+                    &response_text[..response_text.len().min(200)]
+                ))
+            })?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type, error.message
+            )));
+        }
+
+        api_response
+            .content
+            .into_iter()
+            .find_map(|c| {
+                if c.content_type == "text" {
+                    c.text
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                AiError::InvalidResponse("No text content in Vertex Anthropic response".to_string())
+            })
+    }
+
+    /// Anthropic-on-Vertex agent chat with full tool support.
+    ///
+    /// Wire format mirrors native Anthropic agent calls — same `system`,
+    /// `messages` (with content blocks for tool_use/tool_result round-trips),
+    /// `tools`, and `max_tokens` fields — except the model goes in the URL
+    /// rather than the body, and `anthropic_version: "vertex-2023-10-16"` is
+    /// required to pin the contract version.
+    ///
+    /// Auth and 401-invalidation are handled by `send_request` (OAuth2 bearer
+    /// token from GCP IAM, refreshed on demand).
+    async fn vertex_anthropic_agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+
+        let anthropic_messages: Vec<AnthropicAgentMessage> = messages
+            .into_iter()
+            .map(|m| {
+                let content = match m.content {
+                    AgentContent::Text(text) => AnthropicAgentContent::Text(text),
+                    AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
+                        blocks
+                            .into_iter()
+                            .filter_map(agent_block_to_anthropic_block)
+                            .collect(),
+                    ),
+                };
+                AnthropicAgentMessage {
+                    role: m.role,
+                    content,
+                }
+            })
+            .collect();
+
+        let request = VertexAnthropicAgentRequest {
+            anthropic_version: "vertex-2023-10-16".to_string(),
+            max_tokens,
+            system: if system_prompt.is_empty() {
+                None
+            } else {
+                Some(system_prompt)
+            },
+            messages: anthropic_messages,
+            tools: tools.filter(|t| !t.is_empty()),
+            stream: None,
+            temperature: anthropic_temperature(&self.model, &options),
+            thinking: anthropic_thinking(&self.model, &options),
+        };
+
+        let url = build_model_action_url(&self.base_url, &self.model, "rawPredict");
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
+        let response_text = response.text().await.map_err(|e| {
+            AiError::InvalidResponse(format!(
+                "Failed to read Vertex Anthropic agent response: {}",
+                e
+            ))
+        })?;
+
+        let api_response: AnthropicAgentResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                AiError::InvalidResponse(format!(
+                    "Failed to parse Vertex Anthropic agent response: {} — body: {}",
+                    e,
+                    &response_text[..response_text.len().min(400)]
+                ))
+            })?;
+
+        let content: Vec<AgentContentBlock> = api_response
+            .content
+            .into_iter()
+            .filter_map(anthropic_block_to_agent_block)
+            .collect();
+
+        let usage = Some(TokenUsage {
+            input_tokens: api_response.usage.input_tokens,
+            output_tokens: api_response.usage.output_tokens,
+            total_tokens: Some(api_response.usage.input_tokens + api_response.usage.output_tokens),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason: api_response.stop_reason,
+            usage,
+        })
+    }
+
+    /// Anthropic-on-Vertex streaming agent chat. Hits `:streamRawPredict` and
+    /// translates the standard Anthropic SSE event stream
+    /// (message_start / content_block_start / content_block_delta /
+    /// content_block_stop / message_delta / message_stop) into our generic
+    /// `StreamEvent` enum so the frontend's existing handler works unchanged.
+    fn vertex_anthropic_agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+
+        let anthropic_messages: Vec<AnthropicAgentMessage> = messages
+            .into_iter()
+            .map(|m| {
+                let content = match m.content {
+                    AgentContent::Text(text) => AnthropicAgentContent::Text(text),
+                    AgentContent::Blocks(blocks) => AnthropicAgentContent::Blocks(
+                        blocks
+                            .into_iter()
+                            .filter_map(agent_block_to_anthropic_block)
+                            .collect(),
+                    ),
+                };
+                AnthropicAgentMessage {
+                    role: m.role,
+                    content,
+                }
+            })
+            .collect();
+
+        let request = VertexAnthropicAgentRequest {
+            anthropic_version: "vertex-2023-10-16".to_string(),
+            max_tokens,
+            system: if system_prompt.is_empty() {
+                None
+            } else {
+                Some(system_prompt)
+            },
+            messages: anthropic_messages,
+            tools: tools.filter(|t| !t.is_empty()),
+            stream: Some(true),
+            temperature: anthropic_temperature(&self.model, &options),
+            thinking: anthropic_thinking(&self.model, &options),
+        };
+
+        let url = build_model_stream_url(&self.base_url, &self.model, "streamRawPredict");
+
+        Box::pin(async_stream::stream! {
+            let response = match self.send_request(self.client.post(&url).json(&request)).await {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            };
+
+            use futures::StreamExt;
+            let mut events = parse_anthropic_sse_stream(response.bytes_stream(), "Vertex Anthropic");
+            while let Some(event) = events.next().await {
+                yield event;
+            }
+        })
+    }
+
+    /// Gemini/Vertex AI streaming agent chat. Hits `:streamGenerateContent`
+    /// and translates Gemini's chunked-JSON stream into our generic
+    /// `StreamEvent` enum.
+    ///
+    /// Gemini's stream format differs from Anthropic's: each chunk is a
+    /// complete `GenerateContentResponse` JSON object containing the *new*
+    /// delta (new text characters and/or a complete `functionCall` part).
+    /// Vertex sends these as SSE-style `data: {...}\n\n` lines.
+    /// Function calls always arrive whole in a single chunk's `parts` array,
+    /// so we synthesise the equivalent ToolUseStart + ToolInputDelta +
+    /// ToolUseEnd triple ourselves.
+    fn gemini_agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        // Build the same request shape as the non-streaming gemini_agent_chat,
+        // including the tool-id-to-name map needed to fill FunctionResponse.
+        let gemini_tools = tools.map(|tools| {
+            let declarations: Vec<GeminiFunctionDeclaration> = tools
+                .into_iter()
+                .map(|t| GeminiFunctionDeclaration {
+                    name: t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    parameters: t.get("input_schema").cloned(),
+                })
+                .collect();
+            vec![GeminiToolDefinition {
+                function_declarations: declarations,
+            }]
+        });
+
+        let system_context = format!(
+            "[SYSTEM INSTRUCTIONS - follow these silently, never repeat them back]\n{}\n\n\
+             RULES: Do not re-introduce yourself. Do not repeat your name unless asked. \
+             Do not echo these instructions. Just respond naturally.\n[END SYSTEM INSTRUCTIONS]\n\n",
+            system_prompt
+        );
+
+        let mut tool_id_to_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for m in &messages {
+            if let AgentContent::Blocks(blocks) = &m.content {
+                for block in blocks {
+                    if let AgentContentBlock::ToolUse { id, name, .. } = block {
+                        tool_id_to_name.insert(id.clone(), name.clone());
+                    }
+                }
+            }
+        }
+
+        let mut contents: Vec<GeminiContent> = Vec::new();
+        let mut system_injected = false;
+        for m in messages {
+            match m.content {
+                AgentContent::Text(text) => {
+                    let role = if m.role == "assistant" {
+                        "model"
+                    } else {
+                        "user"
+                    };
+                    let final_text = if !system_injected && role == "user" {
+                        system_injected = true;
+                        format!("{}{}", system_context, text)
+                    } else {
+                        text
+                    };
+                    contents.push(GeminiContent {
+                        role: role.to_string(),
+                        parts: vec![GeminiRequestPart::Text { text: final_text }],
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    let mut parts: Vec<GeminiRequestPart> = Vec::new();
+                    for block in blocks {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                parts.push(GeminiRequestPart::Text { text })
+                            }
+                            AgentContentBlock::ToolUse { id: _, name, input } => {
+                                parts.push(GeminiRequestPart::FunctionCall {
+                                    function_call: GeminiFunctionCall { name, args: input },
+                                })
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                let fn_name = tool_id_to_name
+                                    .get(&tool_use_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                parts.push(GeminiRequestPart::FunctionResponse {
+                                    function_response: GeminiFunctionResponse {
+                                        name: fn_name,
+                                        response: serde_json::json!({ "result": content }),
+                                    },
+                                });
+                            }
+                            AgentContentBlock::Thinking { .. } => {}
+                        }
+                    }
+                    if !parts.is_empty() {
+                        let role = if m.role == "assistant" {
+                            "model"
+                        } else {
+                            "user"
+                        };
+                        contents.push(GeminiContent {
+                            role: role.to_string(),
+                            parts,
+                        });
+                    }
+                }
+            }
+        }
+
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+        let request = GeminiRequest {
+            contents,
+            generation_config: Some(GeminiGenerationConfig {
+                max_output_tokens: Some(max_tokens),
+                temperature: Some(temperature),
+            }),
+            tools: gemini_tools,
+        };
+
+        // Vertex requires `?alt=sse` on streamGenerateContent for SSE framing;
+        // without it the response is a streamed JSON array which is harder to
+        // parse incrementally. The action belongs in the URL; build_model_stream_url
+        // also maps a pinned `:generateContent` to `:streamGenerateContent`.
+        let base_action_url =
+            build_model_stream_url(&self.base_url, &self.model, "streamGenerateContent");
+        let url = if base_action_url.contains('?') {
+            format!("{}&alt=sse", base_action_url)
+        } else {
+            format!("{}?alt=sse", base_action_url)
+        };
+
+        Box::pin(async_stream::stream! {
+            let response = match self.send_request(self.client.post(&url).json(&request)).await {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            };
+
+            use futures::StreamExt;
+            let mut events = parse_gemini_sse_stream(response.bytes_stream());
+            while let Some(event) = events.next().await {
+                yield event;
+            }
+        })
+    }
+
+    /// Native streaming for plain OpenAI `/chat/completions?stream=true`.
+    /// Reuses the shared OpenAI-compat stream parser (same one used by Ollama,
+    /// OpenRouter, and LiteLLM — they all speak this wire format).
+    fn openai_agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let shape = OpenAiRequestShape::for_model(&self.model, max_tokens, temperature);
+        let request = OpenAIAgentRequest {
+            model: self.model.clone(),
+            messages: agent_messages_to_openai_compat(system_prompt, messages),
+            max_tokens: shape.max_tokens,
+            max_completion_tokens: shape.max_completion_tokens,
+            temperature: shape.temperature,
+            tools: anthropic_tools_to_openai(tools),
+            stream: Some(true),
+            stream_options: Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
+        };
+
+        let url = format!("{}/chat/completions", self.base_url);
+
+        Box::pin(async_stream::stream! {
+            let response = match self.send_request(self.client.post(&url).json(&request)).await {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(e);
+                    return;
+                }
+            };
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
+            use futures::StreamExt;
+            while let Some(event) = inner.next().await {
+                yield event;
+            }
+        })
+    }
+}
+
+/// Translate one of our generic agent content blocks into the wire-format
+/// content block used by both native Anthropic and Anthropic-on-Vertex.
+fn agent_block_to_anthropic_block(b: AgentContentBlock) -> Option<ContentBlock> {
+    match b {
+        AgentContentBlock::Text { text } => Some(ContentBlock::Text { text }),
+        AgentContentBlock::ToolUse { id, name, input } => Some(ContentBlock::ToolUse { id, name, input }),
+        AgentContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => Some(ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        }),
+        AgentContentBlock::Thinking { .. } => None,
+    }
+}
+
+/// Inverse of `agent_block_to_anthropic_block` — used when turning an
+/// Anthropic API response into our generic `AgentResponse`.
+fn anthropic_block_to_agent_block(b: ContentBlock) -> Option<AgentContentBlock> {
+    match b {
+        ContentBlock::Text { text } => Some(AgentContentBlock::Text { text }),
+        ContentBlock::ToolUse { id, name, input } => Some(AgentContentBlock::ToolUse { id, name, input }),
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => Some(AgentContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        }),
+        ContentBlock::Thinking { thinking, signature } => (!thinking.is_empty())
+            .then_some(AgentContentBlock::Thinking { thinking, signature }),
+    }
+}
+
+/// Convert generic agent messages into OpenAI-compatible chat-completion
+/// messages. Honours the system prompt by prepending it as a system message.
+/// Tool round-trips: ToolUse → assistant message with `tool_calls`, ToolResult
+/// → message with `role: "tool"` and `tool_call_id`. Shared by every provider
+/// that speaks OpenAI's chat completions message format (OpenAI, Ollama,
+/// OpenRouter, LiteLLM) — used both for non-streaming and streaming paths.
+fn agent_messages_to_openai_compat(
+    system_prompt: String,
+    messages: Vec<AgentMessage>,
+) -> Vec<OpenAIAgentMessage> {
+    let mut out: Vec<OpenAIAgentMessage> = Vec::with_capacity(messages.len() + 1);
+    if !system_prompt.is_empty() {
+        out.push(OpenAIAgentMessage {
+            role: "system".to_string(),
+            content: Some(system_prompt),
+            tool_calls: None,
+            tool_call_id: None,
+        });
+    }
+    for m in messages {
+        match m.content {
+            AgentContent::Text(text) => {
+                out.push(OpenAIAgentMessage {
+                    role: m.role,
+                    content: Some(text),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+            AgentContent::Blocks(blocks) => {
+                for block in blocks {
+                    match block {
+                        AgentContentBlock::Text { text } => {
+                            out.push(OpenAIAgentMessage {
+                                role: m.role.clone(),
+                                content: Some(text),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            });
+                        }
+                        AgentContentBlock::ToolUse { id, name, input } => {
+                            out.push(OpenAIAgentMessage {
+                                role: "assistant".to_string(),
+                                content: None,
+                                tool_calls: Some(vec![OpenAIToolCall {
+                                    id,
+                                    call_type: "function".to_string(),
+                                    function: OpenAIFunctionCall {
+                                        name,
+                                        arguments: serde_json::to_string(&input)
+                                            .unwrap_or_default(),
+                                    },
+                                }]),
+                                tool_call_id: None,
+                            });
+                        }
+                        AgentContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            ..
+                        } => {
+                            out.push(OpenAIAgentMessage {
+                                role: "tool".to_string(),
+                                content: Some(content),
+                                tool_calls: None,
+                                tool_call_id: Some(tool_use_id),
+                            });
+                        }
+                        AgentContentBlock::Thinking { .. } => {}
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Convert an Anthropic-style tool definition (the canonical wire shape we use
+/// internally) into an OpenAI-compatible function tool definition. Used by
+/// OpenAI, Ollama, OpenRouter, and LiteLLM — which all speak OpenAI's chat
+/// completions tool format.
+fn anthropic_tools_to_openai(tools: Option<Vec<serde_json::Value>>) -> Option<Vec<OpenAITool>> {
+    tools.map(|tools| {
+        tools
+            .into_iter()
+            .map(|t| {
+                let name = t
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let description = t
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let parameters = t.get("input_schema").cloned();
+                OpenAITool {
+                    tool_type: "function".to_string(),
+                    function: OpenAIFunction {
+                        name,
+                        description,
+                        parameters,
+                    },
+                }
+            })
+            .collect()
+    })
+}
+
+/// Generic event stream returned by the SSE parsers below.
+type ProviderEventStream = Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send>>;
+
+/// Split complete lines off the front of `buffer`, leaving any partial line.
+fn drain_lines(buffer: &mut String) -> Vec<String> {
+    let mut lines = Vec::new();
+    while let Some(newline_pos) = buffer.find('\n') {
+        lines.push(buffer[..newline_pos].trim().to_string());
+        buffer.drain(..=newline_pos);
+    }
+    lines
+}
+
+/// Parse an Anthropic Messages SSE stream (native API or Vertex
+/// `:streamRawPredict`) into `StreamEvent`s. `Done` is emitted only for
+/// `message_stop`; a stream that closes before it yields a truncation error.
+fn parse_anthropic_sse_stream<S, B, E>(byte_stream: S, label: &'static str) -> ProviderEventStream
+where
+    S: futures::Stream<Item = Result<B, E>> + Send + 'static,
+    B: AsRef<[u8]> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    Box::pin(async_stream::stream! {
+        use futures::StreamExt;
+        let mut byte_stream = Box::pin(byte_stream);
+        let mut buffer = String::new();
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
+        let mut stop_reason: Option<String> = None;
+        let mut tool_use_indices = std::collections::HashSet::<usize>::new();
+
+        while let Some(chunk_result) = byte_stream.next().await {
+            let chunk = match chunk_result {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
+                    return;
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(chunk.as_ref()));
+
+            for line in drain_lines(&mut buffer) {
+                if line.is_empty() || line.starts_with("event:") || line.starts_with(':') {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data:").map(str::trim_start) else { continue; };
+
+                let event: AnthropicStreamEvent = match serde_json::from_str(data) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        tracing::warn!("{} SSE parse error: {} — data: {}", label, e, data);
+                        continue;
+                    }
+                };
+
+                match event {
+                    AnthropicStreamEvent::MessageStart { message } => {
+                        if let Some(usage) = message.usage {
+                            input_tokens = usage.input_tokens;
+                        }
+                    }
+                    AnthropicStreamEvent::ContentBlockStart { index, content_block } => {
+                        match content_block {
+                            AnthropicStreamContentBlock::ToolUse { id, name } => {
+                                tool_use_indices.insert(index);
+                                yield Ok(StreamEvent::ToolUseStart { id, name });
+                            }
+                            // Text and thinking arrive via deltas.
+                            AnthropicStreamContentBlock::Text { .. }
+                            | AnthropicStreamContentBlock::Other => {}
+                        }
+                    }
+                    AnthropicStreamEvent::ContentBlockDelta { delta, .. } => {
+                        match delta {
+                            AnthropicStreamDelta::TextDelta { text } => {
+                                yield Ok(StreamEvent::ContentDelta { text });
+                            }
+                            AnthropicStreamDelta::InputJsonDelta { partial_json } => {
+                                yield Ok(StreamEvent::ToolInputDelta { delta: partial_json });
+                            }
+                            AnthropicStreamDelta::ThinkingDelta { thinking } => {
+                                if !thinking.is_empty() {
+                                    yield Ok(StreamEvent::ThinkingDelta { text: thinking });
+                                }
+                            }
+                            AnthropicStreamDelta::Other => {}
+                        }
+                    }
+                    AnthropicStreamEvent::ContentBlockStop { index } => {
+                        if tool_use_indices.remove(&index) {
+                            yield Ok(StreamEvent::ToolUseEnd);
+                        }
+                    }
+                    AnthropicStreamEvent::MessageDelta { delta, usage } => {
+                        if let Some(reason) = delta.stop_reason {
+                            stop_reason = Some(reason);
+                        }
+                        if let Some(u) = usage {
+                            output_tokens = u.output_tokens;
+                        }
+                    }
+                    AnthropicStreamEvent::MessageStop => {
+                        yield Ok(StreamEvent::Done {
+                            stop_reason: stop_reason.take(),
+                            usage: Some(TokenUsage {
+                                input_tokens,
+                                output_tokens,
+                                total_tokens: Some(input_tokens + output_tokens),
+                            }),
+                        });
+                        return;
+                    }
+                    AnthropicStreamEvent::Error { error } => {
+                        yield Err(AiError::RequestFailed(format!(
+                            "{}: {}",
+                            error.error_type, error.message
+                        )));
+                        return;
+                    }
+                    AnthropicStreamEvent::Ping | AnthropicStreamEvent::Unknown => {}
+                }
+            }
+        }
+
+        // EOF without message_stop: the answer is incomplete.
+        yield Err(AiError::InvalidResponse(STREAM_TRUNCATED_MESSAGE.to_string()));
+    })
+}
+
+/// Parse a Gemini `streamGenerateContent?alt=sse` stream into `StreamEvent`s.
+/// Each `data:` line is a whole `GenerateContentResponse` delta; function
+/// calls arrive complete, so the ToolUseStart/InputDelta/End triple is
+/// synthesised. `Done` requires a candidate `finishReason`; a stream that
+/// closes without one yields a truncation error.
+fn parse_gemini_sse_stream<S, B, E>(byte_stream: S) -> ProviderEventStream
+where
+    S: futures::Stream<Item = Result<B, E>> + Send + 'static,
+    B: AsRef<[u8]> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    Box::pin(async_stream::stream! {
+        use futures::StreamExt;
+        let mut byte_stream = Box::pin(byte_stream);
+        let mut buffer = String::new();
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
+        let mut stop_reason: Option<String> = None;
+        let mut had_tool_use = false;
+
+        while let Some(chunk_result) = byte_stream.next().await {
+            let chunk = match chunk_result {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
+                    return;
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(chunk.as_ref()));
+
+            for line in drain_lines(&mut buffer) {
+                if line.is_empty() || line.starts_with("event:") || line.starts_with(':') {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data:").map(str::trim_start) else { continue; };
+
+                let chunk_resp: GeminiResponse = match serde_json::from_str(data) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Vertex Gemini SSE parse error: {} — data: {}", e, &data[..data.len().min(200)]);
+                        continue;
+                    }
+                };
+
+                if let Some(error) = chunk_resp.error {
+                    yield Err(AiError::RequestFailed(format!("Gemini error {}: {}", error.code, error.message)));
+                    return;
+                }
+
+                if let Some(usage) = chunk_resp.usage_metadata {
+                    input_tokens = usage.prompt_token_count;
+                    output_tokens = usage.candidates_token_count;
+                }
+
+                let Some(candidate) = chunk_resp.candidates.and_then(|c| c.into_iter().next()) else { continue; };
+
+                if let Some(reason) = candidate.finish_reason.clone() {
+                    stop_reason = Some(reason);
+                }
+
+                let Some(parts) = candidate.content.and_then(|c| c.parts) else { continue; };
+
+                for part in parts {
+                    if let Some(text) = part.text {
+                        if !text.is_empty() {
+                            yield Ok(StreamEvent::ContentDelta { text });
+                        }
+                    }
+                    if let Some(fc) = part.function_call {
+                        had_tool_use = true;
+                        let id = format!("call_{}", uuid::Uuid::new_v4());
+                        yield Ok(StreamEvent::ToolUseStart { id, name: fc.name });
+                        yield Ok(StreamEvent::ToolInputDelta {
+                            delta: serde_json::to_string(&fc.args).unwrap_or_else(|_| "{}".to_string()),
+                        });
+                        yield Ok(StreamEvent::ToolUseEnd);
+                    }
+                }
+            }
+        }
+
+        // EOF without a finishReason: the answer is incomplete.
+        let Some(reason) = stop_reason else {
+            yield Err(AiError::InvalidResponse(STREAM_TRUNCATED_MESSAGE.to_string()));
+            return;
+        };
+
+        // Map Gemini's finish_reason to our generic stop_reason vocabulary
+        // (matches non-streaming gemini_agent_chat for consistency).
+        let mapped_reason = match reason.as_str() {
+            "STOP" if had_tool_use => "tool_use".to_string(),
+            "STOP" => "end_turn".to_string(),
+            "MAX_TOKENS" => "max_tokens".to_string(),
+            _ => reason,
+        };
+
+        yield Ok(StreamEvent::Done {
+            stop_reason: Some(mapped_reason),
+            usage: Some(TokenUsage {
+                input_tokens,
+                output_tokens,
+                total_tokens: Some(input_tokens + output_tokens),
+            }),
+        });
+    })
+}
+
+/// Parse an OpenAI-compatible SSE chat-completions stream into our generic
+/// `StreamEvent` enum. Used by every provider that speaks OpenAI's chat
+/// completions wire format (OpenAI, Ollama in OpenAI-compat mode, OpenRouter,
+/// LiteLLM).
+///
+/// OpenAI streaming differs from Anthropic in two important ways:
+///
+/// 1. Tool calls have no explicit "block stop" event mid-stream. The first
+///    chunk for a tool call carries `id` + `function.name`; subsequent chunks
+///    for the same `index` carry incremental `function.arguments` strings.
+///    We have to detect "this is a new tool call" by tracking which indices
+///    we've already seen, and we have to emit `ToolUseEnd` either when a new
+///    tool-call index appears OR when the message finishes.
+///
+/// 2. Token usage is only present on the final chunk if the request includes
+///    `stream_options: { include_usage: true }`. Callers should set that.
+///
+/// The literal line `data: [DONE]` marks end of stream.
+/// Error for a streaming request that returned a non-SSE body and no events.
+fn non_sse_stream_error(body: &str) -> AiError {
+    match provider_error_message(body) {
+        Some(msg) => AiError::RequestFailed(msg),
+        None if html_body_message(body).is_some() => AiError::InvalidResponse(html_body_message(body).unwrap_or_default()),
+        None => {
+            let snippet: String = body.chars().take(300).collect();
+            AiError::InvalidResponse(format!(
+                "Provider returned no stream events — body starts: {}",
+                snippet.trim()
+            ))
+        }
+    }
+}
+
+fn parse_openai_compatible_stream<S, B, E>(byte_stream: S) -> ProviderEventStream
+where
+    S: futures::Stream<Item = Result<B, E>> + Send + 'static,
+    B: AsRef<[u8]> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+{
+    Box::pin(async_stream::stream! {
+        use futures::StreamExt;
+        let mut byte_stream = Box::pin(byte_stream);
+        let mut buffer = String::new();
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
+        let mut stop_reason: Option<String> = None;
+        // Tool calls in flight, keyed by their `index` field. Value is whether
+        // we've already emitted ToolUseStart for that index (so we know to emit
+        // ToolUseEnd before starting a new one or before ending the stream).
+        let mut active_tool_index: Option<usize> = None;
+        // Lines that are not SSE (`data:` / `event:` / comments). A provider
+        // that answers a streaming request with a plain JSON error body (HTTP
+        // 200, OpenRouter) lands here; if the stream then ends without a single
+        // event we report that body instead of a silent empty answer.
+        let mut non_sse_body = String::new();
+        let mut emitted_any = false;
+
+        loop {
+            // Once a terminal `finish_reason` has been seen, well-behaved
+            // providers send the trailing usage chunk + the `[DONE]` sentinel and
+            // close within milliseconds. Some OpenAI-compatible proxies (e.g.
+            // Google Gemini via Apigee) instead emit `finish_reason` and then
+            // hold the connection open WITHOUT ever sending `[DONE]`, which would
+            // block `byte_stream.next()` forever and hang the client on
+            // "thinking…". Bound the post-finish wait so the fallback `Done`
+            // below always fires; the pre-finish read stays unbounded (the model
+            // may legitimately take a long time to start responding).
+            let next_chunk = if stop_reason.is_some() {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    byte_stream.next(),
+                )
+                .await
+                .unwrap_or_default()
+            } else {
+                byte_stream.next().await
+            };
+            let Some(chunk_result) = next_chunk else { break };
+            let chunk = match chunk_result {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    yield Err(AiError::RequestFailed(format!("Stream read error: {}", e)));
+                    return;
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(chunk.as_ref()));
+
+            while let Some(newline_pos) = buffer.find('\n') {
+                let line = buffer[..newline_pos].trim().to_string();
+                buffer = buffer[newline_pos + 1..].to_string();
+
+                if line.is_empty() || line.starts_with("event:") || line.starts_with(':') {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data:").map(str::trim_start) else {
+                    if non_sse_body.len() < 4000 {
+                        non_sse_body.push_str(&line);
+                    }
+                    continue;
+                };
+
+                // OpenAI marks end of stream with the literal "[DONE]" sentinel.
+                if data.trim() == "[DONE]" {
+                    if active_tool_index.take().is_some() {
+                        yield Ok(StreamEvent::ToolUseEnd);
+                    }
+                    yield Ok(StreamEvent::Done {
+                        stop_reason,
+                        usage: Some(TokenUsage {
+                            input_tokens,
+                            output_tokens,
+                            total_tokens: Some(input_tokens + output_tokens),
+                        }),
+                    });
+                    return;
+                }
+
+                let chunk_resp: OpenAIStreamChunk = match serde_json::from_str(data) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("OpenAI-compat SSE parse error: {} — data: {}", e, &data[..data.len().min(200)]);
+                        continue;
+                    }
+                };
+
+                if let Some(error) = chunk_resp.error {
+                    yield Err(AiError::RequestFailed(format!(
+                        "{}: {}",
+                        error.error_type.unwrap_or_else(|| "error".to_string()),
+                        error.message
+                    )));
+                    return;
+                }
+
+                if let Some(usage) = chunk_resp.usage {
+                    input_tokens = usage.prompt_tokens;
+                    output_tokens = usage.completion_tokens;
+                }
+
+                let Some(choice) = chunk_resp.choices.into_iter().next() else { continue; };
+
+                if let Some(text) = choice.delta.content {
+                    if !text.is_empty() {
+                        // If a tool call was open, close it before emitting text.
+                        if active_tool_index.take().is_some() {
+                            yield Ok(StreamEvent::ToolUseEnd);
+                        }
+                        emitted_any = true;
+                        yield Ok(StreamEvent::ContentDelta { text });
+                    }
+                }
+
+                if let Some(tool_calls) = choice.delta.tool_calls {
+                    for tc in tool_calls {
+                        // A new tool call starts when we see an index different
+                        // from the currently-active one AND we have a name + id.
+                        let starts_new = active_tool_index != Some(tc.index)
+                            && tc.id.is_some()
+                            && tc.function.as_ref().and_then(|f| f.name.as_ref()).is_some();
+
+                        if starts_new {
+                            if active_tool_index.take().is_some() {
+                                yield Ok(StreamEvent::ToolUseEnd);
+                            }
+                            let id = tc.id.clone().unwrap_or_default();
+                            let name = tc.function.as_ref()
+                                .and_then(|f| f.name.clone())
+                                .unwrap_or_default();
+                            active_tool_index = Some(tc.index);
+                            emitted_any = true;
+                            yield Ok(StreamEvent::ToolUseStart { id, name });
+                        }
+
+                        // Stream the incremental arguments JSON if present.
+                        if let Some(func) = tc.function {
+                            if let Some(args) = func.arguments {
+                                if !args.is_empty() {
+                                    yield Ok(StreamEvent::ToolInputDelta { delta: args });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(reason) = choice.finish_reason {
+                    if active_tool_index.take().is_some() {
+                        yield Ok(StreamEvent::ToolUseEnd);
+                    }
+                    // Map OpenAI finish_reason to our generic vocabulary —
+                    // matches what the non-streaming OpenAI agent_chat path uses.
+                    stop_reason = Some(match reason.as_str() {
+                        "tool_calls" | "function_call" => "tool_use".to_string(),
+                        "stop" => "end_turn".to_string(),
+                        "length" => "max_tokens".to_string(),
+                        _ => reason,
+                    });
+                }
+            }
+        }
+
+        // A body with no trailing newline never completed a line above; a
+        // one-line JSON error envelope is exactly that shape.
+        let tail = buffer.trim();
+        if !tail.is_empty() && !tail.starts_with("data:") && !tail.starts_with("event:") && !tail.starts_with(':') && non_sse_body.len() < 4000 {
+            non_sse_body.push_str(tail);
+        }
+        // Stream ended without an explicit [DONE] sentinel. If the provider
+        // never produced an event, whatever it did send is the real answer —
+        // usually an error envelope — so report that rather than an empty turn.
+        if !emitted_any && stop_reason.is_none() && !non_sse_body.trim().is_empty() {
+            yield Err(non_sse_stream_error(&non_sse_body));
+            return;
+        }
+        // Neither `[DONE]` nor a `finish_reason`: the connection dropped
+        // mid-answer. Done here would present the partial text as complete.
+        if stop_reason.is_none() {
+            yield Err(AiError::InvalidResponse(STREAM_TRUNCATED_MESSAGE.to_string()));
+            return;
+        }
+        if active_tool_index.take().is_some() {
+            yield Ok(StreamEvent::ToolUseEnd);
+        }
+        yield Ok(StreamEvent::Done {
+            stop_reason,
+            usage: Some(TokenUsage {
+                input_tokens,
+                output_tokens,
+                total_tokens: Some(input_tokens + output_tokens),
+            }),
+        });
+    })
+}
+
+#[async_trait]
+impl AiProvider for OpenAIProvider {
+    async fn chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        // Dispatch to per-format request builder when applicable.
+        if self.api_format == ApiFormat::Gemini {
+            return self.gemini_chat_completion(messages, context).await;
+        }
+        if self.api_format == ApiFormat::VertexAnthropic {
+            return self
+                .vertex_anthropic_chat_completion(messages, context)
+                .await;
+        }
+
+        // Build system prompt with enhanced context
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        // Convert messages to OpenAI format
+        let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
+            role: "system".to_string(),
+            content: system_prompt,
+        }];
+
+        for m in messages {
+            if m.role != "system" {
+                openai_messages.push(OpenAIMessage {
+                    role: m.role,
+                    content: m.content,
+                });
+            }
+        }
+
+        let shape = OpenAiRequestShape::for_model(&self.model, 4096, 0.7);
+        let request = OpenAIRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: shape.max_tokens,
+            max_completion_tokens: shape.max_completion_tokens,
+            temperature: shape.temperature,
+        };
+
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
+
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Extract text from response
+        api_response
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|c| c.message.content)
+            .ok_or_else(|| AiError::InvalidResponse("No content in response".to_string()))
+    }
+
+    async fn agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Gemini format: native function calling support
+        if self.api_format == ApiFormat::Gemini {
+            return self
+                .gemini_agent_chat(system_prompt, messages, tools, options)
+                .await;
+        }
+        // Vertex Anthropic: full tool support via dedicated agent path.
+        if self.api_format == ApiFormat::VertexAnthropic {
+            return self
+                .vertex_anthropic_agent_chat(system_prompt, messages, tools, options)
+                .await;
+        }
+
+        // Convert Anthropic-style tools to OpenAI format
+        let openai_tools: Option<Vec<OpenAITool>> = tools.map(|tools| {
+            tools
+                .into_iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
+        });
+
+        // Convert generic messages to OpenAI format
+        let mut openai_messages: Vec<OpenAIAgentMessage> = vec![OpenAIAgentMessage {
+            role: "system".to_string(),
+            content: Some(system_prompt),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        for m in messages {
+            match m.content {
+                AgentContent::Text(text) => {
+                    openai_messages.push(OpenAIAgentMessage {
+                        role: m.role,
+                        content: Some(text),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    // Handle tool results - each becomes a separate message
+                    for block in blocks {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: m.role.clone(),
+                                    content: Some(text),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolUse { id, name, input } => {
+                                // This is assistant message with tool call
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "assistant".to_string(),
+                                    content: None,
+                                    tool_calls: Some(vec![OpenAIToolCall {
+                                        id,
+                                        call_type: "function".to_string(),
+                                        function: OpenAIFunctionCall {
+                                            name,
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
+                                        },
+                                    }]),
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "tool".to_string(),
+                                    content: Some(content),
+                                    tool_calls: None,
+                                    tool_call_id: Some(tool_use_id),
+                                });
+                            }
+                            AgentContentBlock::Thinking { .. } => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let shape = OpenAiRequestShape::for_model(&self.model, max_tokens, temperature);
+        let request = OpenAIAgentRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: shape.max_tokens,
+            max_completion_tokens: shape.max_completion_tokens,
+            temperature: shape.temperature,
+            tools: openai_tools,
+            stream: None,
+            stream_options: None,
+        };
+
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let response = self
+            .send_request(self.client.post(&url).json(&request))
+            .await?;
+
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Convert OpenAI response to generic format
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
+
+        let mut content: Vec<AgentContentBlock> = Vec::new();
+
+        // Add text content if present
+        if let Some(text) = choice.message.content {
+            if !text.is_empty() {
+                content.push(AgentContentBlock::Text { text });
+            }
+        }
+
+        // Convert tool calls to tool_use blocks
+        if let Some(tool_calls) = choice.message.tool_calls {
+            for tc in tool_calls {
+                let input: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                content.push(AgentContentBlock::ToolUse {
+                    id: tc.id,
+                    name: tc.function.name,
+                    input,
+                });
+            }
+        }
+
+        // Map finish_reason to stop_reason
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
+        });
+
+        // Convert OpenAI usage to generic format
+        let usage = api_response.usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
+    }
+
+    /// Override the default trait stream impl so every API format uses its
+    /// dedicated streaming endpoint (real progressive SSE) instead of
+    /// buffering the whole response in `agent_chat` and synthesising a single
+    /// batch of events at the end.
+    fn agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        match self.api_format {
+            ApiFormat::VertexAnthropic => {
+                self.vertex_anthropic_agent_chat_stream(system_prompt, messages, tools, options)
+            }
+            ApiFormat::Gemini => {
+                self.gemini_agent_chat_stream(system_prompt, messages, tools, options)
+            }
+            ApiFormat::OpenAI => {
+                self.openai_agent_chat_stream(system_prompt, messages, tools, options)
+            }
+        }
+    }
+
+    fn provider_name(&self) -> &str {
+        "OpenAI"
+    }
+}
+
+// === Ollama Provider ===
+
+/// Ollama local AI provider (OpenAI-compatible API)
+pub struct OllamaProvider {
+    model: String,
+    base_url: String,
+    client: reqwest::Client,
+}
+
+impl OllamaProvider {
+    pub fn new(
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            model: model.unwrap_or_else(default_ollama_model),
+            base_url: base_url.unwrap_or_else(default_ollama_url),
+            client,
+        })
+    }
+}
+
+#[async_trait]
+impl AiProvider for OllamaProvider {
+    async fn chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        // Build system prompt with enhanced context
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        // Convert messages to OpenAI format (Ollama uses OpenAI-compatible API)
+        let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
+            role: "system".to_string(),
+            content: system_prompt,
+        }];
+
+        for m in messages {
+            if m.role != "system" {
+                openai_messages.push(OpenAIMessage {
+                    role: m.role,
+                    content: m.content,
+                });
+            }
+        }
+
+        let request = OpenAIRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: Some(4096),
+            max_completion_tokens: None,
+            temperature: Some(0.7),
+        };
+
+        // Ollama uses /v1/chat/completions endpoint
+        let url = format!("{}/v1/chat/completions", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            // No auth header for Ollama
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else if e.is_connect() {
+                    AiError::NotConfigured(format!(
+                        "Cannot connect to Ollama at {}. Is it running? Start with: ollama serve",
+                        self.base_url
+                    ))
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Extract text from response
+        api_response
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|c| c.message.content)
+            .ok_or_else(|| AiError::InvalidResponse("No content in response".to_string()))
+    }
+
+    async fn agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Try with tools first, fall back to simple chat if model doesn't support tools
+        let result = self
+            .try_agent_chat_with_tools(&system_prompt, &messages, &tools, &options)
+            .await;
+
+        // If tools aren't supported, fall back to simple chat mode
+        if let Err(AiError::RequestFailed(ref msg) | AiError::BadRequest(ref msg)) = result {
+            if msg.contains("does not support tools") {
+                tracing::info!(
+                    "Model {} doesn't support tools, falling back to simple chat",
+                    self.model
+                );
+                return self.simple_chat_fallback(&system_prompt, &messages).await;
+            }
+        }
+
+        result
+    }
+
+    /// Native streaming via Ollama's OpenAI-compatible `/v1/chat/completions`
+    /// endpoint with `stream: true`. Reuses the shared OpenAI-compat parser.
+    /// If the model returns a "does not support tools" error on the first
+    /// chunk, we retry once without tools (mirrors the non-streaming
+    /// `agent_chat` fallback).
+    fn agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+        let openai_messages = agent_messages_to_openai_compat(system_prompt, messages);
+        let openai_tools = anthropic_tools_to_openai(tools);
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+        let model = self.model.clone();
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+
+        Box::pin(async_stream::stream! {
+            let request = OpenAIAgentRequest {
+                model: model.clone(),
+                messages: openai_messages.clone(),
+                max_tokens: Some(max_tokens),
+                max_completion_tokens: None,
+                temperature: Some(temperature),
+                tools: openai_tools.clone(),
+                stream: Some(true),
+                stream_options: Some(OpenAIStreamOptions { include_usage: true }),
+            };
+
+            let mut response = match client.post(&url).json(&request).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(if e.is_timeout() {
+                        AiError::Timeout
+                    } else if e.is_connect() {
+                        AiError::NotConfigured(format!(
+                            "Cannot connect to Ollama at {}. Is it running? Start with: ollama serve",
+                            base_url
+                        ))
+                    } else {
+                        AiError::RequestFailed(e.to_string())
+                    });
+                    return;
+                }
+            };
+
+            // If the model rejected tools, retry once without them so streaming
+            // still works on tool-less models (mirrors agent_chat fallback).
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if openai_tools.is_some() && body.contains("does not support tools") {
+                    tracing::info!("Ollama model {} doesn't support tools, retrying stream without tools", model);
+                    let retry = OpenAIAgentRequest {
+                        model,
+                        messages: openai_messages,
+                        max_tokens: Some(max_tokens),
+                        max_completion_tokens: None,
+                        temperature: Some(temperature),
+                        tools: None,
+                        stream: Some(true),
+                        stream_options: Some(OpenAIStreamOptions { include_usage: true }),
+                    };
+                    response = match client.post(&url).json(&retry).send().await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            yield Err(AiError::RequestFailed(format!("Retry without tools failed: {}", e)));
+                            return;
+                        }
+                    };
+                    if !response.status().is_success() {
+                        let s = response.status();
+                        let b = response.text().await.unwrap_or_default();
+                        yield Err(AiError::from_http_status(s, b));
+                        return;
+                    }
+                } else {
+                    yield Err(AiError::from_http_status(status, body));
+                    return;
+                }
+            }
+
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
+            use futures::StreamExt;
+            while let Some(event) = inner.next().await {
+                yield event;
+            }
+        })
+    }
+
+    fn provider_name(&self) -> &str {
+        "Ollama"
+    }
+}
+
+impl OllamaProvider {
+    /// Try agent chat with tools (may fail if model doesn't support tools)
+    async fn try_agent_chat_with_tools(
+        &self,
+        system_prompt: &str,
+        messages: &[AgentMessage],
+        tools: &Option<Vec<serde_json::Value>>,
+        options: &Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Convert Anthropic-style tools to OpenAI format (Ollama uses OpenAI-compatible API)
+        let openai_tools: Option<Vec<OpenAITool>> = tools.as_ref().map(|tools| {
+            tools
+                .iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
+        });
+
+        // Convert generic messages to OpenAI format
+        let mut openai_messages: Vec<OpenAIAgentMessage> = vec![OpenAIAgentMessage {
+            role: "system".to_string(),
+            content: Some(system_prompt.to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        for m in messages {
+            match &m.content {
+                AgentContent::Text(text) => {
+                    openai_messages.push(OpenAIAgentMessage {
+                        role: m.role.clone(),
+                        content: Some(text.clone()),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    for block in blocks {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: m.role.clone(),
+                                    content: Some(text.clone()),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolUse { id, name, input } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "assistant".to_string(),
+                                    content: None,
+                                    tool_calls: Some(vec![OpenAIToolCall {
+                                        id: id.clone(),
+                                        call_type: "function".to_string(),
+                                        function: OpenAIFunctionCall {
+                                            name: name.clone(),
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
+                                        },
+                                    }]),
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "tool".to_string(),
+                                    content: Some(content.clone()),
+                                    tool_calls: None,
+                                    tool_call_id: Some(tool_use_id.clone()),
+                                });
+                            }
+                            AgentContentBlock::Thinking { .. } => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let request = OpenAIAgentRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
+            temperature: Some(temperature),
+            tools: openai_tools,
+            stream: None,
+            stream_options: None,
+        };
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            // No auth header for Ollama
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else if e.is_connect() {
+                    AiError::NotConfigured(format!(
+                        "Cannot connect to Ollama at {}. Is it running? Start with: ollama serve",
+                        self.base_url
+                    ))
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Convert OpenAI response to generic format
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
+
+        let mut content: Vec<AgentContentBlock> = Vec::new();
+
+        if let Some(text) = choice.message.content {
+            if !text.is_empty() {
+                content.push(AgentContentBlock::Text { text });
+            }
+        }
+
+        if let Some(tool_calls) = choice.message.tool_calls {
+            for tc in tool_calls {
+                let input: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                content.push(AgentContentBlock::ToolUse {
+                    id: tc.id,
+                    name: tc.function.name,
+                    input,
+                });
+            }
+        }
+
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
+        });
+
+        // Convert Ollama usage to generic format (uses OpenAI-compatible API)
+        let usage = api_response.usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
+    }
+
+    /// Fallback to simple chat without tools when model doesn't support function calling
+    async fn simple_chat_fallback(
+        &self,
+        system_prompt: &str,
+        messages: &[AgentMessage],
+    ) -> Result<AgentResponse, AiError> {
+        // Build simple chat messages
+        let mut chat_messages: Vec<ChatMessage> = vec![ChatMessage {
+            role: "system".to_string(),
+            content: format!(
+                "{}\n\nNote: This model does not support tool use, so I cannot run commands or interact with sessions directly. I'll provide guidance and recommendations instead.",
+                system_prompt
+            ),
+        }];
+
+        // Convert agent messages to simple chat messages
+        for m in messages {
+            match &m.content {
+                AgentContent::Text(text) => {
+                    chat_messages.push(ChatMessage {
+                        role: m.role.clone(),
+                        content: text.clone(),
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    // Extract just the text content from blocks
+                    for block in blocks {
+                        if let AgentContentBlock::Text { text } = block {
+                            chat_messages.push(ChatMessage {
+                                role: m.role.clone(),
+                                content: text.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use simple chat completion
+        // Note: Simple chat fallback doesn't track usage since chat_completion doesn't return it
+        let response_text = self.chat_completion(chat_messages, None).await?;
+
+        Ok(AgentResponse {
+            content: vec![AgentContentBlock::Text {
+                text: response_text,
+            }],
+            stop_reason: Some("end_turn".to_string()),
+            usage: None,
+        })
+    }
+}
+
+// === OpenRouter Provider ===
+
+/// OpenRouter API request format (with transforms support)
+#[derive(Debug, Serialize)]
+struct OpenRouterRequest {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    /// Transforms to apply (e.g., "middle-out" for automatic prompt compression)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transforms: Option<Vec<String>>,
+}
+
+/// OpenRouter API request format with tools (with transforms support)
+#[derive(Debug, Serialize)]
+struct OpenRouterAgentRequest {
+    model: String,
+    messages: Vec<OpenAIAgentMessage>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<OpenAITool>>,
+    /// Transforms to apply (e.g., "middle-out" for automatic prompt compression)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transforms: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(rename = "stream_options", skip_serializing_if = "Option::is_none")]
+    stream_options: Option<OpenAIStreamOptions>,
+}
+
+/// OpenRouter API provider (OpenAI-compatible; defaults to openrouter.ai but
+/// honors a custom `base_url` for proxies/gateways).
+pub struct OpenRouterProvider {
+    api_key: String,
+    model: String,
+    base_url: String,
+    client: reqwest::Client,
+}
+
+impl OpenRouterProvider {
+    pub fn new(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            api_key,
+            model: model.unwrap_or_else(default_openrouter_model),
+            base_url: base_url
+                .map(|u| u.trim().to_string())
+                .filter(|u| !u.is_empty())
+                .map(|u| normalize_openrouter_base_url(&u))
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+            client,
+        })
+    }
+}
+
+#[async_trait]
+impl AiProvider for OpenRouterProvider {
+    async fn chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        // Build system prompt with enhanced context
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        // Convert messages to OpenAI format (OpenRouter uses OpenAI-compatible API)
+        let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
+            role: "system".to_string(),
+            content: system_prompt,
+        }];
+
+        for m in messages {
+            if m.role != "system" {
+                openai_messages.push(OpenAIMessage {
+                    role: m.role,
+                    content: m.content,
+                });
+            }
+        }
+
+        let request = OpenRouterRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: 4096,
+            temperature: Some(0.7),
+            // Enable middle-out transform to automatically compress prompts that exceed context window
+            transforms: Some(vec!["middle-out".to_string()]),
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .header("HTTP-Referer", "https://netstacks.net")
+            .header("X-Title", "NetStacks")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Extract text from response
+        api_response
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|c| c.message.content)
+            .ok_or_else(|| AiError::InvalidResponse("No content in response".to_string()))
+    }
+
+    async fn agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Convert Anthropic-style tools to OpenAI format
+        let openai_tools: Option<Vec<OpenAITool>> = tools.map(|tools| {
+            tools
+                .into_iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
+        });
+
+        // Convert generic messages to OpenAI format
+        let mut openai_messages: Vec<OpenAIAgentMessage> = vec![OpenAIAgentMessage {
+            role: "system".to_string(),
+            content: Some(system_prompt),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        for m in messages {
+            match m.content {
+                AgentContent::Text(text) => {
+                    openai_messages.push(OpenAIAgentMessage {
+                        role: m.role,
+                        content: Some(text),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    for block in blocks {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: m.role.clone(),
+                                    content: Some(text),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolUse { id, name, input } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "assistant".to_string(),
+                                    content: None,
+                                    tool_calls: Some(vec![OpenAIToolCall {
+                                        id,
+                                        call_type: "function".to_string(),
+                                        function: OpenAIFunctionCall {
+                                            name,
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
+                                        },
+                                    }]),
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "tool".to_string(),
+                                    content: Some(content),
+                                    tool_calls: None,
+                                    tool_call_id: Some(tool_use_id),
+                                });
+                            }
+                            AgentContentBlock::Thinking { .. } => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let request = OpenRouterAgentRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens,
+            temperature: Some(temperature),
+            tools: openai_tools,
+            // Enable middle-out transform to automatically compress prompts that exceed context window
+            transforms: Some(vec!["middle-out".to_string()]),
+            stream: None,
+            stream_options: None,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .header("HTTP-Referer", "https://netstacks.net")
+            .header("X-Title", "NetStacks")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Convert OpenAI response to generic format
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
+
+        let mut content: Vec<AgentContentBlock> = Vec::new();
+
+        if let Some(text) = choice.message.content {
+            if !text.is_empty() {
+                content.push(AgentContentBlock::Text { text });
+            }
+        }
+
+        if let Some(tool_calls) = choice.message.tool_calls {
+            for tc in tool_calls {
+                let input: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                content.push(AgentContentBlock::ToolUse {
+                    id: tc.id,
+                    name: tc.function.name,
+                    input,
+                });
+            }
+        }
+
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
+        });
+
+        let usage = api_response.usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
+    }
+
+    /// Native streaming via OpenRouter's OpenAI-compatible chat completions
+    /// endpoint with `stream: true`. Reuses the shared OpenAI-compat parser.
+    /// Bearer auth + the same NetStacks-identifying headers as `agent_chat`.
+    fn agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let request = OpenRouterAgentRequest {
+            model: self.model.clone(),
+            messages: agent_messages_to_openai_compat(system_prompt, messages),
+            max_tokens,
+            temperature: Some(temperature),
+            tools: anthropic_tools_to_openai(tools),
+            transforms: Some(vec!["middle-out".to_string()]),
+            stream: Some(true),
+            stream_options: Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
+        };
+
+        let api_key = self.api_key.clone();
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+
+        Box::pin(async_stream::stream! {
+            let response = match client
+                .post(format!("{}/chat/completions", base_url))
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .header("HTTP-Referer", "https://netstacks.net")
+                .header("X-Title", "NetStacks")
+                .json(&request)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(if e.is_timeout() {
+                        AiError::Timeout
+                    } else {
+                        AiError::RequestFailed(e.to_string())
+                    });
+                    return;
+                }
+            };
+
+            let status = response.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                yield Err(AiError::RateLimited);
+                return;
+            }
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                yield Err(AiError::from_http_status(status, body));
+                return;
+            }
+
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
+            use futures::StreamExt;
+            while let Some(event) = inner.next().await {
+                yield event;
+            }
+        })
+    }
+
+    fn provider_name(&self) -> &str {
+        "OpenRouter"
+    }
+}
+
+// === LiteLLM Provider ===
+
+/// LiteLLM proxy provider (OpenAI-compatible local proxy)
+pub struct LiteLLMProvider {
+    model: String,
+    base_url: String,
+    api_key: Option<String>,
+    client: reqwest::Client,
+}
+
+impl LiteLLMProvider {
+    pub fn new(
+        model: Option<String>,
+        base_url: Option<String>,
+        api_key: Option<String>,
+        verify_ssl: bool,
+    ) -> Result<Self, AiError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .danger_accept_invalid_certs(!verify_ssl)
+            .build()
+            .map_err(|e| AiError::NotConfigured(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            model: model.unwrap_or_else(default_litellm_model),
+            base_url: base_url.unwrap_or_else(default_litellm_url),
+            api_key,
+            client,
+        })
+    }
+}
+
+#[async_trait]
+impl AiProvider for LiteLLMProvider {
+    async fn chat_completion(
+        &self,
+        messages: Vec<ChatMessage>,
+        context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        // Build system prompt with enhanced context
+        let system_prompt = compose_system_prompt(&messages, &context);
+
+        // Convert messages to OpenAI format
+        let mut openai_messages: Vec<OpenAIMessage> = vec![OpenAIMessage {
+            role: "system".to_string(),
+            content: system_prompt,
+        }];
+
+        for m in messages {
+            if m.role != "system" {
+                openai_messages.push(OpenAIMessage {
+                    role: m.role,
+                    content: m.content,
+                });
+            }
+        }
+
+        let request = OpenAIRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: Some(4096),
+            max_completion_tokens: None,
+            temperature: Some(0.7),
+        };
+
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let mut req_builder = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
+
+        // Add auth header if API key is provided
+        if let Some(ref key) = self.api_key {
+            req_builder = req_builder.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = req_builder
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    AiError::Timeout
+                } else if e.is_connect() {
+                    AiError::NotConfigured(format!(
+                        "Cannot connect to LiteLLM at {}. Is it running? Start with: litellm --model gpt-4o",
+                        self.base_url
+                    ))
+                } else {
+                    AiError::RequestFailed(e.to_string())
+                }
+            })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: OpenAIResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Extract text from response
+        api_response
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|c| c.message.content)
+            .ok_or_else(|| AiError::InvalidResponse("No content in response".to_string()))
+    }
+
+    async fn agent_chat(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Result<AgentResponse, AiError> {
+        // Convert Anthropic-style tools to OpenAI format
+        let openai_tools: Option<Vec<OpenAITool>> = tools.map(|tools| {
+            tools
+                .into_iter()
+                .map(|t| {
+                    let name = t
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let description = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let parameters = t.get("input_schema").cloned();
+                    OpenAITool {
+                        tool_type: "function".to_string(),
+                        function: OpenAIFunction {
+                            name,
+                            description,
+                            parameters,
+                        },
+                    }
+                })
+                .collect()
+        });
+
+        // Convert generic messages to OpenAI format
+        let mut openai_messages: Vec<OpenAIAgentMessage> = vec![OpenAIAgentMessage {
+            role: "system".to_string(),
+            content: Some(system_prompt),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        for m in messages {
+            match m.content {
+                AgentContent::Text(text) => {
+                    openai_messages.push(OpenAIAgentMessage {
+                        role: m.role,
+                        content: Some(text),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+                AgentContent::Blocks(blocks) => {
+                    for block in blocks {
+                        match block {
+                            AgentContentBlock::Text { text } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: m.role.clone(),
+                                    content: Some(text),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolUse { id, name, input } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "assistant".to_string(),
+                                    content: None,
+                                    tool_calls: Some(vec![OpenAIToolCall {
+                                        id,
+                                        call_type: "function".to_string(),
+                                        function: OpenAIFunctionCall {
+                                            name,
+                                            arguments: serde_json::to_string(&input)
+                                                .unwrap_or_default(),
+                                        },
+                                    }]),
+                                    tool_call_id: None,
+                                });
+                            }
+                            AgentContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                ..
+                            } => {
+                                openai_messages.push(OpenAIAgentMessage {
+                                    role: "tool".to_string(),
+                                    content: Some(content),
+                                    tool_calls: None,
+                                    tool_call_id: Some(tool_use_id),
+                                });
+                            }
+                            AgentContentBlock::Thinking { .. } => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let request = OpenAIAgentRequest {
+            model: self.model.clone(),
+            messages: openai_messages,
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
+            temperature: Some(temperature),
+            tools: openai_tools,
+            stream: None,
+            stream_options: None,
+        };
+
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let mut req_builder = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json");
+
+        if let Some(ref key) = self.api_key {
+            req_builder = req_builder.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = req_builder.json(&request).send().await.map_err(|e| {
+            if e.is_timeout() {
+                AiError::Timeout
+            } else if e.is_connect() {
+                AiError::NotConfigured(format!(
+                    "Cannot connect to LiteLLM at {}. Is it running?",
+                    self.base_url
+                ))
+            } else {
+                AiError::RequestFailed(e.to_string())
+            }
+        })?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(AiError::RateLimited);
+        }
+
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AiError::from_http_status(status, error_text));
+        }
+
+        let api_response: OpenAIAgentResponse = decode_openai_compat(response).await?;
+
+        if let Some(error) = api_response.error {
+            return Err(AiError::RequestFailed(format!(
+                "{}: {}",
+                error.error_type.unwrap_or_else(|| "error".to_string()),
+                error.message
+            )));
+        }
+
+        // Convert OpenAI response to generic format
+        let choice = api_response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| AiError::InvalidResponse("No choices in response".to_string()))?;
+
+        let mut content: Vec<AgentContentBlock> = Vec::new();
+
+        if let Some(text) = choice.message.content {
+            if !text.is_empty() {
+                content.push(AgentContentBlock::Text { text });
+            }
+        }
+
+        if let Some(tool_calls) = choice.message.tool_calls {
+            for tc in tool_calls {
+                let input: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                content.push(AgentContentBlock::ToolUse {
+                    id: tc.id,
+                    name: tc.function.name,
+                    input,
+                });
+            }
+        }
+
+        let stop_reason = choice.finish_reason.map(|r| match r.as_str() {
+            "stop" => "end_turn".to_string(),
+            "tool_calls" => "tool_use".to_string(),
+            other => other.to_string(),
+        });
+
+        let usage = api_response.usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            total_tokens: u
+                .total_tokens
+                .or(Some(u.prompt_tokens + u.completion_tokens)),
+        });
+
+        Ok(AgentResponse {
+            content,
+            stop_reason,
+            usage,
+        })
+    }
+
+    /// Native streaming via LiteLLM's OpenAI-compatible chat completions
+    /// endpoint with `stream: true`. Optional Bearer auth — same auth pattern
+    /// as the non-streaming `agent_chat`.
+    fn agent_chat_stream(
+        &self,
+        system_prompt: String,
+        messages: Vec<AgentMessage>,
+        tools: Option<Vec<serde_json::Value>>,
+        options: Option<AgentChatOptions>,
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<StreamEvent, AiError>> + Send + '_>> {
+        let max_tokens = options.as_ref().and_then(|o| o.max_tokens).unwrap_or(4096);
+        let temperature = options
+            .as_ref()
+            .and_then(|o| o.temperature)
+            .map(|t| t as f32)
+            .unwrap_or(0.7);
+
+        let request = OpenAIAgentRequest {
+            model: self.model.clone(),
+            messages: agent_messages_to_openai_compat(system_prompt, messages),
+            max_tokens: Some(max_tokens),
+            max_completion_tokens: None,
+            temperature: Some(temperature),
+            tools: anthropic_tools_to_openai(tools),
+            stream: Some(true),
+            stream_options: Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
+        };
+
+        let url = format!("{}/chat/completions", self.base_url);
+        let api_key = self.api_key.clone();
+        let client = self.client.clone();
+
+        Box::pin(async_stream::stream! {
+            let mut req_builder = client.post(&url).header("Content-Type", "application/json");
+            if let Some(ref key) = api_key {
+                req_builder = req_builder.header("Authorization", format!("Bearer {}", key));
+            }
+
+            let response = match req_builder.json(&request).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(if e.is_timeout() {
+                        AiError::Timeout
+                    } else if e.is_connect() {
+                        AiError::NotConfigured(format!(
+                            "Cannot connect to LiteLLM proxy at {}. Is it running?",
+                            url
+                        ))
+                    } else {
+                        AiError::RequestFailed(e.to_string())
+                    });
+                    return;
+                }
+            };
+
+            let status = response.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                yield Err(AiError::RateLimited);
+                return;
+            }
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                yield Err(AiError::from_http_status(status, body));
+                return;
+            }
+
+            let mut inner = parse_openai_compatible_stream(response.bytes_stream());
+            use futures::StreamExt;
+            while let Some(event) = inner.next().await {
+                yield event;
+            }
+        })
+    }
+
+    fn provider_name(&self) -> &str {
+        "LiteLLM"
+    }
+}
+
+// === Mock Provider ===
+
+/// Mock provider for when no API key is configured
+pub struct MockProvider;
+
+impl MockProvider {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for MockProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl AiProvider for MockProvider {
+    async fn chat_completion(
+        &self,
+        _messages: Vec<ChatMessage>,
+        _context: Option<AiContext>,
+    ) -> Result<String, AiError> {
+        Err(AiError::NotConfigured(
+            "AI not configured. Add your API key in Settings > AI to enable AI features."
+                .to_string(),
+        ))
+    }
+
+    fn provider_name(&self) -> &str {
+        "Mock (Not Configured)"
+    }
+}
+
+// === Provider Factory ===
+
+/// Create an AI provider from configuration
+pub fn create_provider(config: Option<AiProviderConfig>) -> Box<dyn AiProvider> {
+    match config {
+        Some(AiProviderConfig::Anthropic {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
+            if api_key.is_empty() {
+                Box::new(MockProvider::new())
+            } else {
+                match AnthropicProvider::new(api_key, Some(model), base_url, verify_ssl) {
+                    Ok(provider) => Box::new(provider),
+                    Err(e) => {
+                        tracing::error!("Failed to create Anthropic provider: {}", e);
+                        Box::new(MockProvider::new())
+                    }
+                }
+            }
+        }
+        Some(AiProviderConfig::OpenAI {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
+            if api_key.is_empty() {
+                Box::new(MockProvider::new())
+            } else {
+                match OpenAIProvider::new(api_key, Some(model), base_url, verify_ssl) {
+                    Ok(provider) => Box::new(provider),
+                    Err(e) => {
+                        tracing::error!("Failed to create OpenAI provider: {}", e);
+                        Box::new(MockProvider::new())
+                    }
+                }
+            }
+        }
+        Some(AiProviderConfig::Ollama {
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
+            // Ollama doesn't need an API key
+            match OllamaProvider::new(Some(model), Some(base_url), verify_ssl) {
+                Ok(provider) => Box::new(provider),
+                Err(e) => {
+                    tracing::error!("Failed to create Ollama provider: {}", e);
+                    Box::new(MockProvider::new())
+                }
+            }
+        }
+        Some(AiProviderConfig::OpenRouter {
+            api_key,
+            model,
+            base_url,
+            verify_ssl,
+        }) => {
+            if api_key.is_empty() {
+                Box::new(MockProvider::new())
+            } else {
+                match OpenRouterProvider::new(api_key, Some(model), base_url, verify_ssl) {
+                    Ok(provider) => Box::new(provider),
+                    Err(e) => {
+                        tracing::error!("Failed to create OpenRouter provider: {}", e);
+                        Box::new(MockProvider::new())
+                    }
+                }
+            }
+        }
+        Some(AiProviderConfig::LiteLLM {
+            model,
+            base_url,
+            api_key,
+            verify_ssl,
+        }) => {
+            // LiteLLM doesn't require an API key (depends on proxy config)
+            match LiteLLMProvider::new(Some(model), Some(base_url), api_key, verify_ssl) {
+                Ok(provider) => Box::new(provider),
+                Err(e) => {
+                    tracing::error!("Failed to create LiteLLM provider: {}", e);
+                    Box::new(MockProvider::new())
+                }
+            }
+        }
+        Some(AiProviderConfig::Custom {
+            api_key,
+            model,
+            base_url,
+            oauth2,
+            api_format,
+            verify_ssl,
+        }) => {
+            // Determine API format: explicit setting > model name heuristic > default OpenAI
+            let format = match api_format.as_deref() {
+                Some("gemini") => ApiFormat::Gemini,
+                Some("vertex-anthropic") => ApiFormat::VertexAnthropic,
+                Some(_) => ApiFormat::OpenAI,
+                None => {
+                    // Heuristic: anthropic-on-vertex paths win first; then Gemini.
+                    let lower_base = base_url.to_lowercase();
+                    let lower_model = model.to_lowercase();
+                    if (lower_base.contains("vertex") || lower_base.contains("anthropic"))
+                        && (lower_model.starts_with("claude")
+                            || lower_model.contains(":rawpredict"))
+                    {
+                        tracing::info!(
+                            "Auto-detected Vertex Anthropic format from model '{}' / base_url",
+                            model
+                        );
+                        ApiFormat::VertexAnthropic
+                    } else if lower_model.contains("gemini")
+                        || lower_base.contains("vertexai")
+                        || lower_base.contains("vertex-ai")
+                    {
+                        tracing::info!(
+                            "Auto-detected Gemini format from model '{}' / base_url",
+                            model
+                        );
+                        ApiFormat::Gemini
+                    } else {
+                        ApiFormat::OpenAI
+                    }
+                }
+            };
+            tracing::debug!("Custom provider: model={}, format={:?}", model, format);
+            if let Some(oauth2_config) = oauth2 {
+                // OAuth2 client_credentials auth — token managed automatically
+                match OpenAIProvider::with_oauth2(
+                    model,
+                    base_url,
+                    oauth2_config,
+                    format,
+                    verify_ssl,
+                ) {
+                    Ok(provider) => Box::new(provider),
+                    Err(e) => {
+                        tracing::error!("Failed to create OAuth2 custom provider: {}", e);
+                        Box::new(MockProvider::new())
+                    }
+                }
+            } else if api_key.is_empty() {
+                Box::new(MockProvider::new())
+            } else if format != ApiFormat::OpenAI {
+                // Static API key with non-default format (Gemini or Vertex Anthropic)
+                match OpenAIProvider::with_format(api_key, model, base_url, format, verify_ssl) {
+                    Ok(provider) => Box::new(provider),
+                    Err(e) => {
+                        tracing::error!("Failed to create custom provider with format: {}", e);
+                        Box::new(MockProvider::new())
+                    }
+                }
+            } else {
+                // Static API key auth — OpenAI-compatible format
+                match OpenAIProvider::new(api_key, Some(model), Some(base_url), verify_ssl) {
+                    Ok(provider) => Box::new(provider),
+                    Err(e) => {
+                        tracing::error!("Failed to create custom provider: {}", e);
+                        Box::new(MockProvider::new())
+                    }
+                }
+            }
+        }
+        None => Box::new(MockProvider::new()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn openai_compat_error_envelope_with_http_200_is_reported_as_provider_error() {
+        // OpenRouter answers upstream failures with HTTP 200 and no `choices`.
+        let body = r#"{"error":{"message":"Provider returned error","code":502},"user_id":"u_1"}"#;
+        // Both response shapes decode with empty `choices`, so the call sites'
+        // `if let Some(error)` branch reports the provider's message.
+        let agent: OpenAIAgentResponse = parse_openai_compat(body).expect("choices is optional");
+        assert!(agent.choices.is_empty());
+        assert_eq!(agent.error.expect("error kept").message, "Provider returned error");
+        let chat: OpenAIResponse = parse_openai_compat(body).expect("choices is optional");
+        assert!(chat.choices.is_empty());
+        // When the target shape cannot decode the envelope at all, the
+        // provider's message still wins over serde's wording.
+        match parse_openai_compat::<OpenAIUsage>(body) {
+            Err(AiError::RequestFailed(msg)) => assert_eq!(msg, "Provider returned error (code 502)"),
+            other => panic!("expected RequestFailed, got {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn openai_compat_null_message_and_garbage_bodies_decode_or_quote_the_body() {
+        let body = r#"{"choices":[{"message":null,"finish_reason":"error"}]}"#;
+        let parsed: OpenAIAgentResponse = parse_openai_compat(body).expect("null message tolerated");
+        assert!(parsed.choices[0].message.content.is_none());
+        assert_eq!(parsed.choices[0].finish_reason.as_deref(), Some("error"));
+
+        match parse_openai_compat::<OpenAIAgentResponse>("upstream connect error or disconnect/reset before headers") {
+            Err(AiError::InvalidResponse(msg)) => assert!(msg.contains("body starts: upstream connect error"), "{msg}"),
+            other => panic!("expected InvalidResponse, got {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn openrouter_base_url_is_normalised_to_the_api_root() {
+        for typed in ["openrouter.ai", "https://openrouter.ai", "https://openrouter.ai/", "https://openrouter.ai/api", "https://OpenRouter.ai/api/v1/"] {
+            assert_eq!(normalize_openrouter_base_url(typed), "https://openrouter.ai/api/v1", "input {typed}");
+        }
+        // Proxies and gateways are left alone (trailing slash dropped).
+        assert_eq!(normalize_openrouter_base_url("https://llm-gw.corp.example/openrouter/v1/"), "https://llm-gw.corp.example/openrouter/v1");
+        assert_eq!(normalize_openrouter_base_url("https://openrouter.ai/api/v2"), "https://openrouter.ai/api/v2");
+    }
+
+    #[test]
+    fn html_page_instead_of_json_points_at_the_base_url() {
+        let html = "<!DOCTYPE html><html lang=\"en-US\"><head><meta charSet=\"utf-8\"/></head><body>OpenRouter</body></html>";
+        match parse_openai_compat::<OpenAIAgentResponse>(html) {
+            Err(AiError::InvalidResponse(msg)) => assert!(msg.contains("Base URL") && msg.contains("openrouter.ai/api/v1"), "{msg}"),
+            other => panic!("expected InvalidResponse, got {:?}", other.map(|_| ())),
+        }
+        match non_sse_stream_error(html) {
+            AiError::InvalidResponse(msg) => assert!(msg.contains("HTML page"), "{msg}"),
+            other => panic!("expected InvalidResponse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_sse_stream_body_becomes_an_error_not_silence() {
+        match non_sse_stream_error(r#"{"error":{"message":"Rate limit exceeded","code":429}}"#) {
+            AiError::RequestFailed(msg) => assert_eq!(msg, "Rate limit exceeded (code 429)"),
+            other => panic!("expected RequestFailed, got {other:?}"),
+        }
+        match non_sse_stream_error("upstream timeout") {
+            AiError::InvalidResponse(msg) => assert!(msg.contains("upstream timeout")),
+            other => panic!("expected InvalidResponse, got {other:?}"),
+        }
+    }
+    use super::*;
+
+    fn msg(role: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+        }
+    }
+
+    /// Regression guard for the MOP "no context" bug: a caller-supplied
+    /// `system` message must survive into the composed system prompt, and
+    /// must not replace the profile/safety prompt.
+    #[test]
+    fn compose_system_prompt_keeps_client_system_messages_after_profile() {
+        let messages = vec![
+            msg("system", "Return ONLY a JSON array of commands."),
+            msg("user", "show ip bgp summary"),
+        ];
+        let prompt = compose_system_prompt(&messages, &None);
+        let base = build_system_prompt(&None, None);
+        assert!(
+            prompt.starts_with(base.trim_end()),
+            "profile/safety prompt must come first"
+        );
+        assert!(
+            prompt.ends_with("Return ONLY a JSON array of commands."),
+            "client system text must be appended last"
+        );
+    }
+
+    #[test]
+    fn compose_system_prompt_without_client_system_is_unchanged() {
+        let messages = vec![msg("user", "hello")];
+        assert_eq!(
+            compose_system_prompt(&messages, &None),
+            build_system_prompt(&None, None)
+        );
+    }
+
+    #[test]
+    fn compose_system_prompt_joins_multiple_and_skips_blank_system_messages() {
+        let messages = vec![
+            msg("system", "First rule."),
+            msg("system", "   "),
+            msg("user", "x"),
+            msg("system", "Second rule."),
+        ];
+        let prompt = compose_system_prompt(&messages, &None);
+        assert!(prompt.ends_with("First rule.\n\nSecond rule."));
+    }
+
+    #[test]
+    fn test_config_deserialization() {
+        let json =
+            r#"{"provider":"anthropic","api_key":"sk-test","model":"claude-sonnet-4-20250514"}"#;
+        let config: AiProviderConfig = serde_json::from_str(json).unwrap();
+        match config {
+            AiProviderConfig::Anthropic { api_key, model, .. } => {
+                assert_eq!(api_key, "sk-test");
+                assert_eq!(model, "claude-sonnet-4-20250514");
+            }
+            _ => panic!("Expected Anthropic config"),
+        }
+    }
+
+    #[test]
+    fn test_mock_provider() {
+        let provider = MockProvider::new();
+        assert_eq!(provider.provider_name(), "Mock (Not Configured)");
+    }
+
+    #[test]
+    fn test_openrouter_config_deserializes_base_url_and_verify_ssl() {
+        // Custom base_url + verify_ssl carried through.
+        let json = r#"{"provider":"openrouter","api_key":"k","model":"qwen/qwen3-coder","base_url":"https://localhost:8444/","verify_ssl":false}"#;
+        match serde_json::from_str::<AiProviderConfig>(json).unwrap() {
+            AiProviderConfig::OpenRouter {
+                base_url,
+                verify_ssl,
+                ..
+            } => {
+                assert_eq!(base_url.as_deref(), Some("https://localhost:8444/"));
+                assert!(!verify_ssl);
+            }
+            _ => panic!("expected OpenRouter config"),
+        }
+        // Absent fields fall back to None base_url + verify_ssl=true (defaults).
+        let json = r#"{"provider":"openrouter","api_key":"k","model":"m"}"#;
+        match serde_json::from_str::<AiProviderConfig>(json).unwrap() {
+            AiProviderConfig::OpenRouter {
+                base_url,
+                verify_ssl,
+                ..
+            } => {
+                assert_eq!(base_url, None);
+                assert!(verify_ssl);
+            }
+            _ => panic!("expected OpenRouter config"),
+        }
+    }
+
+    #[test]
+    fn test_openrouter_provider_uses_custom_base_url() {
+        // Custom URL is stored with its trailing slash trimmed.
+        let p = OpenRouterProvider::new(
+            "k".into(),
+            None,
+            Some("https://localhost:8444/".into()),
+            true,
+        )
+        .unwrap();
+        assert_eq!(p.base_url, "https://localhost:8444");
+        // Surrounding whitespace is stripped (a leading space otherwise makes the
+        // URL unparseable -> reqwest "builder error").
+        let p = OpenRouterProvider::new(
+            "k".into(),
+            None,
+            Some("  https://192.168.50.127:8444/  ".into()),
+            true,
+        )
+        .unwrap();
+        assert_eq!(p.base_url, "https://192.168.50.127:8444");
+        // Whitespace-only falls back to the default endpoint.
+        let p = OpenRouterProvider::new("k".into(), None, Some("   ".into()), true).unwrap();
+        assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
+        // Empty/None falls back to the public endpoint (no hardcoded request URL).
+        let p = OpenRouterProvider::new("k".into(), None, Some(String::new()), true).unwrap();
+        assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
+        let p = OpenRouterProvider::new("k".into(), None, None, true).unwrap();
+        assert_eq!(p.base_url, "https://openrouter.ai/api/v1");
+    }
+
+    #[test]
+    fn test_stream_url_maps_pinned_nonstreaming_action() {
+        let base = "https://x/models";
+        // A pinned non-streaming action is mapped to its streaming counterpart so
+        // streaming requests don't hit the unary endpoint (chat "thinking" hang).
+        assert_eq!(
+            build_model_stream_url(base, "claude-sonnet-4-6:rawPredict", "streamRawPredict"),
+            "https://x/models/claude-sonnet-4-6:streamRawPredict"
+        );
+        assert_eq!(
+            build_model_stream_url(
+                base,
+                "gemini-2.5-pro:generateContent",
+                "streamGenerateContent"
+            ),
+            "https://x/models/gemini-2.5-pro:streamGenerateContent"
+        );
+        // An already-streaming or custom action is respected.
+        assert_eq!(
+            build_model_stream_url(base, "m:streamRawPredict", "streamRawPredict"),
+            "https://x/models/m:streamRawPredict"
+        );
+        // No action → default streaming action appended; trailing slash trimmed.
+        assert_eq!(
+            build_model_stream_url(base, "m", "streamRawPredict"),
+            "https://x/models/m:streamRawPredict"
+        );
+        assert_eq!(
+            build_model_stream_url("https://x/models/", "m:rawPredict", "streamRawPredict"),
+            "https://x/models/m:streamRawPredict"
+        );
+    }
+
+    // ---- Audit 3.1: model-gated Anthropic temperature ----
+
+    #[test]
+    fn sampling_params_gated_by_model() {
+        for model in [
+            "claude-opus-4-6",
+            "claude-opus-4-1-20250805",
+            "claude-opus-4-20250514",
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-5@20250929",
+            "claude-haiku-4-5",
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-latest",
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "anthropic/claude-opus-4-6",
+        ] {
+            assert!(model_accepts_sampling_params(model), "{model} should accept temperature");
+        }
+        for model in [
+            "claude-opus-4-7",
+            "claude-opus-5",
+            "claude-opus-5-1",
+            "claude-sonnet-5",
+            "claude-fable-1",
+            "claude-mythos-preview",
+            "anthropic/claude-opus-5@20260101",
+            "not-a-claude-model",
+        ] {
+            assert!(!model_accepts_sampling_params(model), "{model} must not get temperature");
+        }
+    }
+
+    fn temp_options(t: f64) -> Option<AgentChatOptions> {
+        Some(AgentChatOptions {
+            temperature: Some(t),
+            max_tokens: None,
+            show_thinking: false,
+        })
+    }
+
+    #[test]
+    fn thinking_param_only_when_requested_and_supported() {
+        let opts = |show: bool| Some(AgentChatOptions { temperature: Some(0.5), max_tokens: None, show_thinking: show });
+        for model in ["claude-opus-5-5", "claude-sonnet-4-6", "claude-opus-4-8@20260101", "anthropic.claude-sonnet-5-5", "claude-fable-5-1"] {
+            assert_eq!(
+                anthropic_thinking(model, &opts(true)),
+                Some(serde_json::json!({ "type": "adaptive", "display": "summarized" })),
+                "{model}"
+            );
+            assert!(anthropic_thinking(model, &opts(false)).is_none(), "{model}");
+        }
+        for model in ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet", "gpt-4o"] {
+            assert!(anthropic_thinking(model, &opts(true)).is_none(), "{model}");
+        }
+        // Thinking on drops the sampling param (Sonnet 4.6 otherwise takes it).
+        assert_eq!(anthropic_temperature("claude-sonnet-4-6", &opts(false)), Some(0.5));
+        assert!(anthropic_temperature("claude-sonnet-4-6", &opts(true)).is_none());
+    }
+
+    #[test]
+    fn anthropic_request_includes_temperature_only_for_accepting_models() {
+        let body = |model: &str, options: Option<AgentChatOptions>| {
+            serde_json::to_value(AnthropicAgentRequest {
+                model: model.into(),
+                max_tokens: 1024,
+                system: None,
+                messages: Vec::new(),
+                tools: None,
+                temperature: anthropic_temperature(model, &options),
+                thinking: None,
+            })
+            .unwrap()
+        };
+        assert_eq!(body("claude-sonnet-4-6", temp_options(0.2))["temperature"], 0.2);
+        assert!(body("claude-opus-5", temp_options(0.2)).get("temperature").is_none());
+        assert!(body("claude-sonnet-4-6", None).get("temperature").is_none());
+
+        let vertex = |model: &str| {
+            serde_json::to_value(VertexAnthropicAgentRequest {
+                anthropic_version: "vertex-2023-10-16".into(),
+                max_tokens: 1024,
+                system: None,
+                messages: Vec::new(),
+                tools: None,
+                stream: None,
+                temperature: anthropic_temperature(model, &temp_options(0.3)),
+                thinking: None,
+            })
+            .unwrap()
+        };
+        assert_eq!(vertex("claude-haiku-4-5@20251001")["temperature"], 0.3);
+        assert!(vertex("claude-opus-4-7@20260101").get("temperature").is_none());
+    }
+
+    // ---- Audit 3.2: Gemini static keys are not bearer tokens ----
+
+    #[test]
+    fn gemini_static_key_uses_goog_api_key_header() {
+        let client = reqwest::Client::new();
+        let build = |p: &OpenAIProvider| {
+            p.apply_headers(client.post("https://example.test/m:generateContent"), "KEY123")
+                .build()
+                .unwrap()
+        };
+
+        let gemini = OpenAIProvider::with_format(
+            "KEY123".into(),
+            "gemini-2.5-pro".into(),
+            "https://example.test".into(),
+            ApiFormat::Gemini,
+            true,
+        )
+        .unwrap();
+        let req = build(&gemini);
+        assert_eq!(req.headers().get(GEMINI_API_KEY_HEADER).unwrap(), "KEY123");
+        assert!(req.headers().get("authorization").is_none());
+
+        let openai = OpenAIProvider::new("KEY123".into(), None, None, true).unwrap();
+        let req = build(&openai);
+        assert_eq!(req.headers().get("authorization").unwrap(), "Bearer KEY123");
+        assert!(req.headers().get(GEMINI_API_KEY_HEADER).is_none());
+
+        let oauth = OpenAIProvider::with_oauth2(
+            "gemini-2.5-pro".into(),
+            "https://example.test".into(),
+            super::super::oauth2::OAuth2Config {
+                token_url: "https://example.test/token".into(),
+                client_id: "gemini-header-test".into(),
+                client_secret: "s".into(),
+                custom_headers: std::collections::HashMap::new(),
+                verify_ssl: true,
+            },
+            ApiFormat::Gemini,
+            true,
+        )
+        .unwrap();
+        let req = build(&oauth);
+        assert_eq!(req.headers().get("authorization").unwrap(), "Bearer KEY123");
+        assert!(req.headers().get(GEMINI_API_KEY_HEADER).is_none());
+    }
+
+    // ---- Audit 3.3: OpenAI reasoning models ----
+
+    #[test]
+    fn openai_reasoning_models_use_max_completion_tokens_without_temperature() {
+        let body = |model: &str| {
+            let shape = OpenAiRequestShape::for_model(model, 4096, 0.7);
+            serde_json::to_value(OpenAIRequest {
+                model: model.into(),
+                messages: Vec::new(),
+                max_tokens: shape.max_tokens,
+                max_completion_tokens: shape.max_completion_tokens,
+                temperature: shape.temperature,
+            })
+            .unwrap()
+        };
+        for model in ["o1", "o3-mini", "o4-mini", "gpt-5", "gpt-5-mini", "openai/gpt-5.1"] {
+            let b = body(model);
+            assert_eq!(b["max_completion_tokens"], 4096, "{model}");
+            assert!(b.get("max_tokens").is_none(), "{model}");
+            assert!(b.get("temperature").is_none(), "{model}");
+        }
+        for model in ["gpt-4o", "gpt-4.1-mini", "llama3", "omni-local"] {
+            let b = body(model);
+            assert_eq!(b["max_tokens"], 4096, "{model}");
+            assert!(b.get("max_completion_tokens").is_none(), "{model}");
+            assert!((b["temperature"].as_f64().unwrap() - 0.7).abs() < 1e-6, "{model}");
+        }
+    }
+
+    // ---- Audit 2: truncated streams surface an error ----
+
+    fn fixture_stream(
+        body: &str,
+    ) -> impl futures::Stream<Item = Result<Vec<u8>, std::convert::Infallible>> + Send + 'static {
+        // Split mid-line to exercise buffering across chunks.
+        let bytes = body.as_bytes().to_vec();
+        let mid = bytes.len() / 2;
+        futures::stream::iter(vec![Ok(bytes[..mid].to_vec()), Ok(bytes[mid..].to_vec())])
+    }
+
+    async fn collect_events(stream: ProviderEventStream) -> Vec<Result<StreamEvent, AiError>> {
+        use futures::StreamExt;
+        stream.collect().await
+    }
+
+    fn assert_done(events: &[Result<StreamEvent, AiError>], text: &str, reason: &str) {
+        let content: String = events
+            .iter()
+            .filter_map(|e| match e {
+                Ok(StreamEvent::ContentDelta { text }) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(content, text);
+        match events.last() {
+            Some(Ok(StreamEvent::Done { stop_reason, .. })) => {
+                assert_eq!(stop_reason.as_deref(), Some(reason))
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+        assert!(events.iter().all(|e| e.is_ok()), "{events:?}");
+    }
+
+    fn assert_truncated(events: &[Result<StreamEvent, AiError>]) {
+        assert!(
+            events.iter().any(|e| matches!(e, Ok(StreamEvent::ContentDelta { .. }))),
+            "partial text should still stream: {events:?}"
+        );
+        assert!(!events.iter().any(|e| matches!(e, Ok(StreamEvent::Done { .. }))), "{events:?}");
+        match events.last() {
+            Some(Err(e)) => assert!(e.to_string().contains("Stream ended before the model finished"), "{e}"),
+            other => panic!("expected truncation error, got {other:?}"),
+        }
+    }
+
+    const ANTHROPIC_PARTIAL: &str = concat!(
+        "event: message_start\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n",
+        "event: content_block_start\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+        "event: content_block_delta\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+    );
+
+    #[tokio::test]
+    async fn anthropic_stream_complete_and_truncated() {
+        let complete = format!(
+            "{ANTHROPIC_PARTIAL}{}",
+            concat!(
+                "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+                "data: {\"type\":\"message_stop\"}\n\n",
+            )
+        );
+        for label in ["Anthropic", "Vertex Anthropic"] {
+            let events = collect_events(parse_anthropic_sse_stream(fixture_stream(&complete), label)).await;
+            assert_done(&events, "Hello", "end_turn");
+            let events = collect_events(parse_anthropic_sse_stream(fixture_stream(ANTHROPIC_PARTIAL), label)).await;
+            assert_truncated(&events);
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_stream_surfaces_thinking_and_skips_signature() {
+        let body = concat!(
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Check the platform first.\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"abc\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"xyz\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":2}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n",
+        );
+        let events = collect_events(parse_anthropic_sse_stream(fixture_stream(body), "Anthropic")).await;
+        assert_done(&events, "Hello", "end_turn");
+        let thinking: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                Ok(StreamEvent::ThinkingDelta { text }) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(thinking, ["Check the platform first."]);
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_complete_and_truncated() {
+        let partial = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hel\"}]}}]}\n\n";
+        let complete = format!(
+            "{partial}data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"lo\"}}]}},\"finishReason\":\"STOP\"}}],\"usageMetadata\":{{\"promptTokenCount\":3,\"candidatesTokenCount\":2}}}}\n\n"
+        );
+        let events = collect_events(parse_gemini_sse_stream(fixture_stream(&complete))).await;
+        assert_done(&events, "Hello", "end_turn");
+        let events = collect_events(parse_gemini_sse_stream(fixture_stream(partial))).await;
+        assert_truncated(&events);
+    }
+
+    #[tokio::test]
+    async fn openai_stream_complete_and_truncated() {
+        let partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"}}]}\n\n";
+        let complete = format!(
+            "{partial}data: {{\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n"
+        );
+        let events = collect_events(parse_openai_compatible_stream(fixture_stream(&complete))).await;
+        assert_done(&events, "Hello", "end_turn");
+        // finish_reason without [DONE] (Apigee-style proxies) still completes.
+        let no_done = complete.replace("data: [DONE]\n\n", "");
+        let events = collect_events(parse_openai_compatible_stream(fixture_stream(&no_done))).await;
+        assert_done(&events, "Hello", "end_turn");
+        let events = collect_events(parse_openai_compatible_stream(fixture_stream(partial))).await;
+        assert_truncated(&events);
+    }
+}

@@ -1,0 +1,48 @@
+/* Settings → AI Engineer: knowledge-pack budget bar and safety rules. */
+.ai-pack-budget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.ai-pack-budget-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.ai-pack-budget-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--color-fill-strong);
+}
+
+.ai-pack-budget-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--transition-normal);
+}
+
+.ai-pack-budget-fill--ok {
+  background: var(--color-success);
+}
+
+.ai-pack-budget-fill--high {
+  background: var(--color-warning);
+}
+
+.ai-pack-budget-fill--full {
+  background: var(--color-error);
+}
+
+.ai-safety-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.ai-safety-rule .ns-input {
+  flex: 1;
+}

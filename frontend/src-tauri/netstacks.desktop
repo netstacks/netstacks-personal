@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=NetStacks
+Comment=AI-powered SSH terminal for network engineers
+Exec=netstacks
+Icon=netstacks
+Terminal=false
+Type=Application
+Categories=Network;RemoteAccess;
+Keywords=ssh;terminal;network;ai;
+StartupWMClass=netstacks

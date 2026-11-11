@@ -1,0 +1,612 @@
+/* NetStacks Theme - CSS Variables */
+/* All colors and sizes are defined here - no hardcoding elsewhere */
+
+:root {
+  /* Dark theme (default) */
+  --color-bg-primary: #1e1e1e;
+  --color-bg-secondary: #252526;
+  --color-bg-tertiary: #2d2d30;
+  --color-bg-hover: #3c3c3c;
+  --color-bg-active: #094771;
+
+  --color-border: #3c3c3c;
+  --color-border-active: #007acc;
+
+  --color-text-primary: #cccccc;
+  --color-text-secondary: #8c8c8c;
+  --color-text-accent: #4fc1ff;
+
+  --color-accent: #007acc;
+  --color-accent-hover: #1c97ea;
+
+  --color-success: #4ec9b0;
+  --color-warning: #dcdcaa;
+  --color-error: #f14c4c;
+
+  /* Sizes */
+  --size-activity-bar: 48px;
+  --size-sidebar: 260px;
+  --size-statusbar: 22px;
+
+  /* Platform metrics — macOS-like defaults (Linux inherits these); the
+   * data-platform blocks below set fonts and the Windows (Fluent) metrics. */
+  --font-size-base: 13px;
+  --font-size-small: 11px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --row-height: 28px;
+  --control-height: 22px;
+  --size-header: 30px;
+  --size-tab-bar: 28px;
+  --focus-ring: 0 0 0 3px var(--color-accent-tint-45);
+  --transition-fast: 120ms ease-out;
+  --transition-normal: 200ms ease-out;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+
+  /* ── Canonical menu tokens ─────────────────────────────────────
+   * Every right-click context menu, tab menu, popover menu, etc.
+   * should consume these so theming stays uniform. The shared
+   * .context-menu class (ContextMenu.css) uses them directly;
+   * bespoke menus that need richer behavior should still reference
+   * the same tokens for radius / shadow / z-index / min-width so
+   * they sit at the same visual layer with matching corners.
+   *
+   * Don't redefine these per-component. If a menu needs a different
+   * radius (e.g. a hover popover vs a context menu), add a NEW
+   * token here rather than hardcoding.
+   */
+  --menu-bg: var(--color-bg-secondary);
+  --menu-border: var(--color-border);
+  --menu-radius: var(--radius-panel);
+  --menu-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --menu-min-width: 200px;
+  --menu-z: 3000;
+  --menu-padding: var(--spacing-xs);
+  --menu-item-padding: var(--spacing-sm) var(--spacing-md);
+  --menu-item-radius: var(--radius-control);
+  --menu-divider-margin: var(--spacing-xs) var(--spacing-sm);
+
+  /* ── Canonical z-index layers ──────────────────────────────────
+   * Modals and the Command Palette must sit ABOVE the toast layer
+   * so toasts can't intercept clicks on confirm/cancel buttons
+   * (bottom-right toast container vs bottom-right dialog footers).
+   *
+   *    --z-edge-dock 120   right-edge dock (Knowledge / AI tabs), above
+   *                        the window-edge hover strips (.hot-edge, 110)
+   *    --z-toast     900   stacked notifications, dismissible
+   *    --z-popover  1000   tooltips, popovers, hover overlays
+   *    --z-modal    2000   ConfirmDialog, CommandWarningDialog,
+   *                        TracerouteDialog, AboutModal, etc.
+   *    --z-palette  2500   Command Palette sits above all modals
+   *                        so Cmd+Shift+P always works on top
+   *    --menu-z     3000   right-click context menus sit above
+   *                        everything else (right-click within a
+   *                        modal should still get a menu)
+   *
+   * Don't redefine per component. If a new layer is genuinely
+   * needed, add a NEW token here rather than picking a number. */
+  --z-edge-dock: 120;
+  --z-toast: 900;
+  --z-popover: 1000;
+  --z-modal: 2000;
+  --z-palette: 2500;
+  --z-gate: 4000;
+
+  /* ── Missing canonical tokens ──────────────────────────────────
+   * Referenced across components but never defined — they were
+   * silently falling back to inconsistent hardcoded hexes. */
+  --color-text-tertiary: #6e6e6e;
+  --color-text-muted: #6e6e6e;
+  --color-text-on-accent: #ffffff;
+  --color-primary: var(--color-accent);
+  --color-primary-hover: var(--color-accent-hover);
+  --color-danger: var(--color-error);
+  --color-border-hover: #4a4a4a;
+  --color-border-subtle: var(--color-border);
+  --color-bg-elevated: var(--color-bg-tertiary);
+  --color-bg-input: var(--color-bg-primary);
+  --color-surface-hover: var(--color-bg-hover);
+  --color-focus: var(--color-accent);
+  --color-list-active-selection-bg: var(--color-bg-active);
+  --color-list-active-selection-bg-hover: var(--color-bg-hover);
+  /* rgb triplets for rgba(var(--x), a) usage */
+  --color-accent-rgb: 0, 122, 204;
+  --color-error-rgb: 241, 76, 76;
+  --color-warning-rgb: 220, 220, 170;
+  --color-success-rgb: 78, 201, 176;
+  --color-error-bg: rgba(241, 76, 76, 0.1);
+  --color-category-purple: #b07cc6;
+  --color-category-purple-rgb: 176, 124, 198;
+
+  /* Accent tints. Triplet-based here; re-derived from --color-accent with
+   * color-mix() where supported (below) so they follow the macOS accent. */
+  --color-accent-tint-5: rgba(var(--color-accent-rgb), 0.05);
+  --color-accent-tint-8: rgba(var(--color-accent-rgb), 0.08);
+  --color-accent-tint-10: rgba(var(--color-accent-rgb), 0.1);
+  --color-accent-tint-15: rgba(var(--color-accent-rgb), 0.15);
+  --color-accent-tint-20: rgba(var(--color-accent-rgb), 0.2);
+  --color-accent-tint-25: rgba(var(--color-accent-rgb), 0.25);
+  --color-accent-tint-30: rgba(var(--color-accent-rgb), 0.3);
+  --color-accent-tint-45: rgba(var(--color-accent-rgb), 0.45);
+
+  /* Translucent fills for hover/selection overlays that must show on any surface. */
+  --color-fill-subtle: rgba(255, 255, 255, 0.03);
+  --color-fill: rgba(255, 255, 255, 0.06);
+  --color-fill-strong: rgba(255, 255, 255, 0.1);
+
+  /* ── Compatibility aliases ─────────────────────────────────────
+   * Several components were written against alternate token-naming
+   * conventions (un-prefixed, VS Code, "vg-", "surface-", color
+   * words) that were never defined, so they rendered arbitrary
+   * fallback hexes (e.g. "secondary" surfaces shipped as 8 different
+   * greys) and ignored theming. These map every such name to the
+   * canonical token. Prefer the canonical --color-* tokens in new
+   * code; these exist only so existing components stay consistent. */
+  --bg-primary: var(--color-bg-primary);
+  --bg-secondary: var(--color-bg-secondary);
+  --bg-tertiary: var(--color-bg-tertiary);
+  --bg-hover: var(--color-bg-hover);
+  --bg-active: var(--color-bg-active);
+  --bg-elevated: var(--color-bg-tertiary);
+  --bg-input: var(--color-bg-primary);
+  --bg-popup: var(--color-bg-secondary);
+  --hover-bg: var(--color-bg-hover);
+  --input-bg: var(--color-bg-primary);
+
+  --surface-primary: var(--color-bg-primary);
+  --surface-secondary: var(--color-bg-secondary);
+  --surface-tertiary: var(--color-bg-tertiary);
+  --surface-hover: var(--color-bg-hover);
+
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
+  --text-muted: var(--color-text-muted);
+  --text-dimmed: var(--color-text-muted);
+
+  --border: var(--color-border);
+  --border-color: var(--color-border);
+  --border-hover: var(--color-border-hover);
+  --border-subtle: var(--color-border);
+  --border-color-subtle: var(--color-border);
+
+  --accent: var(--color-accent);
+  --accent-color: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --primary-color: var(--color-accent);
+  --selection-bg: var(--color-accent);
+
+  --error: var(--color-error);
+  --error-color: var(--color-error);
+  --success-color: var(--color-success);
+  --warning-color: var(--color-warning);
+  --info-color: var(--color-accent);
+
+  --accent-blue: var(--color-accent);
+  --accent-green: var(--color-success);
+  --accent-orange: var(--color-warning);
+  --red: var(--color-error);
+  --green: var(--color-success);
+  --yellow: var(--color-warning);
+  --blue: var(--color-accent);
+
+  --font-size-xs: 11px;
+  --font-size-large: 16px;
+  --radius-sm: var(--radius-control);
+  --radius-lg: var(--radius-panel);
+  --spacing-xl: 24px;
+
+  /* "vg-" (vanguard) palette aliases */
+  --vg-bg: var(--color-bg-primary);
+  --vg-card-bg: var(--color-bg-secondary);
+  --vg-elevated: var(--color-bg-tertiary);
+  --vg-border: var(--color-border);
+  --vg-accent: var(--color-accent);
+  --vg-accent-light: var(--color-accent-hover);
+  --vg-text-primary: var(--color-text-primary);
+  --vg-text-secondary: var(--color-text-secondary);
+  --vg-text-muted: var(--color-text-muted);
+  --vg-error: var(--color-error);
+  --vg-error-bg: rgba(241, 76, 76, 0.1);
+
+  /* status-bar aliases */
+  --status-bar-bg: var(--color-bg-tertiary);
+  --status-bar-text: var(--color-text-primary);
+  --status-bar-accent: var(--color-accent);
+  --status-bar-hover: var(--color-bg-hover);
+
+  /* VS Code token aliases (used by editor-adjacent components) */
+  --vscode-editor-background: var(--color-bg-primary);
+  --vscode-foreground: var(--color-text-primary);
+  --vscode-descriptionForeground: var(--color-text-secondary);
+  --vscode-editorWidget-foreground: var(--color-text-primary);
+  --vscode-widget-border: var(--color-border);
+  --vscode-button-secondaryBackground: var(--color-bg-tertiary);
+  --vscode-button-secondaryForeground: var(--color-text-primary);
+  --vscode-textLink-foreground: var(--color-accent);
+  --vscode-list-hoverBackground: var(--color-bg-hover);
+  --vscode-textCodeBlock-background: var(--color-bg-tertiary);
+  --vscode-sideBarSectionHeader-background: var(--color-bg-tertiary);
+  --vscode-charts-yellow: var(--color-warning);
+
+  /* Remaining one-offs + safe defaults for dynamic per-item tokens
+   * (--agent-color / --task-status-color are normally set inline per
+   * element; these defaults only apply when no inline value exists). */
+  --color-text: var(--color-text-primary);
+  --color-input-bg: var(--color-bg-primary);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --vg-glow: rgba(var(--color-accent-rgb), 0.4);
+  --vg-accent-grad: var(--color-accent);
+  --agent-color: var(--color-accent);
+  --task-status-color: var(--color-text-secondary);
+
+  /* ── Liquid-glass surfaces ─────────────────────────────────────
+   * Translucent + blurred chrome (title bar, sidebar, status bar)
+   * and floating surfaces (popovers, modals). Tune the whole look
+   * from here. Content surfaces (terminal, data panels) stay opaque
+   * for readability and intentionally do NOT use these. */
+  --glass-bg: rgba(58, 58, 66, 0.60);          /* chrome surfaces (lighter, layered) */
+  --glass-bg-strong: rgba(26, 26, 32, 0.62);   /* modals — terminal blurs through, still readable */
+  --glass-blur: blur(24px) saturate(180%);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.10); /* top "liquid" sheen */
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* ── Platform tokens (data-platform set in main.tsx before first paint) ── */
+:root[data-platform='macos'] {
+  --font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-family-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+:root[data-platform='windows'] {
+  --font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-family-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --font-size-base: 14px;
+  --font-size-small: 12px;
+  --radius-control: 4px;
+  --radius-panel: 8px;
+  --row-height: 32px;
+  --control-height: 28px;
+  --size-header: 32px;
+  --size-tab-bar: 32px;
+  --focus-ring: 0 0 0 2px CanvasText, 0 0 0 4px Canvas;
+  --transition-fast: 100ms ease-out;
+  --transition-normal: 167ms cubic-bezier(0, 0, 0, 1);
+}
+
+:root[data-platform='linux'] {
+  --font-family: system-ui, Inter, Cantarell, 'Ubuntu', sans-serif;
+  --font-family-mono: ui-monospace, 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  --row-height: 30px;
+  --control-height: 26px;
+}
+
+/* ── Light theme (native) ───────────────────────────────────────
+ * What "System" resolves to on a light OS, and the explicit "Light" choice.
+ * Only canonical tokens are overridden — every alias above resolves
+ * through these. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg-primary: Canvas;
+  --color-bg-secondary: #f3f3f3;
+  --color-bg-tertiary: #e9e9e9;
+  --color-bg-hover: #e0e0e0;
+  --color-bg-active: #cfe3f6;
+
+  --color-border: #d6d6d6;
+  --color-border-active: #0067c0;
+  --color-border-hover: #c4c4c4;
+
+  --color-text-primary: CanvasText;
+  --color-text-secondary: #4f4f4f;
+  --color-text-tertiary: #616161;
+  --color-text-muted: #616161;
+  --color-text-accent: #005fb8;
+
+  --color-accent: #0067c0;
+  --color-accent-hover: #0059a8;
+
+  --color-success: #0e7a0d;
+  --color-warning: #8f5b00;
+  --color-error: #c42b1c;
+
+  --color-accent-rgb: 0, 103, 192;
+  --color-error-rgb: 196, 43, 28;
+  --color-warning-rgb: 143, 91, 0;
+  --color-success-rgb: 14, 122, 13;
+  --color-error-bg: rgba(196, 43, 28, 0.08);
+  --color-category-purple: #8e44ad;
+  --color-category-purple-rgb: 142, 68, 173;
+  --vg-error-bg: rgba(196, 43, 28, 0.08);
+  --color-fill-subtle: rgba(0, 0, 0, 0.03);
+  --color-fill: rgba(0, 0, 0, 0.05);
+  --color-fill-strong: rgba(0, 0, 0, 0.08);
+  --menu-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.16);
+
+  --glass-bg: rgba(243, 243, 243, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Light (Deep) variant ("Slate Mist") ────────────────────────
+ * <html data-theme="light" data-theme-variant="deep">. Deliberately NOT
+ * paper-white: soft, low-glare cool greys for daylight NOC use. */
+:root[data-theme='light'][data-theme-variant='deep'] {
+  --color-bg-primary: #d5dce4;
+  --color-bg-secondary: #cad2dc;
+  --color-bg-tertiary: #bec8d3;
+  --color-bg-hover: #b1bcc9;
+  --color-bg-active: #a7c6e4;
+
+  --color-border: #a2adbb;
+  --color-border-active: #0067b0;
+  --color-border-hover: #98a3b0;
+
+  --color-text-primary: #22272e;
+  --color-text-secondary: #525d6a;
+  --color-text-tertiary: #6a7582;
+  --color-text-muted: #6a7582;
+  --color-text-accent: #005a9e;
+
+  --color-accent: #0067b0;
+  --color-accent-hover: #007ed1;
+
+  --color-success: #0c7a5e;
+  --color-warning: #8a6116;
+  --color-error: #c22f2a;
+
+  /* raw-value derivatives (rgb triplets / tinted backgrounds / shadows) */
+  --color-accent-rgb: 0, 103, 176;
+  --color-error-rgb: 194, 47, 42;
+  --color-warning-rgb: 138, 97, 22;
+  --color-success-rgb: 12, 122, 94;
+  --color-error-bg: rgba(194, 47, 42, 0.10);
+  --vg-error-bg: rgba(194, 47, 42, 0.10);
+  --menu-shadow: 0 4px 16px rgba(35, 45, 60, 0.22);
+  --shadow-xl: 0 8px 32px rgba(35, 45, 60, 0.28);
+
+  /* liquid-glass chrome on light surfaces */
+  --glass-bg: rgba(202, 210, 220, 0.70);
+  --glass-bg-strong: rgba(213, 220, 228, 0.84);
+  --glass-border: rgba(35, 45, 60, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Light (Deep) anchored chrome ───────────────────────────────
+ * The activity bar stays DARK in the Deep variant, framing
+ * the light content the way VS Code light themes keep dark chrome.
+ * Done purely by re-scoping the custom properties each bar already
+ * consumes — descendants resolve these instead of the light values. */
+:root[data-theme='light'][data-theme-variant='deep'] .activity-bar {
+  --glass-bg: #252b34;
+  --glass-border: rgba(0, 0, 0, 0.35);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --color-text-primary: #d7dde4;
+  --color-text-secondary: #98a3b0;
+  --color-bg-hover: #333b46;
+  --color-bg-active: #0d4a7d;
+  --color-border-active: #3da2ff;
+}
+
+/* ── Accent derivations ─────────────────────────────────────────
+ * Tints follow the live --color-accent wherever color-mix() exists. */
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root[data-theme] {
+    --color-accent-tint-5: color-mix(in srgb, var(--color-accent) 5%, transparent);
+    --color-accent-tint-8: color-mix(in srgb, var(--color-accent) 8%, transparent);
+    --color-accent-tint-10: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    --color-accent-tint-15: color-mix(in srgb, var(--color-accent) 15%, transparent);
+    --color-accent-tint-20: color-mix(in srgb, var(--color-accent) 20%, transparent);
+    --color-accent-tint-25: color-mix(in srgb, var(--color-accent) 25%, transparent);
+    --color-accent-tint-30: color-mix(in srgb, var(--color-accent) 30%, transparent);
+    --color-accent-tint-45: color-mix(in srgb, var(--color-accent) 45%, transparent);
+    --vg-glow: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+}
+
+/* macOS: follow the user's system accent (System Settings → Appearance).
+ * Not applied on Windows — WebView2 reports a fixed blue, not the user's accent.
+ * Text on accent stays white (native); WebKit's AccentColorText is black. */
+@supports (color: AccentColor) {
+  :root[data-platform='macos'],
+  :root[data-platform='macos'][data-theme-variant='deep'] {
+    --color-accent: AccentColor;
+    --color-accent-hover: color-mix(in srgb, AccentColor 85%, CanvasText);
+    --color-text-accent: color-mix(in srgb, AccentColor 75%, CanvasText);
+    --color-border-active: AccentColor;
+    --color-bg-active: color-mix(in srgb, AccentColor 40%, Canvas);
+  }
+}
+
+/* Glass effects OFF (Settings → Appearance → Glass Effects). Flipping the
+ * tokens to opaque + no blur turns off glass everywhere at once — chrome,
+ * modals, popovers and AI panels all consume these tokens. */
+:root[data-glass="off"] {
+  --glass-bg: var(--color-bg-secondary);
+  --glass-bg-strong: var(--color-bg-secondary);
+  --glass-blur: none;
+  --glass-border: var(--color-border);
+  --glass-highlight: transparent;
+}
+
+/* ── Shared animations ──────────────────────────────────────────
+ * @keyframes names are global: define shared motion here, and give any
+ * component-specific variant a component-prefixed name. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* Firefox: allow flex containers to shrink below content size */
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Form controls don't inherit fonts by default (they would render Arial). */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+/* The reset above zeroes checkbox/radio margins, so a label wrapping one would
+ * butt the box against its text. Zero specificity: component layouts win. */
+:where(label:has(> input[type='checkbox'], > input[type='radio'])) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: var(--color-accent);
+}
+
+/* Number fields have no inline spinners (native text fields don't). */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbars: macOS keeps native overlay scrollbars (no styling at all);
+ * Windows/Linux get slim themed ones. */
+:root[data-platform='windows'] ::-webkit-scrollbar,
+:root[data-platform='linux'] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root[data-platform='windows'] ::-webkit-scrollbar-track,
+:root[data-platform='linux'] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:root[data-platform='windows'] ::-webkit-scrollbar-thumb,
+:root[data-platform='linux'] ::-webkit-scrollbar-thumb {
+  background: var(--color-bg-hover);
+  border-radius: 5px;
+}
+
+:root[data-platform='windows'] ::-webkit-scrollbar-thumb:hover,
+:root[data-platform='linux'] ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* Focus ring: soft outer ring on macOS, high-contrast double ring on Windows
+ * (--focus-ring). :focus-visible already leaves mouse clicks unringed. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Arrow cursor on controls, as native apps do; links and drag handles keep their own. */
+button,
+[role='button'],
+[role='tab'],
+[role='option'],
+[role='menuitem'],
+select {
+  cursor: default;
+}
+
+/* Chrome text is not selectable (as in native apps); content areas keep
+ * normal selection so outputs, chat answers and details can be copied. */
+body {
+  overscroll-behavior: none;
+}
+
+.topbar,
+.menu-bar,
+.activity-bar,
+.sidebar-sections,
+.panel-tab-rail,
+.tab-bar,
+.status-bar,
+.session-item,
+.folder-header,
+.setting-label,
+.settings-category-title,
+.form-section > h3,
+button,
+label,
+[role='button'],
+[role='tab'],
+[role='option'],
+[role='menuitem'] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Selection */
+::selection {
+  background: var(--color-accent);
+  color: white;
+}

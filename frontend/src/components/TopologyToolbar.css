@@ -1,0 +1,360 @@
+/* TopologyToolbar - VS Code-style editing toolbar */
+
+.topology-toolbar-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 36px;
+}
+
+/* Toolbar groups */
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: #4d4d4d;
+  margin: 0 4px;
+}
+
+/* Buttons with dropdown arrow */
+.has-dropdown {
+  padding: 0 6px;
+}
+
+.has-dropdown .dropdown-arrow {
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+/* Dropdown wrapper */
+.toolbar-dropdown-wrapper {
+  position: relative;
+}
+
+/* Dropdown menu */
+.toolbar-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 160px;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.toolbar-dropdown.layers-dropdown,
+.toolbar-dropdown.export-dropdown {
+  right: 0;
+  left: auto;
+}
+
+/* Dropdown items */
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.dropdown-item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.dropdown-item.selected {
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+.dropdown-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-accent);
+}
+
+.dropdown-item.selected .dropdown-icon {
+  color: var(--color-text-on-accent);
+}
+
+.dropdown-label {
+  flex: 1;
+}
+
+/* Checkbox items in dropdowns */
+.dropdown-item.checkbox-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+/* Center hint area */
+.toolbar-center-hint {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+}
+
+.toolbar-hint-text {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Enrichment progress indicator */
+.toolbar-enrichment-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-accent);
+  font-size: 12px;
+  font-weight: 500;
+  position: relative;
+}
+
+.toolbar-enrichment-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-accent-tint-30);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: toolbar-enrichment-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes toolbar-enrichment-spin {
+  to { transform: rotate(360deg); }
+}
+
+.toolbar-enrichment-bar {
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  height: 2px;
+  background: var(--color-accent);
+  border-radius: 1px;
+  transition: width 0.3s ease;
+}
+
+.toolbar-enrichment-done {
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 500;
+  animation: toolbar-enrichment-fade 3s ease forwards;
+}
+
+@keyframes toolbar-enrichment-fade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Right-side actions */
+.toolbar-right-actions {
+  margin-left: auto;
+}
+
+/* Save buttons */
+.save-docs-btn.saving,
+.save-topology-btn.saving {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Live SNMP toggle button */
+.toolbar-live-btn {
+  position: relative;
+}
+
+.toolbar-live-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.toolbar-live-btn.active {
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+}
+
+.toolbar-live-btn.active:hover:not(:disabled) {
+  background: rgba(var(--color-success-rgb), 0.25);
+}
+
+.toolbar-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4caf50;
+  animation: toolbar-live-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes toolbar-live-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 4px rgba(76, 175, 80, 0);
+  }
+}
+
+/* Enrich pill button */
+.toolbar-enrich-btn {
+  position: relative;
+}
+
+.toolbar-enrich-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.toolbar-enrich-btn.running {
+  opacity: 0.8;
+  cursor: wait;
+}
+
+.toolbar-enrich-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-accent-tint-30);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: toolbar-enrichment-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Enrich dropdown */
+.toolbar-enrich-dropdown {
+  right: 0;
+  left: auto;
+  min-width: 220px;
+  max-height: 400px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+}
+
+/* Enrich dropdown sections */
+.enrich-section {
+  padding: 8px 12px;
+}
+
+.enrich-section:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.enrich-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.enrich-check-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+.enrich-check-item input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--color-text-accent);
+  flex-shrink: 0;
+}
+
+.enrich-check-item span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.enrich-tool-count {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Enrich dropdown footer */
+.enrich-dropdown-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+.enrich-device-count {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+/* Responsive: collapse labels on narrow width */
+@media (max-width: 600px) {
+  .toolbar-dropdown {
+    min-width: 140px;
+  }
+
+  .dropdown-label {
+    font-size: 12px;
+  }
+
+  .toolbar-divider {
+    margin: 0 2px;
+  }
+
+  .toolbar-group {
+    gap: 1px;
+  }
+}
+
+.layers-dropdown .dropdown-section-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.toolbar-group.ns-segmented .ns-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

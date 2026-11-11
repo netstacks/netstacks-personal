@@ -1,0 +1,81 @@
+/* QuickCallVariablesDialog — modal prompting for {{vars}} before a call fires */
+
+.qcv-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  width: 90%;
+  max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.qcv-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.qcv-dialog-header h2 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qcv-dialog-close {
+  display: flex;
+  width: 24px;
+}
+
+.qcv-dialog-content {
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.qcv-dialog-hint {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.qcv-dialog-hint code {
+  background: var(--color-bg-primary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-family-mono);
+  color: var(--color-text-primary);
+}
+
+.qcv-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.qcv-field label {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.qcv-field label code {
+  background: var(--color-bg-primary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-family-mono);
+  color: var(--color-accent);
+}

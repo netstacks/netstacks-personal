@@ -1,0 +1,257 @@
+/**
+ * DeviceDetailCard.css - Styling for draggable device detail card
+ */
+
+.device-detail-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  min-width: 300px;
+  max-width: 400px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  overflow: hidden;
+}
+
+.device-detail-card.dragging {
+  cursor: grabbing;
+  opacity: 0.95;
+}
+
+/* Header */
+.device-detail-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  cursor: move;
+  user-select: none;
+}
+
+.device-detail-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.device-detail-card-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-detail-card-type {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.device-detail-card-header-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Body */
+.device-detail-card-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+}
+
+/* Sections */
+.device-detail-card-section {
+  margin-bottom: 16px;
+}
+
+.device-detail-card-section:last-child {
+  margin-bottom: 0;
+}
+
+.device-detail-card-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+/* Collapsible section header */
+.device-detail-card-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-control);
+  transition: background-color 0.15s;
+}
+
+.device-detail-card-section-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.device-detail-card-section-header .chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.device-detail-card-section-header.expanded .chevron {
+  transform: rotate(90deg);
+}
+
+/* Info grid */
+.device-detail-card-info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.device-detail-card-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.device-detail-card-info-label {
+  color: var(--text-muted);
+}
+
+.device-detail-card-info-value {
+  color: var(--text-primary);
+  text-align: right;
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Resources */
+.device-detail-card-resources {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.device-detail-card-resource {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.device-detail-card-resource-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.device-detail-card-resource-label span:first-child {
+  color: var(--text-muted);
+}
+
+.device-detail-card-progress {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.device-detail-card-progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* Interfaces */
+.device-detail-card-interfaces {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.device-detail-card-interface {
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-control);
+  font-size: 11px;
+}
+
+.device-detail-card-interface-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.device-detail-card-interface-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-detail-card-interface-status {
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: var(--color-text-on-accent);
+  text-transform: uppercase;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.device-detail-card-interface-speed {
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.device-detail-card-interface-desc {
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Footer */
+.device-detail-card-footer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.device-detail-card-btn {
+  flex: 1;
+}

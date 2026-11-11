@@ -1,0 +1,25 @@
+.menu-bar { display: flex; align-items: center; height: var(--size-header); -webkit-app-region: no-drag; }
+.menu-section { position: relative; height: 100%; }
+.menu-top {
+  height: var(--size-header); padding: 0 8px; border: none; background: transparent;
+  color: var(--color-text-primary); font-size: 12px;
+}
+.menu-top:hover, .menu-top.active { background: var(--color-bg-hover); }
+/* Windows shows mnemonic underlines only while Alt is held or the menu is keyboard-driven. */
+.mnemonic { text-decoration: none; }
+.show-mnemonics .mnemonic { text-decoration: underline; }
+.menu-dropdown {
+  position: absolute; top: var(--size-header); left: 0; min-width: 220px; width: max-content; z-index: 1000;
+  background: var(--menu-bg); border: 1px solid var(--menu-border);
+  border-radius: var(--menu-radius); padding: var(--menu-padding); box-shadow: var(--menu-shadow);
+}
+.menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  width: 100%; padding: 5px 12px; border: none; border-radius: var(--menu-item-radius); background: transparent;
+  color: var(--color-text-primary); font-size: 12px; text-align: left; white-space: nowrap;
+}
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible { background: var(--color-bg-hover); outline: none; }
+.menu-item:disabled { opacity: 0.4; }
+.menu-item-accel { color: var(--color-text-muted); font-size: 11px; }
+.menu-sep { height: 1px; margin: var(--menu-divider-margin); background: var(--menu-border); }

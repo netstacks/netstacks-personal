@@ -1,0 +1,119 @@
+/* ConnectionDetailsOverlay - Floating overlay for connection/link details */
+
+.connection-details-overlay {
+  position: fixed;
+  width: 320px;
+  max-height: 70vh;
+  background: var(--color-bg-secondary);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: var(--z-modal);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: connectionOverlaySlideIn 0.15s ease-out;
+}
+
+@keyframes connectionOverlaySlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.connection-details-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+.connection-details-link-icon {
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+  border-radius: var(--radius-panel);
+  background: var(--color-accent-tint-15);
+  color: var(--color-accent);
+}
+
+.connection-details-link-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.connection-details-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.connection-details-title h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connection-details-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+/* Interface Info */
+.connection-details-interfaces {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.connection-details-interface {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.connection-details-interface-device {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.connection-details-interface-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-control);
+}
+
+.connection-details-arrow {
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.connection-details-arrow svg {
+  width: 100%;
+  height: 100%;
+}

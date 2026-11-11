@@ -1,0 +1,177 @@
+/* Discovery Modal */
+
+.discovery-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Header */
+.discovery-modal-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.discovery-modal-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.discovery-modal-group {
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.discovery-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-left: auto;
+}
+
+/* Content */
+.discovery-modal-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Progress */
+.discovery-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discovery-progress-bar {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.discovery-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.discovery-progress-fill.complete {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.discovery-progress-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Logs */
+.discovery-logs {
+  flex: 1;
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 12px;
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+}
+
+.discovery-log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  line-height: 1.4;
+}
+
+.discovery-log-time {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.discovery-log-level {
+  flex-shrink: 0;
+  font-weight: 600;
+  width: 36px;
+  text-align: center;
+}
+
+.discovery-log-level.info {
+  color: var(--color-text-accent);
+}
+
+.discovery-log-level.success {
+  color: var(--color-success);
+}
+
+.discovery-log-level.warning {
+  color: var(--color-warning);
+}
+
+.discovery-log-level.error {
+  color: var(--color-error);
+}
+
+.discovery-log-device {
+  color: #c084fc;
+  flex-shrink: 0;
+}
+
+.discovery-log-message {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.discovery-log-entry.error .discovery-log-message {
+  color: var(--color-error);
+}
+
+.discovery-log-entry.success .discovery-log-message {
+  color: var(--color-success);
+}
+
+/* Footer */
+.discovery-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.discovery-device-list {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.discovery-device-list strong {
+  color: var(--text-primary);
+}
+
+.discovery-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

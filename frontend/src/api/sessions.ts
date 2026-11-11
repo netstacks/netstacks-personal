@@ -1,0 +1,875 @@
+// API client for sessions, folders, and vault
+
+import { getClient, getCurrentMode } from './client';
+import type { CliFlavor } from '../types/enrichment';
+
+// Re-export CliFlavor for backward compatibility (consumers importing from sessions still work)
+export type { CliFlavor } from '../types/enrichment';
+
+export const CLI_FLAVOR_OPTIONS: { value: CliFlavor; label: string }[] = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'linux', label: 'Linux/Unix Shell' },
+  { value: 'cisco-ios', label: 'Cisco IOS/IOS-XE' },
+  { value: 'cisco-ios-xr', label: 'Cisco IOS-XR' },
+  { value: 'cisco-nxos', label: 'Cisco NX-OS' },
+  { value: 'juniper', label: 'Juniper Junos' },
+  { value: 'arista', label: 'Arista EOS' },
+  { value: 'paloalto', label: 'Palo Alto PAN-OS' },
+  { value: 'fortinet', label: 'Fortinet FortiOS' },
+];
+
+// Connection protocol
+export type Protocol = 'ssh' | 'telnet';
+/** What a terminal tab is connected as: the session's own protocol, or its OOB console. */
+export type TabProtocol = Protocol | 'console';
+
+export const PROTOCOL_OPTIONS: { value: Protocol; label: string }[] = [
+  { value: 'ssh', label: 'SSH' },
+  { value: 'telnet', label: 'Telnet' },
+];
+
+// Port forwarding types (Phase 06.3)
+export type PortForwardType = 'local' | 'remote' | 'dynamic';
+
+export interface PortForward {
+  id: string;
+  forward_type: PortForwardType;
+  local_port: number;
+  remote_host: string | null;
+  remote_port: number | null;
+  bind_address: string | null;
+  enabled: boolean;
+}
+
+export const PORT_FORWARD_TYPE_OPTIONS: { value: PortForwardType; label: string; description: string }[] = [
+  { value: 'local', label: 'Local (-L)', description: 'Access remote service through local port' },
+  { value: 'remote', label: 'Remote (-R)', description: 'Expose local service to remote host' },
+  { value: 'dynamic', label: 'Dynamic (-D)', description: 'SOCKS proxy for any destination' },
+];
+
+export interface Session {
+  id: string;
+  name: string;
+  folder_id: string | null;
+  host: string;
+  port: number;
+  color: string | null;
+  icon: string | null;
+  sort_order: number;
+  last_connected_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Session-specific settings
+  auto_reconnect: boolean;
+  reconnect_delay: number;
+  scrollback_lines: number;
+  local_echo: boolean;
+  font_size_override: number | null;
+  font_family: string | null;
+  // Profile integration (required - all auth comes from profile)
+  profile_id: string;
+  netbox_device_id: number | null;
+  netbox_source_id: string | null;
+  // AI features
+  cli_flavor: CliFlavor;
+  // Terminal appearance
+  terminal_theme: string | null;
+  // Jump host reference (global jump hosts)
+  jump_host_id: string | null;
+  // Alternative jump: another Session used as the jump endpoint
+  // (mutually exclusive with jump_host_id; backend rejects setting both).
+  jump_session_id: string | null;
+  // Legacy SSH support for older devices
+  legacy_ssh: boolean;
+  // Connection protocol
+  protocol: Protocol;
+  // Port forwarding (Phase 06.3)
+  port_forwards: PortForward[];
+  // Auto commands on connect
+  auto_commands: string[];
+  // SFTP starting directory override
+  sftp_start_path: string | null;
+  // OOB console access: terminal server exposing this device's serial line.
+  console_host: string | null;
+  console_port: number | null;
+  console_protocol: Protocol;
+  console_profile_id: string | null;
+  console_legacy_ssh: boolean;
+}
+
+/** True when the session has a terminal server host + port configured. */
+export function hasConsoleAccess(session: Pick<Session, 'console_host' | 'console_port'>): boolean {
+  return !!session.console_host && !!session.console_port;
+}
+
+/** Terminal settings a session's tab runs with. */
+export interface SessionTerminalSettings {
+  fontSize: number | null;
+  fontFamily: string | null;
+  terminalTheme: string | null;
+  scrollbackLines: number | null;
+  autoReconnect: boolean;
+  reconnectDelay: number;
+}
+
+/** Session overrides, falling back to the session's credential profile defaults. */
+export function sessionTerminalSettings(session: Session, profile: CredentialProfile | undefined): SessionTerminalSettings {
+  return {
+    fontSize: session.font_size_override ?? profile?.default_font_size ?? null,
+    fontFamily: session.font_family ?? profile?.default_font_family ?? null,
+    terminalTheme: session.terminal_theme ?? profile?.terminal_theme ?? null,
+    scrollbackLines: session.scrollback_lines ?? null,
+    autoReconnect: session.auto_reconnect ?? true,
+    reconnectDelay: session.reconnect_delay ?? 5,
+  };
+}
+
+// === Jump Hosts (Global Proxy Configuration) ===
+
+export interface JumpHost {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  profile_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewJumpHost {
+  name: string;
+  host: string;
+  port?: number;
+  profile_id: string;
+}
+
+export interface UpdateJumpHost {
+  name?: string;
+  host?: string;
+  port?: number;
+  profile_id?: string;
+}
+
+export interface Snippet {
+  id: string;
+  session_id: string | null;
+  name: string;
+  command: string;
+  sort_order: number;
+  shared?: boolean;
+  owner_name?: string | null;
+  is_own?: boolean;
+  created_at: string;
+}
+
+export interface NewSnippet {
+  name: string;
+  command: string;
+  sort_order?: number;
+  shared?: boolean;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewSession {
+  name: string;
+  folder_id?: string | null;
+  host: string;
+  port?: number;
+  color?: string | null;
+  icon?: string | null;
+  // Session-specific settings
+  auto_reconnect?: boolean;
+  reconnect_delay?: number;
+  scrollback_lines?: number;
+  local_echo?: boolean;
+  font_size_override?: number | null;
+  font_family?: string | null;
+  // Profile integration (required - all auth comes from profile)
+  profile_id: string;
+  // NetBox integration
+  netbox_device_id?: number | null;
+  netbox_source_id?: string | null;
+  // AI features
+  cli_flavor?: CliFlavor;
+  // Terminal appearance
+  terminal_theme?: string | null;
+  // Jump host reference (global jump hosts)
+  jump_host_id?: string | null;
+  // Alternative jump: another Session used as the jump endpoint
+  // (mutually exclusive with jump_host_id; backend rejects setting both).
+  jump_session_id?: string | null;
+  // Legacy SSH support for older devices
+  legacy_ssh?: boolean;
+  // Connection protocol
+  protocol?: Protocol;
+  // Port forwarding (Phase 06.3)
+  port_forwards?: PortForward[];
+  // Auto commands on connect
+  auto_commands?: string[];
+  // SFTP starting directory override
+  sftp_start_path?: string | null;
+  // OOB console access
+  console_host?: string | null;
+  console_port?: number | null;
+  console_protocol?: Protocol;
+  console_profile_id?: string | null;
+  console_legacy_ssh?: boolean;
+}
+
+export interface UpdateSessionData {
+  name?: string;
+  folder_id?: string | null;
+  host?: string;
+  port?: number;
+  color?: string | null;
+  icon?: string | null;
+  sort_order?: number;
+  // Session-specific settings
+  auto_reconnect?: boolean;
+  reconnect_delay?: number;
+  scrollback_lines?: number;
+  local_echo?: boolean;
+  font_size_override?: number | null;
+  font_family?: string | null;
+  // Profile integration (required for auth)
+  profile_id?: string;
+  // AI features
+  cli_flavor?: CliFlavor;
+  // Terminal appearance
+  terminal_theme?: string | null;
+  // Jump host reference (global jump hosts)
+  jump_host_id?: string | null;
+  // Alternative jump: another Session used as the jump endpoint
+  // (mutually exclusive with jump_host_id; backend rejects setting both).
+  jump_session_id?: string | null;
+  // Legacy SSH support for older devices
+  legacy_ssh?: boolean;
+  // Connection protocol
+  protocol?: Protocol;
+  // Port forwarding (Phase 06.3)
+  port_forwards?: PortForward[];
+  // Auto commands on connect
+  auto_commands?: string[];
+  // SFTP starting directory override
+  sftp_start_path?: string | null;
+  // OOB console access
+  console_host?: string | null;
+  console_port?: number | null;
+  console_protocol?: Protocol;
+  console_profile_id?: string | null;
+  console_legacy_ssh?: boolean;
+}
+
+export interface VaultStatus {
+  unlocked: boolean;
+  has_master_password: boolean;
+}
+
+// Sessions API
+// Sessions are a standalone/professional concept — not available in enterprise mode.
+// In enterprise mode, devices come from the controller inventory, not local sessions.
+export async function listSessions(): Promise<Session[]> {
+  if (getCurrentMode() === 'enterprise') return [];
+  const { data } = await getClient().http.get('/sessions');
+  return data;
+}
+
+export async function getSession(id: string): Promise<Session> {
+  // Enterprise saved sessions are "session definitions" served by the controller
+  // at /api/session-definitions — see api/enterpriseSessions.ts. The local
+  // /sessions route does not exist there, so guard against a 404.
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
+  const { data } = await getClient().http.get(`/sessions/${id}`);
+  return data;
+}
+
+export async function createSession(session: NewSession): Promise<Session> {
+  // Enterprise session definitions are created via api/enterpriseSessions.ts
+  // (POST /session-definitions), which uses the controller's CreateSessionDefinition shape.
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
+  const { data } = await getClient().http.post('/sessions', session);
+  return data;
+}
+
+/** A single artifact (session/tunnel/profile) using some session as its jump. */
+export interface JumpDependentRef {
+  id: string;
+  name: string;
+}
+
+/** Aggregate of every artifact depending on a given session as its jump endpoint. */
+export interface JumpDependents {
+  sessions: JumpDependentRef[];
+  tunnels: JumpDependentRef[];
+  profiles: JumpDependentRef[];
+}
+
+/**
+ * Fetch the list of sessions/tunnels/profiles that use the given session
+ * as their `jump_session_id`. Used by SessionSettingsDialog to render a
+ * "Used as jump by N" hint and (future) gate session deletion.
+ */
+export async function getSessionJumpDependents(sessionId: string): Promise<JumpDependents> {
+  // No controller equivalent for jump-dependents — return an empty set in
+  // enterprise so the (standalone) SessionSettingsDialog doesn't 404.
+  if (getCurrentMode() === 'enterprise') return { sessions: [], tunnels: [], profiles: [] };
+  const { data } = await getClient().http.get(`/sessions/${sessionId}/jump-dependents`);
+  return data;
+}
+
+export async function updateSession(id: string, session: UpdateSessionData): Promise<Session> {
+  // Enterprise session definitions are updated via api/enterpriseSessions.ts (PUT /session-definitions/:id).
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
+  const { data } = await getClient().http.put(`/sessions/${id}`, session);
+  return data;
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  // Enterprise session definitions are deleted via api/enterpriseSessions.ts (DELETE /session-definitions/:id).
+  if (getCurrentMode() === 'enterprise') throw new Error('Local sessions are not available in enterprise mode — use enterpriseSessions');
+  await getClient().http.delete(`/sessions/${id}`);
+}
+
+/**
+ * Bulk delete multiple sessions via backend batch endpoint
+ * Returns the count of successfully deleted sessions
+ */
+export async function bulkDeleteSessions(ids: string[]): Promise<{ deleted: number; failed: number }> {
+  // No controller /sessions/bulk-delete route; this is a standalone-only batch endpoint.
+  if (getCurrentMode() === 'enterprise') throw new Error('Bulk session delete is not available in enterprise mode');
+  const { data } = await getClient().http.post('/sessions/bulk-delete', { ids });
+  return data;
+}
+
+// Folders API
+export async function listFolders(): Promise<Folder[]> {
+  if (getCurrentMode() === 'enterprise') return [];
+  const { data } = await getClient().http.get('/folders');
+  return data;
+}
+
+export async function createFolder(name: string, parent_id?: string): Promise<Folder> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Folder management is not available in enterprise mode');
+  const { data } = await getClient().http.post('/folders', { name, parent_id });
+  return data;
+}
+
+// Vault API
+export async function getVaultStatus(): Promise<VaultStatus> {
+  if (getCurrentMode() === 'enterprise') return { unlocked: true, has_master_password: false };
+  const { data } = await getClient().http.get('/vault/status');
+  return data;
+}
+
+export async function setMasterPassword(password: string): Promise<void> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Local vault is not available in enterprise mode');
+  await getClient().http.post('/vault/password', { password });
+}
+
+export async function unlockVault(password: string): Promise<void> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Local vault is not available in enterprise mode');
+  await getClient().http.post('/vault/unlock', { password });
+}
+
+export async function storeCredential(sessionId: string, password?: string, keyPassphrase?: string): Promise<void> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Local credential storage is not available in enterprise mode');
+  await getClient().http.post(`/credentials/${sessionId}`, { password, key_passphrase: keyPassphrase });
+}
+
+// Session Snippets API
+export async function listSessionSnippets(sessionId: string): Promise<Snippet[]> {
+  const { data } = await getClient().http.get(`/sessions/${sessionId}/snippets`);
+  return data;
+}
+
+export async function createSessionSnippet(sessionId: string, snippet: NewSnippet): Promise<Snippet> {
+  const { data } = await getClient().http.post(`/sessions/${sessionId}/snippets`, snippet);
+  return data;
+}
+
+export async function deleteSessionSnippet(sessionId: string, snippetId: string): Promise<void> {
+  await getClient().http.delete(`/sessions/${sessionId}/snippets/${snippetId}`);
+}
+
+// Connection History API
+export interface ConnectionHistory {
+  id: string;
+  session_id: string | null;
+  host: string;
+  port: number;
+  username: string;
+  connected_at: string;
+  disconnected_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface NewConnectionHistory {
+  session_id?: string | null;
+  host: string;
+  port?: number;
+  username: string;
+}
+
+export async function listHistory(): Promise<ConnectionHistory[]> {
+  if (getCurrentMode() === 'enterprise') return [];
+  const { data } = await getClient().http.get('/history');
+  return data;
+}
+
+export async function createHistory(entry: NewConnectionHistory): Promise<ConnectionHistory> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Connection history is not available in enterprise mode');
+  const { data } = await getClient().http.post('/history', entry);
+  return data;
+}
+
+export async function deleteHistory(id: string): Promise<void> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Connection history is not available in enterprise mode');
+  await getClient().http.delete(`/history/${id}`);
+}
+
+// Export/Import API
+export interface ExportSession {
+  name: string;
+  folder_name: string | null;
+  host: string;
+  port: number;
+  color: string | null;
+  icon: string | null;
+  auto_reconnect: boolean;
+  reconnect_delay: number;
+  scrollback_lines: number;
+  local_echo: boolean;
+  font_size_override: number | null;
+  mapped_keys: { key_combo: string; command: string }[];
+  snippets: { name: string; command: string; sort_order: number }[];
+  // Profile-based auth (name reference for portability)
+  profile_name: string | null;
+  // Jump host reference (name for portability)
+  jump_host_name: string | null;
+  // Port forwarding (Phase 06.3)
+  port_forwards: PortForward[];
+  // OOB console access (console profile referenced by name)
+  console_host?: string | null;
+  console_port?: number | null;
+  console_protocol?: Protocol;
+  console_profile_name?: string | null;
+  console_legacy_ssh?: boolean;
+}
+
+export interface ExportFolder {
+  name: string;
+  parent_name: string | null;
+}
+
+export interface ExportData {
+  version: string;
+  format: string;
+  exported_at: string;
+  sessions: ExportSession[];
+  folders: ExportFolder[];
+}
+
+export interface ImportResult {
+  sessions_created: number;
+  folders_created: number;
+  warnings: string[];
+}
+
+export async function exportAll(): Promise<ExportData> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Session export is not available in enterprise mode');
+  const { data } = await getClient().http.get('/sessions/export');
+  return data;
+}
+
+export async function exportSession(sessionId: string): Promise<ExportData> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Session export is not available in enterprise mode');
+  const { data } = await getClient().http.get(`/sessions/${sessionId}/export`);
+  return data;
+}
+
+export async function exportFolder(folderId: string): Promise<ExportData> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Folder export is not available in enterprise mode');
+  const { data } = await getClient().http.get(`/folders/${folderId}/export`);
+  return data;
+}
+
+export async function importSessions(data: ExportData): Promise<ImportResult> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Session import is not available in enterprise mode');
+  const { data: result } = await getClient().http.post('/sessions/import', data);
+  return result;
+}
+
+// Folder operations
+export interface NewFolder {
+  name: string;
+  parent_id?: string | null;
+}
+
+export interface UpdateFolderData {
+  name?: string;
+  parent_id?: string | null;
+  sort_order?: number;
+}
+
+export async function updateFolder(id: string, folder: UpdateFolderData): Promise<Folder> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Folder management is not available in enterprise mode');
+  const { data } = await getClient().http.put(`/folders/${id}`, folder);
+  return data;
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Folder management is not available in enterprise mode');
+  await getClient().http.delete(`/folders/${id}`);
+}
+
+// Move/Reorder API
+
+/** Spacing used when (re)numbering siblings so later drops have room to land between them. */
+export const SORT_ORDER_STEP = 1000;
+
+export interface OrderedItem {
+  id: string;
+  sort_order: number;
+}
+
+/** Result of planning where a dropped item lands among its siblings. */
+export interface SortPlacement {
+  /** sort_order for the first moved item; multi-moves add a small offset per item. */
+  sortOrder: number;
+  /**
+   * Siblings that must be renumbered (sent as moves alongside the drop) because
+   * no integer sort_order fits between the neighbours — e.g. every row still
+   * carries the default 0, or repeated midpoint drops have exhausted the gap.
+   * Empty when the existing spacing has room.
+   */
+  renumbered: { id: string; sort_order: number }[];
+}
+
+/**
+ * Compute the sort_order for an item dropped `position` relative to
+ * `siblings[targetIndex]` (siblings sorted ascending, same parent), or at the
+ * end for `'inside'`. `movingIds` are excluded from the neighbour calculation
+ * so a drag within the same parent doesn't collide with its own old slot.
+ *
+ * sort_order is stored as an INTEGER by the agent, so midpoints are floored;
+ * when no integer strictly fits between the neighbours the whole sibling
+ * list is renumbered in steps of `SORT_ORDER_STEP`.
+ */
+export function planSortOrder(
+  siblings: OrderedItem[],
+  targetIndex: number,
+  position: 'before' | 'after' | 'inside',
+  movingIds: ReadonlySet<string> = new Set(),
+): SortPlacement {
+  const targetId = siblings[targetIndex]?.id;
+  const rest = siblings.filter(s => !movingIds.has(s.id));
+  if (rest.length === 0) return { sortOrder: SORT_ORDER_STEP, renumbered: [] };
+
+  if (position === 'inside') {
+    const maxOrder = Math.max(...rest.map(s => s.sort_order));
+    return { sortOrder: maxOrder + SORT_ORDER_STEP, renumbered: [] };
+  }
+
+  const restTargetIndex = targetId === undefined ? -1 : rest.findIndex(s => s.id === targetId);
+  let insertIndex: number;
+  if (restTargetIndex === -1) {
+    insertIndex = rest.length;
+  } else {
+    insertIndex = position === 'after' ? restTargetIndex + 1 : restTargetIndex;
+  }
+
+  if (insertIndex === 0) {
+    return { sortOrder: rest[0].sort_order - SORT_ORDER_STEP, renumbered: [] };
+  }
+  if (insertIndex >= rest.length) {
+    return { sortOrder: rest[rest.length - 1].sort_order + SORT_ORDER_STEP, renumbered: [] };
+  }
+
+  const before = rest[insertIndex - 1].sort_order;
+  const after = rest[insertIndex].sort_order;
+  const mid = Math.floor((before + after) / 2);
+  if (mid > before && mid < after) {
+    return { sortOrder: mid, renumbered: [] };
+  }
+
+  // No room: renumber every sibling, leaving a slot for the moved item.
+  const renumbered = rest.map((s, i) => ({
+    id: s.id,
+    sort_order: (i < insertIndex ? i + 1 : i + 2) * SORT_ORDER_STEP,
+  }));
+  return { sortOrder: (insertIndex + 1) * SORT_ORDER_STEP, renumbered };
+}
+
+export interface MoveSessionData {
+  folder_id: string | null;
+  sort_order: number;
+}
+
+export interface MoveFolderData {
+  parent_id: string | null;
+  sort_order: number;
+}
+
+export async function moveSession(id: string, data: MoveSessionData): Promise<Session> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Session management is not available in enterprise mode');
+  const { data: result } = await getClient().http.put(`/sessions/${id}/move`, data);
+  return result;
+}
+
+export async function moveFolder(id: string, data: MoveFolderData): Promise<Folder> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Folder management is not available in enterprise mode');
+  const { data: result } = await getClient().http.put(`/folders/${id}/move`, data);
+  return result;
+}
+
+// === CSV Import/Export Utilities ===
+
+import { type CredentialProfile } from './profiles';
+import { escapeCSV } from '../lib/formatters';
+
+/** Parse a CSV line handling quoted fields */
+function parseCSVLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let i = 0;
+
+  while (i < line.length) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i += 2;
+        } else {
+          inQuotes = false;
+          i++;
+        }
+      } else {
+        current += ch;
+        i++;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+        i++;
+      } else if (ch === ',') {
+        fields.push(current);
+        current = '';
+        i++;
+      } else {
+        current += ch;
+        i++;
+      }
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
+/** CSV column order for session export and the example template. Import is
+ *  header-driven, so any subset/order of these columns is accepted. */
+export const CSV_HEADER = 'name,host,port,folder,profile,console_host,console_port,console_protocol,console_profile,console_legacy_ssh';
+
+/** Convert sessions to CSV string for export */
+export function sessionsToCSV(
+  sessions: Session[],
+  folders: Folder[],
+  profiles: CredentialProfile[],
+): string {
+  const folderMap = new Map(folders.map(f => [f.id, f.name]));
+  const profileMap = new Map(profiles.map(p => [p.id, p.name]));
+
+  const rows = sessions.map(s => {
+    const folderName = s.folder_id ? (folderMap.get(s.folder_id) || '') : '';
+    const profileName = profileMap.get(s.profile_id) || '';
+    const c = hasConsoleAccess(s) ? s : null;
+    return [
+      escapeCSV(s.name),
+      escapeCSV(s.host),
+      String(s.port),
+      escapeCSV(folderName),
+      escapeCSV(profileName),
+      escapeCSV(c?.console_host ?? ''),
+      c ? String(c.console_port) : '',
+      c?.console_protocol ?? '',
+      escapeCSV(c?.console_profile_id ? (profileMap.get(c.console_profile_id) || '') : ''),
+      c?.console_legacy_ssh ? 'true' : '',
+    ].join(',');
+  });
+
+  return [CSV_HEADER, ...rows].join('\n');
+}
+
+
+/** Parse CSV text and convert to ExportData format for import */
+export function csvToExportData(csvText: string): { data: ExportData; warnings: string[] } {
+  const warnings: string[] = [];
+  const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== '');
+
+  if (lines.length < 2) {
+    throw new Error('CSV file must have a header row and at least one data row');
+  }
+
+  const headerFields = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+  const nameIdx = headerFields.indexOf('name');
+  const hostIdx = headerFields.indexOf('host');
+  const portIdx = headerFields.indexOf('port');
+  const folderIdx = headerFields.indexOf('folder');
+  const profileIdx = headerFields.indexOf('profile');
+  const consoleHostIdx = headerFields.indexOf('console_host');
+  const consolePortIdx = headerFields.indexOf('console_port');
+  const consoleProtocolIdx = headerFields.indexOf('console_protocol');
+  const consoleProfileIdx = headerFields.indexOf('console_profile');
+  const consoleLegacyIdx = headerFields.indexOf('console_legacy_ssh');
+
+  if (nameIdx === -1 || hostIdx === -1) {
+    throw new Error('CSV must contain "name" and "host" columns');
+  }
+
+  const folderNames = new Set<string>();
+  const exportSessions: ExportSession[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const fields = parseCSVLine(lines[i]);
+    /** Trimmed cell for a header index, '' when the column is absent. */
+    const col = (idx: number): string => (idx >= 0 ? fields[idx]?.trim() ?? '' : '');
+    const name = col(nameIdx);
+    const host = col(hostIdx);
+
+    if (!name || !host) {
+      warnings.push(`Row ${i + 1}: skipped — missing name or host`);
+      continue;
+    }
+
+    const portStr = col(portIdx);
+    const port = portStr ? parseInt(portStr, 10) : 22;
+    if (isNaN(port) || port < 1 || port > 65535) {
+      warnings.push(`Row ${i + 1}: invalid port "${portStr}", using 22`);
+    }
+
+    const folderName = col(folderIdx) || null;
+    const profileName = col(profileIdx) || null;
+
+    if (folderName) {
+      folderNames.add(folderName);
+    }
+
+    // Console access: host + port are a pair; a half-filled pair is dropped
+    // with a warning rather than guessed (the agent rejects half-configs).
+    const consoleHost = col(consoleHostIdx);
+    const consolePortStr = col(consolePortIdx);
+    const consolePort = consolePortStr ? parseInt(consolePortStr, 10) : NaN;
+    const console: Pick<ExportSession, 'console_host' | 'console_port' | 'console_protocol' | 'console_profile_name' | 'console_legacy_ssh'> = {
+      console_host: null,
+      console_port: null,
+      console_protocol: 'ssh',
+      console_profile_name: null,
+      console_legacy_ssh: false,
+    };
+    if (consoleHost && consolePort >= 1 && consolePort <= 65535) {
+      const protoRaw = col(consoleProtocolIdx).toLowerCase() || 'ssh';
+      if (protoRaw !== 'ssh' && protoRaw !== 'telnet') {
+        warnings.push(`Row ${i + 1}: unknown console_protocol "${protoRaw}", using ssh`);
+      }
+      console.console_host = consoleHost;
+      console.console_port = consolePort;
+      console.console_protocol = protoRaw === 'telnet' ? 'telnet' : 'ssh';
+      console.console_profile_name = col(consoleProfileIdx) || null;
+      console.console_legacy_ssh = ['true', '1', 'yes'].includes(col(consoleLegacyIdx).toLowerCase());
+    } else if (consoleHost || consolePortStr) {
+      warnings.push(`Row ${i + 1}: console access needs both console_host and a valid console_port (1-65535); ignored`);
+    }
+
+    exportSessions.push({
+      name,
+      host,
+      port: (isNaN(port) || port < 1 || port > 65535) ? 22 : port,
+      folder_name: folderName,
+      profile_name: profileName,
+      color: null,
+      icon: null,
+      auto_reconnect: true,
+      reconnect_delay: 5,
+      scrollback_lines: 10000,
+      local_echo: false,
+      font_size_override: null,
+      mapped_keys: [],
+      snippets: [],
+      jump_host_name: null,
+      port_forwards: [],
+      ...console,
+    });
+  }
+
+  const exportFolders: ExportFolder[] = Array.from(folderNames).map(name => ({
+    name,
+    parent_name: null,
+  }));
+
+  const data: ExportData = {
+    version: '1.0',
+    format: 'netstacks-sessions',
+    exported_at: new Date().toISOString(),
+    sessions: exportSessions,
+    folders: exportFolders,
+  };
+
+  return { data, warnings };
+}
+
+/** Generate example CSV template */
+export function generateExampleCSV(): string {
+  return [
+    CSV_HEADER,
+    // Console columns are optional. console_host/console_port point at the
+    // terminal server line for the device; console_profile is the terminal
+    // server login (optional for telnet); console_legacy_ssh = true for old
+    // terminal-server firmware.
+    'router-1,192.168.1.1,22,Lab,default,oob-lab.example.net,3001,ssh,opengear-admin,',
+    'switch-1,192.168.1.2,22,Lab,default,oob-lab.example.net,3002,ssh,opengear-admin,true',
+    'firewall-1,10.0.0.1,22,,default,10.0.0.250,2003,telnet,,',
+    'server-1,10.0.0.20,22,,default,,,,,',
+  ].join('\n');
+}
+
+// Note: Profile inheritance helpers removed - all auth comes from profile directly
+
+// === Jump Hosts API ===
+
+export async function listJumpHosts(): Promise<JumpHost[]> {
+  if (getCurrentMode() === 'enterprise') return [];
+  const { data } = await getClient().http.get('/jump-hosts');
+  return data;
+}
+
+export async function getJumpHost(id: string): Promise<JumpHost> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Jump host management is not available in enterprise mode');
+  const { data } = await getClient().http.get(`/jump-hosts/${id}`);
+  return data;
+}
+
+export async function createJumpHost(jumpHost: NewJumpHost): Promise<JumpHost> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Jump host management is not available in enterprise mode');
+  const { data } = await getClient().http.post('/jump-hosts', jumpHost);
+  return data;
+}
+
+export async function updateJumpHost(id: string, jumpHost: UpdateJumpHost): Promise<JumpHost> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Jump host management is not available in enterprise mode');
+  const { data } = await getClient().http.put(`/jump-hosts/${id}`, jumpHost);
+  return data;
+}
+
+export async function deleteJumpHost(id: string): Promise<void> {
+  if (getCurrentMode() === 'enterprise') throw new Error('Jump host management is not available in enterprise mode');
+  await getClient().http.delete(`/jump-hosts/${id}`);
+}

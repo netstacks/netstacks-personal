@@ -1,0 +1,22 @@
+/* Floating right-edge dock: a short PanelTabRail (skin in PanelTab.css) fixed to
+ * the window edge; top is set inline (draggable vertically). The announcement
+ * and list cards position against it. */
+.edge-dock {
+  position: fixed;
+  right: 0;
+  z-index: var(--z-edge-dock);
+  touch-action: none;
+}
+
+/* The rail scrolls when docked; floating, it must not clip its cards. */
+.panel-tab-rail.edge-dock {
+  overflow: visible;
+}
+
+.edge-dock:not(:has(.panel-tab)) {
+  display: none;
+}
+
+.edge-dock-slot {
+  display: contents;
+}

@@ -1,0 +1,54 @@
+--- a/frontend/src/components/TopBar.tsx
++++ b/frontend/src/components/TopBar.tsx
+@@ -12,6 +12,28 @@
+   menuSlot?: ReactNode
+ }
+ 
++async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
++  const { getCurrentWindow } = await import('@tauri-apps/api/window')
++  await getCurrentWindow()[action]()
++}
++
++/** Flatpak build: the native frame is off, so the TopBar carries the window buttons. */
++function WindowControls() {
++  return (
++    <div className="topbar-window-controls">
++      <button type="button" className="topbar-window-btn" aria-label="Minimize" onClick={() => windowAction('minimize')}>
++        <svg aria-hidden width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" fill="none"><path d="M1 5h8" /></svg>
++      </button>
++      <button type="button" className="topbar-window-btn" aria-label="Maximize" onClick={() => windowAction('toggleMaximize')}>
++        <svg aria-hidden width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" fill="none"><rect x="1.5" y="1.5" width="7" height="7" /></svg>
++      </button>
++      <button type="button" className="topbar-window-btn is-close" aria-label="Close" onClick={() => windowAction('close')}>
++        <svg aria-hidden width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" fill="none"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg>
++      </button>
++    </div>
++  )
++}
++
+ export default function TopBar({
+   platform,
+   onOpenCommandCenter,
+@@ -62,6 +84,7 @@
+             </svg>
+           </button></Tooltip>
+         )}
++        {!isMac && <WindowControls />}
+       </div>
+     </div>
+   )
+--- a/frontend/src/components/TopBar.css
++++ b/frontend/src/components/TopBar.css
+@@ -47,3 +47,12 @@
+ }
+ .topbar-icon-btn:hover { background: var(--color-bg-hover); }
+ .topbar-icon-btn[aria-pressed='true'] { color: var(--color-text-primary); }
++
++.topbar-window-controls { display: flex; align-items: center; margin-left: 6px; }
++.topbar-window-btn {
++  display: inline-flex; align-items: center; justify-content: center;
++  width: 42px; height: var(--size-header);
++  background: transparent; border: none; color: var(--color-text-secondary);
++}
++.topbar-window-btn:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
++.topbar-window-btn.is-close:hover { background: var(--color-error); color: #fff; }

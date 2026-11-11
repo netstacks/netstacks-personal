@@ -1,0 +1,235 @@
+.enterprise-connect-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  width: 500px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  animation: enterprise-connect-in 0.2s ease-out;
+}
+
+@keyframes enterprise-connect-in {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.enterprise-connect-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.enterprise-connect-dialog-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.enterprise-connect-dialog-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.enterprise-connect-session-info {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.enterprise-connect-info-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.enterprise-connect-info-row:last-child {
+  margin-bottom: 0;
+}
+
+.enterprise-connect-info-row .label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  min-width: 90px;
+}
+
+.enterprise-connect-info-row .value {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-family-mono);
+}
+
+.enterprise-connect-loading,
+.enterprise-connect-error {
+  padding: 20px;
+  text-align: center;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+}
+
+.enterprise-connect-loading {
+  color: var(--text-secondary);
+}
+
+.enterprise-connect-error {
+  background: rgba(var(--color-error-rgb), 0.1);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  color: var(--color-error);
+}
+
+.enterprise-connect-credential-select {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.enterprise-connect-credential-select label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credential-select-wrapper {
+  position: relative;
+}
+
+.credential-select {
+  width: 100%;
+}
+
+.credential-select optgroup {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.credential-section-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  margin-top: 8px;
+}
+
+.credential-section-info .vault-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.credential-section-info .vault-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.credential-section-info .info-text {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.credential-details {
+  margin-top: 8px;
+}
+
+.credential-info {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+}
+
+.credential-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent-tint-10);
+  border-radius: var(--radius-control);
+  color: var(--primary-color);
+}
+
+.credential-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.credential-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.credential-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vault-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.vault-badge.personal {
+  background: rgba(var(--color-success-rgb), 0.15);
+  color: var(--color-success);
+}
+
+.vault-badge.shared {
+  background: var(--color-accent-tint-15);
+  color: var(--color-text-accent);
+}
+
+.vault-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+.credential-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.credential-host {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-family-mono);
+}

@@ -1,0 +1,208 @@
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { copyToClipboard } from '../lib/clipboard'
+import { useTunnelStore, SESSION_TUNNEL_PREFIX } from '../stores/tunnelStore'
+import { formatTunnelSpec, formatUptime, startTunnel, stopTunnel, reconnectTunnel } from '../api/tunnels'
+import type { TunnelWithState } from '../api/tunnels'
+import './TunnelPopover.css'
+import ContextMenu, { type MenuItem } from './ContextMenu'
+import Switch from './Switch'
+import SearchField from './SearchField'
+import { showToast } from './Toast'
+import { getErrorMessage } from '../api/errors'
+
+interface TunnelPopoverProps {
+  onClose: () => void
+  onManageTunnels: () => void
+}
+
+export default function TunnelPopover({ onClose, onManageTunnels }: TunnelPopoverProps) {
+  const tunnels = useTunnelStore(state => state.tunnels)
+  const loadError = useTunnelStore(state => state.error)
+  const [search, setSearch] = useState('')
+  const [contextMenu, setContextMenu] = useState<{ tunnel: TunnelWithState; x: number; y: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { searchRef.current?.focus() }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [onClose])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (contextMenu) setContextMenu(null)
+        else onClose()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose, contextMenu])
+
+  const { persistentTunnels, sessionGroups } = useMemo(() => {
+    const searchLwr = search.toLowerCase()
+    const matches = (t: TunnelWithState) =>
+      t.name.toLowerCase().includes(searchLwr) ||
+      formatTunnelSpec(t).toLowerCase().includes(searchLwr)
+
+    const persistent: TunnelWithState[] = []
+    const sessionMap = new Map<string, TunnelWithState[]>()
+
+    for (const t of tunnels) {
+      if (!matches(t)) continue
+      if (t.id.startsWith(SESSION_TUNNEL_PREFIX)) {
+        const hostKey = t.host
+        if (!sessionMap.has(hostKey)) sessionMap.set(hostKey, [])
+        sessionMap.get(hostKey)!.push(t)
+      } else {
+        persistent.push(t)
+      }
+    }
+
+    return {
+      persistentTunnels: persistent,
+      sessionGroups: Array.from(sessionMap.entries()),
+    }
+  }, [tunnels, search])
+
+  const totalVisible = persistentTunnels.length + sessionGroups.reduce((n, [, t]) => n + t.length, 0)
+
+  const isActive = (tunnel: TunnelWithState) =>
+    tunnel.status === 'connected' || tunnel.status === 'connecting' || tunnel.status === 'reconnecting'
+
+  const handleToggle = async (tunnel: TunnelWithState) => {
+    const stopping = isActive(tunnel)
+    try {
+      if (stopping) {
+        await stopTunnel(tunnel.id)
+      } else {
+        await startTunnel(tunnel.id)
+      }
+      useTunnelStore.getState().fetchTunnels()
+    } catch (err) {
+      console.error('Failed to toggle tunnel:', err)
+      showToast(getErrorMessage(err, `Failed to ${stopping ? 'stop' : 'start'} ${tunnel.name}`), 'error')
+    }
+  }
+
+  const handleContextMenu = (e: React.MouseEvent, tunnel: TunnelWithState) => {
+    if (tunnel.id.startsWith(SESSION_TUNNEL_PREFIX)) return
+    e.preventDefault()
+    setContextMenu({ tunnel, x: e.clientX, y: e.clientY })
+  }
+
+  const handleAction = async (action: string, tunnel: TunnelWithState) => {
+    try {
+      switch (action) {
+        case 'stop': await stopTunnel(tunnel.id); break
+        case 'reconnect': await reconnectTunnel(tunnel.id); break
+        case 'copy': await copyToClipboard(`${tunnel.bind_address}:${tunnel.local_port}`, { source: 'app-copy', tabType: 'tunnels' }); break
+        case 'edit': onManageTunnels(); onClose(); break
+      }
+      useTunnelStore.getState().fetchTunnels()
+    } catch (err) {
+      console.error(`Tunnel action '${action}' failed:`, err)
+      const verb = action === 'stop' ? 'pause' : action === 'reconnect' ? 'reconnect' : action === 'copy' ? 'copy address for' : 'open'
+      showToast(getErrorMessage(err, `Failed to ${verb} ${tunnel.name}`), 'error')
+    }
+  }
+
+  const tunnelMenuItems = (tunnel: TunnelWithState): MenuItem[] => [
+    ...(tunnel.status === 'connected' ? [{ id: 'pause', label: 'Pause', action: () => { void handleAction('stop', tunnel) } }] : []),
+    ...(tunnel.status === 'failed' || tunnel.status === 'disconnected'
+      ? [{ id: 'reconnect', label: 'Reconnect', action: () => { void handleAction('reconnect', tunnel) } }]
+      : []),
+    { id: 'copy', label: 'Copy local address', action: () => { void handleAction('copy', tunnel) } },
+    { id: 'edit-divider', label: '', divider: true, action: () => {} },
+    { id: 'edit', label: 'Edit', action: () => { void handleAction('edit', tunnel) } },
+  ]
+
+  const renderTunnelRow = (tunnel: TunnelWithState, isSession: boolean) => (
+    <div
+      key={tunnel.id}
+      className="tunnel-popover-item"
+      onContextMenu={(e) => handleContextMenu(e, tunnel)}
+    >
+      <span className={`tunnel-popover-dot ${tunnel.status}`} />
+      <div className="tunnel-popover-info">
+        {!isSession && <div className="tunnel-popover-name">{tunnel.name}</div>}
+        <div className="tunnel-popover-spec">
+          {formatTunnelSpec(tunnel)} via {tunnel.host}
+          {tunnel.uptime_secs !== null && ` · up ${formatUptime(tunnel.uptime_secs)}`}
+        </div>
+      </div>
+      {tunnel.status === 'reconnecting' && (
+        <span className="tunnel-popover-meta error">retry {tunnel.retry_count}</span>
+      )}
+      {!isSession && (
+        <Switch
+          size="sm"
+          checked={isActive(tunnel)}
+          onChange={() => handleToggle(tunnel)}
+          label={`${isActive(tunnel) ? 'Stop' : 'Start'} tunnel ${tunnel.name}`}
+          tooltip={isActive(tunnel) ? 'Stop tunnel' : 'Start tunnel'}
+        />
+      )}
+    </div>
+  )
+
+  return (
+    <div className="tunnel-popover" ref={menuRef}>
+      <div className="tunnel-popover-search">
+        <SearchField inputRef={searchRef} value={search} onChange={setSearch} placeholder="Search tunnels..." />
+      </div>
+      <div className="tunnel-popover-list">
+        {totalVisible === 0 ? (
+          <div className="tunnel-popover-empty">
+            <div className="tunnel-popover-empty-icon">&#8651;</div>
+            <div className="tunnel-popover-empty-text">
+              {loadError
+                ? `Failed to load tunnels: ${loadError}`
+                : tunnels.length === 0 ? 'No tunnels configured' : 'No matching tunnels'}
+            </div>
+            {tunnels.length === 0 && (
+              <div className="tunnel-popover-empty-hint">
+                Create persistent SSH tunnels in<br />Manage Tunnels
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {persistentTunnels.length > 0 && sessionGroups.length > 0 && (
+              <div className="tunnel-popover-section-header">Tunnels</div>
+            )}
+            {persistentTunnels.map(t => renderTunnelRow(t, false))}
+
+            {sessionGroups.length > 0 && (
+              <>
+                <div className="tunnel-popover-section-header">Session Tunnels</div>
+                {sessionGroups.map(([host, sessionTunnels]) => (
+                  <div key={host}>
+                    <div className="tunnel-popover-session-name">{host}</div>
+                    {sessionTunnels.map(t => renderTunnelRow(t, true))}
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
+      <div className="tunnel-popover-footer">
+        <button className="ns-btn ns-btn--ghost" onClick={() => { onManageTunnels(); onClose() }}>
+          &#9881; Manage Tunnels...
+        </button>
+      </div>
+
+      <ContextMenu
+        position={contextMenu}
+        items={contextMenu ? tunnelMenuItems(contextMenu.tunnel) : []}
+        onClose={() => setContextMenu(null)}
+      />
+    </div>
+  )
+}

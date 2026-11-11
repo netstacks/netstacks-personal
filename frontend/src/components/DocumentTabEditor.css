@@ -1,0 +1,260 @@
+/* DocumentTabEditor - Inline document editor for tab content */
+
+.doc-tab-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+/* Header toolbar */
+.doc-tab-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.doc-tab-editor-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Badges - reuse document viewer badge styles */
+.doc-tab-editor-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-badge.outputs {
+  background: var(--color-accent-tint-10);
+  color: var(--color-text-accent);
+}
+
+.doc-tab-editor-badge.templates {
+  background: rgba(var(--color-category-purple-rgb), 0.12);
+  color: var(--color-category-purple);
+}
+
+.doc-tab-editor-badge.backups {
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
+}
+
+.doc-tab-editor-badge.history {
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+}
+
+.doc-tab-editor-badge.notes {
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+}
+
+/* Content type badges */
+.doc-tab-editor-badge.content-type {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-panel);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.doc-tab-editor-badge.content-type-json {
+  background: var(--color-accent-tint-10);
+  color: var(--color-text-accent);
+}
+
+.doc-tab-editor-badge.content-type-csv {
+  background: rgba(var(--color-success-rgb), 0.12);
+  color: var(--color-success);
+}
+
+.doc-tab-editor-badge.content-type-jinja {
+  background: rgba(var(--color-category-purple-rgb), 0.12);
+  color: var(--color-category-purple);
+}
+
+.doc-tab-editor-badge.content-type-config {
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+}
+
+.doc-tab-editor-badge.content-type-text {
+  background: rgba(149, 165, 166, 0.2);
+  color: var(--color-text-secondary);
+}
+
+.doc-tab-editor-badge.content-type-markdown {
+  background: var(--color-accent-tint-20);
+  color: var(--color-text-accent);
+}
+
+.doc-tab-editor-badge.content-type-recording {
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+}
+
+/* Troubleshooting category badge */
+.doc-tab-editor-badge.troubleshooting {
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+}
+
+/* Editing badge */
+.doc-tab-editor-badge.editing {
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+}
+
+/* Modified badge */
+.doc-tab-editor-badge.modified {
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: var(--color-warning);
+}
+
+/* Header action buttons */
+.doc-tab-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-badge.enhancing {
+  background: rgba(155, 89, 182, 0.2);
+  color: #9b59b6;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+/* Error banner */
+.doc-tab-editor-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(var(--color-error-rgb), 0.15);
+  border-bottom: 1px solid rgba(var(--color-error-rgb), 0.3);
+  color: var(--color-error);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-error-dismiss {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Content area */
+.doc-tab-editor-content {
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+/* When content is a recording player, disable scroll and stretch to fill */
+.doc-tab-editor-content:has(.recording-player) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Text viewer */
+.doc-tab-text-viewer {
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.doc-tab-text-viewer pre {
+  margin: 0;
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-text-primary);
+}
+
+/* Edit viewer */
+.doc-tab-edit-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Footer */
+.doc-tab-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.doc-tab-editor-stats {
+  display: inline-block;
+}
+
+.doc-tab-editor-status {
+  margin-left: auto;
+}
+
+.doc-tab-editor-status.modified {
+  color: #f1c40f;
+}
+
+/* Markdown viewer */
+.doc-tab-markdown-viewer {
+  height: 100%;
+  padding: 16px 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* Make markdown tables look nicer */
+.doc-tab-markdown-viewer table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+}
+
+.doc-tab-markdown-viewer th,
+.doc-tab-markdown-viewer td {
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.doc-tab-markdown-viewer th {
+  background: var(--color-bg-tertiary);
+  font-weight: 600;
+}
+
+.doc-tab-markdown-viewer tr:nth-child(even) {
+  background: var(--color-bg-secondary);
+}

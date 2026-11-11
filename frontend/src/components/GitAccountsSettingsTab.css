@@ -1,0 +1,4 @@
+/* Settings → Workspaces → Git Accounts */
+.git-accounts-token .password-input-field {
+  font-family: var(--font-family-mono);
+}

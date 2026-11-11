@@ -1,0 +1,583 @@
+import { useState, useEffect, useCallback } from 'react';
+import { copyToClipboard } from '../lib/clipboard'
+import {
+  listQuickPrompts,
+  createQuickPrompt,
+  updateQuickPrompt,
+  deleteQuickPrompt,
+  type QuickPrompt,
+} from '../api/quickPrompts';
+import {
+  DEFAULT_AI_DISCOVERY_PROMPT,
+  DEFAULT_TOPOLOGY_PROMPT,
+  DEFAULT_SCRIPT_PROMPT,
+  DEFAULT_AGENT_PROMPT,
+  DEFAULT_WORKSPACE_INIT_PROMPT,
+  getDiscoveryPrompt as apiGetDiscoveryPrompt,
+  setDiscoveryPrompt as apiSetDiscoveryPrompt,
+  getTopologyPrompt as apiGetTopologyPrompt,
+  setTopologyPrompt as apiSetTopologyPrompt,
+  getScriptPrompt as apiGetScriptPrompt,
+  setScriptPrompt as apiSetScriptPrompt,
+  getAiAgentConfig,
+  getAgentOperatingGuide,
+  setAgentOperatingGuide,
+  DEFAULT_AGENT_OPERATING_GUIDE,
+  setAiAgentConfig,
+  getAllModePrompts,
+  setModePrompt,
+  getWorkspaceInitPrompt,
+  setWorkspaceInitPrompt as apiSetWorkspaceInitPrompt,
+} from '../api/ai';
+import { AGENT_PROMPT, type AgentType } from '../lib/aiModes';
+import { getSettings } from '../hooks/useSettings';
+import { useModeNames } from '../hooks/useModeNames';
+import './PromptsSettingsTab.css';
+import AITabInput from './AITabInput';
+import { confirmDialog } from './ConfirmDialog';
+import { showToast } from './Toast';
+import { getErrorMessage } from '../api/errors';
+import { TOAST_DURATION } from '../constants/toast';
+
+import { logger } from '../lib/logger'
+import { useQuickPromptsStore } from '../stores/quickPrompts'
+import DialogFooter from './DialogFooter';
+import Tooltip from './Tooltip';
+import SettingsSection from './settings/SettingsSection';
+import SettingsItem from './settings/SettingsItem';
+import ModalFrame from './ModalFrame';
+type SystemKey =
+  | 'autopilot'
+  | 'overlord'
+  | 'discovery'
+  | 'topology'
+  | 'script'
+  | 'agent'
+  | 'agentGuide'
+  | 'workspaceInit';
+
+const MODE_KEYS: SystemKey[] = ['autopilot', 'overlord'];
+const TASK_KEYS: SystemKey[] = ['discovery', 'topology', 'script', 'agent', 'agentGuide', 'workspaceInit'];
+
+interface EditorState {
+  isOpen: boolean;
+  mode: 'create' | 'edit' | 'system';
+  prompt?: QuickPrompt;
+  systemKey?: SystemKey;
+}
+
+const SYSTEM_PROMPT_META: Record<SystemKey, { label: string; editorTitle: string; default: string }> = {
+  autopilot: {
+    label: 'Auto Pilot',
+    editorTitle: 'Edit Auto Pilot Prompt',
+    default: AGENT_PROMPT,
+  },
+  overlord: {
+    label: 'Overlord',
+    editorTitle: 'Edit Overlord Prompt',
+    default: AGENT_PROMPT,
+  },
+  discovery: {
+    label: 'AI Discovery (Topology Enrichment)',
+    editorTitle: 'Edit AI Discovery Prompt',
+    default: DEFAULT_AI_DISCOVERY_PROMPT,
+  },
+  topology: {
+    label: 'Topology Canvas AI',
+    editorTitle: 'Edit Topology Canvas AI Prompt',
+    default: DEFAULT_TOPOLOGY_PROMPT,
+  },
+  script: {
+    label: 'Script Generation',
+    editorTitle: 'Edit Script Generation Prompt',
+    default: DEFAULT_SCRIPT_PROMPT,
+  },
+  agent: {
+    label: 'Default Agent (base prompt, used when no custom agent is selected)',
+    editorTitle: 'Edit Default Agent Prompt',
+    default: DEFAULT_AGENT_PROMPT,
+  },
+  agentGuide: {
+    label: 'Agent Operating Guide (appended to every Agent)',
+    editorTitle: 'Edit Agent Operating Guide',
+    default: DEFAULT_AGENT_OPERATING_GUIDE,
+  },
+  workspaceInit: {
+    label: 'Workspace Init (seed file for AI coding tools)',
+    editorTitle: 'Edit Workspace Init Prompt',
+    default: DEFAULT_WORKSPACE_INIT_PROMPT,
+  },
+};
+
+export default function PromptsSettingsTab() {
+  const modeNames = useModeNames();
+  const [prompts, setPrompts] = useState<QuickPrompt[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editor, setEditor] = useState<EditorState>({ isOpen: false, mode: 'create' });
+
+  // Per-agent-type prompt overrides (empty string = using default)
+  const [modePrompts, setModePrompts] = useState<Record<AgentType, string>>({
+    autopilot: '',
+    overlord: '',
+  });
+
+  // Specialized-task prompt overrides (empty string = using default)
+  const [discoveryPrompt, setDiscoveryPrompt] = useState('');
+  const [topologyPrompt, setTopologyPrompt] = useState('');
+  const [scriptPrompt, setScriptPrompt] = useState('');
+  const [agentPrompt, setAgentPrompt] = useState('');
+  const [agentGuide, setAgentGuide] = useState('');
+  const [workspaceInitPrompt, setWorkspaceInitPrompt] = useState('');
+
+  useEffect(() => {
+    listQuickPrompts()
+      .then(setPrompts)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+
+    // Load agent-type prompt overrides
+    getAllModePrompts()
+      .then(overrides => {
+        setModePrompts({
+          autopilot: overrides.autopilot ?? '',
+          overlord: overrides.overlord ?? '',
+        });
+      })
+      .catch(err => logger.debug('Could not load mode prompts:', err));
+
+    // Load discovery prompt from backend, with one-time localStorage migration
+    apiGetDiscoveryPrompt()
+      .then(val => {
+        if (val) {
+          setDiscoveryPrompt(val);
+        } else {
+          const legacy = localStorage.getItem('netstacks:aiDiscoveryPrompt');
+          if (legacy) {
+            setDiscoveryPrompt(legacy);
+            apiSetDiscoveryPrompt(legacy)
+              .then(() => localStorage.removeItem('netstacks:aiDiscoveryPrompt'))
+              .catch(console.error);
+          }
+        }
+      })
+      .catch(console.error);
+
+    apiGetTopologyPrompt()
+      .then(val => { if (val) setTopologyPrompt(val); })
+      .catch(console.error);
+
+    apiGetScriptPrompt()
+      .then(val => { if (val) setScriptPrompt(val); })
+      .catch(console.error);
+
+    getAiAgentConfig()
+      .then(config => {
+        if (config?.system_prompt && config.system_prompt !== DEFAULT_AGENT_PROMPT) {
+          setAgentPrompt(config.system_prompt);
+        }
+      })
+      .catch(console.error);
+
+    getWorkspaceInitPrompt()
+      .then(val => { if (val) setWorkspaceInitPrompt(val); })
+      .catch(console.error);
+
+    getAgentOperatingGuide()
+      .then(val => { if (val) setAgentGuide(val); })
+      .catch(console.error);
+  }, []);
+
+  const getPromptValue = (key: SystemKey): string => {
+    switch (key) {
+      case 'autopilot':
+      case 'overlord':
+        return modePrompts[key];
+      case 'discovery': return discoveryPrompt;
+      case 'topology': return topologyPrompt;
+      case 'script': return scriptPrompt;
+      case 'agent': return agentPrompt;
+      case 'agentGuide': return agentGuide;
+      case 'workspaceInit': return workspaceInitPrompt;
+    }
+  };
+
+  const handleCreateNew = useCallback(() => {
+    setEditor({ isOpen: true, mode: 'create' });
+  }, []);
+
+  const handleEdit = useCallback((prompt: QuickPrompt) => {
+    setEditor({ isOpen: true, mode: 'edit', prompt });
+  }, []);
+
+  const handleEditSystem = useCallback((key: SystemKey) => {
+    setEditor({ isOpen: true, mode: 'system', systemKey: key });
+  }, []);
+
+  const handleResetSystem = useCallback(async (key: SystemKey) => {
+    // Local state is cleared only AFTER the server accepts the reset; on
+    // failure the previous value stays put so the editor doesn't show an
+    // empty prompt the server still has (NS-AI-28).
+    try {
+      switch (key) {
+        case 'autopilot':
+        case 'overlord': {
+          await setModePrompt(key, null);
+          setModePrompts(prev => ({ ...prev, [key]: '' }));
+          break;
+        }
+        case 'discovery':
+          await apiSetDiscoveryPrompt(null);
+          setDiscoveryPrompt('');
+          break;
+        case 'topology':
+          await apiSetTopologyPrompt(null);
+          setTopologyPrompt('');
+          break;
+        case 'script':
+          await apiSetScriptPrompt(null);
+          setScriptPrompt('');
+          break;
+        case 'agent': {
+          const agentConfig = await getAiAgentConfig();
+          if (agentConfig) {
+            await setAiAgentConfig({ ...agentConfig, system_prompt: DEFAULT_AGENT_PROMPT });
+          }
+          const settings = getSettings();
+          const stored = localStorage.getItem('netstacks-settings');
+          const parsed = stored ? JSON.parse(stored) : {};
+          parsed['ai.agent.systemPrompt'] = settings['ai.agent.systemPrompt'];
+          localStorage.setItem('netstacks-settings', JSON.stringify(parsed));
+          setAgentPrompt('');
+          break;
+        }
+        case 'agentGuide':
+          await setAgentOperatingGuide(null);
+          setAgentGuide('');
+          break;
+        case 'workspaceInit':
+          await apiSetWorkspaceInitPrompt(null);
+          setWorkspaceInitPrompt('');
+          break;
+      }
+    } catch (err) {
+      console.error('Failed to reset system prompt:', err);
+      showToast(getErrorMessage(err, 'Failed to reset prompt'), 'error');
+    }
+  }, []);
+
+  const handleDelete = useCallback(async (id: string) => {
+    const prompt = prompts.find(p => p.id === id);
+    const ok = await confirmDialog({
+      title: 'Delete quick prompt?',
+      body: prompt ? <>Delete quick prompt <strong>{prompt.name || prompt.id}</strong>?</> : 'Delete this quick prompt?',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteQuickPrompt(id);
+      setPrompts(prev => prev.filter(p => p.id !== id));
+      void useQuickPromptsStore.getState().refresh();
+    } catch (err) {
+      console.error('Failed to delete prompt:', err);
+    }
+  }, [prompts]);
+
+  const handleToggleFavorite = useCallback(async (prompt: QuickPrompt) => {
+    try {
+      await updateQuickPrompt(prompt.id, { is_favorite: !prompt.is_favorite });
+      setPrompts(prev =>
+        prev.map(p => (p.id === prompt.id ? { ...p, is_favorite: !p.is_favorite } : p))
+      );
+      void useQuickPromptsStore.getState().refresh();
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
+    }
+  }, []);
+
+  const handleCloseEditor = useCallback(() => {
+    setEditor({ isOpen: false, mode: 'create' });
+  }, []);
+
+  const handleSaveEditor = useCallback(
+    async (name: string, prompt: string, isFavorite: boolean) => {
+      try {
+        if (editor.mode === 'create') {
+          const created = await createQuickPrompt({ name, prompt, is_favorite: isFavorite });
+          setPrompts(prev => [...prev, created]);
+          void useQuickPromptsStore.getState().refresh();
+        } else if (editor.mode === 'edit' && editor.prompt) {
+          await updateQuickPrompt(editor.prompt.id, { name, prompt, is_favorite: isFavorite });
+          setPrompts(prev =>
+            prev.map(p => (p.id === editor.prompt!.id ? { ...p, name, prompt, is_favorite: isFavorite } : p))
+          );
+          void useQuickPromptsStore.getState().refresh();
+        } else if (editor.mode === 'system' && editor.systemKey) {
+          const key = editor.systemKey;
+          switch (key) {
+            case 'autopilot':
+            case 'overlord': {
+              setModePrompts(prev => ({ ...prev, [key]: prompt }));
+              await setModePrompt(key, prompt || null);
+              break;
+            }
+            case 'discovery':
+              setDiscoveryPrompt(prompt);
+              await apiSetDiscoveryPrompt(prompt || null);
+              break;
+            case 'topology':
+              setTopologyPrompt(prompt);
+              await apiSetTopologyPrompt(prompt || null);
+              break;
+            case 'script':
+              setScriptPrompt(prompt);
+              await apiSetScriptPrompt(prompt || null);
+              break;
+            case 'agent': {
+              setAgentPrompt(prompt);
+              const agentConfig = await getAiAgentConfig();
+              const effectivePrompt = prompt || DEFAULT_AGENT_PROMPT;
+              if (agentConfig) {
+                await setAiAgentConfig({ ...agentConfig, system_prompt: effectivePrompt });
+              } else {
+                await setAiAgentConfig({
+                  provider: null,
+                  model: null,
+                  temperature: 0.7,
+                  max_tokens: 4096,
+                  max_iterations: 15,
+                  system_prompt: effectivePrompt,
+                });
+              }
+              const stored = localStorage.getItem('netstacks-settings');
+              const parsed = stored ? JSON.parse(stored) : {};
+              parsed['ai.agent.systemPrompt'] = effectivePrompt;
+              localStorage.setItem('netstacks-settings', JSON.stringify(parsed));
+              break;
+            }
+            case 'agentGuide':
+              setAgentGuide(prompt);
+              await setAgentOperatingGuide(prompt || null);
+              break;
+            case 'workspaceInit':
+              setWorkspaceInitPrompt(prompt);
+              await apiSetWorkspaceInitPrompt(prompt || null);
+              break;
+          }
+        }
+        handleCloseEditor();
+      } catch (err) {
+        console.error('Failed to save prompt:', err);
+        showToast(getErrorMessage(err, 'Failed to save prompt'), 'error');
+      }
+    },
+    [editor, handleCloseEditor]
+  );
+
+  const favorites = prompts.filter(p => p.is_favorite);
+  const others = prompts.filter(p => !p.is_favorite);
+
+  const handleCopyToClipboard = useCallback(async (key: SystemKey) => {
+    const value = getPromptValue(key);
+    const effectiveValue = value || SYSTEM_PROMPT_META[key].default;
+    try {
+      await copyToClipboard(effectiveValue, { source: 'app-copy', tabType: 'settings' });
+      showToast('Copied to clipboard', 'success', TOAST_DURATION.SHORT);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      showToast('Failed to copy', 'error');
+    }
+  }, [discoveryPrompt, topologyPrompt, scriptPrompt, agentPrompt, workspaceInitPrompt, modePrompts]);
+
+  const renderSystemPromptItem = (key: SystemKey) => {
+    const meta = SYSTEM_PROMPT_META[key];
+    const value = getPromptValue(key);
+    const effective = (value || meta.default).replace(/\s+/g, ' ').trim();
+
+    return (
+      <SettingsItem
+        key={key}
+        title={(key === 'autopilot' || key === 'overlord') ? modeNames[key] : meta.label}
+        badges={!value && <span className="settings-badge">default</span>}
+        meta={<span className="prompts-preview">{effective}</span>}
+        actions={
+          <>
+            <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleEditSystem(key)}>Edit</button>
+            <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleResetSystem(key)} disabled={!value}>
+              Reset
+            </button>
+            {key === 'workspaceInit' && (
+              <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleCopyToClipboard(key)}>Copy</button>
+            )}
+          </>
+        }
+      />
+    );
+  };
+
+  const renderUserPrompt = (prompt: QuickPrompt) => (
+    <SettingsItem
+      key={prompt.id}
+      leading={
+        <Tooltip label={prompt.is_favorite ? 'Remove from favorites' : 'Add to favorites'}><button
+          type="button"
+          className="ns-btn ns-btn--ghost ns-icon-btn ns-btn--small prompts-favorite"
+          aria-label={prompt.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+          aria-pressed={prompt.is_favorite}
+          onClick={() => handleToggleFavorite(prompt)}
+        >
+          {prompt.is_favorite ? '\u2605' : '\u2606'}
+        </button></Tooltip>
+      }
+      title={prompt.name}
+      meta={<span className="prompts-preview">{prompt.prompt}</span>}
+      actions={
+        <>
+          <button className="ns-btn ns-btn--ghost ns-btn--small" onClick={() => handleEdit(prompt)}>Edit</button>
+          <button className="ns-btn ns-btn--ghost ns-btn--danger ns-btn--small" onClick={() => handleDelete(prompt.id)}>Delete</button>
+        </>
+      }
+    />
+  );
+
+  return (
+    <>
+      <SettingsSection title="AI Mode Prompts" description="The system prompt each AI mode starts from.">
+        <div className="settings-group">
+          {MODE_KEYS.map(key => renderSystemPromptItem(key))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Task Prompts" description="Prompts for specialized AI tasks such as discovery, topology, scripts and workspaces.">
+        <div className="settings-group">
+          {TASK_KEYS.map(key => renderSystemPromptItem(key))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Your Prompts"
+        description="Saved prompts for common AI tasks; favorites appear first."
+        actions={<button className="ns-btn ns-btn--small" onClick={handleCreateNew}>+ New prompt</button>}
+      >
+        {loading ? (
+          <p className="form-hint">Loading…</p>
+        ) : prompts.length === 0 ? (
+          <p className="form-hint">No custom prompts yet. Create one to quickly run common AI tasks.</p>
+        ) : (
+          <div className="settings-group">
+            {favorites.map(renderUserPrompt)}
+            {others.map(renderUserPrompt)}
+          </div>
+        )}
+      </SettingsSection>
+
+      {/* Editor Modal */}
+      {editor.isOpen && (
+        <PromptEditor
+          mode={editor.mode}
+          prompt={editor.prompt}
+          systemKey={editor.systemKey}
+          defaultSystemPrompt={editor.systemKey ? SYSTEM_PROMPT_META[editor.systemKey].default : undefined}
+          currentValue={editor.systemKey ? getPromptValue(editor.systemKey) || undefined : undefined}
+          onSave={handleSaveEditor}
+          onClose={handleCloseEditor}
+        />
+      )}
+    </>
+  );
+}
+
+interface PromptEditorProps {
+  mode: 'create' | 'edit' | 'system';
+  prompt?: QuickPrompt;
+  systemKey?: SystemKey;
+  defaultSystemPrompt?: string;
+  currentValue?: string;
+  onSave: (name: string, prompt: string, isFavorite: boolean) => void;
+  onClose: () => void;
+}
+
+function PromptEditor({
+  mode,
+  prompt,
+  systemKey,
+  defaultSystemPrompt,
+  currentValue,
+  onSave,
+  onClose,
+}: PromptEditorProps) {
+  const [name, setName] = useState(prompt?.name || '');
+  const [text, setText] = useState(
+    mode === 'system'
+      ? currentValue || defaultSystemPrompt || ''
+      : prompt?.prompt || ''
+  );
+  const [isFavorite, setIsFavorite] = useState(prompt?.is_favorite || false);
+
+  const title =
+    mode === 'create'
+      ? 'New Prompt'
+      : mode === 'edit'
+      ? 'Edit Prompt'
+      : systemKey
+      ? SYSTEM_PROMPT_META[systemKey].editorTitle
+      : 'Edit System Prompt';
+
+  const canSave = mode === 'system' || (name.trim() && text.trim());
+
+  const handleSave = () => {
+    if (mode === 'system') {
+      onSave('', text, false);
+    } else {
+      onSave(name.trim(), text.trim(), isFavorite);
+    }
+  };
+
+  return (
+    <ModalFrame id="prompt-editor" className="prompt-editor" label="Prompt editor">
+      <div className="prompt-editor-header">{title}</div>
+      <div className="prompt-editor-body">
+        {mode !== 'system' && (
+          <div className="prompt-editor-field">
+            <label>Name</label>
+            <AITabInput
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g., Check BGP Status"
+              autoFocus
+              aiField="prompt_name"
+              aiPlaceholder="Name for this custom prompt"
+              aiContext={{ prompt: text }}
+              onAIValue={(v) => setName(v)}
+            />
+          </div>
+        )}
+        <div className="prompt-editor-field">
+          <label>Prompt</label>
+          <AITabInput
+            as="textarea"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Enter the prompt text..."
+            rows={mode === 'system' ? 20 : 8}
+            aiField="prompt_content"
+            aiPlaceholder="Custom prompt template"
+            aiContext={{ name }}
+            onAIValue={(v) => setText(v)}
+          />
+        </div>
+        {mode !== 'system' && (
+          <label className="prompt-editor-checkbox">
+            <input
+              type="checkbox"
+              checked={isFavorite}
+              onChange={e => setIsFavorite(e.target.checked)}
+            />
+            <span>Add to favorites</span>
+          </label>
+        )}
+      </div>
+      <DialogFooter primary={{ label: 'Save', onClick: handleSave, disabled: !canSave }} onCancel={onClose} />
+    </ModalFrame>
+  );
+}

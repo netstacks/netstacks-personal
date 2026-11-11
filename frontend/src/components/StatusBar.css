@@ -1,0 +1,557 @@
+/* StatusBar Component Styles */
+/* VS Code-style status bar at bottom of application */
+
+.status-bar {
+  height: var(--size-statusbar);
+  /* Translucent tint only — NO backdrop-filter: it made the bar a containing
+     block, so the quick-action menus (Prompts/Snippets/Tunnels) anchored to the
+     22px bar and rendered off-screen, making the buttons unclickable. */
+  background: var(--status-bar-bg);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--spacing-xs);
+  font-size: 12px;
+  color: var(--status-bar-text);
+  flex-shrink: 0;
+}
+
+/* Compact mode */
+.status-bar.compact {
+  height: calc(var(--size-statusbar) - 4px);
+  font-size: 11px;
+}
+
+.status-bar.compact .status-bar-item {
+  padding: 0 var(--spacing-xs);
+}
+
+.status-bar.compact .status-bar-connection-dot {
+  width: 6px;
+  height: 6px;
+}
+
+/* Fixed-height bar: chrome text does not scale with the Font Size setting. */
+:root[data-platform='macos'] .status-bar {
+  font-size: 11px;
+}
+
+/* Section layout: left, center, right */
+.status-bar-left {
+  display: flex;
+  align-items: center;
+}
+
+.status-bar-remote-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  height: 100%;
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.status-bar-remote-indicator svg {
+  flex-shrink: 0;
+}
+
+.status-bar-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-bar-right {
+  display: flex;
+  align-items: center;
+}
+
+/* Status bar items */
+.status-bar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  height: var(--size-statusbar);
+  cursor: default;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.status-bar-item svg {
+  flex-shrink: 0;
+}
+
+.status-bar-item:hover {
+  background: var(--status-bar-hover);
+}
+
+/* Clickable status bar buttons */
+.status-bar-item-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-sm);
+  height: var(--size-statusbar);
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  transition: background var(--transition-fast);
+}
+
+.status-bar-item-btn:hover {
+  background: var(--status-bar-hover);
+}
+
+.status-bar-item-btn:active {
+  background: var(--status-bar-hover);
+  filter: brightness(1.1);
+}
+
+/* Keyboard shortcut indicators */
+.status-bar-item kbd {
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+  background: var(--color-fill-strong);
+  padding: 1px var(--spacing-xs);
+  border-radius: 3px;
+  margin-left: var(--spacing-xs);
+}
+
+/* AI Overlord button */
+.status-bar-item-ai {
+  background: var(--status-bar-accent);
+  transition: background-color 0.2s ease;
+}
+
+.status-bar-item-ai:hover {
+  background: var(--status-bar-hover);
+}
+
+/* AI Overlord active state - glowing indicator */
+.status-bar-item-ai.ai-overlord-active {
+  background: rgba(var(--color-success-rgb), 0.35);
+  color: var(--color-success);
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.4);
+  animation: overlord-pulse 2s ease-in-out infinite;
+}
+
+.status-bar-item-ai.ai-overlord-active:hover {
+  background: rgba(var(--color-success-rgb), 0.5);
+}
+
+@keyframes overlord-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(76, 175, 80, 0.3); }
+  50% { box-shadow: 0 0 12px rgba(76, 175, 80, 0.6); }
+}
+
+/* Connection indicator dot */
+.status-bar-connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-text-tertiary);
+  transition: background-color var(--transition-fast);
+}
+
+.status-bar-connection-dot.connected {
+  background-color: var(--color-success);
+}
+
+/* Generic indicator dot — shown on status-bar buttons that have a
+ * stateful condition the user should notice at a glance (e.g. a
+ * minimized scratchpad buffer is hibernating). */
+.status-bar-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffb454;
+  box-shadow: 0 0 6px rgba(255, 180, 84, 0.7);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Quick Look buttons group */
+.status-bar-quicklook {
+  display: flex;
+  align-items: center;
+}
+
+.status-bar-quicklook-btn {
+  padding: 0 var(--spacing-sm);
+  opacity: 0.8;
+}
+
+.status-bar-quicklook-btn:hover {
+  opacity: 1;
+  background: var(--status-bar-hover);
+}
+
+.status-bar-quicklook-btn:active {
+  background: var(--status-bar-hover);
+  filter: brightness(1.1);
+}
+
+/* Divider between Quick Look and other buttons */
+.status-bar-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border);
+  margin: 0 var(--spacing-xs);
+}
+
+/* Troubleshooting start button */
+.status-bar-troubleshoot-start {
+  opacity: 0.85;
+}
+
+.status-bar-troubleshoot-start:hover {
+  opacity: 1;
+  background: var(--status-bar-hover);
+}
+
+.status-bar-troubleshoot-start svg {
+  color: var(--status-bar-text);
+}
+
+/* ── Controller Info Popover ── */
+.controller-info-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  max-width: 340px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  padding: var(--spacing-sm) 0;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  animation: controller-popover-in 0.15s ease-out;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+@keyframes controller-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.controller-info-section {
+  padding: 6px 12px;
+}
+
+.controller-info-section + .controller-info-section {
+  border-top: 1px solid var(--border-color);
+}
+
+.controller-info-heading {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.controller-info-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.controller-info-toggle:hover {
+  color: var(--text-primary);
+}
+
+.controller-info-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 10px;
+}
+
+.controller-info-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.controller-info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.controller-info-label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.controller-info-detail {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.controller-info-select {
+  width: 100%;
+  margin-top: 2px;
+  padding: 3px 6px;
+  font-size: 12px;
+  border-radius: var(--radius-control);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.controller-info-select:disabled {
+  opacity: 0.6;
+}
+
+.controller-info-error {
+  color: var(--error-color);
+}
+
+.controller-info-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.controller-info-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.controller-info-license {
+  text-transform: capitalize;
+}
+
+.controller-info-feature {
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.controller-info-status {
+  font-size: 11px;
+  color: var(--color-warning);
+}
+
+.controller-info-status.connected {
+  color: var(--color-success);
+}
+
+.controller-info-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.controller-info-perm {
+  font-size: 11px;
+  font-family: var(--font-family-mono);
+  color: var(--text-secondary);
+  padding: 1px 0;
+}
+
+/* ── MCP Status Indicator ── */
+
+.status-bar-connection-dot.partial {
+  background-color: var(--color-warning);
+}
+
+.mcp-status-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  max-width: 340px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-panel);
+  padding: 8px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  animation: controller-popover-in 0.15s ease-out;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.mcp-status-heading {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.mcp-status-server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border-radius: var(--radius-control);
+}
+
+.mcp-status-server:hover {
+  background: var(--color-fill);
+}
+
+.mcp-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+
+.mcp-status-dot.connected {
+  background: var(--color-success);
+}
+
+.mcp-status-name {
+  flex: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mcp-status-transport {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--color-fill);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.mcp-status-tools {
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.mcp-status-connect-btn {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--color-fill-strong);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.mcp-status-connect-btn:hover:not(:disabled) {
+  background: var(--color-fill-strong);
+}
+
+.mcp-status-connect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mcp-status-settings-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 0;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
+  transition: color 0.15s;
+}
+
+.mcp-status-settings-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ── MOP Minimized Indicator ── */
+.status-bar-mop-indicator {
+  background: var(--status-bar-accent);
+  gap: var(--spacing-xs);
+}
+
+.status-bar-mop-indicator:hover {
+  background: var(--status-bar-hover);
+}
+
+/* Session tunnel forward dots */
+.status-bar-tunnel-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--color-accent-tint-8);
+}
+
+.status-bar-tunnel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-bar-tunnel-dot.connected { background: var(--green); }
+.status-bar-tunnel-dot.connecting { background: var(--blue); }
+.status-bar-tunnel-dot.reconnecting { background: var(--yellow); animation: blink 1.5s infinite; }
+.status-bar-tunnel-dot.failed { background: var(--red); }
+.status-bar-tunnel-dot.disconnected { background: var(--text-muted); }
+.status-bar-tunnel-dots-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 1px;
+}
+
+/* Tunnels button badge */
+.status-bar-tunnel-icon {
+  font-size: 14px;
+}
+
+.status-bar-tunnel-badge {
+  background: var(--green);
+  color: var(--bg-primary);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: var(--radius-panel);
+  min-width: 14px;
+  text-align: center;
+}
+
+.status-bar-tunnel-badge.error {
+  background: var(--red);
+}

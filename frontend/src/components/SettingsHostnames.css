@@ -1,0 +1,32 @@
+/* General → Hostname Display */
+.sh-pattern-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.sh-pattern-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.sh-pattern-row .ns-input {
+  flex: 1;
+}
+
+.sh-error {
+  color: var(--color-error);
+}
+
+.sh-result {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-fill);
+  border-radius: var(--radius-control);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.sh-result span {
+  color: var(--color-success);
+}

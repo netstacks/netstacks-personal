@@ -1,0 +1,11 @@
+# Keep hidden local/editor directories ignored
+.vscode/
+.idea/
+
+# OS/editor artifacts
+.DS_Store
+*.sw?
+
+# Playwright output
+test-results/
+playwright-report/
