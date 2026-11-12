@@ -43,3 +43,7 @@ node_modules
 # Local build logs and Vite cache
 agent/.last-*.log
 agent/.vite/
+
+# nix build output links
+result
+result-*

@@ -65,6 +65,21 @@ Signed installers and auto-updates are only produced by the official release bui
 On Linux you can instead build a Flatpak with `./builds/build-flatpak.sh`
 (needs `flatpak` and Flathub).
 
+### Nix and NixOS
+
+The repository is a flake that builds NetStacks natively from source:
+
+```sh
+nix run github:netstacks/netstacks-personal             # try it
+nix profile install github:netstacks/netstacks-personal # install it
+```
+
+On NixOS, add the flake as an input and put
+`inputs.netstacks.packages.${pkgs.system}.default` in `environment.systemPackages`
+(or apply `overlays.default` and use `pkgs.netstacks`). A `vX.Y.Z` tag pins a
+release, for example `github:netstacks/netstacks-personal/v0.3.8`. Updates come
+through Nix; the app's built-in updater is off in this build.
+
 ## Quickstart
 
 1. Launch NetStacks. The local agent starts automatically.
