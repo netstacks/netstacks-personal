@@ -2,7 +2,7 @@
 Name=NetStacks
 Comment=AI-powered SSH terminal for network engineers
 Exec=netstacks
-Icon=com.netstacks.terminal
+Icon=net.netstacks.Terminal
 Terminal=false
 Type=Application
 Categories=Network;RemoteAccess;

@@ -5,7 +5,7 @@ set -eu
 # The agent and shell use $HOME/.local/share while Tauri and the database use
 # XDG_DATA_HOME. Flatpak points those at different places; align them.
 export XDG_DATA_HOME="$HOME/.local/share"
-data_dir="$XDG_DATA_HOME/com.netstacks.terminal"
+data_dir="$XDG_DATA_HOME/net.netstacks.Terminal"
 
 # Per-app certificate trust: populated by pkexec-shim.sh, read by
 # netstacks-trust-shim.c.

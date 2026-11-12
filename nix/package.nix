@@ -140,19 +140,19 @@ rustPlatform.buildRustPackage {
     ln -s NetStacks $out/bin/netstacks
     for size in 32x32 64x64 128x128; do
       install -Dm644 frontend/src-tauri/icons/$size.png \
-        $out/share/icons/hicolor/$size/apps/com.netstacks.terminal.png
+        $out/share/icons/hicolor/$size/apps/net.netstacks.Terminal.png
     done
     install -Dm644 frontend/src-tauri/icons/128x128@2x.png \
-      $out/share/icons/hicolor/256x256/apps/com.netstacks.terminal.png
+      $out/share/icons/hicolor/256x256/apps/net.netstacks.Terminal.png
   '';
 
   desktopItems = [
     (makeDesktopItem {
-      name = "com.netstacks.terminal";
+      name = "net.netstacks.Terminal";
       desktopName = "NetStacks";
       comment = meta.description;
       exec = "netstacks";
-      icon = "com.netstacks.terminal";
+      icon = "net.netstacks.Terminal";
       startupWMClass = "NetStacks";
       categories = [ "Network" "RemoteAccess" ];
       keywords = [ "ssh" "terminal" "network" "ai" ];

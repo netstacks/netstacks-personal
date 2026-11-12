@@ -19,7 +19,7 @@ pub struct LocalTls {
 
 /// Returns the agent data directory (same base as app-config.json).
 pub fn data_dir() -> PathBuf {
-    const APP_ID: &str = "com.netstacks.terminal";
+    const APP_ID: &str = "net.netstacks.Terminal";
 
     #[cfg(target_os = "macos")]
     {

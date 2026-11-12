@@ -78,7 +78,7 @@ pub fn current_platform_key() -> Option<String> {
 /// # Arguments
 ///
 /// * `plugin` - The plugin descriptor with installation metadata
-/// * `data_dir` - Base data directory (e.g. `~/.local/share/com.netstacks.terminal`)
+/// * `data_dir` - Base data directory (e.g. `~/.local/share/net.netstacks.Terminal`)
 /// * `progress` - Broadcast sender for progress events
 ///
 /// # Returns

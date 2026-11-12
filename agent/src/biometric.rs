@@ -37,7 +37,7 @@ use thiserror::Error;
 /// keychain. Picked so it's findable via `security find-generic-password -s`.
 /// Keychain access is macOS-only; the constant doesn't exist elsewhere.
 #[cfg(target_os = "macos")]
-pub const KEYCHAIN_SERVICE: &str = "com.netstacks.terminal.vault";
+pub const KEYCHAIN_SERVICE: &str = "net.netstacks.Terminal.vault";
 /// Account/key within the service. We only ever store one password.
 #[cfg(target_os = "macos")]
 pub const KEYCHAIN_ACCOUNT: &str = "master_password";

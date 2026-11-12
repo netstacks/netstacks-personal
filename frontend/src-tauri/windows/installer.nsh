@@ -39,7 +39,7 @@
   nsExec::Exec '"$INSTDIR\netstacks-agent.exe" --init-tls'
   ; 2. Add it to the per-user Root store. certutil is idempotent on hash match,
   ;    so upgrade installs won't reprompt.
-  nsExec::Exec 'certutil -user -addstore Root "$APPDATA\com.netstacks.terminal\localhost.crt"'
+  nsExec::Exec 'certutil -user -addstore Root "$APPDATA\net.netstacks.Terminal\localhost.crt"'
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

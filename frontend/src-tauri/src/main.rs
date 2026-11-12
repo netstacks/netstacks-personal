@@ -44,7 +44,7 @@ struct WindowMaterial(std::sync::atomic::AtomicBool);
 /// Presence of this file (with matching content) means the cert is already in the
 /// OS trust store — skips the install prompt on subsequent launches.
 fn tls_cert_flag_path() -> std::path::PathBuf {
-    const APP_ID: &str = "com.netstacks.terminal";
+    const APP_ID: &str = "net.netstacks.Terminal";
     #[cfg(target_os = "macos")]
     let base = std::env::var("HOME").map(|h| format!("{}/Library/Application Support/{}", h, APP_ID)).unwrap_or_default();
     #[cfg(target_os = "linux")]
@@ -66,7 +66,7 @@ fn cert_fingerprint(pem: &str) -> String {
 /// requirement and triggered the OS prompt — don't bother the user again.
 #[cfg(target_os = "macos")]
 fn lan_prompt_flag_path() -> std::path::PathBuf {
-    const APP_ID: &str = "com.netstacks.terminal";
+    const APP_ID: &str = "net.netstacks.Terminal";
     let base = std::env::var("HOME")
         .map(|h| format!("{}/Library/Application Support/{}", h, APP_ID))
         .unwrap_or_default();
@@ -78,7 +78,7 @@ fn lan_prompt_flag_path() -> std::path::PathBuf {
 // ---------------------------------------------------------------------------
 
 fn app_data_dir() -> std::path::PathBuf {
-    const APP_ID: &str = "com.netstacks.terminal";
+    const APP_ID: &str = "net.netstacks.Terminal";
     #[cfg(target_os = "macos")]
     let base = std::env::var("HOME")
         .map(|h| format!("{}/Library/Application Support/{}", h, APP_ID))

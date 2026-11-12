@@ -28,7 +28,7 @@ Download the signed installer for your platform from [netstacks.net/download](ht
 |---|---|
 | macOS | .dmg (signed & notarized) |
 | Windows | .exe / .msi (code-signed) |
-| Linux | AppImage / .deb |
+| Linux | .deb (Flathub listing coming) |
 
 ## Source code
 

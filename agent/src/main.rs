@@ -80,7 +80,7 @@ use providers::LocalDataProvider;
 /// as managed by @tauri-apps/plugin-store. The app identifier must match
 /// what's in tauri.conf.json.
 fn get_config_path() -> PathBuf {
-    let app_name = "com.netstacks.terminal";
+    let app_name = "net.netstacks.Terminal";
 
     #[cfg(target_os = "macos")]
     {

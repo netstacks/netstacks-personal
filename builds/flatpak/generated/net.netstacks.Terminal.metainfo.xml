@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.netstacks.Terminal</id>
+  <name>NetStacks</name>
+  <summary>AI-powered SSH terminal for network engineers</summary>
+  <developer id="net.netstacks">
+    <name>NetStacks</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <description>
+    <p>NetStacks is a terminal for network engineers: SSH, Telnet and SFTP sessions to routers, switches, firewalls and servers, with an AI assistant that can read what is on screen and help troubleshoot.</p>
+    <ul>
+      <li>Multi-session SSH and Telnet with tabs and saved profiles</li>
+      <li>SFTP file transfer and an editor for remote files</li>
+      <li>An encrypted credential vault behind a master password</li>
+      <li>An AI assistant that works with your own provider and model</li>
+      <li>SNMP polling and network topology from LLDP and CDP</li>
+      <li>Paste hygiene and clipboard history tuned for device CLIs</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">net.netstacks.Terminal.desktop</launchable>
+  <url type="homepage">https://netstacks.net</url>
+  <url type="bugtracker">https://github.com/netstacks/netstacks-personal/issues</url>
+  <url type="vcs-browser">https://github.com/netstacks/netstacks-personal</url>
+  <categories>
+    <category>Network</category>
+    <category>RemoteAccess</category>
+  </categories>
+  <keywords>
+    <keyword>ssh</keyword>
+    <keyword>telnet</keyword>
+    <keyword>sftp</keyword>
+    <keyword>terminal</keyword>
+    <keyword>network</keyword>
+  </keywords>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <content_rating type="oars-1.1"/>
+  <branding>
+    <color type="primary" scheme_preference="light">#e8eef5</color>
+    <color type="primary" scheme_preference="dark">#1e1e1e</color>
+  </branding>
+  <releases>
+    <release version="0.3.7" date="2026-11-12">
+      <url type="details">https://github.com/netstacks/netstacks-personal/releases/tag/v0.3.7</url>
+    </release>
+  </releases>
+</component>
