@@ -47,7 +47,7 @@ Notable upstream dependencies
 - axum (https://github.com/tokio-rs/axum)    MIT
 - tokio (https://tokio.rs)                   MIT
 - sqlx (https://github.com/launchbadge/sqlx) Apache-2.0 / MIT dual
-- netstacks-credential-vault                 Apache-2.0
+- netstacks-credential-vault                 MIT
   (https://github.com/netstacks/netstacks-crypto)
 
 This list is not exhaustive — see the regenerated outputs above for
