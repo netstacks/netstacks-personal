@@ -47,7 +47,7 @@
     <color type="primary" scheme_preference="dark">#1e1e1e</color>
   </branding>
   <releases>
-    <release version="0.3.7" date="2026-11-12">
+    <release version="0.3.7" date="2026-11-13">
       <url type="details">https://github.com/netstacks/netstacks-personal/releases/tag/v0.3.7</url>
     </release>
   </releases>
