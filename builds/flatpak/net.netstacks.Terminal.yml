@@ -46,7 +46,7 @@ modules:
         npm_config_cache: /run/build/netstacks/flatpak-node/npm-cache
         npm_config_offline: 'true'
         # Merged over tauri.conf.json. Updates arrive through flatpak, not the
-        # AppImage updater. The window array is replaced whole, so it repeats
+        # in-app updater. The window array is replaced whole, so it repeats
         # tauri.conf.json with decorations off: the app's TopBar is the title bar.
         TAURI_CONFIG: '{"plugins":{"updater":{"endpoints":[]}},"app":{"windows":[{"label":"main","title":"NetStacks","width":1400,"height":900,"minWidth":800,"minHeight":600,"decorations":false,"visible":false,"backgroundColor":"#1e1e1e"}]}}'
     build-commands:

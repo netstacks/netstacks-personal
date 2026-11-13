@@ -40,10 +40,9 @@
     "build:macos": "npm run build:sidecar && npm run tauri:build",
     "build:macos:universal": "BUILD_UNIVERSAL=1 npm run build:sidecar && npm run tauri:build -- --target universal-apple-darwin",
     "build:sidecar:linux": "./scripts/build-sidecar-linux.sh",
-    "build:linux": "npm run build:sidecar:linux && npm run stage:sidecar && npm run tauri:build",
-    "build:linux:appimage": "npm run build:linux -- --bundles appimage",
-    "build:linux:deb": "npm run build:linux -- --bundles deb",
-    "build:linux:rpm": "npm run build:linux -- --bundles rpm"
+    "build:linux": "npm run build:sidecar:linux && npm run stage:sidecar && npm run tauri:build -- --bundles deb,rpm",
+    "build:linux:deb": "npm run build:sidecar:linux && npm run stage:sidecar && npm run tauri:build -- --bundles deb",
+    "build:linux:rpm": "npm run build:sidecar:linux && npm run stage:sidecar && npm run tauri:build -- --bundles rpm"
   },
   "dependencies": {
     "@iconify-json/vscode-icons": "^1.2.49",
